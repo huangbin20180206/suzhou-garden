@@ -1,2 +1,6 @@
 node_modules/
 package-lock.json
+
+# 已弃用的模型（改用程序化几何/其它资产替代），不参与发布
+assets/WillowTree.glb
+assets/TaihuRock.glb
