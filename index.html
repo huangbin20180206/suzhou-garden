@@ -706,37 +706,10 @@ function makeChineseRoof({ w, d, hRidge, ridgeLen, lift = 1.5,
   };
   group.add(hipRidge(-1,-1), hipRidge(1,-1), hipRidge(-1,1), hipRidge(1,1));
 
-  /* ⑤ 山花（歇山山墙）：底边沿屋面曲线走，只微抬 5% 脊高。
-     之前统一抬高固定值，在小屋顶上占了脊高的一大截，看上去是块悬空的板 */
-  const d2g = D * 0.34;
-  const liftY = 0.05;                    // 绝对微小抬升：只为避开 z-fighting，不至于浮起来
-  [-1, 1].forEach(sgn=>{
-    const x = sgn * L;
-    const apexY = hRidge + liftY;
-    const yAt = (zz)=> heightAt(sgn * L, zz) + liftY;
-    const sh = new THREE.Shape();
-    sh.moveTo(0, apexY);
-    const NP = 7;
-    for (let i = 0; i <= NP; i++){
-      const zz = -d2g + 2 * d2g * (i / NP);
-      sh.lineTo(zz, yAt(zz));
-    }
-    sh.closePath();
-    const gg = new THREE.ShapeGeometry(sh, 6);
-    gg.rotateY(sgn > 0 ? Math.PI / 2 : -Math.PI / 2);
-    gg.translate(x, 0, 0);
-    group.add(mesh(gg, MAT.wall, { name:'shanhua' }));
-    // 博风板：贴着山花两条斜边，薄板、不外偏
-    [-1, 1].forEach(zs=>{
-      const yEnd = yAt(zs * d2g);
-      const dy = yEnd - apexY, dz = zs * d2g;
-      const len = Math.hypot(dy, dz);
-      const board = mesh(box(0.10, 0.16, len), MAT.woodDark, { name:'bofeng' });
-      board.position.set(sgn * (L + 0.03), (apexY + yEnd) / 2, zs * d2g / 2);
-      board.rotation.x = Math.atan2(-dy, dz);
-      group.add(board);
-    });
-  });
+  /* ⑤ 山花与博风板已移除。
+     本生成器的屋面是一张连续高度场曲面，没有真正的竖直山墙面；
+     博风板失去依附后只能贴在瓦面上，形同浮着的木条（抬高与贴平两种做法都试过，均不成立）。
+     去掉后屋顶为干净的庑殿顶形态。要做真正的歇山，需把屋面改为带竖直山墙面的网格拓扑。 */
 
   /* ⑥ 檐口瓦当（筒瓦端头圆盘，实例化） */
   {
@@ -814,26 +787,23 @@ function makeJiangnanWindow(w, h, cols = 4, rows = 4){
 function makeLatticePanel(w, h, cols = 4, rows = 5, frameMat = MAT.woodDark, backing = MAT.latticeBack){
   const g = new THREE.Group();
   const t = 0.09;
-  // 外框
+  // 外框（原点在面板正中 —— 所有调用点都按居中放置）
   const fr = 0.16;
-  const top = mesh(box(w, fr, t*1.6), frameMat); top.position.y = h - fr/2; g.add(top);
-  const bot = mesh(box(w, fr, t*1.6), frameMat); bot.position.y = fr/2;     g.add(bot);
+  const top = mesh(box(w, fr, t*1.6), frameMat); top.position.y =  h/2 - fr/2; g.add(top);
+  const bot = mesh(box(w, fr, t*1.6), frameMat); bot.position.y = -h/2 + fr/2; g.add(bot);
   const lf  = mesh(box(fr, h, t*1.6), frameMat); lf.position.x = -w/2 + fr/2; g.add(lf);
   const rf  = mesh(box(fr, h, t*1.6), frameMat); rf.position.x =  w/2 - fr/2; g.add(rf);
   // 衬板（关着的门扇：纸/木板，不透）
   const back = mesh(new THREE.PlaneGeometry(w - fr*1.4, h - fr*1.4), backing, { cast:false, name:'backing' });
   back.position.z = -t*0.35; g.add(back);
   // 棂条（实例化）
-  const bars = [];
-  for (let i = 1; i < cols; i++) bars.push({ x: -w/2 + (w/cols)*i, y: h/2, z: 0, ry: Math.PI/2, sz: h/(h) });
-  for (let j = 1; j < rows; j++) bars.push({ x: 0, y: (h/rows)*j, z: 0, ry: 0 });
   const gv = box(0.055, h - fr*1.5, t*0.9);
   const gh = box(w - fr*1.5, 0.055, t*0.9);
   const iv = new THREE.InstancedMesh(gv, frameMat, cols - 1);
   const ih = new THREE.InstancedMesh(gh, frameMat, rows - 1);
   const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(1,1,1);
-  for (let i = 1; i < cols; i++){ p.set(-w/2 + (w/cols)*i, h/2, 0); m.compose(p,q,s); iv.setMatrixAt(i-1, m); }
-  for (let j = 1; j < rows; j++){ p.set(0, (h/rows)*j, 0);        m.compose(p,q,s); ih.setMatrixAt(j-1, m); }
+  for (let i = 1; i < cols; i++){ p.set(-w/2 + (w/cols)*i, 0, 0);              m.compose(p,q,s); iv.setMatrixAt(i-1, m); }
+  for (let j = 1; j < rows; j++){ p.set(0, -h/2 + (h/rows)*j, 0);              m.compose(p,q,s); ih.setMatrixAt(j-1, m); }
   iv.instanceMatrix.needsUpdate = ih.instanceMatrix.needsUpdate = true;
   iv.castShadow = ih.castShadow = true;
   g.add(iv, ih);
