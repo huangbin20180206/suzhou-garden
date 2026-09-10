@@ -706,28 +706,33 @@ function makeChineseRoof({ w, d, hRidge, ridgeLen, lift = 1.5,
   };
   group.add(hipRidge(-1,-1), hipRidge(1,-1), hipRidge(-1,1), hipRidge(1,1));
 
-  /* ⑤ 山花（歇山山墙）：整体抬离屋面，避免与凹曲屋面相交产生参差白边 */
+  /* ⑤ 山花（歇山山墙）：底边沿屋面曲线走，只微抬 5% 脊高。
+     之前统一抬高固定值，在小屋顶上占了脊高的一大截，看上去是块悬空的板 */
   const d2g = D * 0.34;
-  const liftY = 0.34;
+  const liftY = 0.05;                    // 绝对微小抬升：只为避开 z-fighting，不至于浮起来
   [-1, 1].forEach(sgn=>{
-    const x = sgn * (L + 0.03);
+    const x = sgn * L;
     const apexY = hRidge + liftY;
-    const baseY = heightAt(sgn * L, d2g) + liftY;
+    const yAt = (zz)=> heightAt(sgn * L, zz) + liftY;
     const sh = new THREE.Shape();
     sh.moveTo(0, apexY);
-    sh.lineTo(d2g, baseY);
-    sh.lineTo(-d2g, baseY);
+    const NP = 7;
+    for (let i = 0; i <= NP; i++){
+      const zz = -d2g + 2 * d2g * (i / NP);
+      sh.lineTo(zz, yAt(zz));
+    }
     sh.closePath();
-    const g = new THREE.ShapeGeometry(sh, 4);
-    g.rotateY(sgn > 0 ? Math.PI / 2 : -Math.PI / 2);
-    g.translate(x, 0, 0);
-    group.add(mesh(g, MAT.wall, { name:'shanhua' }));
-    // 博风板：沿山花两条斜边
+    const gg = new THREE.ShapeGeometry(sh, 6);
+    gg.rotateY(sgn > 0 ? Math.PI / 2 : -Math.PI / 2);
+    gg.translate(x, 0, 0);
+    group.add(mesh(gg, MAT.wall, { name:'shanhua' }));
+    // 博风板：贴着山花两条斜边，薄板、不外偏
     [-1, 1].forEach(zs=>{
-      const dy = baseY - apexY, dz = zs * d2g;
+      const yEnd = yAt(zs * d2g);
+      const dy = yEnd - apexY, dz = zs * d2g;
       const len = Math.hypot(dy, dz);
-      const board = mesh(box(0.14, 0.3, len), MAT.woodDark, { name:'bofeng' });
-      board.position.set(sgn * (L + 0.11), (apexY + baseY) / 2, zs * d2g / 2);
+      const board = mesh(box(0.10, 0.16, len), MAT.woodDark, { name:'bofeng' });
+      board.position.set(sgn * (L + 0.03), (apexY + yEnd) / 2, zs * d2g / 2);
       board.rotation.x = Math.atan2(-dy, dz);
       group.add(board);
     });
@@ -2634,19 +2639,27 @@ world.add(makeAquatic(-2.5, 2.2, 5.6, 36, 0));
 const koiGroup = makeKoiGroup(11);
 world.add(koiGroup);
 
-/* 蜻蜓：湖面上空游弋（各自独立航迹，互不同步） */
+/* 蜻蜓：池塘与南侧草皮上空游弋。
+   航迹中心刻意分散布置 —— 若用纯随机，5 只容易挤在同一小片区域 */
 const dragonflies = [];
-for (let i = 0; i < 5; i++){
+const DF_PATROL = [
+  { cx: -12, cz:  2, ax: 7, az: 5 },     // 池塘西
+  { cx:   0, cz:  6, ax: 9, az: 6 },     // 池中央
+  { cx:  10, cz:  2, ax: 7, az: 5 },     // 池塘东
+  { cx:  -6, cz: 14, ax: 8, az: 4 },     // 南侧草地（西）
+  { cx:   8, cz: 15, ax: 7, az: 4 },     // 南侧草地（东）
+];
+DF_PATROL.forEach(p=>{
   const d = makeDragonfly();
   d.userData.flight = {
-    cx: rr(-3, 7), cz: rr(-1, 8),
-    ax: rr(3.5, 7.5), az: rr(2.5, 5.5),
+    cx: p.cx + rr(-1.5, 1.5), cz: p.cz + rr(-1.5, 1.5),
+    ax: p.ax + rr(-1, 1),     az: p.az + rr(-1, 1),
     sp: rr(0.22, 0.42), ph: rr(0, TAU),
-    y0: rr(0.35, 1.15),
+    y0: rr(0.4, 1.3),
   };
   world.add(d);
   dragonflies.push(d);
-}
+});
 world.add(makeWaterGrass(-13.2, 6.4, 54, 2.6));
 world.add(makeWaterGrass(11.5, -3.2, 44, 2.2));
 
