@@ -10,3 +10,5 @@ export { OutputPass }       from 'three/examples/jsm/postprocessing/OutputPass.j
 export { GLTFLoader }       from 'three/examples/jsm/loaders/GLTFLoader.js';
 export { Reflector }        from 'three/examples/jsm/objects/Reflector.js';
 export { mergeGeometries }  from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+// GTAOPass：环境光遮蔽。SMAAPass/CSM 曾在此导出但页面零引用 —— 不打包进 vendor。
+export { GTAOPass }         from 'three/examples/jsm/postprocessing/GTAOPass.js';

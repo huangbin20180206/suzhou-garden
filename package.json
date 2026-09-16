@@ -1,16 +1,21 @@
 {
   "name": "suzhou-garden",
   "version": "1.0.0",
-  "description": "",
-  "main": "build-entry.js",
+  "description": "苏州园林 · 拙政园远香堂对景（Three.js 程序化建模，零 CDN 本地交付）",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build:vendor": "esbuild build-entry.js --bundle --format=esm --minify --outfile=vendor.js",
+    "check": "node probe/check.mjs",
+    "test": "node probe/smoke.mjs",
+    "serve": "node probe/serve.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
   "dependencies": {
     "three": "^0.184.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
   }
 }
