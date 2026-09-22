@@ -668,13 +668,18 @@ export function registerSeasonTint(mat, key){ SEASON_TINT_REGISTRY.push([mat, ke
    ⚠️ ShaderMaterial 开 fog:true 时，uniforms 里**必须自带 fogColor/fogDensity**：
    refreshFogUniforms 会直接 uniforms.fogColor.value.copy(...)，缺了就在暖机
    首帧抛 undefined.value（2026-09-21 实测暖机回退）。 */
-function makeDistantMat(hex, opacity, topFade){
+export function makeDistantMat(hex, opacity, topFade, opts = {}){
+  /* opts.map（2026-09-22 · 柱状树林专用）：可选的剪影 alpha 贴图。
+     传了就在 fragment 里按 alpha<0.5 裁形 —— 树卡不再是一块"纯色矩形板"
+     （老黄指认的池北白框真身：46 棵远树 quad 叠雾色，地平线带上读作白色矩形）。
+     远山脊四个调用点不传 opts → shader 源码与旧版逐字一致，零回归。 */
   const uniforms = {
     uColor:     { value: new THREE.Color(hex) },
     uOpacity:   { value: opacity },
     uTopFade:   { value: topFade },
     fogColor:   { value: new THREE.Color(CFG.fog.color) },
     fogDensity: { value: CFG.fog.density },
+    ...(opts.map ? { uMap: { value: opts.map } } : {}),
   };
   const m = new THREE.ShaderMaterial({
     uniforms, transparent:true, depthWrite:false, fog:true,
@@ -691,9 +696,11 @@ function makeDistantMat(hex, opacity, topFade){
       uniform vec3 uColor;
       uniform float uOpacity;
       uniform float uTopFade;
+      ${opts.map ? 'uniform sampler2D uMap;' : ''}
       varying vec2 vHillUv;
       #include <fog_pars_fragment>
       void main(){
+        ${opts.map ? 'if (texture2D(uMap, vHillUv).a < 0.5) discard;' : ''}
         float h = smoothstep(0.10, 1.0, vHillUv.y);
         vec3 col = mix(uColor, fogColor, uTopFade * h);
         gl_FragColor = vec4(col, uOpacity);

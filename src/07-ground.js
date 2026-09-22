@@ -3,7 +3,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
 import { validateGeometry } from './09-lights.js';
 import { CFG, TAU, rr, rnd, mulberry32, bootMark } from './00-config.js';
 import { POND_RADII } from './05-water.js';
-import { groundTex, registerSeasonTint, MAT, registerWeatherRoles, pavingTex, pavingNormalTex } from './01-materials.js';
+import { groundTex, registerSeasonTint, MAT, registerWeatherRoles, pavingTex, pavingNormalTex, makeDistantMat } from './01-materials.js';
 import { mesh, makeWallRun, makeWallCap, box } from './03-factory.js';
 /* ══════════════════════════════════════════════════════════════
    7 · 地面 · 围墙 · 远山
@@ -186,12 +186,19 @@ export function makeDistantHills(){
   g.add(makeRidge(104, 17, MAT.distantDeep, 12));
   g.add(makeRidge(138, 24, MAT.distant, 10));
   g.add(makeRidge(176, 30, MAT.distantFar, 8));     // 最远一层，几乎融进天光
-  // 柱状树林（近一点的剪影）
+  // 柱状树林（近一点的剪影）。
+  // ⚠️ 2026-09-22 修"池北白框"（老黄指认）：旧版是纯色 quad（PlaneGeometry 实心矩形
+  //    + makeDistantMat 灰白远山色），46 棵围 r=62 一圈；北侧树群与地平线带重叠后，
+  //    一片片纯色矩形叠雾色，读作"插在池边的白色矩形板"（带水面倒影）。
+  //    两处修正：
+  //    ① 程序化树形剪影贴图（makeTreeSilhouetteTex，固定形状零随机）——quad 不再是矩形；
+  //    ② 半径 62→95：沉进远山脊(78/104)之间的空档，地平线处只留一层矮剪影。
+  //    ⚠️ 循环体 rr() 调用次数保持 4 处不变 —— 多一次全局随机流就全园布局后移。
   const trees = [];
   const n = 46;
   for (let i = 0; i < n; i++){
     const a = (i/n)*TAU + rr(-0.06,0.06);
-    const r = 62 * rr(0.94, 1.08);
+    const r = 95 * rr(0.94, 1.08);
     trees.push({
       x: Math.cos(a)*r, z: Math.sin(a)*r,
       h: rr(5, 12), ry: a,
@@ -199,7 +206,8 @@ export function makeDistantHills(){
   }
   const treeGeo = new THREE.PlaneGeometry(1, 1);
   treeGeo.translate(0, 0.5, 0);
-  const inst = new THREE.InstancedMesh(treeGeo, MAT.distantDeep, n);
+  const inst = new THREE.InstancedMesh(treeGeo, makeDistantMat(0x8D9899, 0.62, 0.26,
+    { map: makeTreeSilhouetteTex() }), n);
   const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
   trees.forEach((t, i)=>{
     p.set(t.x, 0, t.z);
@@ -210,6 +218,28 @@ export function makeDistantHills(){
   inst.instanceMatrix.needsUpdate = true;
   g.add(inst);
   return g;
+}
+
+/* 柱状树林的树形剪影贴图（2026-09-22 · 治"池北白框"）。
+   白色树形 + 透明底：颜色由 makeDistantMat 的 uColor 上，形状由 alpha 裁出。
+   江南远树读作"馒头冠"：三层叠冠 + 短干。固定坐标零随机 —— 不碰全局随机流。 */
+function makeTreeSilhouetteTex(){
+  const W = 128, H = 256;
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff';
+  // 短干（底部居中，向上收窄）
+  g.beginPath();
+  g.moveTo(56, H); g.lineTo(59, 158); g.lineTo(69, 158); g.lineTo(72, H);
+  g.closePath(); g.fill();
+  // 三层叠冠（下宽上窄，椭圆）
+  const crown = (cy, rx, ry) => { g.beginPath(); g.ellipse(64, cy, rx, ry, 0, 0, Math.PI * 2); g.fill(); };
+  crown(126, 52, 40);
+  crown(84, 44, 34);
+  crown(46, 32, 26);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
 }
 
 /* ── 局部刚性合并（P0-1 · draw call 回归，2026-09-20）──
