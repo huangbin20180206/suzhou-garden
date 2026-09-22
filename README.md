@@ -47,7 +47,7 @@ npm run serve        # 静态服务器 → http://127.0.0.1:8935
 npm run check        # 语法门禁（src/*.js 逐个 node --check，1 秒）
 npm run audit        # 拆分守卫：漏 import / 给 import 绑定赋值 / 引用内联专有名（3 秒）
 npm test             # 无头回归 50 项（Playwright 加载真实页面做断言）
-npm run verify       # **一条命令串行跑全部二十五道门**（≈11m，交付前必跑）
+npm run verify       # **一条命令串行跑全部三十道门**（≈15m，交付前必跑）
 
 npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 ```
@@ -136,7 +136,7 @@ npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 **工程侧**
 启动失败兜底 UI · 几何合并前机器校验（属性计数 / 索引越界 / 非有限坐标）·
 WebGL 上下文恢复 · 移动端 320px 布局与 `aria-pressed` · `window.__garden` 调试口（供采集脚本与测试驱动）·
-无头回归门禁 **25 道**（`npm run verify` 串行跑通，≈11m；其中 `npm test` = smoke 单门 **52 项断言全绿**）。
+无头回归门禁 **30 道**（`npm run verify` 串行跑通，≈15m；其中 `npm test` = smoke 单门 **52 项断言全绿**）。
 
 ---
 
@@ -240,16 +240,16 @@ RenderPass → GTAO(仅独显档) → UnrealBloom → GradeShader(对比/分离�
 ```
 suzhou-garden/
 ├─ index.html            559 行壳：CSS + DOM + `import` 装配 + 启动兜底（场景代码全在 src/，见「单文件拆模块」）
-├─ src/                  场景代码 15 个模块 / 11585 行，按原节号命名（00-config … 12-env + 2b-wind + app）
+├─ src/                  场景代码 15 个模块 / 11639 行，按原节号命名（00-config … 12-env + 2b-wind + app）
 │                        ⚠️ 模块**顶层**代码在 import 时就会跑 —— 加东西前先读 README 里那两条破环通则
 ├─ vendor.js             esbuild 打包的 three r184 + addons 本地 ESM（零 CDN，含 Draco/KTX2/Meshopt 解码器）
 ├─ sw.js                 Service Worker：壳 stale-while-revalidate + GLB cache-first（PWA 离线）
 ├─ manifest.webmanifest  PWA 清单（独立窗口 / 主题色 / SVG 图标）
 ├─ build-entry.js        vendor 打包入口（新增 addon 时在这里补一行）
 ├─ assets/               约 1.04 MB · 4 个 GLB（贴图已重编码压缩）：锦鲤 / 乌龟 / 睡莲 / 芭蕉（其余全部程序化生成）
-├─ probe/                探针 80 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
+├─ probe/                探针 85 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
 │                        ⚙️ 一次性诊断脚本归档在 `probe/_attic/<日期>/`（不入库，搬回原路径即复原）
-│  ├─ verify-all.mjs     **一条命令串行跑全部二十五道门**（`npm run verify`，≈11m）
+│  ├─ verify-all.mjs     **一条命令串行跑全部三十道门**（`npm run verify`，≈15m）
 │  ├─ check.mjs          语法门禁：src/*.js 逐个 node --check
 │  ├─ codeonly-unit.mjs  语法判定单元门禁：`_codeonly.mjs` 的"什么算引用"契约（判宽=假红、判窄=假绿，两个方向都静默）
 │  ├─ import-audit.mjs   拆分守卫（4 条判据，见「单文件拆模块」）：漏 import / 给 import 绑定赋值 /
@@ -297,6 +297,41 @@ suzhou-garden/
 │  │                     （那加成从来是死代码）、题名石刻只登记 `wet` 漏了 `snow`
 │  │                     ⚠️ 判据**不能**要求"石头明显变白"：太湖石朝上的面只占 31.6%，雪按
 │  │                     "朝上程度"混白，竖面本来就上不去雪 —— 那是物理事实，不是缺陷
+│  ├─ intro-guard.mjs   开场运镜门禁（22 项）：探针下不自动播、`?intro=1` 从 K0 起飞、
+│  │                     **飞行期间焦点被冻结**（controls.enabled=false + minDistance 放开到 0.2）、
+│  │                     走完 seg 0→2 后落点与 overview 机位吻合（实测 0.00m）、
+│  │                     让位后原地冻结（键盘 K 位移 0.0000m）＋滚轮只让位不位移。
+│  │                     ⚠️ 判"冻结"别用滚轮：滚轮本身就会触发 OrbitControls 变焦
+│  ├─ loading-guard.mjs 加载页门禁（18 项）：结构 7 件齐全、封面图 200、Ken Burns 是慢推（≥5s）、
+│  │                     流光条无限循环、首帧后 `.done` + `pointer-events:none` + 已淡出，
+│  │                     以及**进度必须真的在动**（≥3 个中间宽度、单调不减、终值 100%、≤14 次更新＝
+│  │                     10 个暖编译桶）与阶段名只取自 `WARM_STAGES`、收尾换成「即 将 开 园」。
+│  │                     ⚠️ 主线程在编译期是冻的，`page.evaluate` 轮询抓不到中间态 ——
+│  │                     必须 `addInitScript` 预挂 `MutationObserver`；
+│  │                     ⚠️ `animationDuration` 返回逗号列（"1.1s, 10s"），`parseFloat` 只读第一个
+│  ├─ warmboot-guard.mjs 分帧暖编译门禁（9 项，**自带负例**）：出现「暖机」刻度且在几何合并之后、
+│  │                     本身在真干活（≥3s）、首帧段 ≤800ms（暖 46ms / 老路径 4780ms）；
+│  │                     负例＝传输层把 `warmBoot()` 换成 `Promise.resolve()` 再跑一遍，
+│  │                     要求它**首帧段 >3000ms** 且「暖机」刻度消失 —— 探针自己证明判据能红；
+│  │                     另钉总时长代价（≤+35%，实测 +261ms）与 program 数膨胀（≤+6，实测 +3）。
+│  │                     ⚠️ 两个配置**各开一个全新 browser**：着色器缓存跨页面复用，
+│  │                     同一 browser 里跑两遍会变成"谁排后面谁快"（首版实测差 5.6 倍）
+│  ├─ random-guard.mjs  偶得随机场景门禁（14 项，600 抽）：三轴组合全合法（`weatherMutexReason` 为空，
+│  │                     **核心**）、非冬不出雪、时辰落在锚点 ±0.6h、相邻不重复、标签三段式且与三轴
+│  │                     一致（防"抽 A 报 B"）、四季四时段都抽得到、时段加权方向对（暮/夜 > 正午）、
+│  │                     夜里晴+雾占比高于白天。⚠️ 代码里 `nightish` **只认 `time==='night'`**，
+│  │                     把 dusk 并进"夜"会假红（首版 68% vs 69% 就是这么来的）；
+│  │                     ⚠️ 比例类判据 120 抽只有 ~2σ、600 抽才 ~6σ
+│  ├─ lampvol-guard.mjs 丁达尔体积光门禁（28 项，需 `?tier=high`）：5 盏各 1 光团 + 1 光斑、
+│  │                     几何必须是 **SphereGeometry**（退回 ConeGeometry 即红）且基半径 1
+│  │                     （否则 volR 不再等于世界半径）、光团与灯内点光源**同父级且同高**
+│  │                     （防改挂到挂点 pivot）、光斑平躺圆形、uLamp 随时段 / uRain 随天气 /
+│  │                     色温暖橙、**地面光斑那份材质也同步**；再加阳性对照（冻风 + 冻光团自身
+│  │                     湍流时钟后，只把 uLamp 归零 → 灯周变暗 6.2σ、热点落在光团格、
+│  │                     局部信号 15× 全幅＝不是全屏洗白）。⚠️ 三条踩过的坑：窗口要对准**光团球心**
+│  │                     （`lanternGroups` 存的是挂点、比灯体高 45px）；必须冻风（不冻时局部噪声
+│  │                     5.1 luma > 信号 1.45）；噪声估计要用稳健 σ 而非**极差**（极差随样本数
+│  │                     单调增长＝自己加码，4 样本 ×3 等于要求 10σ）
 │  ├─ willow-audit.mjs   柳冠俯视闭合度审计（8 扇区 × 3 环带射线覆盖率）
 │  ├─ pwa-cache.mjs      PWA 专项：缓存隔离 + 断网启动 + 四模型挂载验证
 │  ├─ pwa-cold-restart.mjs PWA 冷启动：持久化 profile 在线预热 → 关浏览器 → 断网重载
@@ -365,7 +400,7 @@ suzhou-garden/
 | 拆分 | `npm run audit` | `import-audit.mjs` 四条判据（漏 import / 给 import 绑定赋值 / 引用内联专有名），3 秒 |
 | 拆分 | `node probe/codeonly-unit.mjs` | `_codeonly.mjs` 的"什么算引用"契约单元测试，0.2 秒 |
 | 回归 | `npm test` | Playwright 无头加载真实页面，**52 项断言**，退出码即结论 |
-| 全量 | `npm run verify` | **一条命令串行跑全部二十五道门**（check → codeonly-unit → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → postcard-guard → longexposure-guard → peach-guard → sound-guard → guide-guard → wind-audit → wisteria-color → koi-orbit → perch-dragonfly → stone-audit → stele-legibility → figure-audit → refract-guard → refract-coverage → weather-coverage），任何一个红整体非零退出，≈11m |
+| 全量 | `npm run verify` | **一条命令串行跑全部三十道门**（check → codeonly-unit → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → postcard-guard → longexposure-guard → peach-guard → sound-guard → guide-guard → wind-audit → wisteria-color → koi-orbit → perch-dragonfly → stone-audit → stele-legibility → figure-audit → refract-guard → refract-coverage → weather-coverage → intro-guard → loading-guard → warmboot-guard → random-guard → lampvol-guard），任何一个红整体非零退出 |
 | 视觉 | 截图比对 | 新截图命名带版本号（`-v2`），与 `outputs/shots-*` 基线对比 |
 | 专项 | `node probe/willow-audit.mjs` | 柳冠俯视覆盖率（扇区 × 环带射线求交，不依赖软渲染像素） |
 | 专项 | `node probe/hero-shot.mjs [--isolate]` | 立峰样稿（隔离 / 近景 / 三态），并输出**漏透率**：材质临时改 DoubleSide，撒 90×90 平行射线，统计"穿过轮廓且穿墙"的格数占比 |
@@ -383,9 +418,18 @@ suzhou-garden/
 | 专项 | `node probe/longexposure-guard.mjs` | **长曝光明信片门禁（6 项）**：合成本身不炸 + 零 pageerror；合成期间临时抬起的 `uStarRot` 必须**归零**（忘复位＝日常星星天天转，不报错、不崩）；长曝 ≠ 单帧（星移 / 萤火拖尾 / 水面拉丝会让像素分布明显变化）。样张 `outputs/visual/lxp-*.png` |
 | 专项 | `node probe/peach-guard.mjs` | **桃花四季与晴午波光门禁（12 项）**：桃是落叶观花乔木 → 生命周期必须由**季节显隐通道**驱动：春（叶/花/落花在、果隐）、夏（果现、花隐）、秋（叶在、花/落花隐）、冬（叶/花/果/落花**全隐**，裸枝过冬）；另验"晴午水面太阳波光"只在**接近正午 × 晴天**亮（夜 / 暴雨 = 0）。样张 `outputs/visual/peach-*.png` |
 
+| 专项 | `node probe/intro-guard.mjs` | **开场运镜门禁（22 项）**：探针 / 减弱动效下不自动播、`?intro=1` 从 K0（云外俯瞰）起飞、飞行期间 `controls.enabled=false` 且 `minDistance` 放开到 0.2（否则焦点会被每帧夹回）、走完 K0→K2 后落点与 `overview` 机位吻合（实测 0.00m）、让位后**原地冻结**（键盘 `K` 位移 0.0000m）＋滚轮只让位不位移。⚠️ 判"冻结"别用滚轮：滚轮本身会触发 OrbitControls 变焦，相机合法移动 → 假红 |
+| 专项 | `node probe/loading-guard.mjs` | **加载页门禁（18 项）**：结构 7 件齐全 / 封面图 200 / Ken Burns 是慢推（≥5s）/ 流光条 infinite / 首帧后 `.done` + `pointer-events:none` + 已淡出，以及**进度必须真的在动**（≥3 个中间宽度、单调不减、终值 100%、更新次数 ≤14 与 10 个暖编译桶吻合）与阶段名只取自 `WARM_STAGES`、收尾文案换成「即 将 开 园」。⚠️ 编译期主线程是冻的，`page.evaluate` 轮询抓不到中间态 —— 必须 `addInitScript` 预挂 `MutationObserver` |
+| 专项 | `node probe/warmboot-guard.mjs` | **分帧暖编译门禁（9 项，自带负例）**：出现「暖机」刻度且在几何合并之后、本身真在干活（≥3s）、**首帧段 ≤800ms**（暖 46ms / 老路径 4780ms）；负例＝传输层把 `warmBoot()` 换成 `Promise.resolve()` 再跑一遍，要求首帧段 **>3000ms** 且「暖机」刻度消失 —— 探针自己证明判据能红；另钉总时长代价（≤+35%，实测 +261ms）与 program 膨胀（≤+6，实测 +3）。⚠️ 两个配置**各开一个全新 browser**：着色器缓存跨页面复用，同一 browser 里跑两遍会变成"谁排后面谁快"（首版实测差 5.6 倍） |
+| 专项 | `node probe/random-guard.mjs` | **偶得随机场景门禁（14 项，600 抽）**：三轴组合全合法（`weatherMutexReason` 为空，**核心**）、非冬不出雪、时辰落在锚点 ±0.6h、相邻不重复、标签三段式且与三轴一致（防"抽 A 报 B"）、四季四时段都抽得到、时段加权方向对（暮/夜 > 正午）、夜里晴+雾占比高于白天。⚠️ 代码里 `nightish` **只认 `time==='night'`**，把 dusk 并进"夜"会假红（首版 68% vs 69%）；⚠️ 比例类判据 120 抽只有 ~2σ，600 抽才 ~6σ |
+| 专项 | `node probe/lampvol-guard.mjs` | **丁达尔体积光门禁（28 项，需 `?tier=high`）**：5 盏各 1 光团 + 1 光斑、几何必须是 **SphereGeometry**（退回 ConeGeometry 即红）且基半径 1（否则 `volR` 不再等于世界半径）、光团与灯内点光源**同父级且同高**（防改挂到挂点 pivot）、光斑平躺圆形、uLamp 随时段 / uRain 随天气 / 色温暖橙、**地面光斑那份材质也同步**；再加阳性对照（冻风 + 冻光团自身湍流时钟后只把 uLamp 归零 → 灯周变暗 **6.2σ**、差分热点落在光团格、局部信号 15× 全幅＝不是全屏洗白）。⚠️ 三条踩过的坑：窗口要对准**光团球心**（`lanternGroups` 存的是挂点、比灯体高 45px）；必须冻风（不冻时局部噪声 5.1 luma > 信号 1.45，方向判据一次对一次错）；噪声估计要用**稳健 σ** 而非极差（极差随样本数单调增长＝自己加码，4 样本 ×3 等于要求 10σ） |
+
 | 专项 | `node probe/figure-audit.mjs` | **人物服色 / 衣构件 / 步态 / 朝向 / 取景门禁（45 项）**：读**实际材质**验袍身没退回近黑剪影、与 `FIG_PALETTE` 接线一致、腰带与袍身有明度对比；**交领必须 2 条**（1 条＝少半边，读不出"交"）+ 下摆衣缘存在 + 与袍身明度对比；**手持道具不许被袍身吞掉**（射线只打人物自身子树）；同框角色（slot 重叠）服色必须拉开；机位落位距离不许被 `minDistance` 夹回 9m、**身上 9 点（3×3）采样被挡 ≤2 处**（候选环射线求解，环按人物朝向旋转以默认拍正脸）、**机位自身周围必须有净空**（10 向短射线，防"相机扎进草丛"，见决策 17）、**拍前重测目标仍在画面内**（NDC）；散步不许退回"站桩滑行"（均速 / 前倾 / 步相按位移推进 / 身体起伏 / **朝向跟行进方向**）。顺带出 3 张人物样张 |
 
-**当前状态：`npm run verify` 二十五道门全绿（2026-09-22 复验，16m28s；mist-guard 单门偶发 390s）—— `check` PASS（`index.html` 559 行壳 + `src` 15 模块）｜`codeonly-unit` PASS｜`import-audit` PASS｜`wind-trajectory` 6/6｜`shadow-cover` 16/16｜`smoke` 52/52（draw calls 297 / 三角形 1.51M）｜`pageerror-guard` 17/17｜`reel-guard` 16/16｜`lamp-guard` 11/11｜`mist-guard` 25/25｜`postcard-guard` 7/7｜`longexposure-guard` 6/6｜`peach-guard` 12/12｜`sound-guard` 22/22｜`guide-guard` 18/18｜`wind-audit` 25/25｜`wisteria-color` 5/5｜`koi-orbit` 9/9｜`perch-dragonfly` 14/14｜`stone-audit` 16/16｜`stele-legibility` 8/8｜`figure-audit` 45/45｜`refract-guard` 11/11｜`refract-coverage` 5/5｜`weather-coverage` 14/14。**
+**当前状态：`npm run verify` 三十道门全绿（2026-09-22 复验，12m14s；mist-guard 单门 185~390s 波动）—— `check` PASS（`index.html` 559 行壳 + `src` 15 模块 / 11639 行）｜`codeonly-unit` PASS｜`import-audit` PASS｜`wind-trajectory` 6/6｜`shadow-cover` 16/16｜`smoke` 52/52（draw calls 296 / 三角形 1.51M）｜`pageerror-guard` 17/17｜`reel-guard` 16/16｜`lamp-guard` 11/11｜`mist-guard` 25/25｜`postcard-guard` 7/7｜`longexposure-guard` 6/6｜`peach-guard` 12/12｜`sound-guard` 22/22｜`guide-guard` 18/18｜`wind-audit` 25/25｜`wisteria-color` 5/5｜`koi-orbit` 9/9｜`perch-dragonfly` 14/14｜`stone-audit` 16/16｜`stele-legibility` 8/8｜`figure-audit` 45/45｜`refract-guard` 11/11｜`refract-coverage` 5/5｜`weather-coverage` 14/14｜`intro-guard` 22/22｜`loading-guard` 18/18｜`warmboot-guard` 9/9（首帧 46ms vs 老路径 4780ms）｜`random-guard` 14/14（600 抽）｜`lampvol-guard` 28/28（阳性对照 6.2σ）。**
+
+> 回到这一轮的五道新门：单门耗时 21.7s / 10.1s / 25.6s / 9.5s / 44.1s，合计 **+1m51s**。
+> ⚠️ 跑链期间**别做观感/帧率测试**：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。
 
 `npm test` 覆盖：启动零 console error · 几何合并零校验告警 · 四类 GLB 到齐 · draw calls <800 ·
 三角形 <420 万 · 锦鲤在游动 · 切夜过渡收敛与光强下调 · 暴雨雨量/底值风（审计 B03 回归）·
@@ -480,7 +524,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
   （纯 node，各 <3s，紧跟 check 之后 —— 拆模块的错误在浏览器里要么"加载即炸"、要么更坏的静默）。
 - **验证**：`npm run verify` 二十一门全绿；smoke **50/50**；draw calls **693 < 800**（该项由性能优化 A 拿下，
   原 869 红已解除，见下）。
-  ⚠️ 以上是**当日**基线；门禁链其后长到**二十五道**、smoke 到 **52 项**，draw calls 现读 **297**
+  ⚠️ 以上是**当日**基线；门禁链其后长到**三十道**、smoke 到 **52 项**，draw calls 现读 **297**
   （693 → 297 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
 
 **拆模块暴露出的四类缺陷（都已修，且都已固化成门禁）** —— 这是本次最有价值的部分，
@@ -586,20 +630,24 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 | # | 项目 | 说明 | 门禁 |
 |---|---|---|---|
-| R-1 | **开场运镜** | 3 关键帧 5.4s（云外俯瞰 → 贴水南推 → 交付机位），任意交互让位；探针 / 减弱动效默认不播，`?intro=1` 强制 | ⚠️ **无** |
-| R-2 | **加载页水墨封面 + 流光进度条** | 双 CSS 合成层动画 + 暖编译真实进度回填 | ⚠️ **无** |
-| R-3 | **分帧暖编译** `warmBoot` | 10 桶 × 真实 `composer.render()`；首帧段 8,179 → 77ms（同机 A/B） | ⚠️ **无**（只有一次性诊断） |
+| R-1 | **开场运镜** | 3 关键帧 5.4s（云外俯瞰 → 贴水南推 → 交付机位），任意交互让位；探针 / 减弱动效默认不播，`?intro=1` 强制 | `intro-guard` 22/22 |
+| R-2 | **加载页水墨封面 + 流光进度条** | 双 CSS 合成层动画 + 暖编译真实进度回填 | `loading-guard` 18/18 |
+| R-3 | **分帧暖编译** `warmBoot` | 10 桶 × 真实 `composer.render()`；首帧段 8,179 → 77ms（同机 A/B） | `warmboot-guard` 9/9（**自带负例**） |
 | R-4 | **点击水面涟漪** | `pointerup` 射线 + 6px 手势过滤 + `insidePond` 池域复核 | `smoke.mjs` §7.5 |
-| R-5 | **偶得 · 随机景色**（`X`） | 时段按出片率 / 季节均匀 / 天气先过滤合法集再按时段调权 | ⚠️ **无** |
+| R-5 | **偶得 · 随机景色**（`X`） | 时段按出片率 / 季节均匀 / 天气先过滤合法集再按时段调权 | `random-guard` 14/14（600 抽） |
 | R-6 | **夏夜萤火虫** | 夏 · 夜 · 晴/薄雾；明灭与漂移全在顶点着色器按独立相位算 | `longexposure-guard`（读 `fireflyOpacity`） |
 | R-7 | **长曝光明信片** | 28 帧加性堆积 + 暗部胶片颗粒（普通明信片不加） | `longexposure-guard` 6/6 |
-| R-8 | **丁达尔体积光** | 灯体锥形散射，`uLamp` / `uRain` 驱动 alpha | ⚠️ **无** |
+| R-8 | **丁达尔体积光** | **球形弥散光团**（2026-09-21 形态修正：旧 `ConeGeometry` 被读成路灯/舞台聚光）；`uLamp` / `uRain` 驱动 alpha；灯下另有地面光斑 | `lampvol-guard` 28/28 |
 | R-9 | **桃花四季** | 叶冠 / 花 / 果 / 落花四通道，先花后叶 | `peach-guard` 12/12 |
 
-**⚠️ 结项时暴露的缺口**：R-1 / R-2 / R-3 / R-5 / R-8 五项**没有任何门禁把守**
+**✅ 结项时暴露的缺口（2026-09-22 已补齐）**：R-1 / R-2 / R-3 / R-5 / R-8 五项原先**没有任何门禁把守**
 （整个 `probe/` 里 `introStart`、`randomScene` 是零引用，体积光同理）。
 这恰好是本项目的高发缺陷类型 —— **"状态全对、计数全对、不报错，只有看图才发现不对"**。
-补齐这几道门禁的价值，高于继续加新功能。
+
+补齐过程本身又印证了同一条规律：五道门里**八条红全是判据写错、代码没错**（详见「关键工程决策与踩坑记录」）。
+最有价值的三条教训：**① 窗口要对准被测物**（体积光门禁原先瞄的是挂点、比灯体高 45px）；
+**② 必须隔离混杂变量再比像素**（不冻风时噪声 5.1 luma、信号 1.45，信噪比只能靠运气）；
+**③ 噪声估计别用极差**（随样本数单调增长＝自己给自己加码，4 样本时×3 门槛等于要求 10σ）。
 
 ### 已结项（避免重复排期）
 
@@ -614,7 +662,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 - 改动只允许落在 `index.html` / `build-entry.js` / `package.json` / `probe/*` / `src/*`；`vendor.js` 由 `npm run build:vendor` 重新生成，**不手改**。
 - 每次交付前必须自己先跑通 `npm run check` + `npm run audit` + `npm test`（当前基线：**smoke 52/52 ALL PASS**）；
-  凡动到跨模块引用 / 启动时序，再加 `npm run verify`（二十五道门，≈11m）。
+  凡动到跨模块引用 / 启动时序，再加 `npm run verify`（三十道门）。
 - 任何新增依赖或资源必须本地化，禁止外部 CDN（国内网络为前提）。
 - 视觉改动用 `outputs/shots-*` 版本化截图做前后对比；新截图带 `-vN` 后缀。
 

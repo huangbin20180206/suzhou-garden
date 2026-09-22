@@ -1,13 +1,13 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
-import { camera, renderer, RENDER_SCALE, GPU_TIER, QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world } from './02-scene.js';
+import { camera, renderer, RENDER_SCALE, GPU_TIER, QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather } from './06-vegetation.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
@@ -1078,10 +1078,18 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   sunVisWater: () => (waterSurface && waterSurface.material.uniforms.uSunVis)
                                         ? waterSurface.material.uniforms.uSunVis.value : null,
                   REEL, toggleReel,   // 时光流转：门禁要能开关并读 hour 推进量
-                  /* 开场运镜（2026-09-20）：门禁要能强制播/中途取消/读状态 */
+                  /* 开场运镜（2026-09-20）：门禁要能强制播/中途取消/读状态。
+                     只给 active 一个布尔值守不住"飞到一半停了""落位没恢复 minDistance"——
+                     intro-guard 要读段号/进度，并比对落位点与 VIEWPOINTS 的 overview 是否一致。 */
                   introStart, introCancel, introActive,
-                  /* 偶得随机景色：门禁要能抽取并读回三轴结果 */
+                  introState: () => ({ on: INTRO.on, seg: INTRO.seg, t: INTRO.t }),
+                  camMinDist: () => CAM_MIN_DIST,
+                  /* 偶得随机景色：门禁要能抽取并读回三轴结果；TIME_ANCHORS 用于验 hour 的 ±0.6h 抖动幅度 */
                   randomScene: () => HOOKS.randomScene(),
+                  TIME_ANCHORS,
+                  /* 丁达尔体积光（2026-09-21）：形态退化（球形弥散团 → 向下聚光锥）不报错、不崩，
+                     只有读几何类型才拦得住；setLampVol 是阳性对照用的"只改 uLamp"后门。 */
+                  lampVolState, setLampVol,
                   /* 氛围粒子：门禁断言"夏夜晴有萤火 / 暴雨有镜前雨" */
                   fireflyOpacity: () => fireflies.material.uniforms.uOpacity.value,
                   lensLevel: () => lensWeather.level(),

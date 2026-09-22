@@ -1,9 +1,11 @@
-// 一条命令验到底（2026-09-17；2026-09-21 增至 25 门）：串行跑 check → codeonly-unit → import-audit
+// 一条命令验到底（2026-09-17；2026-09-21 增至 25 门；2026-09-22 回填缺口增至 30 门）：串行跑 check
+// → codeonly-unit → import-audit
 // → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard
 // → postcard-guard → longexposure-guard → peach-guard → sound-guard → guide-guard → wind-audit
 // → wisteria-color → koi-orbit → perch-dragonfly → stone-audit → stele-legibility → figure-audit
-// → refract-guard → refract-coverage → weather-coverage，
-// 汇总二十五个子门的结论，任何一个红整体就红。
+// → refract-guard → refract-coverage → weather-coverage → intro-guard → loading-guard
+// → warmboot-guard → random-guard → lampvol-guard，
+// 汇总三十个子门的结论，任何一个红整体就红。
 //
 // codeonly-unit / import-audit（2026-09-20 加）守**拆模块**这个动作本身。它们全在纯 node 里跑、
 //  不启浏览器（各 <1s），所以紧跟在 check 后面：结构化错误（漏 import / 给 import 绑定赋值 /
@@ -85,12 +87,16 @@
 // ⏱ 耗时（2026-09-18 换 harness 后实测）：整套 **2m41s**（旧软渲染 harness 是 17m59s，6.7×）；
 //    2026-09-19 加 pageerror-guard（+75s）→ reel/lamp（+42s）→ mist/postcard（+121s）
 //    → sound/guide（+77s）→ 2026-09-20 加 refract（+50s）→ 再加 refract-coverage（+20s）
-//    → 再加 weather-coverage（+80s）后，整套约 **11m**（以全绿那次的实测数为准）。
+//    → 再加 weather-coverage（+80s）→ 2026-09-22 回填 R-1/2/3/5/8 再加 5 门（+111s）后，
+//    整套 **12m14s**（2026-09-22 三十门全绿那次实测；上一轮 25 门那次 16m28s —— 波动主要来自
+//    mist-guard，它 185s / 390s 都出现过）。
 //    浏览器探针一律走 `probe/_harness.mjs`（真 GPU / D3D11）；要复现历史基线用
-//    `GARDEN_SOFT=1`。单门耗时：shadow-cover 14s / smoke 26s / figure-audit 23s /
-//    pageerror-guard 75s / reel-guard 21s / lamp-guard 21s / mist-guard 98s /
-//    postcard-guard 23s / sound-guard 60s / guide-guard 17s / refract-guard 30s /
-//    refract-coverage 22s。
+//    `GARDEN_SOFT=1`。单门耗时：shadow-cover 14s / smoke 22s / figure-audit 21s /
+//    pageerror-guard 69s / reel-guard 19s / lamp-guard 21s / mist-guard 185~390s /
+//    postcard-guard 19s / sound-guard 57s / guide-guard 20s / refract-guard 21s /
+//    refract-coverage 12s / weather-coverage 16s / **intro-guard 22s / loading-guard 10s /
+//    warmboot-guard 26s / random-guard 10s / lampvol-guard 44s**。
+// ⚠️ 跑链期间别做观感/帧率测试：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。
 // 用法: node probe/verify-all.mjs   （或 npm run verify）
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -124,6 +130,14 @@ const SUITES = [
   ['水面真折射 refract-guard','probe/refract-guard.mjs'],
   ['折射层覆盖度 refract-coverage','probe/refract-coverage.mjs'],
   ['天气覆盖度 weather-coverage','probe/weather-coverage.mjs'],
+  /* ── 2026-09-22 回填 R-1/R-2/R-3/R-5/R-8 五项"有功能、无门禁"的缺口 ──
+     这五项原先状态全对、断言全绿，却谁退化都没人知道：开场运镜停在原位、加载页变回白屏、
+     暖编译悄悄跳过、随机场景抽到非法天气组合、体积光退回聚光锥 —— 都是**看画面才发现**的缺陷。 */
+  ['开场运镜 intro-guard',    'probe/intro-guard.mjs'],
+  ['加载页 loading-guard',    'probe/loading-guard.mjs'],
+  ['分帧暖编译 warmboot-guard','probe/warmboot-guard.mjs'],
+  ['偶得随机场景 random-guard','probe/random-guard.mjs'],
+  ['丁达尔体积光 lampvol-guard','probe/lampvol-guard.mjs'],
 ];
 
 console.log('[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并误报）\n');

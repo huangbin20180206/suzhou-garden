@@ -126,6 +126,10 @@ const lanternSpots = [
 const worldLights = []; // 定义灯笼点光源数组
 let _lampVol = null;     // 体积光材质（applyEnv 同步 uLamp / uRain；白天 uLamp=0 → alpha 0，等效空 mesh）
 let _groundSplashMat = null, _groundSplashGeo = null;   // 灯下地面光斑材质/几何（与 _lampVol 同理）
+/* 已挂到灯笼上的光团 / 光斑实例（2026-09-22 · 为门禁收）。
+   ⚠️ 不收这个清单，门禁就只能靠 traverse 猜对象 —— 而"猜"在本项目已经栽过
+   （灯笼那次"引用没暴露 → found:false"）。清单必须由创建处自己登记。 */
+const _volMeshes = [], _splashMeshes = [];
 /* 灯笼在风里微摆：存**摆动支点**（pivot）到数组，渲染循环里统一做单摆。
    ⚠️ 支点必须是挂点、不是灯笼中心（2026-09-17 用户："能感觉到微弱的悬挂绳索与屋梁的
    连接处在动（这个不科学，这个地方应该不动）"）。原实现把 rotation 写在原点位于
@@ -313,6 +317,10 @@ export function makeLanterns(){
       const vr = Math.min(0.85, 0.5 + y * 0.035);          // 半径：拢着灯笼、向四周再散一点
       vol.scale.set(vr, vr, vr);
       grp.add(vol);
+      /* 起个名字：探针要靠它在场景图里定位光团（判"是否挂在灯体层 / 与灯内光源同高"），
+         devtools 里也便于直接选中 —— 没有名字时探针只能靠几何类型猜。 */
+      vol.name = 'lampVol';
+      _volMeshes.push(vol);
       /* 地面光斑：贴在灯下地表微高处 —— 光池摊开在拂过的地面上（含各种地板高度） */
       const splash = new THREE.Mesh(_groundSplashGeo, groundSplashMat);
       const _sy = Math.max(0.6, y * 0.92);
@@ -321,6 +329,7 @@ export function makeLanterns(){
       splash.scale.set(sr, sr, sr);
       splash.rotation.x = -Math.PI / 2;
       grp.add(splash);
+      _splashMeshes.push(splash);
     }
     
     pivot.add(grp);
@@ -334,6 +343,43 @@ export function tickLampVol(t){
   if (_lampVol) _lampVol.uniforms.uTime.value = t;
   if (_groundSplashMat) _groundSplashMat.uniforms.uTime.value = t;
 }
+/* 体积光状态（2026-09-22 · 门禁 lampvol-guard）。暴露的是**可判定的量**而不是布尔值：
+   · volGeo —— 球形弥散团还是向下聚光锥。旧实现用 ConeGeometry 收成舞台聚光，
+     形态退化**不报错、不崩**，只有几何类型与像素能分辨；
+   · volCount / splashCount —— 5 盏灯是否都挂上了（与 lanternSpots 数一致）；
+   · tint / uLamp / uRain —— 颜色是否还是暖橙（不是冷白）、是否随灯与雨联动。 */
+export function lampVolState(){
+  if (!_lampVol) return { on: false, mounted: false };
+  const u = _lampVol.uniforms;
+  const scales = _volMeshes.map(m => m.scale.y);
+  return {
+    on: true, mounted: _volMeshes.length > 0,
+    uLamp: u.uLamp.value, uRain: u.uRain.value, uTime: u.uTime.value,
+    /* 光斑是**另一份**材质/另一组 uniform：它漏跟时段（只跟光团走）时白天不会全透明，
+       状态上完全看不出来 —— 所以它必须单独回读。 */
+    splashLamp: _groundSplashMat ? _groundSplashMat.uniforms.uLamp.value : null,
+    splashRain: _groundSplashMat ? _groundSplashMat.uniforms.uRain.value : null,
+    tint: u.uTint.value.getHex(),
+    volCount: _volMeshes.length, splashCount: _splashMeshes.length,
+    volGeo: _volMeshes[0] ? _volMeshes[0].geometry.type : null,
+    volR: scales.length ? { min: +Math.min(...scales).toFixed(3), max: +Math.max(...scales).toFixed(3) } : null,
+    /* 基几何半径：`volR` 报的是 mesh.scale，只有当基半径恰好 1 时它才等于**世界半径**。
+       把这条关系也回读出来，判据才不会在"基半径被改过"时静默失义。 */
+    volGeoR: _volMeshes[0] ? _volMeshes[0].geometry.parameters.radius : null,
+    /* 光团**世界球心**：门禁要按它投影出屏幕像素框（`lanternGroups` 存的是挂点 pivot，
+       比灯体高一整段吊绳，拿它取景会把窗口摆到光团上方 —— 像素差分自然量不到）。 */
+    volPos: _volMeshes.map(m => { const v = new THREE.Vector3(); m.getWorldPosition(v);
+      return [+v.x.toFixed(3), +v.y.toFixed(3), +v.z.toFixed(3)]; }),
+    splashGeo: _splashMeshes[0] ? _splashMeshes[0].geometry.type : null,
+    splashFlat: _splashMeshes.length
+      ? _splashMeshes.every(m => Math.abs(m.rotation.x + Math.PI / 2) < 1e-6) : null,
+  };
+}
+/* 只改 uLamp 的强制通道 —— 门禁的**阳性对照**专用。
+   ⚠️ 为什么非得有这么个后门：要证明"夜里的光团确实贡献了像素"，只能**只改 uLamp** 拍两张做差分；
+   拿"夜 vs 昼"两张整幅比是不干净的（光照/雾/天空/曝光全变了），整幅差分必然很大却证明不了任何事
+   —— 同 §29.3 那条"污染源"教训。默认不调用，只由探针在采样瞬间用、用完还原。 */
+export function setLampVol(v){ if (_lampVol) _lampVol.uniforms.uLamp.value = v; }
 /* ⚠️ 这个函数**不在本模块顶层调用**：它要往 `world` 里挂灯笼，而 world 由 08-assemble 定义、
    08 反过来又 import 本模块（applyEnv / collectSeasonCaches / ENV / onAssetAttached / envEl）
    → 成环，本模块先求值，顶层调用必撞 "Cannot access 'world' before initialization"。
@@ -728,7 +774,7 @@ function resolveEnv(){
    四锚点取各时段"性格"的中间时刻：晨 7:30 / 午 12:30 / 暮 17:30 / 夜 21:30。
    夜里 21:30 → 次日 4:30 整段保持深夜（不是匀速往晨过渡——凌晨两点不该"半亮"），
    4:30 → 7:30 才是黎明渐亮。 */
-const TIME_ANCHORS = { morning: 7.5, noon: 12.5, dusk: 17.5, night: 21.5 };
+export const TIME_ANCHORS = { morning: 7.5, noon: 12.5, dusk: 17.5, night: 21.5 };
 
 /* ── 月亮（2026-09-19 老黄："风和日丽的夜里该有月亮，随辰起落"）──
    取**满月**节律：18:00 东方升起 → 24:00 中天 → 06:00 西方落下，其余时间在地平线下。
