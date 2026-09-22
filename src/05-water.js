@@ -489,8 +489,13 @@ export function makeSteppingStones(){
       y:  CFG.water + rr(0.03,0.11) - 0.03,            // 出水压低 3cm：露出的"边"更窄
       z:  z + rr(-0.12,0.12),
       ry: rr(-0.09,0.09) + (sr() - 0.5) * 0.30,
-      rx: (sr() - 0.5) * 0.07,
-      rz: (sr() - 0.5) * 0.07,
+      /* roll/pitch ±0.035 → ±0.09rad（2° → 5.2°）：11 块顶面此前朝向几乎一致，
+         正午高角度光下必然**一起亮**（实测亮部 L90 仍 128~158）。给足倾角后每块
+         接光角度不同，一条同色带才真的散成 11 块深浅不一的石头。
+         ⚠️ 上限受折射门禁约束：角部下沉 = 0.49·sin(0.09) ≈ 4.4cm，叠基础水下 9cm
+         最深 13.4cm，仍在豁免上限 0.25m 内（probe/refract-coverage.mjs）。 */
+      rx: (sr() - 0.5) * 0.18,
+      rz: (sr() - 0.5) * 0.18,
     });
   }
   /* 细分长方体 + 顶面起伏，再转**非索引 → 平面着色（faceted）**：
@@ -502,15 +507,30 @@ export function makeSteppingStones(){
   const geo = new THREE.BoxGeometry(0.68, 0.18, 0.98, 4, 1, 4).toNonIndexed();
   {
     const pos = geo.attributes.position;
-    const TOP = 0.09;
+    const HX = 0.34, HZ = 0.49, TOP = 0.09, BOT = -0.09;
     for (let k = 0; k < pos.count; k++){
-      if (Math.abs(pos.getY(k) - TOP) > 1e-4) continue;              // 只动顶面
-      const u = pos.getX(k) / 0.68 + 0.5, v = pos.getZ(k) / 0.98 + 0.5;
-      const mask = Math.sin(Math.PI * u) * Math.sin(Math.PI * v);    // 边界 → 0
+      const x = pos.getX(k), y = pos.getY(k), z = pos.getZ(k);        // 原始坐标，改之前先读
+      /* ① **打断矩形轮廓**（v2 新增）：四条竖直直角边是"3D 白模"最强的信号。
+         按高度分层做水平扰动 —— 顶圈外扩 1.7×、底圈内收 0.5×，侧面从竖直矩形
+         变成不规则梯形，轮廓不再是一条直线。只在近边缘起作用（edge 是四次方）
+         ⇒ 顶面内部的扰动 <1cm，不会把石板揉成馒头。
+         ⚠️ 顶面顶点与侧面顶圈顶点吃的是**同一个 (x,z) 函数**（都用改前的原始值）
+         ⇒ 两组顶点严格重合，不开缝。 */
+      const gy = (y - BOT) / 0.18;                                    // 0 底 → 1 顶
+      const nx = x / HX, nz = z / HZ;
+      const edge = Math.pow(Math.min(1, Math.max(Math.abs(nx), Math.abs(nz))), 4);
+      const wob = 0.055 * (0.5 + gy * 1.2);
+      pos.setX(k, x + Math.sin(nz * 4.7 + 1.3) * edge * wob);
+      pos.setZ(k, z + Math.sin(nx * 3.3 + 2.1) * edge * wob);
+      if (Math.abs(y - TOP) > 1e-4) continue;                         // ② 只动顶面
+      const u = x / 0.68 + 0.5, v = z / 0.98 + 0.5;
+      const mask = Math.sin(Math.PI * u) * Math.sin(Math.PI * v);     // 边界 → 0
       const w = 0.5 + 0.30 * Math.sin(u * 5.1 + v * 2.3) + 0.20 * Math.sin(u * 11.7 - v * 7.9);
-      pos.setY(k, TOP + (w - 0.5) * 0.070 * mask);
+      /* 起伏 ±3.5cm → ±5.5cm：v1 的量在正午高角度光下只够 1~2° 坡，顶面仍整片亮
+         （实测亮部 L90 仍到 128~158）。边界 mask=0 ⇒ 与侧面顶圈一致、不开缝。 */
+      pos.setY(k, TOP + (w - 0.5) * 0.110 * mask);
     }
-    geo.computeVertexNormals();                                      // 非索引 → 逐面法线
+    geo.computeVertexNormals();                                       // 非索引 → 逐面法线
   }
   const g = new THREE.InstancedMesh(geo, MAT.stoneDark, n);
   g.castShadow = g.receiveShadow = true;
@@ -528,8 +548,12 @@ export function makeSteppingStones(){
     s.set(0.94 + sr() * 0.12, 1, 0.94 + sr() * 0.12);                // 轮廓宽度不再一律
     m.compose(p, q, s); g.setMatrixAt(i, m);
     /* 出水石本来就该偏暗偏湿：原色 #8E8D87 渲染出来是 rgb(140,149,151)，
-       贴在水面 rgb(90,110,110) 上对比过大 —— 那是"白"的来源。压到 0.60~0.80。 */
-    g.setColorAt(i, new THREE.Color().setScalar(0.60 + sr() * 0.20));
+       贴在水面 rgb(90,110,110) 上对比过大 —— 那是"白"的来源。
+       0.60~0.80 → **0.28~0.54**：上溯实测（outputs/_diag/_stones-v2-scan.mjs，冬季正午）
+       压到 0.25 能把石头中位亮度从 83 拉到 66（水面 129），而**改 envMapIntensity
+       毫无作用**（67.2 vs 66.2，说明"白"不是环境反射洗出来的，是本函数被直射光打亮）。
+       ⚠️ 只走 instanceColor，不动 MAT.stoneDark —— 那块材质被窗台/门槛/台基共用。 */
+    g.setColorAt(i, new THREE.Color().setScalar(0.28 + sr() * 0.26));
   });
   g.instanceMatrix.needsUpdate = true;
   if (g.instanceColor) g.instanceColor.needsUpdate = true;
