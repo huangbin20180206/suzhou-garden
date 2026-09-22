@@ -759,14 +759,22 @@ world.add(makeWaterGrass(-13.2, 6.4, 54, 2.6));
 world.add(makeWaterGrass(11.5, -3.2, 44, 2.2));
 
 // 荷花（Hyper3D 生成的荷花丛，池面散点）
+/* ⚠️ 2026-09-22 晚（老黄 A+C 裁决）：摆放原走全局 rr/rnd，实测**每次刷新 12 株位置/朝向全漂移**
+   （_rect-lotus-determinism.mjs：两次会话逐坐标比对全不同）—— 池面"白花苞时有时无"的根因。
+   改本地流（固定种子）与加载时序解耦（makePeachTree 同法，§34）。
+   ⚠️ 全局流**等量燃烧**：原每轮 rr,rnd,rr,rr 原顺序原参数消耗后弃用——
+   全局流是一条有序流，多烧少烧都会让之后的莲蓬/水草/驳岸石/人物整体后移且不报错（§36.6）。 */
 const lotusSpots = [];
+const LR = mulberry32(20260922);                     // 荷花专用流：种子固定，跨刷新确定
+const lrr = (a, b) => a + LR() * (b - a);
 for (let i = 0; i < 12; i++){
-  const a = rr(0, TAU), rad = Math.sqrt(rnd()) * 5.6;
+  void rr(0, TAU); void Math.sqrt(rnd()); void rr(0.84, 1.06); void rr(0, TAU);   // 等量燃烧
+  const a = lrr(0, TAU), rad = Math.sqrt(LR()) * 5.6;
   lotusSpots.push({
     x: -2.5 + Math.cos(a) * rad,
     z:  2.2 + Math.sin(a) * rad * 0.72,
-    s: rr(0.84, 1.06),   // 下限从 0.6 抬到 0.84：0.6 那档全株只有 1.2m，花落在叶盘高度上
-    ry: rr(0, TAU),
+    s: lrr(0.84, 1.06),   // 下限从 0.6 抬到 0.84：0.6 那档全株只有 1.2m，花落在叶盘高度上
+    ry: lrr(0, TAU),
   });
 }
 placeAssets('assets/LotusPlant.glb', 2.0, lotusSpots);
