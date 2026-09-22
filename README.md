@@ -470,7 +470,8 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 - **已交付**：`index.html` 从 5000+ 行单文件拆成 **120 行壳**（只剩 `<style>`/DOM/import/启动兜底），
   ⚠️ 该「120 行」是 **2026-09-20 拆完当时**的数；其后 loading 页（水墨封面 + 流光进度条）与开场运镜的
-  CSS/DOM 又加回壳里，**现为 559 行**（见「项目结构」）。判断"壳有没有变胖"请以文件实际行数为准。
+  CSS/DOM 又加回壳里，**现为 559 行**（见「项目结构」）。两处口径别混：`npm run check` 报的
+  「内联模块 **120 行**」指壳里那段 `<script>`（拆模块后没再长），**559** 才是文件总行数。
   其余全部落进 `src/*.js`，共 **15 个模块**（00-config / 01-materials / 02-scene / 03-factory /
   04-buildings / 05-water / 06-vegetation / 07-ground / 08-assemble / 09-lights / 10-post /
   11-loop / 12-env / 2b-wind / app）。`src/app.js` 仍为聚合占位（供后续 esbuild 打包）。
