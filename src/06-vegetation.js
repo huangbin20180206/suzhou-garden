@@ -2515,10 +2515,13 @@ export function makePeachTree(x, z, scale = 1){
   g.add(leafInst);
 
   /* ── 花：春季先花后叶 —— 桃的花芽与叶芽同在短枝上（花芽先萌），故与叶同源取样。
-     花量 900 朵（旧 320 上限实测只挂到 202）：花瓣几何从 ≈160 tri/朵 降到 12 tri/朵
-     之后，"花满树"才开得起。 */
+     ⚠️ 花量 900 → **2000**（2026-09-22 二轮）：900 朵挂在 2.6m 的冠上，实拍样张里
+     只数得出 ~30 个粉点 —— 代码注释写着"花满树"，画面是"零星几朵"，又一处"状态对、画面不对"。
+     单朵 12 tri，2000 朵 = 2.4 万 tri（全场 1.5M，可忽略）。
+     并且花与叶走**同一套 canopyShell 壳层**：桃是**先花后叶**，盛花期冠里没有叶帮忙遮挡，
+     花若全埋在枝心的位置就只剩几个点 —— 推到壳层才读得出"满树花"。 */
   const flGeo = makePeachFlowerGeo();
-  const flN = 900;
+  const flN = 2000;
   const flInst = new THREE.InstancedMesh(flGeo, MAT.peachBlossom, flN);
   const flA = new THREE.Color(0xFFE8F0), flB = new THREE.Color(0xF490B4);
 
@@ -2547,9 +2550,15 @@ export function makePeachTree(x, z, scale = 1){
     const o = flSlots[i];
     const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
     const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();   // 花盘朝外上方
+    _p.copy(o.p).addScaledVector(face, 0.008);            // 花梗 ~8mm
+    canopyShell(_p);                                      // 与叶同一壳层（盛花期无叶可遮，全埋枝心就只剩几个点）
+    /* ⚠️ 花盘朝向要在**夹壳之后**重算：夹壳挪了位置，若还用夹之前的方向，
+       被推到壳上的那批花会有一半朝冠内（背面）—— 花盘是 2 tri 的单面卡，
+       朝内就是看不见。同叶面处理：朝冠外偏上。 */
+    face.copy(_p).sub(canopyC).normalize();
+    face.addScaledVector(_up, 0.85).normalize();
     _q.setFromUnitVectors(_ax.set(0, 0, 1), face);        // 花盘法线 +Z → 朝外上方
     _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));   // 绕花轴自转（花瓣朝向不整齐划一）
-    _p.copy(o.p).addScaledVector(face, 0.008);            // 花梗 ~8mm
     _s.setScalar(rr2(0.85, 1.20));
     _m.compose(_p, _q, _s); flInst.setMatrixAt(i, _m);
     flInst.setColorAt(i, flA.clone().lerp(flB, R2())
