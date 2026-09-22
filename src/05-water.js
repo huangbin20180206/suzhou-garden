@@ -464,21 +464,75 @@ export function makeArchBridge(){
   return g;
 }
 
-/* 跨水汀步：等距平直长方青石 */
+/* 跨水汀步：等距平直长方青石
+   ⚠️ 2026-09-22（老黄报「池中的白色框一直没修掉」）：根因**不是**多了个几何体，
+   而是这几块石板的顶面一直是一块**完美平面**。平顶的漫反射颜色与视角无关 ——
+   于是低视高平视时，它在屏幕上就是一条**颜色完全均匀的灰带**
+   （实测：60×22px、块内平均偏差 0.23 个色阶、色 rgb(140,149,151)），
+   11 块顶面法线又完全相同 → 连成同一条带。读出来不是"水里的石头"，
+   而是"贴在水面上的一块白盒子"（射线定案：第一命中就是本函数这 11 个实例）。
+   三处一起改：
+     ① **顶面不再是平面**：长方体细分后给顶面加 1~2cm 确定性起伏（边界不动 → 不会开缝），
+        顶面法线不再处处相同，同色带被打散成有明暗的顶面；
+     ② **每块给一点 roll/pitch**（±0.035rad）：原来 11 块顶面朝向完全一致；
+     ③ **压低出水高度 + 放大转向抖动**：原来出水 12~20cm、ry 仅 ±0.09rad，
+        读作一条程序化直线。
+   ⚠️ **绝不新增 rr() 调用**：全局随机流被多消耗一次，之后创建的每一件（牌匾、驳岸石、
+   柳枝、人物）序列整体后移 —— 那是一次不报错的全场改动。新增随机一律走本地流。 */
 export function makeSteppingStones(){
   const list = [];
   const n = 11, startX = -3.6, step = 1.02, z = 5.6;   // 汀步加密，直抵桥侧
+  const sr = mulberry32(20260922);                     // 本地流，见上方 ⚠️
   for (let i = 0; i < n; i++){
-    list.push({ x: startX + i*step + rr(-0.1,0.1), y: CFG.water + rr(0.03,0.11), z: z + rr(-0.12,0.12), ry: rr(-0.09,0.09) });
+    list.push({
+      x:  startX + i*step + rr(-0.1,0.1),
+      y:  CFG.water + rr(0.03,0.11) - 0.03,            // 出水压低 3cm：露出的"边"更窄
+      z:  z + rr(-0.12,0.12),
+      ry: rr(-0.09,0.09) + (sr() - 0.5) * 0.30,
+      rx: (sr() - 0.5) * 0.07,
+      rz: (sr() - 0.5) * 0.07,
+    });
   }
-  const g = new THREE.InstancedMesh(box(0.68, 0.18, 0.98), MAT.stoneDark, n);
+  /* 细分长方体 + 顶面起伏，再转**非索引 → 平面着色（faceted）**：
+     光有起伏不够 —— 第一版 ±1cm 在 1m 石板上只有约 1° 斜率，明暗几乎不变
+     （复验实测 mdev 仅 0.23→0.49，仍是一条均匀带）。转非索引后每个三角面
+     拿自己的面法线 → 起伏被放大成一格一格的明暗面，才真读得出"石面"。
+     边界顶点保持原高（sin 掩码在边界为 0）→ 与侧面不开缝，无需改侧面。
+     两侧正弦叠加：确定性、不消耗任何随机流、处处可复现。 */
+  const geo = new THREE.BoxGeometry(0.68, 0.18, 0.98, 4, 1, 4).toNonIndexed();
+  {
+    const pos = geo.attributes.position;
+    const TOP = 0.09;
+    for (let k = 0; k < pos.count; k++){
+      if (Math.abs(pos.getY(k) - TOP) > 1e-4) continue;              // 只动顶面
+      const u = pos.getX(k) / 0.68 + 0.5, v = pos.getZ(k) / 0.98 + 0.5;
+      const mask = Math.sin(Math.PI * u) * Math.sin(Math.PI * v);    // 边界 → 0
+      const w = 0.5 + 0.30 * Math.sin(u * 5.1 + v * 2.3) + 0.20 * Math.sin(u * 11.7 - v * 7.9);
+      pos.setY(k, TOP + (w - 0.5) * 0.070 * mask);
+    }
+    geo.computeVertexNormals();                                      // 非索引 → 逐面法线
+  }
+  const g = new THREE.InstancedMesh(geo, MAT.stoneDark, n);
   g.castShadow = g.receiveShadow = true;
+  /* ⚠️ **故意不起名会让门禁认不出它**：refract-coverage 的豁免条款是按网格名匹配的，
+     已经给"桥头踏跺"同类开过口子（水下 ≤0.25m 的浅浸石作豁免），但汀步石原来匿名，
+     于是 2026-09-22 压低出水 3cm 让它下探越过 0.15m 判定线后，门禁只能报"无名对象"。
+     起名 + 在门禁里补一条**带上限的**豁免（>0.25m 仍会红），把"它该不该进折射层"这个
+     判断登记下来，而不是靠"刚好没踩线"躲过去。实测见 probe/_steps-refract-tex.mjs：
+     进层只把**俯视的顶面**写进池底贴图（贴图 mean 7.4 vs 基线 0.2），主画面变化落在噪声内
+     （ROI 7.0 vs 基线 6.7，正控藏石头 26.2）→ 零视觉收益、还要多渲一层。 */
+  g.name = 'steppingStones';
   const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3(1,1,1);
   list.forEach((it, i)=>{
-    p.set(it.x, it.y, it.z); q.setFromEuler(new THREE.Euler(0, it.ry, 0));
+    p.set(it.x, it.y, it.z); q.setFromEuler(new THREE.Euler(it.rx, it.ry, it.rz));
+    s.set(0.94 + sr() * 0.12, 1, 0.94 + sr() * 0.12);                // 轮廓宽度不再一律
     m.compose(p, q, s); g.setMatrixAt(i, m);
+    /* 出水石本来就该偏暗偏湿：原色 #8E8D87 渲染出来是 rgb(140,149,151)，
+       贴在水面 rgb(90,110,110) 上对比过大 —— 那是"白"的来源。压到 0.60~0.80。 */
+    g.setColorAt(i, new THREE.Color().setScalar(0.60 + sr() * 0.20));
   });
   g.instanceMatrix.needsUpdate = true;
+  if (g.instanceColor) g.instanceColor.needsUpdate = true;
   return g;
 }
 

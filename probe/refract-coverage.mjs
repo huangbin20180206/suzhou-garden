@@ -161,6 +161,15 @@ const REQUIRED_BY_COLOR = [
     if (r.name === 'mistField') return '低空云雾 billboard：浮在水面之上的雾，不是水下物';
     if (r.name === 'mergedStatic' && r.depth <= 0.25)
       return `静态合并大网：几何已按材质并网、无法单独拆层，且水下仅 ${r.depth}m（桥头踏跺 / 睡莲浮叶这一档）`;
+    /* 汀步石（2026-09-22 补）：与上面"桥头踏跺"同类 —— 出水 12~20cm、水下 ≤0.25m 的
+       浅浸石作。这条豁免是**量出来的**，不是猜的（probe/_steps-refract-tex.mjs）：
+       把 11 块石头加进 LAYER_REFRACT 后，池底贴图确实变了（mean 7.4，基线 0.2），
+       但那是它在**正上方俯视**下的顶面 —— 人眼掠射时该看到的是侧面；
+       主画面 ROI 变化 7.0 vs 时间基线 6.7（正控"藏掉石头" 26.2，证明判据有牙）
+       ⇒ 进层零视觉收益、多渲一层。上限 0.25m 不能松：再深就真成了"透过水该看见的水下物"。 */
+    if (r.name === 'steppingStones' && r.depth <= 0.25)
+      return `过水汀步青石（同"桥头踏跺"这一档）：出水 12~20cm、水下仅 ${r.depth}m，`
+           + `主体在水面之上、由主通道完整绘制；实测进层只把俯视顶面写进池底贴图、画面变化在噪声内`;
     return null;
   };
   const unexcused = out.untaggedInPond
