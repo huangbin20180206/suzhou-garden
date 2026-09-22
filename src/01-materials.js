@@ -786,7 +786,11 @@ export const MAT = {
   /* 柳树专用枝干色：MAT.bark 的深棕在逆天空下读作"黑铁丝"（三轮验收同一条批评）。
      真实柳枝皮是灰绿褐，明度高一档，天际线对比立刻软化 */
   willowBark: new THREE.MeshStandardMaterial({ color:0x6B5E42, roughness:0.95, metalness:0.0, envMapIntensity:0.3, flatShading:true }),
-  trunk:    new THREE.MeshStandardMaterial({ color:0x3B2A1E, roughness:0.92, envMapIntensity:0.3 }),
+  /* ⚠️ 2026-09-22：MAT.trunk 全场只有桃树在用（唯一引用在 06 的 makePeachTree）。
+     旧色 0x3B2A1E 比 MAT.bark(0x4A3628) 还深 —— 柳树当年正是因为"深棕在逆天空下读作黑铁丝"
+     才另起了 willowBark(0x6B5E42)，而桃树一直用着更深的那个：稀疏的桃枝衬在灰天空前
+     就是一丛黑铁丝。抬到与 willowBark 同档，并加 flatShading 出低模棱面（与柳同法）。 */
+  trunk:    new THREE.MeshStandardMaterial({ color:0x6B5B45, roughness:0.95, envMapIntensity:0.25, flatShading:true }),
   banana:   new THREE.MeshStandardMaterial({ color:0x4F9440, roughness:0.7, envMapIntensity:0.5, side:THREE.DoubleSide }),
   /* 紫藤花（重建）：白底 + instanceColor 逐朵上色（基部深紫→梢端淡紫渐变）。
      "塑料感"三来源全数拆除：①平面圆盘花冠→蝶形旗瓣+下唇 ②roughness 0.78 镜面反光→0.93
@@ -806,9 +810,16 @@ export const MAT = {
        peachBlossom（花，春开 · 粉白纸质瓣）；peachFruit（果，夏秋红晕蜜桃）；
        peachPetal（落花铺地，春末夏初在地面留一层粉瓣 —— 花落田埂的唯美感）。
      花瓣/Blossom 共用裸色 0xFFFFFF 底 + instanceColor 上色（桃区别于红梅的大红）。 */
-  peachLeaf: new THREE.MeshStandardMaterial({ color:0x5E9638, roughness:0.86, metalness:0.0, envMapIntensity:0.35, side:THREE.DoubleSide }),
+  /* ⚠️ 叶基色 0x5E9638 → 0x6BA340（2026-09-22）：盛夏 tintMix=0（季节色原样透传），
+     0x5E9638 在强日照的草坪/竹丛旁边读成**一团发黑的绿**（老黄样张判语：像塑料片）。
+     提一档明度，仍比竹叶深，保住"桃叶比竹叶沉"的层次。 */
+  peachLeaf: new THREE.MeshStandardMaterial({ color:0x6BA340, roughness:0.86, metalness:0.0, envMapIntensity:0.35, side:THREE.DoubleSide }),
   peachBlossom: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xFFFFFF, roughness:0.9, metalness:0.0, envMapIntensity:0.2, side:THREE.DoubleSide, alphaTest:0.42 }),
-  peachFruit: new THREE.MeshStandardMaterial({ color:0xE08050, roughness:0.5, metalness:0.0, envMapIntensity:0.7 }),
+  /* ⚠️ 果基色必须是**白**：实例色（frA→frB 的蜜桃黄→粉晕）会与材质 color 相乘，
+     而 multiply 走的是线性空间 —— 基色 0xE08050 再乘一个橙红实例色 = 把颜色**平方**，
+     出来的是一颗高饱和深红（用户截图里读作"圣女果"）。
+     塑料感另有两个来源：roughness 0.5（果面不该有这么强的镜面）+ envMapIntensity 0.7。 */
+  peachFruit: new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.62, metalness:0.0, envMapIntensity:0.35 }),
   peachPetal: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xFFFFFF, roughness:0.92, metalness:0.0, envMapIntensity:0.2, side:THREE.DoubleSide, alphaTest:0.45 }),
   lily:     new THREE.MeshStandardMaterial({ color:0x3E7A34, roughness:0.7,  envMapIntensity:0.5, side:THREE.DoubleSide }),
   lotus:    new THREE.MeshStandardMaterial({ color:0xF2C7D4, roughness:0.62, envMapIntensity:0.55, side:THREE.DoubleSide }),

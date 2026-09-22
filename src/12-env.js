@@ -1151,14 +1151,25 @@ export function applyPresence(p){
   }
   /* 实例化网格再补一道 count：visible 会被 GTAO pass 每帧改回 true，
      而 count=0 时 three.js 根本不提交实例，GTAO 也改不动它。
-     花串是"每丛一个 InstancedMesh"（共 14 个），必须逐个处理，不能只认第一个。 */
-  for (const m of [MAT.wisteria]){
+     花串是"每丛一个 InstancedMesh"（共 14 个），必须逐个处理，不能只认第一个。
+     ── 2026-09-22：桃树三套材质改走**分量** count。季节表里 peachShow 春 0.15（先花后叶）、
+     peachFruitShow 秋 0.7（果渐疏）、peachPetalShow 春 0.3 一直是小数，但可见性通道只认
+     `> 0.03` 的布尔 —— 这三个小数**从来没生效过**：春天本该"花满树、叶刚萌"却直接挂满
+     3800 片叶，秋天本该落掉三成果却一个不少。
+     按 count 截前缀是唯一不会被 GTAO 冲掉的做法。桃树的实例写入顺序已在 makePeachTree 里
+     按乘性散列打散，所以"截前缀"在空间上就是均匀变稀，而不是只掉半边。 */
+  for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaShow', false],
+                                [MAT.peachLeaf, 'peachShow', true],
+                                [MAT.peachFruit, 'peachFruitShow', true],
+                                [MAT.peachPetal, 'peachPetalShow', true]]){
     const list = seasonMeshCache.get(m);
     if (!list) continue;
     for (const o of list){
       if (!o.isInstancedMesh) continue;
       if (o.userData.fullCount === undefined) o.userData.fullCount = o.count;
-      const n = p.wisteriaShow > 0.03 ? o.userData.fullCount : 0;
+      const full = o.userData.fullCount;
+      const n = frac ? Math.round(full * Math.min(1, Math.max(0, p[key] || 0)))
+                     : (p[key] > 0.03 ? full : 0);
       if (o.count !== n) o.count = n;
     }
   }

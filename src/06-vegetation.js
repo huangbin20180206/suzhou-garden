@@ -2156,80 +2156,83 @@ export function makeWillow(x, z, scale = 1){
     return g;
   }
 
-/* ── 桃花（重建 · 2026-09-22）────────────────
+/* ── 桃花（重建 · 2026-09-22 二轮）────────────────
    桃是落叶观花小乔木，四季生命周期由 12-env 的季节显隐通道驱动：
      peachShow          → 叶冠（MAT.peachLeaf，走 tinLeaf：春夏绿 → 秋黄 → 冬落尽裸枝）
      peachBlossomShow   → 花   （MAT.peachBlossom，春开，先花后叶）
      peachFruitShow     → 果   （MAT.peachFruit，夏秋带红晕的蜜桃）
      peachPetalShow     → 落花铺地（MAT.peachPetal，春末夏初树干四周散一层粉瓣）
-   重建要点：
-     · 主干更细（原 0.34 → 0.18），桃是小乔木不是大树
-     · 叶/花/果沿枝条分布，不再是球体内悬空漂浮
-     · 桃叶：披针形，先端渐尖，不是三角片
-     · 桃花：五瓣卵圆形花瓣 + 花蕊，不是五片平板
-     · 桃子：心形带尖，不是压扁的球
-     · 春季：先花后叶（花满树时叶刚萌） */
+   ⚠️ 二轮重建的**根因**（老黄实拍判语："光秃秃的直棍插在石头上"）：
 
-/* 桃叶：披针形 —— 基部宽、先端渐尖、叶缘微弯，长 12~18cm */
-function makePeachLeafGeo(){
-  const len = 0.15, maxW = 0.045;
-  const s = new THREE.Shape();
-  s.moveTo(0, 0);                              // 叶基（叶柄端）
-  s.bezierCurveTo(maxW*0.35, len*0.05, maxW*0.9, len*0.32, maxW, len*0.52);  // 最宽处在中部偏基
-  s.bezierCurveTo(maxW*0.7, len*0.72, maxW*0.3, len*0.92, 0.003, len);       // 渐尖至叶尖
-  s.bezierCurveTo(-maxW*0.3, len*0.92, -maxW*0.7, len*0.72, -maxW, len*0.52);
-  s.bezierCurveTo(-maxW*0.9, len*0.32, -maxW*0.35, len*0.05, 0, 0);
-  const g = new THREE.ShapeGeometry(s, 10);
-  // 轻微中肋隆起
-  const pos = g.attributes.position;
-  for (let i = 0; i < pos.count; i++){
-    const x = pos.getX(i), y = pos.getY(i);
-    pos.setZ(i, Math.abs(x) * 0.12 * (y / len));  // 越往叶尖越平
+   ① 主干塌成刀片 —— 手工锥化用 `curve.getPoint(t)` 取圈心，而 TubeGeometry 生成顶点
+      用的是 `path.getPointAt(i/n)`（**弧长**参数化）。两者同名不同实：同一个 t 落在
+      不同位置（该曲线上位差 >0.17m，比半径 0.16 还大）—— 于是 `dir = normalize(v-center)`
+      里混进一个**轴向**分量，而 `v.copy(center)` 把这一圈的 x/z 直接拍回轴上：
+      上半段整圈塌成一点。世界包围盒实测 [0.06, 2.92, 0.15]（另一株更极端
+      [0.14, 3.26, 0.03]），正常应为 ~0.33×0.33 的圆管 —— 一根压扁的刀片。
+      修法：tubeRadiusRamp() 按**圈号**取 t、用 getPointAt 取圈心，径向缩放才真的只缩径向。
+   ② 叶片 600 上限**从未达到**（三株实测 379 / 330 / 258）：挂点是"每枝随机 5~8 小枝 ×
+      每枝 6~10 片"，叶子挂完就走 —— `count` 声明 600 是个从未兑现的承诺，冠层只剩骨架。
+   ③ 叶量按"每枝若干片"给是错的：应当由**冠层尺度**决定（枝条有多长就有多少挂点）。
+   ④ 几何本身就贵，贵到开不起花：旧叶 38 tri/片（ShapeGeometry 四条贝塞尔 ×10 细分）、
+      旧花 ≈160 tri/朵（5 片 ShapeGeometry 花瓣）—— 这个预算下"花满树"根本不可能。
+
+   现在：叶片换 makeLeafVolumeGeo 的**单面弯叶**（12 tri/片）；花换成**花瓣贴图卡**
+        （5 张 quad = 12 tri/朵 —— 泪滴形与粉白渐变本来就画在贴图里，几何再刻一遍纯属浪费）；
+        挂点按弧长间隔沿**全部枝条**取样，叶量由冠层决定；主枝/小枝各自并成一个 mesh
+        （旧版 30+ 根小枝各一个 mesh = 30+ draw call）。 */
+
+/* 变速管：把 TubeGeometry 的每一圈缩放到目标半径。
+   ⚠️ **必须**用 `path.getPointAt(i / tubularSegments)` 取圈心 —— 这正是 TubeGeometry
+   生成顶点时用的函数；改用 getPoint() 会让圈心偏离真正的中轴，径向缩放变成"把整圈拍回轴上"。
+   ⚠️ 传入的 geo 必须是以 radius=1 建的：这样 (v − center) 才是单位向量，缩放系数就是真半径。
+   TubeGeometry 的顶点序 = 圈号 × (radialSegments + 1) + 圈内序号（见其 generateSegment）。 */
+function tubeRadiusRamp(geo, path, tubularSegments, radialSegments, radiusAt){
+  const pos = geo.attributes.position;
+  const per = radialSegments + 1;
+  const c = new THREE.Vector3(), v = new THREE.Vector3();
+  for (let i = 0; i <= tubularSegments; i++){
+    const t = i / tubularSegments;
+    const r = radiusAt(t);
+    path.getPointAt(t, c);
+    for (let j = 0; j < per; j++){
+      const idx = i * per + j;
+      v.fromBufferAttribute(pos, idx).sub(c).multiplyScalar(r).add(c);
+      pos.setXYZ(idx, v.x, v.y, v.z);
+    }
   }
-  g.rotateX(-Math.PI / 2);                        // 平放，y=长度方向 → z=长度方向
-  g.translate(0, 0, len * 0.15);                  // 叶柄端在原点附近
-  g.computeVertexNormals();
-  return g;
+  geo.computeVertexNormals();
+  return geo;
 }
 
-/* 桃花：五瓣卵圆形 + 花蕊
-   花瓣：卵圆形（基部稍窄、顶部圆钝），五枚绕心 72° 排列
-   花蕊：中央雄蕊群 + 中央雌蕊，用小圆柱/球组合 */
+/* 桃叶：披针形（基部窄 → 中部最宽 → 先端渐尖），单面弯叶带中肋脊。
+   走 makeLeafVolumeGeo 的家法：segs=3 → 12 tri/片（旧 ShapeGeometry 卡片 38 tri）。
+   ⚠️ 尺度按园子的既有约定**放大保可读**，不是植物学真值：真实桃叶 7~15cm，
+   但竹叶在这个园子里是 0.42m（makeBambooLeafGeo 注释写明"游戏里放大到 ~0.42m 基准保持可读"）、
+   柳条帘是 0.34×1m。上一版桃叶按真值给了 0.155m，挂在一棵 4.9m 宽的冠上就是"撒纸屑" ——
+   门禁实测（从外面向树冠轮廓内投平行射线，命中叶片的比例）三步走：
+     真值 0.155m → 0.093（能看穿）｜0.24m → 0.426｜现在 0.26m + 挂点铺密 → 见 peach-form-guard。
+   叶片从原点沿 +Y 生长，叶面法线朝 ±Z —— 实例化时把 +Y 对到叶的生长方向。 */
+function makePeachLeafGeo(){
+  return makeLeafVolumeGeo({ len: 0.26, wMid: 0.008, wTop: 0.030,
+                             thick: 0.010, segs: 3, cup: 0.34, bow: 0.022 });
+}
+
+/* 桃花：五张**花瓣贴图卡**（每张 2 tri）+ 中央花蕊球 = 12 tri/朵。
+   ⚠️ 旧版 5 片 ShapeGeometry 花瓣 ≈160 tri/朵，同样预算只能开 65 朵 —— "花满树"开不出来。
+   花盘法线朝 +Z（五瓣绕 Z 排布、各向外倾 +0.55 成浅碗），实例化时把 +Z 对到朝外方向。 */
 function makePeachFlowerGeo(){
-  const petalL = 0.07, petalW = 0.05;
+  const pl = 0.060, pw = 0.048;                    // 单瓣长 / 宽
   const parts = [];
-
-  // 单瓣：卵圆形
-  const petalShape = new THREE.Shape();
-  petalShape.moveTo(0, 0);
-  petalShape.bezierCurveTo(petalW*0.4, petalL*0.1, petalW*0.95, petalL*0.45, petalW*0.85, petalL*0.85);
-  petalShape.bezierCurveTo(petalW*0.55, petalL*1.05, petalW*0.2, petalL*1.02, 0, petalL);
-  petalShape.bezierCurveTo(-petalW*0.2, petalL*1.02, -petalW*0.55, petalL*1.05, -petalW*0.85, petalL*0.85);
-  petalShape.bezierCurveTo(-petalW*0.95, petalL*0.45, -petalW*0.4, petalL*0.1, 0, 0);
-  const petalGeo = new THREE.ShapeGeometry(petalShape, 8);
-
-  // 五瓣排列：瓣基在中心附近，瓣尖朝外，略外翻
   for (let k = 0; k < 5; k++){
-    const pg = petalGeo.clone();
-    const ang = k * TAU / 5;
-    // 瓣基在中心 0.012 半径处
-    pg.translate(0, 0.012, 0);
-    pg.rotateZ(ang);
-    // 花瓣微微向上拱 + 轻微外翻
-    pg.rotateX(-0.35 - (k % 2) * 0.15);       // 交错外翻
-    pg.rotateY(ang * 0.1);                     // 一点扭转
-    parts.push(pg);
+    const q = new THREE.PlaneGeometry(pw, pl, 1, 1);
+    q.translate(0, pl * 0.5 + 0.006, 0);           // 瓣基离花心留一点间隙
+    q.rotateX(0.55);                               // 瓣面向外张开成浅碗（碗口朝 +Z）
+    q.rotateZ((k * TAU) / 5);                      // 五瓣绕花心排列
+    parts.push(q);
   }
-
-  // 花托/花萼：基部小圆盘（简化为一个小的绿色底托，与花瓣同色但更深，放在后面）
-  const calyxGeo = new THREE.CircleGeometry(0.022, 10);
-  calyxGeo.rotateX(-Math.PI / 2);
-  calyxGeo.translate(0, -0.002, 0);
-  // 花萼颜色由 instanceColor 的深色控制，这里用同一材质靠位置自然区分
-
-  const merged = mergeGeometries([...parts, calyxGeo], false);
-  // 花的朝向：默认花盘朝上（y+），实例化时再旋转
-  return merged;
+  parts.push(new THREE.SphereGeometry(0.010, 6, 4));   // 花蕊群（靠实例色压深）
+  return mergeGeometries(parts, false);
 }
 
 /* 桃子：心形/卵形，顶端有突尖，腹缝有浅沟
@@ -2248,7 +2251,8 @@ function makePeachFruitGeo(){
   pts.push(new THREE.Vector2(maxR*0.4, h*0.75));
   pts.push(new THREE.Vector2(maxR*0.18, h*0.88));
   pts.push(new THREE.Vector2(0.006, h));            // 果尖
-  const g = new THREE.LatheGeometry(pts, 16);
+  // 16 → 12 段：果量从 80 提到 130，单果 ~256 tri 全株就是 3.3 万，12 段够用（7cm 的果子看不出棱）
+  const g = new THREE.LatheGeometry(pts, 12);
   // 做心形：沿 x 方向压扁一点，并在 +x 侧（腹缝）做内凹
   const pos = g.attributes.position;
   for (let i = 0; i < pos.count; i++){
@@ -2269,318 +2273,354 @@ export function makePeachTree(x, z, scale = 1){
   const g = new THREE.Group();
   g.position.set(x, 0, z);
   g.scale.setScalar(scale);
-  const H = 4.2 * rr(0.92, 1.08);                      // 桃较柳矮：观花小乔木
-  const trunkR = 0.16 * rr(0.9, 1.1);                    // 主干细：小乔木
-  const canopyC = new THREE.Vector3(0, H * 0.70, 0);     // 冠心
-  const R = H * 0.42;                                    // 冠半径
+  /* ⚠️ 本树自带随机流（种子由坐标决定）：园子的全局 rnd/rr 是**一条**可复现流，
+     但桃树建在 deferBoot 的延迟任务里 —— 异步资产回调/别的延迟任务先后耗尽它的抽样数，
+     树的形状就会随加载时序漂移。实测：同一份代码连开两次，主干高 2.77m vs 2.92m、
+     叶包围盒也不同（见 outputs/_diag/_peach-determinism.mjs）—— 于是所有"改前改后"的数字
+     都夹着一层"换了一棵树"的噪声。自带流之后，树的形状与加载时序彻底解耦。
+     ⚠️ 声明必须在第一次抽样（H）之前 —— 否则 TDZ 直接抛错。 */
+  const R2 = mulberry32((Math.round(x * 1000) * 73856093) ^ (Math.round(z * 1000) * 19349663)
+                        ^ (Math.round(scale * 1000) * 83492791));
+  const rr2 = (a, b) => a + R2() * (b - a);
+  const i2 = (n) => (R2() * n) | 0;
+  const H = 4.2 * rr2(0.92, 1.08);                      // 桃较柳矮：观花小乔木
+  /* ⚠️ 主干半径 0.150 → 0.100（2026-09-22 二轮重建）：老黄实拍样张里主干是一根 ~0.44m 粗的
+     光杆，4m 高的桃树不该有这么粗的干（真实桃干径 0.12~0.20m）。根盘同步收小。 */
+  const trunkR = 0.100 * rr2(0.94, 1.08);
+  /* 冠心/冠半径：冠幅必须与**叶量预算**匹配 —— 4000 片 0.26m 的叶摊在 3.5m 宽的冠上只剩
+     一层稀晕（实测 77% 的叶挤在半径 1m 内，冠外圈只摊到 23%，从外面看穿得透）。
+     收到 0.34H（冠幅 ≈2.9m）后同样的叶量密度提高 ~1.5 倍。 */
+  const canopyC = new THREE.Vector3(0, H * 0.64, 0);     // 冠心
+  const R = H * 0.34;                                    // 冠半径
   const _m = new THREE.Matrix4(), _p = new THREE.Vector3(),
-        _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
+        _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(),
+        _s = new THREE.Vector3(), _e = new THREE.Euler(),
+        _up = new THREE.Vector3(0, 1, 0), _ax = new THREE.Vector3(),
+        _basis = new THREE.Matrix4(), _bx = new THREE.Vector3();   // 叶面定向用（见叶块）
 
-  /* 主干：从地面到第一主枝分叉点，下部稍粗上部渐细 */
+  /* 主干：地面 → **低分叉点（0.48H）**，基部根盘隆起、向上渐细。
+     ⚠️ 分叉点 0.66H → 0.48H（二轮重建）：桃的招牌是**低分叉的杯状骨架** ——
+     主枝从 0.7~1.6m 就斜向外张成三四个大主枝，而旧版主干光杆一直顶到 2.8m 才分枝，
+     远看就是"一根旗杆顶上插了几根枝"。
+     半径剖面 r(t) = trunkR × (1 − 0.40t) × (1 + 0.38(1−t)^6)：
+       t=0 → 1.38r（≈0.14，根盘）→ 中段 ≈1.0r → t=1 → 0.60r（≈0.06）—— 圆管且确实在收细。 */
   const trunkCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, -0.05, 0),
-    new THREE.Vector3(rr(-0.08,0.08), H*0.25, rr(-0.08,0.08)),
-    new THREE.Vector3(rr(-0.06,0.06), H*0.45, rr(-0.06,0.06)),
-    new THREE.Vector3(rr(-0.04,0.04), H*0.62, rr(-0.04,0.04)),
+    new THREE.Vector3(0, -0.06, 0),
+    new THREE.Vector3(rr2(-0.05,0.05), H*0.18, rr2(-0.05,0.05)),
+    new THREE.Vector3(rr2(-0.04,0.04), H*0.34, rr2(-0.04,0.04)),
+    new THREE.Vector3(rr2(-0.03,0.03), H*0.48, rr2(-0.03,0.03)),
   ]);
-  const trunkGeo = new THREE.TubeGeometry(trunkCurve, 14, trunkR, 8, false);
-  // 顶部收细：手动缩放上部顶点
-  {
-    const pos = trunkGeo.attributes.position;
-    const curve = trunkCurve;
-    for (let i = 0; i < pos.count; i++){
-      const v = new THREE.Vector3(pos.getX(i), pos.getY(i), pos.getZ(i));
-      // 找该顶点在曲线上的 t 值（近似：用 y 估算）
-      const t = Math.max(0, Math.min(1, (v.y - curve.points[0].y) / (curve.points[3].y - curve.points[0].y)));
-      const center = curve.getPoint(t);
-      const radial = v.distanceTo(center);
-      // 顶部 1/3 渐细
-      const taper = t < 0.6 ? 1.0 : 1.0 - (t - 0.6) * 0.55;
-      const dir = v.sub(center).normalize();
-      v.copy(center).addScaledVector(dir, radial * taper);
-      pos.setXYZ(i, v.x, v.y, v.z);
-    }
-    trunkGeo.computeVertexNormals();
-  }
-  g.add(mesh(trunkGeo, MAT.trunk, { name:'peachTrunk', cast:true }));
+  const TR_SEG = 16, TR_RAD = 10;
+  const trunkGeo = tubeRadiusRamp(
+    new THREE.TubeGeometry(trunkCurve, TR_SEG, 1, TR_RAD, false), trunkCurve, TR_SEG, TR_RAD,
+    t => trunkR * (1 - 0.40 * t) * (1 + 0.38 * Math.pow(1 - t, 6)));
+  /* ⚠️ 主干**不进 mergeStatics**（userData.noMerge）：它是这个园子里唯一会"静默塌成刀片"
+     的构件 —— 手工锥化那版让主干上半段整圈塌掉，而 30 道门禁没有一道看得见：合并进世界材质桶
+     之后连名字都没了，按名字根本量不到它。留它单飞换来"逐圈量半径"的能力，
+     代价是 2 个 draw call / 640 tri（两株）。
+     注意：枝与小枝仍然合并（它们同材质同变换，并进世界桶省 draw call，且不易静默变形）。 */
+  const trunkMesh = mesh(trunkGeo, MAT.trunk, { name:'peachTrunk', cast:true });
+  trunkMesh.userData.noMerge = true;
+  g.add(trunkMesh);
 
-  // 根盘
-  for (let i = 0; i < 5; i++){
-    const a = (i / 5) * TAU + rr(-0.3, 0.3);
-    const root = mesh(new THREE.SphereGeometry(rr(0.12, 0.22), 7, 5), MAT.trunk, { name:'peachRoot', cast:true });
-    root.position.set(Math.cos(a) * 0.28, rr(0.04, 0.14), Math.sin(a) * 0.28);
-    root.scale.set(1, 0.55, 1);
+  /* 根盘：6 块低矮隆起，长轴朝外、大半沉进土里，与主干基部的根盘隆起连成一体。
+     ⚠️ 半径随主干同步收小（0.19~0.33 → 0.11~0.19）：干径减半后，旧尺寸的根盘比树还壮，
+     整棵树会读成"蘑菇长在石头墩上"。 */
+  for (let i = 0; i < 6; i++){
+    const a = (i / 6) * TAU + rr2(-0.25, 0.25);
+    const rad = rr2(0.11, 0.19);
+    const root = mesh(new THREE.SphereGeometry(rad, 8, 5), MAT.trunk, { name:'peachRoot', cast:true });
+    root.position.set(Math.cos(a) * rad * 0.9, 0.05 - rad * 0.30, Math.sin(a) * rad * 0.9);
+    root.rotation.y = -a;                       // 长轴朝外（+X 旋到该方位角上）
+    root.scale.set(1.35, 0.62, 1);
     g.add(root);
   }
 
-  /* 主枝：4~6 根，从主干 0.35~0.6H 处分叉伸出，斜向上外张
-     每根主枝有曲线 + 半径渐细 */
-  const nMainBranch = 4 + ((rnd() * 3) | 0);
+  /* 主枝：5~7 根，从主干 **0.16~0.38H**（低位）处分叉斜向上外张 —— 杯状骨架。
+     半径基 0.041 → 梢 0.011（随干径同步收小；旧 0.050 的枝在细干上像插上去的）。
+     全部并成**一个** mesh —— 同材质同变换，分成 5~6 个 mesh 只是白送 5~6 个 draw call。 */
+  const nBranch = 5 + (i2(3));
   const mainBranches = [];       // 保存曲线用于挂叶/花/果
-  for (let i = 0; i < nMainBranch; i++){
-    const a = (i / nMainBranch) * TAU + rr(-0.35, 0.35);
-    const y0 = H * rr(0.35, 0.58);
-    const reach = rr(1.4, 2.2);
-    const tipY = H * rr(0.65, 0.88);
-    const upBias = rr(0.15, 0.35);   // 向上弯曲程度
+  const branchGeos = [];
+  const BR_SEG = 14, BR_RAD = 7;
+  for (let i = 0; i < nBranch; i++){
+    const a = (i / nBranch) * TAU + rr2(-0.35, 0.35);
+    const y0 = H * rr2(0.16, 0.38);
+    const reach = rr2(0.95, 1.30);          // 冠半径 R=0.34H≈1.4m：枝展必须落在冠内
+    /* 梢端高度 0.62~0.94H → 0.50~0.80H：实拍样张里冠层裂成**两根竖柱**（枝全往上窜、
+       中缝露出主干）。压低梢端让主枝朝外张成杯口，冠才收成一个圆。 */
+    const tipY = H * rr2(0.50, 0.80);
+    const upBias = rr2(0.10, 0.30);   // 向上弯曲程度
     const c = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(rr(-0.04,0.04), y0, rr(-0.04,0.04)),
+      new THREE.Vector3(rr2(-0.04,0.04), y0, rr2(-0.04,0.04)),
       new THREE.Vector3(Math.cos(a)*reach*0.35, y0 + H*upBias*0.4, Math.sin(a)*reach*0.35),
       new THREE.Vector3(Math.cos(a)*reach*0.7, tipY + H*upBias*0.2, Math.sin(a)*reach*0.7),
       new THREE.Vector3(Math.cos(a)*reach, tipY, Math.sin(a)*reach),
     ]);
     mainBranches.push(c);
-    // 枝半径：基粗 0.045 → 梢 0.012
-    const brGeo = new THREE.TubeGeometry(c, 12, 1, 6, false);
-    // 手动设置半径渐变
-    const pos = brGeo.attributes.position;
-    const segCount = 12;
-    const radialSegs = 6;
-    for (let seg = 0; seg <= segCount; seg++){
-      const t = seg / segCount;
-      const radius = 0.045 * (1 - t * 0.73);  // 基 0.045 → 梢 0.012
-      const center = c.getPoint(t);
-      for (let r = 0; r < radialSegs; r++){
-        const idx = seg * (radialSegs + 1) + r;
-        // TubeGeometry 的顶点是按管截面排列的，需要重新定位
-        // 这里简化：直接用 TubeGeometry 的结果，后面用 scale 渐变不行
-        // 所以换一种方式：直接用圆柱缩放
-      }
-    }
-    // 简单做法：用 CylinderGeometry 沿曲线放
-    // 其实 TubeGeometry 的 radius 参数如果是数字就是均匀的
-    // 我重新做：用多段圆柱拼接
-    const brParts = [];
-    const nSegs = 8;
-    for (let s = 0; s < nSegs; s++){
-      const t0 = s / nSegs, t1 = (s + 1) / nSegs;
-      const p0 = c.getPoint(t0), p1 = c.getPoint(t1);
-      const r0 = 0.045 * (1 - t0 * 0.73);
-      const r1 = 0.045 * (1 - t1 * 0.73);
-      const mid = p0.clone().add(p1).multiplyScalar(0.5);
-      const len = p0.distanceTo(p1);
-      const seg = new THREE.CylinderGeometry(r1, r0, len, 6, 1, true);
-      const segMesh = new THREE.Mesh(seg, MAT.trunk);
-      segMesh.position.copy(mid);
-      // 朝向：从 p0 指向 p1
-      const dir = p1.clone().sub(p0).normalize();
-      const up = new THREE.Vector3(0, 1, 0);
-      const quat = new THREE.Quaternion().setFromUnitVectors(up, dir);
-      segMesh.quaternion.copy(quat);
-      brParts.push(segMesh);
-    }
-    // 合并成一个
-    const merged = mergeGeometries(brParts.map(m => {
-      m.updateMatrix();
-      return m.geometry.clone().applyMatrix4(m.matrix);
-    }), false);
-    const brMesh = new THREE.Mesh(merged, MAT.trunk);
-    brMesh.name = 'peachBranch';
-    brMesh.castShadow = true;
-    g.add(brMesh);
+    branchGeos.push(tubeRadiusRamp(
+      new THREE.TubeGeometry(c, BR_SEG, 1, BR_RAD, false), c, BR_SEG, BR_RAD,
+      t => 0.041 - 0.030 * t));
   }
+  const brMesh = new THREE.Mesh(mergeGeometries(branchGeos, false), MAT.trunk);
+  brMesh.name = 'peachBranch';
+  brMesh.castShadow = true;
+  g.add(brMesh);
 
-  /* 二级小枝：从主枝上长出，更细更短，是挂花果叶的主要位置 */
+  /* 二级小枝：从主枝**全长**长出（旧版只从 0.25~0.95 取点、5~8 根），更细更长，
+     是挂叶/花/果的主要位置。同样并成一个 mesh —— 旧版 40~50 根小枝 = 40~50 个 draw call。 */
   const twigs = [];
+  const twigGeos = [];
+  const TW_SEG = 6, TW_RAD = 5;
   for (const br of mainBranches){
-    const nTwig = 5 + ((rnd() * 4) | 0);
+    const nTwig = 8 + (i2(5));
     for (let k = 0; k < nTwig; k++){
-      const t = rr(0.25, 0.95);
-      const base = br.getPoint(t);
-      const tan = br.getTangent(t).normalize();
+      const t = rr2(0.20, 0.96);
+      const base = br.getPointAt(t);
+      const tan = br.getTangentAt(t).normalize();
       // 小枝向外上方生长
-      const a = rr(0, TAU);
+      const a = rr2(0, TAU);
       const side = new THREE.Vector3(Math.cos(a), 0, Math.sin(a));
-      const up = new THREE.Vector3(0, 1, 0);
       const dir = new THREE.Vector3()
-        .addScaledVector(side, rr(0.5, 0.9))
-        .addScaledVector(up, rr(0.4, 0.8))
-        .addScaledVector(tan, rr(-0.1, 0.3))
+        .addScaledVector(side, rr2(0.50, 0.90))
+        .addScaledVector(_up, rr2(0.35, 0.75))
+        .addScaledVector(tan, rr2(-0.10, 0.35))
         .normalize();
-      const len = rr(0.25, 0.55);
+      const len = rr2(0.22, 0.42);
       const tip = base.clone().addScaledVector(dir, len);
       const mid = base.clone().addScaledVector(dir, len * 0.5);
-      // 小枝稍微向上拱
-      mid.y += rr(0.02, 0.06);
-      const twCurve = new THREE.CatmullRomCurve3([
-        base.clone(),
-        mid,
-        tip.clone(),
-      ]);
+      mid.y += rr2(0.02, 0.07);                 // 小枝稍微向上拱
+      const twCurve = new THREE.CatmullRomCurve3([base.clone(), mid, tip.clone()]);
       twigs.push(twCurve);
-      // 小枝几何（极细）
-      const twGeo = new THREE.TubeGeometry(twCurve, 5, 0.008, 4, false);
-      const twMesh = new THREE.Mesh(twGeo, MAT.trunk);
-      twMesh.name = 'peachTwig';
-      twMesh.castShadow = true;
-      g.add(twMesh);
+      twigGeos.push(tubeRadiusRamp(
+        new THREE.TubeGeometry(twCurve, TW_SEG, 1, TW_RAD, false), twCurve, TW_SEG, TW_RAD,
+        s => 0.013 - 0.009 * s));
     }
   }
+  const twMesh = new THREE.Mesh(mergeGeometries(twigGeos, false), MAT.trunk);
+  twMesh.name = 'peachTwig';
+  twMesh.castShadow = true;
+  g.add(twMesh);
 
-  /* 叶：沿小枝和主枝外段分布
-     桃叶互生，每节一片，叶柄短 */
+  /* ── 挂点基建：沿木质枝条按**固定弧长**取样 ──
+     枝有多长就有多少挂点，叶/花/果全部挂在这些点上（不再"每枝随机几片"）。
+     旧版正是因此常年只挂到 379/600 —— 叶量由随机的枝数决定，`count` 声明 600 从未兑现。
+     w = 该点分到的叶量份额：小枝是当年新梢、叶最多，主枝是骨架、只有零星叶。 */
+  const woodPts = [];
+  const sampleWood = (curve, spacing, w) => {
+    const n = Math.max(2, Math.round(curve.getLength() / spacing));
+    for (let i = 0; i <= n; i++){
+      woodPts.push({ p: curve.getPointAt(i / n), tan: curve.getTangentAt(i / n).normalize(), w });
+    }
+  };
+  for (const tw of twigs) sampleWood(tw, 0.024, 1.0);
+  for (const br of mainBranches) sampleWood(br, 0.060, 0.45);
+
+  /* 绕枝轴、方位角 a 的单位向量（用于"叶子朝枝的哪一侧长"） */
+  const _perp = new THREE.Vector3(), _pa = new THREE.Vector3(), _pb = new THREE.Vector3();
+  const aroundAxis = (tan, a) => {
+    _pa.copy(_up);
+    if (Math.abs(tan.dot(_pa)) > 0.92) _pa.set(1, 0, 0);
+    _pb.crossVectors(tan, _pa).normalize();
+    _pa.crossVectors(_pb, tan).normalize();
+    return _perp.copy(_pa).multiplyScalar(Math.cos(a)).addScaledVector(_pb, Math.sin(a)).normalize();
+  };
+  /* 确定性打散（乘性散列，不用随机数 → 每次构建结果一致）：
+     季节通道是按 `count` 截**前缀**的（春 peachShow=0.15 只显前 15%、秋果 0.7 显前 70%），
+     不散开就会出现"春天的嫩叶全挤在头一根枝上""秋天掉的果全在南侧"。
+     散开之后任何前缀在空间上都是均匀的。 */
+  const spread = (arr) => arr
+    .map((o, i) => ({ o, k: (i * 2654435761) % 4294967296 }))
+    .sort((a, b) => a.k - b.k)
+    .map(x => x.o);
+  /* 槽位不够就按轮转从 pool 补足 —— 保证挂满声明数量，不再"声明 600 实挂 379" */
+  const fillTo = (arr, target, pool) => {
+    for (let i = 0; arr.length < target; i++) arr.push(pool[(i * 37) % pool.length]);
+  };
+
+  /* ── 冠层叶幕壳（canopyShell）──
+     把叶子按"归一化椭球半径" q = |(p−冠心)/各半轴| 夹进 [SHELL_LO, SHELL_HI]，两个方向都管：
+       · q > HI（甩到壳外的散叶）→ 收回壳面。桃冠的**轮廓**是这一层的包络，
+         甩出去一片就能把"冠半径"撑大一圈，而门禁是按轮廓内命中率算的 —— 等于自己稀释自己。
+       · q < LO（深埋冠心的叶）→ 推到壳内圈，填掉"枝与枝之间的空腔"。
+     竖向半轴比水平小（CAN_B/CAN_A≈0.78）：桃是扁圆冠，真实桃的冠高本就小于冠幅，
+     旧版叶子只在一条水平带上，正侧看就是"能看穿的煎饼"。 */
+  const CAN_A = R;                        // 水平半轴（冠幅半径）
+  const CAN_B = R * 0.84;                 // 竖向半轴（杯状骨架的冠比旧版更高瘦一点）
+  const SHELL_LO = 0.30, SHELL_HI = 1.0;
+  const _cs = new THREE.Vector3();
+  const canopyShell = (p) => {
+    _cs.copy(p).sub(canopyC);
+    const nx = _cs.x / CAN_A, ny = _cs.y / CAN_B, nz = _cs.z / CAN_A;
+    const q = Math.sqrt(nx * nx + ny * ny + nz * nz);
+    if (q < 1e-4) return p;
+    const s = Math.min(SHELL_HI, Math.max(SHELL_LO, q));
+    if (s === q) return p;
+    return p.copy(_cs).multiplyScalar(s / q).add(canopyC);
+  };
+
+  /* ── 叶：桃叶互生，短枝上 3~4 片成簇 ── */
   const leafGeo = makePeachLeafGeo();
-  const leafN = 600;
+  const leafN = 4000;
   const leafInst = new THREE.InstancedMesh(leafGeo, MAT.peachLeaf, leafN);
   leafInst.castShadow = true;
   const leafA = new THREE.Color(0x79B23E), leafB = new THREE.Color(0x44701F);
-  let leafIdx = 0;
 
-  // 从小枝上取点挂叶
-  for (const tw of twigs){
-    const nOnTwig = 6 + ((rnd() * 5) | 0);
-    for (let k = 0; k < nOnTwig && leafIdx < leafN; k++){
-      const t = rr(0.15, 0.95);
-      const pt = tw.getPoint(t);
-      const tan = tw.getTangent(t).normalize();
-      // 叶片从枝上向外长出，有旋转
-      const a = rr(0, TAU);
-      const side = new THREE.Vector3(Math.cos(a), rr(0.1, 0.6), Math.sin(a)).normalize();
-      const leafDir = tan.clone().lerp(side, rr(0.5, 0.85)).normalize();
-      const src = new THREE.Vector3(0, 0, 1);   // 叶几何沿 z 轴方向
-      _q.setFromUnitVectors(src, leafDir);
-      // 叶柄基部在枝上，叶尖向外
-      _p.copy(pt).addScaledVector(leafDir, 0.005);
-      _s.setScalar(rr(0.8, 1.25));
-      _m.compose(_p, _q, _s); leafInst.setMatrixAt(leafIdx, _m);
-      leafInst.setColorAt(leafIdx, leafA.clone().lerp(leafB, Math.random())
-        .offsetHSL(rr(-0.02,0.02), rr(0,0.05), rr(-0.05,0.05)));
-      leafIdx++;
-    }
+  const wTot = woodPts.reduce((s, o) => s + o.w, 0);
+  const leafRaw = [];
+  for (const o of woodPts){
+    const n = Math.max(1, Math.round(leafN * o.w / wTot));
+    for (let k = 0; k < n; k++) leafRaw.push(o);
   }
-  // 从主枝外段挂一些叶
-  for (const br of mainBranches){
-    const nOnBr = 8 + ((rnd() * 6) | 0);
-    for (let k = 0; k < nOnBr && leafIdx < leafN; k++){
-      const t = rr(0.5, 0.95);
-      const pt = br.getPoint(t);
-      const a = rr(0, TAU);
-      const up = new THREE.Vector3(0, 1, 0);
-      const side = new THREE.Vector3(Math.cos(a), rr(0.2, 0.8), Math.sin(a)).normalize();
-      const src = new THREE.Vector3(0, 0, 1);
-      _q.setFromUnitVectors(src, side);
-      _p.copy(pt).addScaledVector(side, 0.008);
-      _s.setScalar(rr(0.9, 1.3));
-      _m.compose(_p, _q, _s); leafInst.setMatrixAt(leafIdx, _m);
-      leafInst.setColorAt(leafIdx, leafA.clone().lerp(leafB, Math.random())
-        .offsetHSL(rr(-0.02,0.02), rr(0,0.05), rr(-0.05,0.05)));
-      leafIdx++;
+  fillTo(leafRaw, leafN, woodPts);
+  const leafSlots = spread(leafRaw).slice(0, leafN);
+
+  for (let i = 0; i < leafSlots.length; i++){
+    const o = leafSlots[i];
+    /* 叶从枝上斜向外上方长出（叶柄极短），方位角按黄金角错开 —— 互生叶序不是并排 */
+    const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.40, 0.40));
+    const leafDir = lat.clone()
+      .addScaledVector(_up, rr2(0.05, 0.35))
+      .addScaledVector(o.tan, rr2(-0.15, 0.25))
+      .normalize();
+    _q.setFromUnitVectors(_up, leafDir);                  // 叶几何沿 +Y 生长
+    _p.copy(o.p).addScaledVector(leafDir, 0.004);
+    /* 冠层被夹进椭球"叶幕"壳层（见 canopyShell）：上下压扁（冠高 < 冠幅）、内外有界。
+       这一步同时管两件事：① 把枝间的空隙填上 ② 把个别甩到壳外的叶子收回来 ——
+       后者是**判据的必需**：门禁的冠半径取所有叶实例的最大水平半径，一片甩出去的叶
+       就能把轮廓撑大一圈，再拿"轮廓内命中率"去除，等于自己稀释自己。 */
+    canopyShell(_p);
+    /* 叶面朝**冠外偏上**（叶向光）：叶几何的局部 ±Z 是叶面法线，把它对到"冠心→叶"的方向上
+       （扣掉沿叶长的分量后正交化）。旧版是绕叶长轴**随机翻卷 0~2π** —— 一半的叶侧对视线
+       只剩一条边，整冠读成"炸毛的刺球"，投影面积也白丢一半（门禁的遮挡率量的正是这个）。
+       ⚠️ 法线必须与 _up 混合再正交化：纯径向法线会让**背阳那半边**整片发黑
+       （实拍样张：冠层变成一颗深色尖刺球）；太阳在 50° 高，叶面偏上才接得到光。 */
+    _ax.copy(_p).sub(canopyC).normalize();
+    _ax.addScaledVector(_up, 0.85).normalize();
+    _ax.addScaledVector(leafDir, -_ax.dot(leafDir));
+    if (_ax.lengthSq() > 1e-8){
+      _ax.normalize();
+      _bx.crossVectors(leafDir, _ax).normalize();
+      _q.setFromRotationMatrix(_basis.makeBasis(_bx, leafDir, _ax));
     }
+    _q.multiply(_q2.setFromAxisAngle(_up, rr2(-0.55, 0.55)));   // 只留一点翻卷差异，不做全随机
+    _s.setScalar(rr2(0.85, 1.25));
+    _m.compose(_p, _q, _s); leafInst.setMatrixAt(i, _m);
+    leafInst.setColorAt(i, leafA.clone().lerp(leafB, R2())
+      .offsetHSL(rr2(-0.02,0.02), rr2(0,0.05), rr2(-0.05,0.05)));
   }
-  leafInst.count = leafIdx;
+  leafInst.count = leafN;
   leafInst.instanceMatrix.needsUpdate = true;
   if (leafInst.instanceColor) leafInst.instanceColor.needsUpdate = true;
   g.add(leafInst);
 
-  /* 花：春季先开，主要在小枝和枝梢
-     桃花花梗短，多为单生或两朵并生，贴枝开放 */
+  /* ── 花：春季先花后叶 —— 桃的花芽与叶芽同在短枝上（花芽先萌），故与叶同源取样。
+     花量 900 朵（旧 320 上限实测只挂到 202）：花瓣几何从 ≈160 tri/朵 降到 12 tri/朵
+     之后，"花满树"才开得起。 */
   const flGeo = makePeachFlowerGeo();
-  const flN = 320;
+  const flN = 900;
   const flInst = new THREE.InstancedMesh(flGeo, MAT.peachBlossom, flN);
   const flA = new THREE.Color(0xFFE8F0), flB = new THREE.Color(0xF490B4);
-  const flC = new THREE.Color(0xE85C8A);  // 深粉（花心/花萼）
-  let flIdx = 0;
 
-  // 花主要在小枝上
+  const twigPool = woodPts.filter(o => o.w > 0.9);
+  const flRaw = [];
   for (const tw of twigs){
-    const nOnTwig = 3 + ((rnd() * 4) | 0);
-    for (let k = 0; k < nOnTwig && flIdx < flN; k++){
-      const t = rr(0.1, 0.95);
-      const pt = tw.getPoint(t);
-      const tan = tw.getTangent(t).normalize();
-      // 花盘朝外上方，花梗短
-      const a = rr(0, TAU);
-      const up = new THREE.Vector3(0, 1, 0);
-      const side = new THREE.Vector3(Math.cos(a), rr(0.2, 0.7), Math.sin(a)).normalize();
-      const flowerUp = up.clone().lerp(side, rr(0.3, 0.7)).normalize();
-      const src = new THREE.Vector3(0, 1, 0);   // 花几何花盘朝上（y+）
-      _q.setFromUnitVectors(src, flowerUp);
-      // 随机旋转花的朝向（绕花轴）
-      _q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rr(0, TAU)));
-      _p.copy(pt).addScaledVector(flowerUp, 0.01);  // 花梗 1cm
-      _s.setScalar(rr(0.85, 1.2));
-      _m.compose(_p, _q, _s); flInst.setMatrixAt(flIdx, _m);
-      // 花颜色：粉白渐变，边缘浅中心深
-      flInst.setColorAt(flIdx, flA.clone().lerp(flB, Math.random())
-        .offsetHSL(rr(-0.03,0.03), rr(0,0.06), rr(-0.03,0.04)));
-      flIdx++;
+    const n = 3 + (i2(3));                 // 每条小枝 3~5 簇
+    for (let k = 0; k < n; k++){
+      const t = rr2(0.12, 0.96);
+      const o = { p: tw.getPointAt(t), tan: tw.getTangentAt(t).normalize() };
+      const m = 1 + (i2(3));               // 每簇 1~3 朵（桃多为单生或两朵并生）
+      for (let j = 0; j < m; j++) flRaw.push(o);
     }
   }
-  // 主枝梢端也有花
-  for (const br of mainBranches){
-    const nOnBr = 4 + ((rnd() * 4) | 0);
-    for (let k = 0; k < nOnBr && flIdx < flN; k++){
-      const t = rr(0.6, 0.98);
-      const pt = br.getPoint(t);
-      const up = new THREE.Vector3(0, 1, 0);
-      const a = rr(0, TAU);
-      const side = new THREE.Vector3(Math.cos(a), rr(0.1, 0.5), Math.sin(a)).normalize();
-      const flowerUp = up.clone().lerp(side, rr(0.2, 0.5)).normalize();
-      const src = new THREE.Vector3(0, 1, 0);
-      _q.setFromUnitVectors(src, flowerUp);
-      _q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rr(0, TAU)));
-      _p.copy(pt).addScaledVector(flowerUp, 0.012);
-      _s.setScalar(rr(0.9, 1.25));
-      _m.compose(_p, _q, _s); flInst.setMatrixAt(flIdx, _m);
-      flInst.setColorAt(flIdx, flA.clone().lerp(flB, Math.random())
-        .offsetHSL(rr(-0.03,0.03), rr(0,0.06), rr(-0.03,0.04)));
-      flIdx++;
+  for (const br of mainBranches){                    // 主枝梢端也开花
+    const n = 4 + (i2(4));
+    for (let k = 0; k < n; k++){
+      const t = rr2(0.55, 0.98);
+      flRaw.push({ p: br.getPointAt(t), tan: br.getTangentAt(t).normalize() });
     }
   }
-  flInst.count = flIdx;
+  fillTo(flRaw, flN, twigPool);
+  const flSlots = spread(flRaw).slice(0, flN);
+
+  for (let i = 0; i < flSlots.length; i++){
+    const o = flSlots[i];
+    const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
+    const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();   // 花盘朝外上方
+    _q.setFromUnitVectors(_ax.set(0, 0, 1), face);        // 花盘法线 +Z → 朝外上方
+    _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));   // 绕花轴自转（花瓣朝向不整齐划一）
+    _p.copy(o.p).addScaledVector(face, 0.008);            // 花梗 ~8mm
+    _s.setScalar(rr2(0.85, 1.20));
+    _m.compose(_p, _q, _s); flInst.setMatrixAt(i, _m);
+    flInst.setColorAt(i, flA.clone().lerp(flB, R2())
+      .offsetHSL(rr2(-0.03,0.03), rr2(0,0.06), rr2(-0.03,0.04)));
+  }
+  flInst.count = flN;
   flInst.instanceMatrix.needsUpdate = true;
   if (flInst.instanceColor) flInst.instanceColor.needsUpdate = true;
   g.add(flInst);
 
-  /* 果：夏秋结桃，主要挂在小枝上，叶间
-     桃子带果柄，下垂或侧生 */
+  /* ── 果：夏结秋疏。桃的果实着生在短枝上，果柄短、稍下垂（果尖＝花端朝外下方）。
+     果量 130（旧 80 上限实测只挂到 64）。 */
   const frGeo = makePeachFruitGeo();
-  const frN = 80;
+  const frN = 130;
   const frInst = new THREE.InstancedMesh(frGeo, MAT.peachFruit, frN);
   const frA = new THREE.Color(0xF2B36A), frB = new THREE.Color(0xD9635A);
-  const frC = new THREE.Color(0xE8845A);  // 中间过渡色
-  let frIdx = 0;
 
+  const frRaw = [];
   for (const tw of twigs){
-    const nOnTwig = 1 + ((rnd() * 2) | 0);
-    for (let k = 0; k < nOnTwig && frIdx < frN; k++){
-      const t = rr(0.2, 0.85);
-      const pt = tw.getPoint(t);
-      const tan = tw.getTangent(t).normalize();
-      // 果柄短，桃子稍下垂
-      const a = rr(0, TAU);
-      const side = new THREE.Vector3(Math.cos(a), rr(-0.5, 0.2), Math.sin(a)).normalize();
-      const fruitDir = side.clone();
-      const src = new THREE.Vector3(0, 1, 0);   // 桃子尖朝上（y+）
-      _q.setFromUnitVectors(src, fruitDir);
-      // 随机旋转
-      _q.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), rr(0, TAU)));
-      _p.copy(pt).addScaledVector(fruitDir, 0.015);  // 果柄
-      _s.set(rr(0.85, 1.15), rr(0.9, 1.1), rr(0.85, 1.15));
-      _m.compose(_p, _q, _s); frInst.setMatrixAt(frIdx, _m);
-      frInst.setColorAt(frIdx, frA.clone().lerp(frB, rr(0.3, 0.9))
-        .offsetHSL(rr(-0.02,0.02), rr(0,0.05), rr(-0.04,0.03)));
-      frIdx++;
+    const n = 1 + (i2(2));                 // 每条小枝 1~2 个
+    for (let k = 0; k < n; k++){
+      const t = rr2(0.25, 0.90);
+      frRaw.push({ p: tw.getPointAt(t), tan: tw.getTangentAt(t).normalize() });
     }
   }
-  frInst.count = frIdx;
+  for (const br of mainBranches){                    // 主枝中段也留几个
+    for (let k = 0; k < 3; k++){
+      const t = rr2(0.45, 0.85);
+      frRaw.push({ p: br.getPointAt(t), tan: br.getTangentAt(t).normalize() });
+    }
+  }
+  fillTo(frRaw, frN, twigPool);
+  const frSlots = spread(frRaw).slice(0, frN);
+
+  for (let i = 0; i < frSlots.length; i++){
+    const o = frSlots[i];
+    const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.60, 0.60));
+    const fruitDir = lat.clone().addScaledVector(_up, -0.85).normalize();
+    _q.setFromUnitVectors(_up, fruitDir);          // 果几何 +Y（果尖）朝外下方
+    _q.multiply(_q2.setFromAxisAngle(_up, rr2(0, TAU)));
+    _p.copy(o.p).addScaledVector(fruitDir, 0.015);  // 果柄
+    _s.set(rr2(0.85, 1.15), rr2(0.90, 1.10), rr2(0.85, 1.15));
+    _m.compose(_p, _q, _s); frInst.setMatrixAt(i, _m);
+    frInst.setColorAt(i, frA.clone().lerp(frB, rr2(0.30, 0.90))
+      .offsetHSL(rr2(-0.02,0.02), rr2(0,0.05), rr2(-0.04,0.03)));
+  }
+  frInst.count = frN;
   frInst.instanceMatrix.needsUpdate = true;
   if (frInst.instanceColor) frInst.instanceColor.needsUpdate = true;
   g.add(frInst);
 
-  /* 落花铺地（春末夏初 · 树干四周散一层粉瓣） */
+  /* 落花铺地（春末夏初 · 树干四周散一层粉瓣）260 片。
+     槽位先算好再打散：春季 peachPetalShow=0.3 / 夏 0.45 是 12-env 按 count 截**前缀**的，
+     不打散就会"花瓣只落在一个扇形里"。 */
   const petalGeo = new THREE.PlaneGeometry(0.075, 0.11);
-  const petalN = 200;
+  const petalN = 260;
   const petalInst = new THREE.InstancedMesh(petalGeo, MAT.peachPetal, petalN);
   const pcA = new THREE.Color(0xF7C7D4), pcB = new THREE.Color(0xE796AE);
+  const petalRaw = [];
   for (let i = 0; i < petalN; i++){
-    const a = rr(0, TAU), d = R * rr(0.15, 0.95);
-    _p.set(Math.cos(a) * d, rr(0.012, 0.05), Math.sin(a) * d);
-    _q.setFromEuler(_e.set(Math.PI / 2, rr(0, TAU), rr(-0.4, 0.4)));
-    _s.setScalar(rr(0.7, 1.4));
-    _m.compose(_p, _q, _s); petalInst.setMatrixAt(i, _m);
-    petalInst.setColorAt(i, pcA.clone().lerp(pcB, Math.random()));
+    petalRaw.push({ a: rr2(0, TAU), d: R * rr2(0.15, 0.95),
+                    y: rr2(0.012, 0.05), ry: rr2(0, TAU), rx: rr2(-0.4, 0.4), s: rr2(0.7, 1.4) });
   }
+  spread(petalRaw).forEach((o, i) => {
+    _p.set(Math.cos(o.a) * o.d, o.y, Math.sin(o.a) * o.d);
+    _q.setFromEuler(_e.set(Math.PI / 2, o.ry, o.rx));
+    _s.setScalar(o.s);
+    _m.compose(_p, _q, _s); petalInst.setMatrixAt(i, _m);
+    petalInst.setColorAt(i, pcA.clone().lerp(pcB, R2()));
+  });
+  petalInst.count = petalN;
   petalInst.instanceMatrix.needsUpdate = true;
   if (petalInst.instanceColor) petalInst.instanceColor.needsUpdate = true;
   g.add(petalInst);
