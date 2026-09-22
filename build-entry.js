@@ -12,3 +12,8 @@ export { Reflector }        from 'three/examples/jsm/objects/Reflector.js';
 export { mergeGeometries }  from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 // GTAOPass：环境光遮蔽。SMAAPass/CSM 曾在此导出但页面零引用 —— 不打包进 vendor。
 export { GTAOPass }         from 'three/examples/jsm/postprocessing/GTAOPass.js';
+// 新增：GLB 压缩解码器（零 CDN 约束，必须本地化）
+export { DRACOLoader }      from 'three/examples/jsm/loaders/DRACOLoader.js';
+export { KTX2Loader }       from 'three/examples/jsm/loaders/KTX2Loader.js';
+// meshoptimizer 需要单独导入（ Glam丶G）
+export { MeshoptDecoder }   from 'meshoptimizer';

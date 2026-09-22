@@ -1,0 +1,1204 @@
+// 11-loop: from index.html inline 503..1363
+import { THREE } from '../vendor.js';
+import { camera, renderer, RENDER_SCALE, GPU_TIER, QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world } from './02-scene.js';
+import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom } from './10-post.js';
+import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol } from './12-env.js';
+import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
+import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
+import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather } from './06-vegetation.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel } from './08-assemble.js';
+import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
+import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
+/* ══════════════════════════════════════════════════════════════
+   11 · 循环与自适应
+   ══════════════════════════════════════════════════════════════ */
+/* r184 起 Clock 已弃用；Timer 的 connect(document) 还会挂 Page Visibility ——
+   切后台自动挂起计时，回前台不会出现"一帧跳 40 秒"的 dt（原来靠钳制值硬兜）。 */
+const timer = new THREE.Timer();
+timer.connect(document);
+const statsEl = document.getElementById('stats');
+let acc = 0, frames = 0, fps = 0, sndAcc = 0;
+
+function onResize(){
+  const w = innerWidth, h = innerHeight;
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+  renderer.setSize(w, h);
+  composer.setSize(w, h);
+}
+addEventListener('resize', onResize);
+
+const _swimmerWorld = new THREE.Vector3();   // 鱼/龟起涟漪要世界坐标（holder 是 koiGroup 的子节点）
+
+/* ══ 氛围粒子（2026-09-20）══
+   萤火入 world（要参与世界坐标，且靠 userData.aoSkip 被 GTAO 排除表收走）；
+   镜前雨雪挂相机（makeLensWeather 内部 scene.add(camera)，并自行登记 AUX_PASS_HIDDEN）。
+   collectAOSkip 补收一次：08 body 末尾的首次收集早于本模块。 */
+const fireflies = makeFireflies();
+world.add(fireflies);
+const lensWeather = makeLensWeather(camera);
+collectAOSkip();
+let frameT = 0;                                // 最近一帧的墙钟 t，供事件回调里的涟漪系统用
+
+/* ── 点击水面：投石问路（2026-09-20）──
+   pointerup 射线打水面网格；按下/松开位移 >6px 视为拖拽转视角，不起圈。
+   开场运镜的让位在 pointerdown 捕获阶段（08 的 introCancel），到这里运镜已结束。
+   点池子以外（水面网格包围盒延伸到岸边的部分）用 insidePond 再拦一道。 */
+const _pondRay = new THREE.Raycaster();
+const _pondNdc = new THREE.Vector2();
+let _pondDown = null;
+/* 最近一次「点击水面」判定结果（供门禁验证整条链路：手势过滤 → 射线 → 池域 → spawnRipple）。
+   真实 pointerup 才写；拖拽/未命中水面也记 hit=false，便于区分"没点到"和"接线断了"。 */
+let lastClickRipple = null;
+renderer.domElement.addEventListener('pointerdown', (e)=>{
+  if (e.button === 0) _pondDown = { x:e.clientX, y:e.clientY };
+});
+renderer.domElement.addEventListener('pointerup', (e)=>{
+  if (e.button !== 0 || !_pondDown || !waterSurface) return;
+  const moved = Math.hypot(e.clientX - _pondDown.x, e.clientY - _pondDown.y);
+  _pondDown = null;
+  if (moved > 6 || introActive()) return;
+  const r = renderer.domElement.getBoundingClientRect();
+  _pondNdc.set(((e.clientX - r.left) / r.width) * 2 - 1,
+               -((e.clientY - r.top) / r.height) * 2 + 1);
+  _pondRay.setFromCamera(_pondNdc, camera);
+  const hit = _pondRay.intersectObject(waterSurface, false)[0];
+  /* ⚠️ 坐标系：insidePond 的多边形是**池心局部坐标**（水面 mesh 位于世界 z=3），
+     hit.point 是世界坐标。用 mesh 的 worldToLocal 换进池心系再判 —— 旋转后
+     水面 mesh 的局部 xz 即池形 Shape 的 xy。直接传世界坐标会整体偏 3m，
+     南半池点击全部误判"不在池内"。 */
+  let ok = false;
+  if (hit){
+    const lp = waterSurface.worldToLocal(hit.point.clone());
+    ok = insidePond(lp.x, lp.z);
+  }
+  if (ok) spawnRipple(hit.point.x, hit.point.z, frameT, 5, 1.6);
+  lastClickRipple = { at: performance.now(), hit: ok,
+    x: hit ? hit.point.x : null, z: hit ? hit.point.z : null };
+});
+
+/* ══ 音景（程序化合成，零音频资产）══
+   六层，全部 Web Audio 原语：
+   · 风 wind    ：低通白噪声（0.5× 回放压低频），音量跟风场（天气底值风 + 阵风包络）
+   · 雨 rain    ：带通白噪声（1.5kHz 中心），音量跟 rainAmount
+   · 虫 cricket ：4.3kHz 三角波 × 11Hz 幅度调制 —— 经典的"蛐蛐"合成，夜 + 安静 + 非冬
+   · 蝉 cicada  ：带通白噪（4.2kHz）× 55Hz 深幅度调制 —— 那种"知——"的一片蝉噪，夏 + 白天 + 安静
+   · 蛙 frog    ：230~320Hz 方波短脉冲串（3~5 声一组），夏 + 夜/暮 + 安静
+   · 鸟 bird    ：晨间短促滑音，三种鸟随机（门控值，不是持续电平）
+   AudioContext 在第一次点"音景"时才创建（自动播放策略要求用户手势）。
+   各层音量都压得很低 —— 环境音要的是"听得见才对"，不是"听得清"。
+
+   ⚠️ plan(p) 是**纯函数**：给定环境参数直接算出各层目标音量，不含任何音频节点操作。
+   这不是洁癖 —— 音景是典型的"全静默失效"区：接线断了不报错、不崩、页面照常跑，
+   而在无音频设备的 CI 里根本听不见"该响的时候没响"。把它做成纯函数，门禁才能
+   直接断言"夏天白天该有蝉、夏夜该有蛙、冬天没有虫鸣"，不必依赖真的出声。 */
+const BIRD_SPECIES = [
+  /* 山雀：细碎高挑，全年可见；画眉：婉转下行，春夏为主；白头鹎：急促三连，南方常见 */
+  { name:'山雀',   f0:[2600, 3300], n:[2, 3], slope:1.25, dur:0.13, gap:0.16, vol:0.050, w:{ spring:1, summer:1, autumn:1.4, winter:2.0 } },
+  { name:'画眉',   f0:[1750, 2100], n:[3, 4], slope:0.82, dur:0.20, gap:0.22, vol:0.055, w:{ spring:1.8, summer:1.4, autumn:0.6, winter:0 } },
+  { name:'白头鹎', f0:[2000, 2450], n:[2, 4], slope:1.10, dur:0.11, gap:0.13, vol:0.045, w:{ spring:1.5, summer:1.2, autumn:1.0, winter:0.3 } },
+];
+const Snd = (()=>{
+  let ctx = null, master = null, rainG = null, windG = null;
+  let cricketCarrier = null, cricketMod = null, cricketG = null;
+  let cicadaG = null, frogG = null;
+  let on = false, birdNext = 0, frogNext = 0, vol = 1;
+  function ensure(){
+    if (ctx) return true;
+    try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch { return false; }
+    master = ctx.createGain(); master.gain.value = 0;
+    master.connect(ctx.destination);
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const mkNoise = (rate, type, freq, q)=>{
+      const src = ctx.createBufferSource();
+      src.buffer = buf; src.loop = true; src.playbackRate.value = rate;
+      const f = ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
+      const g = ctx.createGain(); g.gain.value = 0;
+      src.connect(f); f.connect(g); g.connect(master); src.start();
+      return g;
+    };
+    windG = mkNoise(0.5, 'lowpass',  380, 0.50);
+    rainG = mkNoise(1.0, 'bandpass', 1500, 0.55);
+    /* 虫鸣：载波 × 幅度调制。调制振荡器接到 gain 口上（不是 setInterval），
+       节拍永远贴着音频时钟走。modDepth 控制颤动深度，cricketG 整体闸门由 tick 拉起。 */
+    cricketCarrier = ctx.createOscillator(); cricketCarrier.type = 'triangle';
+    cricketCarrier.frequency.value = 4300;
+    cricketMod = ctx.createOscillator(); cricketMod.type = 'sine'; cricketMod.frequency.value = 11;
+    cricketG = ctx.createGain(); cricketG.gain.value = 0;
+    const modDepth = ctx.createGain(); modDepth.gain.value = 0.011;
+    cricketMod.connect(modDepth); modDepth.connect(cricketG.gain);
+    cricketCarrier.connect(cricketG); cricketG.connect(master);
+    cricketCarrier.start(); cricketMod.start();
+    /* 蝉鸣：带通白噪当"翅膜"，再用 55Hz 的 LFO **乘**上去做颤动。
+       ⚠️ LFO 必须走**独立的 amGain**再接到 cicadaG，不能直接接到 cicadaG.gain ——
+       那样当 cicadaG=0 时 LFO 仍在 ±幅度上摆动（负增益 = 反相，照样出声），
+       静音就静不干净了。amGain 在 0~1 之间摆，音量闸门由它后面的 cicadaG 掌管。 */
+    const cicadaSrc = ctx.createBufferSource();
+    cicadaSrc.buffer = buf; cicadaSrc.loop = true; cicadaSrc.playbackRate.value = 1.0;
+    const cicadaBp = ctx.createBiquadFilter();
+    cicadaBp.type = 'bandpass'; cicadaBp.frequency.value = 4200; cicadaBp.Q.value = 1.2;
+    const amGain = ctx.createGain(); amGain.gain.value = 0.5;      // LFO 围绕 0.5 摆动
+    const cicadaLfo = ctx.createOscillator(); cicadaLfo.type = 'sine'; cicadaLfo.frequency.value = 55;
+    const lfoDepth = ctx.createGain(); lfoDepth.gain.value = 0.5;
+    cicadaG = ctx.createGain(); cicadaG.gain.value = 0;
+    cicadaSrc.connect(cicadaBp); cicadaBp.connect(amGain); amGain.connect(cicadaG);
+    cicadaG.connect(master);
+    cicadaLfo.connect(lfoDepth); lfoDepth.connect(amGain.gain);
+    cicadaSrc.start(); cicadaLfo.start();
+    /* 蛙声：不做连续振荡器，而是按拍调度一串短脉冲（croak()）。
+       蛙是"叫一阵、停一阵"的，连续音会立刻听出是合成器。 */
+    frogG = ctx.createGain(); frogG.gain.value = 0;
+    frogG.connect(master);
+    return true;
+  }
+  /* 纯函数：环境参数 → 各层目标音量。门禁靠它断言"哪一层该响"。 */
+  function plan(p){
+    const rain = p.rainAmount || 0;
+    const windMul = p.windMul || 1;
+    const wind = Math.min(1, Math.max(0, (windMul - 1) * 0.30)
+                        + WIND.uWindGlobal.value * 0.5 + WIND.uWindStrength.value * 0.35);
+    /* "安静" = 没下雨、没大风。鸣虫在雨里和大风里都不叫 —— 这是真的生物学，
+       也是听感上的必需：暴雨里再叠虫鸣，整段音景会糊成一片噪声。 */
+    const quiet = rain < 0.15 && windMul < 2.2;
+    const time = ENV.time, season = ENV.season;
+    const night = time === 'night';
+    const dayLight = time === 'morning' || time === 'noon' || time === 'dusk';
+    return {
+      wind:    0.015 + wind * 0.085,
+      rain:    rain * 0.14,
+      cricket: (night && quiet && season !== 'winter') ? 0.016 : 0,
+      cicada:  (season === 'summer' && dayLight && !night && quiet) ? 0.020 : 0,
+      frog:    (season === 'summer' && (night || time === 'dusk') && quiet) ? 0.030 : 0,
+      bird:    (time === 'morning' && quiet && season !== 'winter') ? 1 : 0,
+      quiet:   quiet ? 1 : 0,
+    };
+  }
+  function chirp(){
+    /* 按季节权重挑鸟种：冬天只剩山雀，春天画眉多 —— 别一年四季一个叫声 */
+    const season = ENV.season || 'summer';
+    let total = 0;
+    for (const b of BIRD_SPECIES) total += (b.w[season] || 0);
+    let pick = BIRD_SPECIES[0];
+    if (total > 0){
+      let r = Math.random() * total;
+      for (const b of BIRD_SPECIES){ r -= (b.w[season] || 0); if (r <= 0){ pick = b; break; } }
+    }
+    const t0 = ctx.currentTime + 0.02;
+    const n = pick.n[0] + ((Math.random() * (pick.n[1] - pick.n[0] + 1)) | 0);
+    for (let i = 0; i < n; i++){
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      const f0 = pick.f0[0] + Math.random() * (pick.f0[1] - pick.f0[0]);
+      const t = t0 + i * pick.gap;
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f0, t);
+      o.frequency.exponentialRampToValueAtTime(f0 * (pick.slope + Math.random() * 0.2 - 0.1), t + pick.dur * 0.7);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(pick.vol, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + pick.dur);
+      o.connect(g); g.connect(master);
+      o.start(t); o.stop(t + pick.dur + 0.03);
+    }
+  }
+  /* 蛙鸣：3~5 声一组的低频方波短脉冲，组间随机间隔 2.5~7 秒 */
+  function croak(){
+    const t0 = ctx.currentTime + 0.02, n = 3 + ((Math.random() * 3) | 0);
+    const base = 230 + Math.random() * 90;
+    for (let i = 0; i < n; i++){
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      const t = t0 + i * (0.13 + Math.random() * 0.06);
+      o.type = 'square';
+      o.frequency.setValueAtTime(base * (0.94 + Math.random() * 0.12), t);
+      g.gain.setValueAtTime(0, t);
+      g.gain.linearRampToValueAtTime(0.030, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + 0.10);
+      o.connect(g); g.connect(frogG);
+      o.start(t); o.stop(t + 0.12);
+    }
+  }
+  function tick(p){
+    if (!on || !ctx || ctx.state !== 'running') return;
+    const now = ctx.currentTime;
+    const q = plan(p);
+    rainG.gain.setTargetAtTime(q.rain, now, 0.5);
+    windG.gain.setTargetAtTime(q.wind, now, 0.6);
+    cricketG.gain.setTargetAtTime(q.cricket, now, 1.2);
+    cicadaG.gain.setTargetAtTime(q.cicada, now, 0.8);
+    /* 蛙声是脉冲串：这里只给闸门电平（0 / 满），节奏由下面的调度器拍板 */
+    frogG.gain.setTargetAtTime(q.frog > 0 ? 1 : 0, now, 0.4);
+    if (q.bird > 0 && performance.now() > birdNext){
+      chirp();
+      birdNext = performance.now() + 4000 + Math.random() * 9000;
+    }
+    if (q.frog > 0 && performance.now() > frogNext){
+      croak();
+      frogNext = performance.now() + 2500 + Math.random() * 4500;
+    }
+  }
+  function setVolume(v){
+    vol = Math.max(0, Math.min(1, v));
+    if (ctx && master) master.gain.setTargetAtTime(on ? vol : 0, ctx.currentTime, 0.15);
+    return vol;
+  }
+  function toggle(){
+    if (!ensure()) return false;
+    on = !on;
+    ctx.resume().catch(()=>{});          // 无手势环境可能拒绝 resume —— 静默即可，不抛错
+    master.gain.setTargetAtTime(on ? vol : 0, ctx.currentTime, 0.25);
+    return on;
+  }
+  return {
+    toggle, tick, plan, setVolume,
+    get on(){ return on; },
+    get volume(){ return vol; },
+    /* 门禁读真实节点电平用（判"接上了"，不判音色） */
+    levels: () => ({
+      master: +((master ? master.gain.value : 0)).toFixed(5),
+      wind:   windG    ? +windG.gain.value.toFixed(5)    : 0,
+      rain:   rainG    ? +rainG.gain.value.toFixed(5)    : 0,
+      cricket:cricketG ? +cricketG.gain.value.toFixed(5) : 0,
+      cicada: cicadaG  ? +cicadaG.gain.value.toFixed(5)  : 0,
+      frog:   frogG    ? +frogG.gain.value.toFixed(5)    : 0,
+    }),
+    ctxState: () => (ctx ? ctx.state : 'none'),
+    species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
+  };
+})();
+export function toggleSound(){ return Snd.toggle(); }
+/* 音量滑杆（P2-3）。⚠️ 这是面板上唯一一个"人工可调项"，且是媒体类通用控件 ——
+   不违背「不给人造天气旋钮」的约定（风/雨/雪没有滑块，它们由调度器与天气驱动）。 */
+(function bindSndVol(){
+  const el = document.getElementById('sndVol');
+  if (!el) return;
+  el.addEventListener('input', ()=>{ Snd.setVolume(parseInt(el.value, 10) / 100); });
+})();
+
+/* ══ 明信片 ══
+   渲染画布本来就不含 DOM 覆盖层（面板/统计都是 HTML 元素），无需隐藏界面。
+   ⚠️ 画布没有 preserveDrawingBuffer：缓冲在合成后随时可能失底。
+   所以 postcardData **先亲自渲一帧**再取像素 —— 任何时刻调用都保证新鲜，
+   代价只是用户点按钮时多渲一帧（按需开销，可忽略）。 */
+export function queuePostcard(){ takePostcard(); }
+
+/* ── 把这两个回调登记给 12-env（明信片 / 音景按钮与 P / M 快捷键）──
+   ⚠️ 必须走 HOOKS 而不是让 12-env 静态 import 本模块：12-env 被 2b-wind 依赖、
+   本模块又依赖 2b-wind → 静态 import 成环，本模块 body 会在 2b-wind 求值完成前跑
+   `animate()` / `window.__garden` → 启动期 TDZ（详见 00-config.js 的 HOOKS 注释）。
+   登记动作放在模块顶层没问题：回调是用户点击时才触发的。 */
+HOOKS.postcard = queuePostcard;
+HOOKS.longExposure = queueLongExposurePostcard;
+HOOKS.sound = toggleSound;
+/* 偶得：抽完一幅景色，用巡游字幕条把结果亮一下（2.6s 自动隐） */
+HOOKS.randomScene = ()=>{
+  const r = randomScene();
+  const el = captionEl();
+  if (el){
+    el.querySelector('b').textContent = '偶得';
+    el.querySelector('span').textContent = r.label;
+    el.classList.add('show');
+    clearTimeout(HOOKS._randomCapTimer);
+    HOOKS._randomCapTimer = setTimeout(()=>el.classList.remove('show'), 2600);
+  }
+  return r;
+};
+/* 朱文印：朱砂底 + 阴刻白字 + 斑驳做旧。
+   印章是明信片"作品感"的关键一笔 —— 没有它，一张截图就只是截图；
+   钤上印才像一幅被收藏过的画。 */
+function drawSeal(g, cx, cy, size, text){
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(-0.04);                                  // 手钤不可能绝对水平
+  const r = size / 2;
+  g.fillStyle = '#B23A2E';
+  g.fillRect(-r, -r, size, size);
+  g.fillStyle = 'rgba(245,242,234,.28)';            // 斑驳：印泥不匀
+  for (let i = 0; i < 90; i++){
+    g.fillRect(-r + Math.random() * size, -r + Math.random() * size, size * 0.05, size * 0.05);
+  }
+  g.strokeStyle = 'rgba(245,242,234,.72)';          // 印面留边
+  g.lineWidth = size * 0.055;
+  g.strokeRect(-r * 0.74, -r * 0.74, size * 0.74, size * 0.74);
+  g.fillStyle = '#f5f2ea';
+  g.font = `600 ${size * 0.42}px "Songti SC","SimSun","Noto Serif SC",serif`;
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  const step = size * 0.46;
+  let y = -(text.length - 1) * step / 2;
+  for (const ch of text){ g.fillText(ch, 0, y); y += step; }
+  g.restore();
+}
+/* 画面落到画布后，统一做题跋 / 装裱 / 题款 / 钤印。普通与长曝光两种明信片共用，
+   保证两张画的"作品感"完全一致（长曝只是多了拖尾合成的画面素材）。 */
+function decoratePostcard(c, { grain = false } = {}){
+  const g2 = c.getContext('2d');
+  const px = c.height / 45, pad = px * 1.4;
+  if (grain){
+    /* 暗部胶片颗粒（仅长曝）：长曝把随机噪声平均掉了，画面越静越"塑料"。
+       给低分辨率单色噪声叠 soft-light —— soft-light 在暗部放大的振幅正好落在
+       胶片颗粒该出现的地方（高光若也铺一层就糊了亮部细节）。低分辨率 + 拉伸 =
+       颗粒偏粗，贴近真实胶片上的银盐颗粒而非屏幕噪点。 */
+    const gw = Math.max(64, c.width >> 3), gh = Math.max(64, c.height >> 3);
+    const n = document.createElement('canvas'); n.width = gw; n.height = gh;
+    const ng = n.getContext('2d');
+    const id = ng.createImageData(gw, gh);
+    for (let i = 0; i < id.data.length; i += 4){
+      const v = Math.random() * 255;
+      id.data[i] = id.data[i + 1] = id.data[i + 2] = v; id.data[i + 3] = 255;
+    }
+    ng.putImageData(id, 0, 0);
+    g2.save();
+    g2.globalCompositeOperation = 'soft-light';
+    g2.globalAlpha = 0.30;
+    g2.drawImage(n, 0, 0, gw, gh, 0, 0, c.width, c.height);
+    g2.restore();
+  }
+  g2.shadowColor = 'rgba(0,0,0,.55)'; g2.shadowBlur = px * 0.6;
+  g2.fillStyle = '#f5f2ea';
+  g2.font = `600 ${px * 1.6}px "Songti SC","SimSun","Noto Serif SC",serif`;
+  g2.fillText('远 香 堂', pad, c.height - pad - px * 1.1);
+  g2.font = `${px * 0.72}px "Songti SC","SimSun",serif`;
+  g2.fillStyle = 'rgba(245,242,234,.92)';
+  g2.fillText(`拙政园 · ${timeLabelNow()}${ENV_SEASON[ENV.season].label} · ${weatherTag()}`, pad, c.height - pad);
+  const d = new Date();
+  g2.textAlign = 'right';
+  g2.fillText(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+               c.width - pad, c.height - pad);
+  g2.textAlign = 'left';
+
+  /* ── 装裱：内缩一圈留白细框，宣纸镶边的观感（画框先画，别盖住字）── */
+  g2.shadowBlur = 0;
+  g2.strokeStyle = 'rgba(245,242,234,.5)';
+  g2.lineWidth = Math.max(1, px * 0.1);
+  g2.strokeRect(pad * 0.85, pad * 0.85, c.width - pad * 1.7, c.height - pad * 1.7);
+
+  /* ── 右侧竖排题款：书画款式，自上而下、自右向左 ── */
+  g2.shadowColor = 'rgba(0,0,0,.55)'; g2.shadowBlur = px * 0.6;
+  g2.textAlign = 'center'; g2.textBaseline = 'middle';
+  const tx = c.width - pad * 2.4;
+  g2.fillStyle = '#f5f2ea';
+  g2.font = `600 ${px * 1.12}px "Songti SC","SimSun","Noto Serif SC",serif`;
+  let ty = pad * 2.6;
+  for (const ch of '拙政园远香堂'){ g2.fillText(ch, tx, ty); ty += px * 1.32; }
+  /* 题款左侧再落一列小字：季节 · 时辰 · 天气 */
+  g2.font = `${px * 0.6}px "Songti SC","SimSun",serif`;
+  g2.fillStyle = 'rgba(245,242,234,.9)';
+  let sy = pad * 2.9;
+  for (const ch of `${ENV_SEASON[ENV.season].label}·${timeLabelNow()}·${weatherTag()}`){
+    g2.fillText(ch, tx - px * 1.6, sy); sy += px * 0.76;
+  }
+  /* 钤印于题款之下（压角章）—— 印章是"作品感"的落点 */
+  g2.shadowBlur = px * 0.4;
+  drawSeal(g2, tx - px * 0.85, ty + px * 0.9, px * 1.7, '云根');
+
+  g2.textAlign = 'left'; g2.textBaseline = 'alphabetic';
+  return g2;
+}
+function postcardData(){
+  composer.render();                    // 亲自渲一帧：没有 preserveDrawingBuffer，缓冲必须现渲现取
+  const src = renderer.domElement;
+  const c = document.createElement('canvas');
+  c.width = src.width; c.height = src.height;
+  c.getContext('2d').drawImage(src, 0, 0);
+  decoratePostcard(c);
+  return c.toDataURL('image/png');
+}
+function takePostcard(){
+  try {
+    const a = document.createElement('a');
+    a.download = `远香堂-${timeLabelNow()}-${ENV.season}-${ENV.weather}.png`;
+    a.href = postcardData();
+    a.click();
+  } catch (e){ console.warn('[明信片] 生成失败：', e); }
+}
+
+/* ══ 长曝光明信片（2026-09-21）══
+   普通明信片是"单帧定格"，长曝光则是把**一段流逝的时间**压进一张画：
+   星点走成圆弧、萤火拖出断点虚线、雨丝拉成银线、水面磨成玻璃。
+   原理是加性帧堆积：每帧先推 windClock（萤火位移、雨水下落、云絮漂移都由它驱动）
+   与星野方位角 uStarRot，再渲一帧，以 `lighter` 用 1/N 权重叠进离屏画布。
+   权重取 1/N 让曝光**中性**（累计≈单帧平均亮度，不爆白），只是把该动的抹成轨迹。
+   ⚠️ 并行前提：堆积循环是同步的，RAF 的 animate 不会插进来 —— 机位在此窗口内冻结，
+   所有运动只来自 windClock 的推进，正是长曝光需要的静止机位 + 流动时间。 */
+const LXP = {
+  frames: 28,       // 采样帧数：太少拖尾断点，太多纯费时（28 帧 ≈ 半秒渲染）
+  dt: 0.10,         // 每帧推进的仿真秒 → 总曝光 ≈ 2.8s
+  starDeg: 10,      // 星野总转角（度）：>6° 才读得出圆弧；再大就失真成"天文台转场"
+};
+/* 长曝期间把 windClock 驱动的材质相位统一刷上去（复刻 animate 里对应那几行）。
+   ⚠️ animate 不会在同步堆积循环里跑 —— 不刷这些 uniform，材质还停在旧 phase，
+   帧间零位移 = 白渲 28 帧。水面 normal 偏移 + 风相位 + 雾相位 + 云相位同源推进。 */
+function lxpSyncWind(adv, rainNow){
+  advanceWindClock(adv);
+  WIND.uTime.value = windClock;
+  WIND.uRain.value = rainNow;
+  if (waterNormalTex){
+    waterNormalTex.offset.x += adv * (0.022 + 0.26 * rainNow);  // 比实时略快 = "曝光期"水面拉丝
+    waterNormalTex.offset.y += adv * (0.015 + 0.21 * rainNow);
+  }
+  MIST.uTime.value = windClock;
+  skyMesh.material.uniforms.uTime.value = windClock;
+}
+/* 长曝合成本身：返回装裱好的 PNG dataURL。下载与门禁采样共用 ——
+   门禁不点 `<a>`（headless 里点不出来），而是直接读这张返回的画。 */
+export function longExposureData(){
+  const N = LXP.frames, adv = LXP.dt;
+  const rotStep = LXP.starDeg * Math.PI / 180 / N;
+  const skyU = skyMesh.material.uniforms;
+  const rainNow = ENV.cur.rainAmount || 0;
+  const w = renderer.domElement.width, h = renderer.domElement.height;
+  const accum = document.createElement('canvas'); accum.width = w; accum.height = h;
+  const ga = accum.getContext('2d');
+  ga.globalCompositeOperation = 'lighter';
+  const weight = 1 / N;
+  try {
+    for (let i = 0; i < N; i++){
+      if (skyU.uStarRot) skyU.uStarRot.value = rotStep * i;   // 星野逐帧转一微角 → 圆弧
+      lxpSyncWind(adv, rainNow);
+      composer.render();
+      ga.globalAlpha = weight;
+      ga.drawImage(renderer.domElement, 0, 0);
+    }
+  } finally {
+    /* 星野旋转必须归一：否则日常实时渲染里星星会按 uStarRot 一直转下去 */
+    if (skyU.uStarRot) skyU.uStarRot.value = 0;
+  }
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  c.getContext('2d').drawImage(accum, 0, 0);
+  decoratePostcard(c, { grain: true });   // 仅长曝叠加暗部胶片颗粒（普通明信片不加）
+  return c.toDataURL('image/png');
+}
+export function queueLongExposurePostcard(){
+  try {
+    const a = document.createElement('a');
+    a.download = `远香堂长曝-${timeLabelNow()}-${ENV.season}-${ENV.weather}.png`;
+    a.href = longExposureData();
+    a.click();
+  } catch (e){ console.warn('[长曝] 生成失败：', e); }
+}
+
+/* ── 帧率自适应（P1-1 附带项 / 审计 P01·P07）──
+   原实现只有「开机读一次 GPU 名字」的静态判档，而真机负载随时段/天气/镜头大幅波动
+   （暴雨近景 + 6144² 阴影 vs 晴天全景），静态档位既救不了被误判的核显本，
+   也管不住移动端越跑越烫。这里加一层带**滞回**的服务质量控制：
+
+   · 采样源：animate 里 stats 已经算好的真实 fps（用 rawDt 记账，不受 dt 钳制污染）；
+   · 降档：连续 6 个窗口（≈3s）fps < 45 → 降一档；
+     升档：连续 12 个窗口（≈6s）fps > 58 → 升一档（升档门槛比降档严得多，
+           因为"偶尔一帧快"不代表稳定，宁可慢一点升）；
+   · 每次变档后冷却 10 个窗口（≈5s）只采样不动作 —— 否则会在阈值附近来回抖；
+   · 4 档：L0 初始 / L1 关 AO / L2 分辨率 ×0.85 + 阴影 2048 / L3 分辨率 ×0.72 + 阴影 1024；
+   · **软渲染（SwiftShader / llvmpipe）不参与自适应**：那不是真实设备，帧率不反映能力，
+     而且无头探针全跑在它上面 —— 若让它自适应，回归断言（draw calls / 三角形 /
+     后处理开关）就会随宿主机器负载漂移。这既是工程判断，也是测试稳定性要求。
+   · 页签隐藏即停渲染（见 animate 顶部）：移动端长时间挂后台是发热与掉电主因。 */
+const QOS = (()=>{
+  const BASE_SCALE  = RENDER_SCALE;
+  const BASE_SHADOW = GPU_TIER === 'low' ? 2048 : 6144;
+  const LEVELS = [
+    { scale: 1.00, ao: GPU_TIER !== 'low', shadow: BASE_SHADOW },
+    { scale: 1.00, ao: false,              shadow: BASE_SHADOW },
+    { scale: 0.85, ao: false,              shadow: 2048 },
+    { scale: 0.72, ao: false,              shadow: 1024 },
+  ];
+  const st = { level: 0, active: !QOS_IMMUNE, low: 0, high: 0, cool: 0, changes: 0, fps: 0 };
+  function applyShadow(size){
+    if (sun.shadow.mapSize.width === size) return;
+    sun.shadow.mapSize.set(size, size);
+    /* 改 mapSize 必须弃掉旧图，否则 three 会继续用老尺寸的 RT（实测不出错但尺寸不生效） */
+    if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
+    renderer.shadowMap.needsUpdate = true;
+  }
+  function apply(level){
+    const i = Math.max(0, Math.min(LEVELS.length - 1, level));
+    const L = LEVELS[i];
+    st.level = i;
+    const s = BASE_SCALE * L.scale;
+    renderer.setPixelRatio(s); renderer.setSize(innerWidth, innerHeight);
+    composer.setPixelRatio(s); composer.setSize(innerWidth, innerHeight);
+    /* GTAO 用 pass.enabled 关，而不是从 passes 数组里摘 —— 摘了再插会重建 RT，
+       而 EffectComposer 的 RT 与 pass 顺序绑定，中途改数组风险大。 */
+    if (gtaoPass) gtaoPass.enabled = L.ao;
+    applyShadow(L.shadow);
+  }
+  function sample(fps){
+    if (!st.active) return;
+    st.fps = fps;
+    if (st.cool > 0){ st.cool--; return; }
+    if (fps < 45){ st.low++; st.high = 0; }
+    else if (fps > 58){ st.high++; st.low = 0; }
+    else { st.low = 0; st.high = 0; }
+    if (st.low >= 6 && st.level < LEVELS.length - 1){
+      apply(st.level + 1); st.low = 0; st.cool = 10; st.changes++;
+      console.log('[QOS] 降档 → L' + st.level + '（fps ' + fps + '）');
+    } else if (st.high >= 12 && st.level > 0){
+      apply(st.level - 1); st.high = 0; st.cool = 10; st.changes++;
+      console.log('[QOS] 升档 → L' + st.level + '（fps ' + fps + '）');
+    }
+  }
+  return { sample, apply, state: () => ({ ...st, baseScale: BASE_SCALE,
+           software: SOFTWARE_GL, probeDriven: PROBE_DRIVEN, immune: QOS_IMMUNE }) };
+})();
+
+/* 页签隐藏暂停渲染：rAF 仍排程（保持循环存活），但跳过这一帧的全部工作。
+   仍调用 timer.update() 让 delta 归零，否则回到前台的第一次 getDelta 会带着
+   几分钟的间隔（Timer 自身也挡了一道，这里是双保险）。 */
+let pageHidden = false;
+document.addEventListener('visibilitychange', () => { pageHidden = document.hidden; });
+if (document.hidden) pageHidden = true;      // 启动即在后台（如后台标签打开链接）
+
+function animate(){
+  requestAnimationFrame(animate);
+  timer.update();                        // 先 update，getDelta/getElapsed 同帧多次调用值不变
+  const rawDt = timer.getDelta();        // 真实帧间隔 —— 统计必须用它
+  const dt = Math.min(rawDt, 0.05);      // 仿真仍钳制（Timer 已挡后台跳变，这是双保险）
+  const t = timer.getElapsed();
+  frameT = t;
+  if (pageHidden) return;                // 后台：不推进仿真、不渲染（发热主因）
+
+  /* 风：推进仿真时钟并跑 L1/L2 调度 + 阵风（所有风材质共享 WIND 这组 uniform）。
+     ⚠️ 必须吃**累加的 dt**，不能吃墙钟 t：软渲染一帧 8.4 秒，用墙钟会让所有相位每帧
+     跳过 8.4 秒（枝叶瞬移、调度器一帧跨过整段过渡 / 一帧换一次档）。
+     真机 60fps 下两者等价，缺陷只在低帧率现形 —— 与步态人物同一个坑（见 MEMORY 铁律）。 */
+  advanceWindClock(dt);                 // 走 2b-wind 的推进函数：导入绑定只读，不能就地 +=
+  WIND.uTime.value = windClock;         // 读仍走 live binding，与推进同源
+  updateWind(windClock);
+  /* 灯笼秋千摆（2026-09-17 用户："这个灯也应该晃动"）：
+     灯笼是 Group（体 + 吊绳 + cap），**顶点位移风场管不到它**。
+     每帧按"挂点为轴、整体轻摆"的秋千模型微摆 —— 摆幅与 WIND 的阵风强度联动，
+     狂风下摇曳、微风不动；每盏独立相位（hash 自身 x/z 坐标），不"齐刷刷"。
+     摆角上限 0.03 rad（~1.7°），吊绳 1m 下摆幅 ≈3cm，与"真实灯笼风里晃几厘米"一致。 */
+  /* 灯笼单摆（2026-09-17 用户："这个灯也应该晃动" → 再修"连接处在动，不科学"）：
+     lanternGroups 里存的是**原点落在挂点**的 pivot（见 makeLanterns），所以这里的
+     rotation 就是真单摆：挂点位移恒为 0、绳下端随离支点的距离线性增大、
+     灯笼中心在绳下端之下因而位移**略大于**绳下端 —— 正是用户要的三条。
+     摆幅与 WIND 阵风联动：狂风摇曳、微风不动；每盏独立相位，不"齐刷刷"。
+     摆角上限 0.045 rad（~2.6°）：游廊绳长 0.675m → 绳下端 2.3cm、灯笼中心（离支点 0.88m）3.1cm；
+     堂前绳长 1.265m → 灯笼 5.1cm。都远小于灯笼与柱、栏的距离，不会穿模。 */
+  /* 2026-09-19 老黄："狂风暴雨的场景下灯笼几乎没动"。
+     旧式 `min(0.045, windGlobal*0.04 + windStrength*0.02)` 有两个毛病：
+       ① **幅值太小**：暴雨台风档 windGlobal≈1 也只给到 0.04 rad（2.3°），
+          堂前摆臂 1.47m → 位移 5cm；游廊摆臂 0.88m → 3cm。远距离看等于没动。
+       ② **摆频固定 0.8 rad/s**（周期 7.9 秒）：又小又慢，肉眼直接判为"静止"。
+     现在两件事一起改：幅值指数式放大到 0.16 rad（9.2°）、摆频随风力从 1.05 提到
+     3.05 rad/s（周期 6.0s → 2.1s）——受迫摆动本来就是风越大摆得越快。
+     ⚠️ 净空已量过（probe/_lantern-clearance.mjs）：最紧的一盏（游廊 x=13.2）
+        水平净距 0.853m、摆臂 0.88m；0.16 rad 只走 0.140m，离撞柱差 6 倍，不会穿模。 */
+  /* 阵风权重 0.35（不是 0.55）：风和日丽也会起阵风（峰值 0.7~1.1），全权重会把晴天的
+     灯笼推到 4.5° —— 那已经不像"微风"。0.35 时晴天峰值 ≈3°，暴雨台风档仍吃满 0.16 rad。 */
+  const windNorm = Math.min(1, WIND.uWindGlobal.value + WIND.uWindStrength.value * 0.35);
+  const lanternSway = 0.005 + 0.155 * Math.pow(windNorm, 1.25);
+  const swayOmega = 1.05 + 2.0 * windNorm;              // 摆频：微风慢摆、狂风快摆
+  const wv = WIND.uWindVec.value;
+  for (const pivot of lanternGroups){
+    const h = hash21Lantern(pivot.position.x * 0.7, pivot.position.z * 0.7);
+    /* 摆动方向**跟随全局风向**（2026-09-18·L1 风向调度器落地后必须同步）：
+       单摆绕"水平面内垂直于风向的轴"摆，灯笼才会朝着风推的方向偏。
+       原来 x/z 两条轴各自跑一个正弦 = 又一个小椭圆，而且风向转了灯笼还在原方向摆。
+       推导：rotation.z 角 a 把绳下端推向 +x，故 rot.z = a·W.x；
+             rotation.x 角 b 把绳下端推向 −z，故 rot.x = −a·W.z（W.y 即世界 z 分量）。 */
+    const a = Math.sin(windClock * swayOmega + h * 6.28) * lanternSway;
+    pivot.rotation.z = a * wv.x;
+    pivot.rotation.x = -a * wv.y;
+  }
+  applyPresence(ENV.cur);      // 每帧重申存在性，否则会被 GTAO pass 的 visible 还原冲掉
+  /* 时光流转：hour 自己走。必须放在 ENV.t 过渡分支**之前**并自己调 applyEnv ——
+     那个分支只在 ENV.t<1 时推进画面，单改 ENV.hour 没人会重申（画面会静止不动）。 */
+  if (REEL.on) advanceReel(dt);
+  // 水面涟漪（法线缓慢漂移）
+  // 环境时序：3 秒缓动过渡（从当前实际画面出发，连点也不会跳）
+  if (ENV.t < 1){
+    ENV.t = Math.min(1, ENV.t + dt / ENV.dur);
+    const e = ENV.t < 0.5 ? 2*ENV.t*ENV.t : 1 - Math.pow(-2*ENV.t + 2, 2) / 2;
+    mixInto(ENV.cur, ENV.from, ENV.to, e);
+    applyEnv(ENV.cur);
+    renderer.shadowMap.needsUpdate = true;   // 过渡中 sunPos/存在性逐帧在动，阴影跟渲
+  }
+  const rainNow = ENV.cur.rainAmount || 0;
+  WIND.uRain.value = rainNow;                 // 雨打枝叶：与风无关的那部分抖动
+  waterNormalTex.offset.x += dt * (0.014 + 0.22 * rainNow);
+  waterNormalTex.offset.y += dt * (0.009 + 0.17 * rainNow);
+  if (waterSurface){
+    /* ⚠️ 这行与 WIND.uTime 是**同一个 uniform 对象**（水面 shader 直接引用了它，见
+       makeWater 段 `shader.uniforms.uTime = WIND.uTime`）—— 写墙钟 t 会把上面刚写进去的
+       windClock 覆盖掉，风的相位又回到"每帧跳 8.4 秒"。必须同源。 */
+    waterSurface.material.uniforms.uTime.value = windClock;
+    waterSurface.material.uniforms.uRain.value = rainNow;
+  }
+  /* 低空云雾：色随雾色、浓度随雾密度 —— 所以调环境那一处就够了，不用再来一遍。
+     ⚠️ 相位吃 windClock（累加 dt），与枝叶/水面同源：吃墙钟会在低帧率下每帧跳
+     一大段，"袅绕"变成"抽搐"（见 MEMORY 铁律）。 */
+  {
+    MIST.uTime.value = windClock;
+    MIST.uColor.value.copy(scene.fog.color);
+    /* 向白提足：雾本质是散射光，暮色的橙雾铺满水面会"脏"并拉出橙黑横条
+       （2026-09-21 走查 F5），0.22→0.34 让雾读成暖灰而不是橘色缎带。 */
+    MIST.uColor.value.lerp(MIST_WHITE, 0.34);
+    /* 浓度跟着 fogDensity 走（正午 0.0052 → 暮 0.010，薄雾天气再 ×1.3）：
+       同一套 0.0045~0.011 的量表，因此晨昏天然更"雾"，正午只是淡淡一层。
+       整体基数 0.17+0.33·mt → 0.10+0.22·mt：片数减了，单片浓度也要再收，
+       否则 20 片叠透仍把远池盖白。 */
+    const mt = Math.max(0, Math.min(1, (scene.fog.density - 0.0045) / 0.0065));
+    /* 下雨时压掉：暴雨里"雨幕"已经是主角，再叠雾会糊成一片灰汤 */
+    MIST.uOpacity.value = (0.10 + 0.22 * mt) * (1 - 0.45 * Math.min(1, rainNow));
+  }
+  // 云层缓慢漂移（天空球只有一张材质）
+  /* ⚠️ B2 修复（2026-09-20）：云的 uTime 必须吃**累加仿真时钟** windClock，不能吃墙钟 t。
+     与枝叶/水面/雾同一个坑：软渲染一帧 8.4s，墙钟每帧跳 8.4s → 云不是"飘"而是"瞬移"，
+     探针低帧率下云影采样也不稳定。真机 60fps 两者等价。 */
+  skyMesh.material.uniforms.uTime.value = windClock;
+
+  // 锦鲤沿椭圆轨道游动（轨道经核算落在池内）
+  const fishes = koiGroup.userData.fishes;
+  for (const f of fishes){
+    const d = f.userData;
+    d.t += dt * d.speed * (ENV.cur.koiSpeed || 1);   // 季节：冬季迟缓
+    const o = KOI_ORBITS[d.orbit];
+    const j = d.jitter + Math.sin(t * 0.35 + d.phase) * 0.06;
+    /* ⚠️ 锦鲤越岸穿模（2026-09-17 修）：holder 是 **koiGroup 的子节点**，
+       f.position 是局部坐标，父组已经在世界 z=+3（= 池心，水面/池底/驳岸三处都是这个偏移）。
+       原来这里又写了一次 `koiGroup.position.x/z`，等于把父组偏移叠加两遍 ——
+       三条轨道整体南移 3m，右瓣在 z_local≈5.97 顶到岸线（岸 6.2）、贯穿轨道在收腰处
+       z_local≈5.54 越过 4.1 的腰，鱼就骑到草皮上了。
+       轨道参数 cx/cz 本来就是**池局部坐标**，直接写即可；世界坐标由父组给。
+       （泳龟是 world 的直接子节点，没有父组偏移，所以下面那段必须保留 —— 别照抄删掉。） */
+    f.position.x = o.cx + Math.cos(d.t) * o.a * j;
+    f.position.z = o.cz + Math.sin(d.t) * o.b * j;
+    f.rotation.y = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
+    f.rotation.z = Math.sin(t * 4 + d.phase) * 0.1;
+
+    // 偶尔自深水区上浮，鱼背破水再沉回
+    let lift = 0;
+    if (!d.rising && t >= d.riseAt){ d.rising = true; d.riseT0 = t; }
+    if (d.rising){
+      const e = t - d.riseT0, rd = 2.8;
+      if (e >= rd){
+        d.rising = false;
+        d.riseAt = t + 9 + Math.random() * 18;      // 每条鱼各自随机，不会同时跃水
+      } else {
+        lift = Math.sin(Math.PI * (e / rd)) * 0.11; // 上浮再沉回
+      }
+    }
+    f.position.y = CFG.water - 0.06 + Math.sin(t * 1.6 + d.phase) * 0.02 + lift;
+    /* ⚠️ 涟漪要由**破水与入水两次穿越**触发，不能"上浮到一半时来一圈"。
+       原来只在 u≥0.5 触发一次，落回水里那一下是干的；而且鱼背的出水高度只有 ~0.12m，
+       一圈乱起在"没看清它在干什么"的时刻，看起来就是凭空的圈。
+       判据：**水面在 CFG.water+0.06（不是 CFG.water）**，用"鱼背高出水面"的符号变化判穿越。 */
+    const emerged = f.position.y + (d.halfH || 0.12) - (CFG.water + 0.06);
+    if (d.wasEmerged === undefined) d.wasEmerged = emerged > 0;
+    if ((emerged > 0) !== d.wasEmerged){
+      d.wasEmerged = emerged > 0;
+      /* ⚠️ f.position 是 **koiGroup 的局部坐标**（koiGroup 自己在 z=+3），
+         直接拿它当世界坐标会把涟漪起在鱼的南边 3 米 —— 鱼的位置公式里加过
+         koiGroup.position，这里却忘了加，两个口径不一致。统一取世界坐标。 */
+      f.getWorldPosition(_swimmerWorld);
+      spawnRipple(_swimmerWorld.x, _swimmerWorld.z, t, 3);   // 出水一圈、入水再一圈
+    }
+  }
+  updateRipples(t);
+  updateRainRipples(t);
+  updatePrecip(dt, t);
+
+  /* 蜻蜓：游弋航迹 + 高频振翅。
+     ⚠️ 季节/天气把它藏起来时（dragonflyShow=0：冬季、暴雨、风雪）不必再算航迹 —— 原来照算不误。 */
+  for (const d of dragonflies){
+    if (!d.visible) continue;
+    const fl = d.userData.flight;
+    const tt = t * fl.sp + fl.ph;
+    d.position.set(
+      fl.cx + Math.cos(tt) * fl.ax + Math.sin(tt * 2.7) * 0.9,
+      fl.y0 + Math.sin(tt * 3.3 + 1.1) * 0.24,
+      fl.cz + Math.sin(tt * 1.6) * fl.az + Math.cos(tt * 3.1) * 0.7
+    );
+    const dx = -Math.sin(tt) * fl.ax + Math.cos(tt * 2.7) * 2.43;
+    const dz =  Math.cos(tt * 1.6) * fl.az * 1.6 - Math.sin(tt * 3.1) * 2.17;
+      if (Math.abs(dx) + Math.abs(dz) > 0.01) d.rotation.y = Math.atan2(dx, dz);
+      for (const w of d.userData.wings){
+        w.rotation.z = w.userData.sx * Math.sin(t * 44 + w.userData.ph) * 0.55;
+      }
+  }
+  /* 停栖蜻蜓：停在真实的花/叶锚点上，停一阵换一朵。
+     ⚠️ 必须在这里调 —— 子代理留下了 updatePerchingDragonflies 却从未调用，
+     两只蜻蜓 visible 恒为 false，等于没做。 */
+  updatePerchingDragonflies(dt, windClock, perchShowOK);
+
+  // 乌龟缓游（同轨道，速度更慢）
+  for (const tw of swimTurtles){
+    const d = tw.userData;
+    d.t += dt * d.speed * (ENV.cur.koiSpeed || 1);   // 季节：冬季迟缓
+    const o = KOI_ORBITS[d.orbit];
+    const j = d.jitter + Math.sin(t * 0.25 + d.phase) * 0.05;
+    tw.position.x = koiGroup.position.x + o.cx + Math.cos(d.t) * o.a * j;
+    tw.position.z = koiGroup.position.z + o.cz + Math.sin(d.t) * o.b * j;
+    /* ⚠️ 吃水深度是量出来的：模型原点在**底面**（loadAssetOnce 把底部对齐到 y=0），
+       而这只龟的"原点→壳顶" = 0.271m。原来的 -0.05 只把 18% 的身高压进水里，
+       壳顶高出水面 0.18m —— 看起来是"趴在水面上滑行"。压到 0.12 后约 44% 没入水中。 */
+    tw.position.y = CFG.water - 0.12 + Math.sin(t * 0.9 + d.phase) * 0.02;
+    /* 乌龟是"壳贴着水面游"的（实测壳顶高出水面 0.15~0.20m），
+       但原来一条尾迹都没有 —— 看起来像贴在水面上滑行。
+       按自己的节奏留圈；季节把乌龟藏起来时（冬季 turtleShow=0）不要再留。 */
+    if (tw.visible && t >= (d.wakeAt || 0)){
+      spawnRipple(tw.position.x, tw.position.z, t, 2);
+      d.wakeAt = t + 1.5 + Math.random() * 1.2;
+    }
+    tw.rotation.y = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
+  }
+
+  // 人物日程（第十四轮）：天气门禁 + 时段 + 散步缓行
+  // ⚠️ 大事：**有效天气**取 effectiveWeather()（冬+storm=winterrain），不要只查 ENV.weather
+  const effW = effectiveWeather();
+  const goodWeather = effW !== 'storm' && effW !== 'snow' && effW !== 'winterrain';
+
+  /* ── 氛围粒子驱动（2026-09-20）──
+     萤火：夏 · 夜 · 晴/薄雾 才亮（雨夜虫不聚光，月光被云遮住也差点意思），uOpacity 平滑淡入淡出。
+     镜前雨雪：强度直接跟解析后的 rainAmount / snowAmount —— 冬·狂风细雨（0.62）天然比夏雨（1.0）疏。
+     风向向量传进去给雨丝倾斜用。 */
+  {
+    const fireWant = ENV.season === 'summer' && ENV.time === 'night'
+      && (effW === 'clear' || effW === 'mist') ? 0.9 : 0;
+    const fu = fireflies.material.uniforms.uOpacity;
+    fu.value += (fireWant - fu.value) * Math.min(1, dt * 1.6);
+    fireflies.visible = fu.value > 0.01;
+    lensWeather.update(dt, camera.aspect,
+      Math.min(1, ENV.cur.rainAmount || 0),
+      Math.min(1, ENV.cur.snowAmount || 0),
+      WIND.uWindVec.value);
+  }
+  for (const f of figures){
+    // 呼吸（衣袍微起伏）
+    const b = Math.sin(t * 1.7 + f.userData.breathPhase) * 0.006;
+    f.userData.robe.scale.set(1 + b, 1 + b * 0.45, 1 + b);
+    // 时段门禁：晨读（7.5~12）/ 午茶（12~18）/ 夜步（18~23）；无时段 = 全天（旧样稿）
+    const sl = f.userData.slot;
+    let inSlot = !sl || (ENV.hour >= sl.h0 && ENV.hour < sl.h1);
+    f.visible = goodWeather && inSlot;
+    /* 步态（2026-09-18）：原来散步**只有 position 平移**、姿态仍是站桩负手 —— 读起来是"滑行"。
+       算一遍才发现更硬的问题：z 振幅 5.1m、ω = sp·TAU·2 = 1.382 rad/s → 周期 4.55s
+       → 一个来回 10.2m / 4.55s = **2.24 m/s**（≈8km/h），是慢走（0.6~0.9）的两倍半，
+       姿态再站桩，读作"滑行"是必然。所以 sp 0.11 → 0.027（均速 0.55 m/s，往返 18.5s）。
+       步相按**走过的距离**推进（不是按时间）：掉头时不会出现倒退的步频。
+       步幅 0.42m/步 → 0.55/0.42 ≈ 1.3 步每秒（78 步/分，正是缓行的步频）。
+       人只有裙摆没有腿，走路感只能靠 起伏 + 左右摆 + 前倾 三件套。 */
+    if (sl && sl.stroll && f.visible){
+      const s2 = sl.stroll;
+      /* ⚠️ 散步相位必须吃**累加仿真时间**（dt 序列），不能吃顶部的 `t`（timer 原始墙钟）。
+         软渲染一帧 8.4s → `t` 每帧跳 8.4 → 人在两次采样之间瞬移 3.8m：探针"解算机位时人还在
+         z=-3.48、快门时已跑到画面外（NDC y=0.93）且被 mergedStatic 挡住 0.60m"就是这个。
+         锦鲤用的是 `d.t += dt` 累加、只有抖动项吃原始 `t` —— 这里统一成同一口径。
+         真机 60fps 下 dt 累加 ≡ 墙钟，观感不变；软渲染下与风/水一样慢放，且探针可复现。 */
+      f.userData.strollT = (f.userData.strollT || 0) + dt;
+      const stt = f.userData.strollT;
+      const ph = Math.sin(stt * s2.sp * TAU * 2 + f.userData.breathPhase);
+      const nx = s2.a + (s2.b - s2.a) * 0.5 * (1 + Math.sin(stt * s2.sp * TAU + 1.7));
+      const nz = s2.z0 + (0.5 + 0.5 * ph) * (s2.z1 - s2.z0);
+      const lp = f.userData.lastPos;
+      const ddx = lp ? nx - lp.x : 0, ddz = lp ? nz - lp.z : 0;
+      const dist = Math.hypot(ddx, ddz);
+      f.position.x = nx; f.position.z = nz;
+      f.userData.lastPos = { x: nx, z: nz };
+      /* 朝向必须跟着**行进方向**（模型正面 = +z → `atan2(dx, dz)`）。
+         ⚠️ 日程里的 `yaw` 只管首帧：`D_SCHEDULES[2].yaw = π/2` 是"面朝 +x"，而人沿 z 轴来回走
+         —— 那就是**侧着身子平移**。它和"相机解算漂移"是两个**互相独立**的缺陷
+         （一个让样张空无一人、一个让动作不成立），共同点是都不报错、都不影响任何断言，只能看图发现。
+         首帧直接定死朝向（否则会停在 π/2 上慢慢转过去，样张恰好拍成半转身）；
+         之后按 dt 平滑，掉头时才不会瞬间翻 180°。 */
+      if (dist > 1e-4){
+        const want = Math.atan2(ddx, ddz);
+        if (f.userData.strollDir == null){
+          f.rotation.y = want; f.userData.strollDir = 1;
+        } else {
+          let d = want - f.rotation.y;
+          d = Math.atan2(Math.sin(d), Math.cos(d));       // 归一到 (-π, π]，否则掉头瞬间翻 180°
+          f.rotation.y += d * Math.min(1, dt * 4);
+        }
+      }
+      f.userData.stepPhase = (f.userData.stepPhase || 0) + dist / 0.42 * Math.PI;
+      const st = f.userData.stepPhase;
+      f.position.y = Math.abs(Math.sin(st)) * 0.028;   // 迈步起伏
+      f.rotation.x = 0.05;                             // 前进时躯干微前倾
+      f.rotation.z = 0.03 + Math.sin(st) * 0.035;      // 左右轻摆（含原本的重心微偏 0.03）
+    } else {
+      f.position.y = 0; f.rotation.x = 0; f.rotation.z = 0.03;
+    }
+  }
+
+  updateCamFly(dt);
+  updateTour(dt);
+  updateIntro(dt);                        // 开场运镜（controls 已被它禁用，update 只刷新阻尼）
+  controls.update();
+  renderer.info.reset();
+  tickLampVol(performance.now() * 0.001);   // 体散射/地面光斑的时间源
+  composer.render();
+
+  /* 音景每 0.25 秒跟一次环境值（setTargetAtTime 自己会平滑，不需要每帧） */
+  sndAcc += dt;
+  if (sndAcc >= 0.25){ sndAcc = 0; Snd.tick(ENV.cur); }
+
+  /* 统计（每 0.5 秒刷新一次，避免频繁写 DOM）
+     ⚠️ 必须用 rawDt：用被钳到 50ms 的 dt 记账，真实 10fps 会被显示成 20fps ——
+     右下角这个数字是性能判断的依据，不能是安慰剂。 */
+  acc += rawDt; frames++;
+  if (acc >= 0.5){
+    fps = Math.round(frames / acc);
+    const info = renderer.info;
+    /* 帧率自适应：把 stats 已算好的真实 fps 交给 QOS（软渲染下 QOS 自动免疫） */
+    QOS.sample(fps);
+    const q = QOS.state();
+    statsEl.textContent =
+      `${fps} fps\n` +
+      `draw calls  ${info.render.calls}\n` +
+      `triangles   ${info.render.triangles.toLocaleString()}\n` +
+      `geometries  ${info.memory.geometries}\n` +
+      `textures    ${info.memory.textures}\n` +
+      `${weatherTag()} · ${timeLabelNow()}${ENV_SEASON[ENV.season].label}\n` +
+      `GPU ${GPU_TIER === 'low' ? '核显档' : '独显档'} · ${AO_ENABLED && (q.level === 0) ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n` +
+      `按 0 复位视角 · 拖动旋转 / 滚轮缩放`;
+    acc = 0; frames = 0;
+  }
+
+  /* 水面真折射（P2-5）：放在 composer.render() **之后** ——
+     ① 阴影此时已按本帧更新过（折射 pass 关掉自动更新就不会每帧多重渲一张 6144² 阴影图，
+        尤其在环境过渡期 needsUpdate 每帧都为 true）；
+     ② 水面用的是**上一帧**的池底贴图 —— 鱼游得慢，一帧延迟肉眼无感。
+     ⚠️ 在 composer 之前调会把 stats 的 draw call 记账顺序打乱（reset 在 composer 前）。 */
+  renderRefraction();
+}
+
+/* ── 首帧那 5 秒怎么治（2026-09-20 · B3）────────────────────────
+   病灶：启动分段里"首帧"一段独占 ~5s —— 57 个 shader program 的编译+链接全挤在
+   第一次 render 里同步完成，主线程整段冻结，加载页只剩合成线程的滑条在动。
+
+   试过的弯路：`compileAsync` 提前编 —— 实测**负优化**（program 63→101、首帧更慢 1.8s）。
+   原因：compileAsync 编的是"调用那一刻渲染状态"对应的 program，与真正首帧的
+   灯组/阴影/雾宏组合对不上，同一批材质被编两遍。
+
+   最终方案（两步）：
+   ① 减 program：风材质的 amp/speed/mode/maxDisp 从编译期常量降为 uniform，
+      program 63→57（首段 5785→5016ms，-13%，见 01-materials.addWind）。
+   ② 分帧暖编译（下面 warmBoot）：把全部可见对象按材质重量分 12 桶，逐帧揭示，
+      走**真实 composer.render()**——灯/雾/阴影/色调映射与生产帧完全一致，
+      program 宏严格对齐，绝不重编。编译总量不变，但每帧只卡 0.3~0.6s，
+      帧间加载页进度文案/进度条照常推进，"死等 5 秒"变成"看得到进度的十几帧"。 */
+const WARM_STAGES = ['立屋架', '铺黛瓦', '叠山石', '引池水', '植花竹', '起烟云'];
+const _warmRaf2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+function collectWarmBuckets(){
+  const items = [];
+  scene.traverse(o => {
+    if (!(o.isMesh || o.isPoints || o.isLine)) return;
+    if (o.visible === false) return;             // 萤火虫/镜前雨等初始隐藏：用到时再编
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    let w = 0;
+    for (const m of mats){
+      const t = (m && m.type) || '';
+      w += t.includes('Physical') || t.includes('Standard') ? 3 : t.includes('Shader') ? 2 : 1;
+    }
+    items.push({ o, w: Math.max(1, w) });
+  });
+  /* 天空独占第一桶（天空球 shader 是全场最重之一，和 20+ 材质挤一桶会让首帧卡 2s）；
+     其余对象贪心装箱进余下 9 桶：每桶重量尽量均等 → 每帧卡顿量均匀。
+     桶数取 10：再多每桶的 rAF/后处理固定开销会把总耗时显著拉长（实测 12 桶多 ~0.3s）。 */
+  const skyItem = items.find(it => it.o === skyMesh);
+  const rest = items.filter(it => it.o !== skyMesh);
+  const N = 10;
+  const buckets = [{ list: skyItem ? [skyItem.o] : [], w: skyItem ? skyItem.w : 0 }];
+  for (let i = 1; i < N; i++) buckets.push({ list: [], w: 0 });
+  for (const it of rest){
+    let b = buckets[1];
+    for (let k = 1; k < N; k++) if (buckets[k].w < b.w) b = buckets[k];
+    b.list.push(it.o); b.w += it.w;
+  }
+  return buckets.filter(b => b.list.length > 0);
+}
+
+function setWarmUI(done, total){
+  const txt = document.querySelector('#loading .ld-text');
+  const prog = document.querySelector('#loading .ld-prog');
+  const pct = Math.min(100, Math.round(done / total * 100));
+  if (prog) prog.style.width = pct + '%';
+  if (txt){
+    const stage = WARM_STAGES[Math.min(WARM_STAGES.length - 1,
+      Math.floor(done / total * WARM_STAGES.length))];
+    txt.textContent = done >= total ? '即 将 开 园' : `营 造 中 · ${stage} ${pct}%`;
+  }
+}
+
+async function warmBoot(){
+  const buckets = collectWarmBuckets();
+  const saved = [];
+  for (const b of buckets) for (const o of b.list) saved.push(o);
+  /* 暖机期全部先隐藏（保持视锥剔除开启：禁用剔除会让 12 帧都过一遍全场景顶点，
+     实测多烧 ~0.5s；家位视角外的少数材质，首转视角时再编，只是零星小卡顿）。 */
+  for (const o of saved) o.userData.__warmVis = o.visible, o.visible = false;
+  /* 分桶帧只编主 pass：阴影图与水面反射都是"全场景再渲一遍"的重 pass，
+     12 桶各跑一次会多烧 ~1.4s —— 全部压到最后的"彩排帧"一次编齐。 */
+  const prevAuto = renderer.shadowMap.autoUpdate;   // 生产态恒为 false
+  const prevWaterHook = waterSurface ? waterSurface.onBeforeRender : undefined;
+  const _warmNoop = () => {};   // ⚠️ 不能赋 null：three 只判 `!== undefined`，null 照样被当函数调用
+  const _prevBloom = bloom.enabled;
+  if (gtaoPass) gtaoPass.enabled = false;   // 分桶期不跑 bloom/GTAO（省全链/整场景法线），彩排帧统一开回
+  const restore = () => {
+    for (const o of saved){ o.visible = o.userData.__warmVis; delete o.userData.__warmVis; }
+    renderer.shadowMap.autoUpdate = prevAuto;
+    renderer.shadowMap.needsUpdate = true;
+    bloom.enabled = _prevBloom;
+    if (gtaoPass) gtaoPass.enabled = true;
+    if (waterSurface) waterSurface.onBeforeRender = prevWaterHook;
+  };
+  try {
+    renderer.shadowMap.autoUpdate = false;
+    renderer.shadowMap.needsUpdate = false;
+    if (waterSurface) waterSurface.onBeforeRender = _warmNoop;
+    bloom.enabled = false;
+    for (let i = 0; i < buckets.length; i++){
+      for (const o of buckets[i].list) o.visible = true;
+      setWarmUI(i, buckets.length);
+      await _warmRaf2();                         // 先让加载页把新进度画出来，再卡这一帧编译
+      /* 必须走真实 composer 渲染（不能用 renderer.compile 预编）：program key 含
+         灯组/阴影/输出色彩空间等渲染期状态，裸 compile 编出的 program 与 RenderPass
+         宏组合对不上，彩排帧会整批重编（实测 37→87，比不暖机更慢）。 */
+      composer.render(0.016);
+    }
+    /* 彩排帧：对象已全部揭示，走完整生产路径——后处理链 + 阴影图 + 水面反射 + 主 pass
+       + 折射——剩余 program（bloom/GTAO/depth/反射/折射变体）一次编完，animate 首帧零编译。 */
+    bloom.enabled = _prevBloom;
+    if (gtaoPass) gtaoPass.enabled = true;
+    if (waterSurface) waterSurface.onBeforeRender = prevWaterHook;
+    renderer.shadowMap.needsUpdate = true;
+    setWarmUI(buckets.length - 1, buckets.length);
+    await _warmRaf2();
+    composer.render(0.016);
+    renderRefraction();
+    setWarmUI(buckets.length, buckets.length);
+    await _warmRaf2();
+    bootMark('暖机');
+  } finally {
+    restore();
+  }
+}
+
+function startAfterWarm(){
+  animate();
+
+  // 首帧（暖机后第一帧几乎零编译）渲染完成后隐藏加载层
+  requestAnimationFrame(()=>{
+    requestAnimationFrame(()=>{
+      document.getElementById('loading').classList.add('done');
+      /* 开场运镜：loading 层淡出的 0.7s 正好遮住起幅跳切。探针/减弱动效默认不播（?intro=1 强制）。 */
+      introMaybeAuto();
+      /* 首次引导：首帧之后才弹（早于此时画布还是白的，教人转视角没有意义）。
+         ⚠️ 探针每次都是全新的 localStorage → 引导**一定会**出现。它非模态且首次交互即消失，
+           所以不会挡住任何门禁的点击。 */
+      guideMaybeAuto();
+      bootMark('首帧');
+      runDeferredBoot();                     // P1-4：首帧已出，现在补装柳/竹/立峰（分帧让出主线程）
+      console.log('[启动分段] ' + BOOT.marks.map(([n, t]) => n + ' ' + t + 'ms').join(' → ') +
+                  ' ｜ 合计 ' + (performance.now() - BOOT.t0).toFixed(0) + 'ms' +
+                  (assetFailures ? ' ｜ 资产失败 ' + assetFailures + ' 个' : ''));
+      console.log('[远香堂] 场景就绪', {
+        GPU档位: GPU_TIER, 超采样: SUPERSAMPLE, GTAO: AO_ENABLED,
+        meshes: registry.meshes,
+        drawCalls: renderer.info.render.calls,
+        triangles: renderer.info.render.triangles,
+      });
+    });
+  });
+}
+
+/* 暖机失败绝不允许拖死启动（加载页会永久卡住）：报警后按老路径直接进主循环 */
+warmBoot().then(startAfterWarm, (err) => {
+  console.warn('[暖机] 分帧编译失败，回退直接启动：', err);
+  startAfterWarm();
+});
+
+// 供外部检查使用（smoke 测试与采集脚本都从这里驱动）
+window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, setEnv, applyEnv,
+                  MAT,   // 材质表：门禁要按材质身份断言（如冬季紫藤花穗 count=0），别让探针靠启发式猜
+                  WIND, PRECIP, weatherAllowed, effectiveWeather, weatherMutexReason, resetCamera,
+                  /* 风的调度器（2026-09-18）：门禁要断言"风向真的是 16 档之一、风力真的是四档之一"，
+                     以及"档位保持时长够久"。靠读 uniform 反推不出档位号，必须显式暴露。
+                     ⚠️ updateWindDir / updateWindForce 也要暴露：软渲染下一帧 8.4s，
+                     靠墙钟等 30 秒的换向间隔根本等不到（而且模拟时间只走真实的 1/20）——
+                     探针必须能**手动步进**状态机（本项目既定范式）。 */
+                  WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP,
+                  forceBand, windGain, updateWindDir, updateWindForce,
+                  flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, lanternGroups,
+                  /* 人物（2026-09-18）：门禁要读各角色服色与步态。**必须显式暴露**——
+                     靠 traverse 猜对象会漏（灯笼那次就踩过"引用没暴露 → found:false"）。 */
+                  figures, FIG_PALETTE, FIG_HAIR,
+                  GLB_LOTUS_STEM_H,
+                  koiGroup, swimTurtles, KOI_ORBITS, insidePond, POND_RADII, POND_PTS,
+                  perchingDragonflies, perchingAnchors, updatePerchingDragonflies,
+                  perchShow: () => perchShowOK, PERCH_LIFT,
+                  camFly: () => CAM_FLY.on,
+                  /* 本次飞行落位后要恢复的 OrbitControls 最小半径。暴露给门禁做**确定性**断言：
+                     "gotoViewpoint 是否真的把机位自带的 minDist 交给了 flyTo" —— 这条一旦断，
+                     近观机位会被静默弹回 9m（方位正确、行程走完、不报错，只有量落位距离才看得见）。 */
+                  camFlyMinDist: () => CAM_FLY.minDist,
+                  /* 阴影（2026-09-18）：门禁要断言「阴影视体真的罩住了园子」——
+                     这是"阴影静默失效"类缺陷（盒外的地不做阴影测试 → 影子被切成一条亮缝，
+                     不报错、不崩、只有量盒边界才看得见）。暴露量不是布尔值而是拟合结果。 */
+                  fitShadowCamera, refreshCasterBox, casterBox,
+                  shadowFit: () => sun.userData.fitInfo,
+                  shadowCam: () => { const c = sun.shadow.camera;
+                    return { left:c.left, right:c.right, top:c.top, bottom:c.bottom, near:c.near, far:c.far }; },
+                  shadowCamObj: () => sun.shadow.camera,
+                  sunLight: () => sun,
+                  /* 湿地：门禁要断言"湿 ≠ 变成金属镜面"。给的是逐材质的干/湿对照，
+                     不是布尔值 —— 判据（湿度提升幅度）得在探针里算。 */
+                  wetMats: () => WET_MATS.map(m => ({ name: m.name || m.uuid.slice(0, 6),
+                    rough: +m.roughness.toFixed(4), dryRough: m.userData.dryRough,
+                    metal: +m.metalness.toFixed(4), dryMetal: m.userData.dryMetal })),
+                  wetNow: () => wetApplied,
+                  tourStart, tourStop, tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
+                  tourCaption: () => { const el = captionEl(); return el ? el.querySelector('b').textContent : ''; },
+                  qosState: () => QOS.state(), setQos: (lv) => QOS.apply(lv),
+                  hidden: () => pageHidden, gpuName: GPU_NAME, softwareGL: SOFTWARE_GL,
+                  probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,
+                  queuePostcard, postcardData, toggleSound, sndState: () => Snd.on,
+                  /* 长曝光明信片：门禁要能触发并量 uStarRot 是否归零（叠完忘复位=星星天天靠它转） */
+                  longExposure: queueLongExposurePostcard, longExposureData,
+                  lxpConfig: () => ({ ...LXP }), lxpStarRot: () => skyMesh.material.uniforms.uStarRot.value,
+                  /* 音景（2026-09-19）：门禁要能读**分层计划**（纯函数，不依赖真的出声）
+                     和**真实节点电平**（判"接上了"）。只给 sndState 一个布尔值守不住
+                     "该响的时候没响"这类全静默失效。 */
+                  sndPlan: (p) => Snd.plan(p || ENV.cur), sndLevels: () => Snd.levels(),
+                  sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),
+                  sndVolume: () => Snd.volume, sndSetVolume: (v) => Snd.setVolume(v),
+                  /* 首次引导（2026-09-19）：门禁要能读步序、翻页、收起，并验"非模态 + 首次交互即消失" */
+                  guideState: () => ({ on: GUIDE.on, i: GUIDE.i, steps: GUIDE_STEPS.length }),
+                  guideStart, guideNext, guideStop,
+                  /* 水面真折射（P2-5）：门禁要能把折射贴图读出来验证「鱼真的被渲进了池底贴图、
+                     且 UV 映射方向没反」—— 这两件事都只能靠读像素，状态/几何都看不出来。 */
+                  refractInfo, refractRT: () => refractInfo().on ? getRefractRT() : null,
+                  /* 晴午水面太阳波光（2026-09-21）：门禁/样张要能断言「正午晴天 uSunVis>0、
+                     晨昏/夜/雨=0」—— 这是"白天水面白刺一片"静默缺陷的量测通道。 */
+                  sunVisWater: () => (waterSurface && waterSurface.material.uniforms.uSunVis)
+                                        ? waterSurface.material.uniforms.uSunVis.value : null,
+                  REEL, toggleReel,   // 时光流转：门禁要能开关并读 hour 推进量
+                  /* 开场运镜（2026-09-20）：门禁要能强制播/中途取消/读状态 */
+                  introStart, introCancel, introActive,
+                  /* 偶得随机景色：门禁要能抽取并读回三轴结果 */
+                  randomScene: () => HOOKS.randomScene(),
+                  /* 氛围粒子：门禁断言"夏夜晴有萤火 / 暴雨有镜前雨" */
+                  fireflyOpacity: () => fireflies.material.uniforms.uOpacity.value,
+                  lensLevel: () => lensWeather.level(),
+                  clickRippleLast: () => lastClickRipple };
+
+/* ══ 首次引导（P2-7）══
+   三步：转视角 → 换天时 → 巡游/留影。只在**第一次**进来时出现（localStorage 记账）。
+   两条硬约束（都是被门禁逼出来的，别改）：
+   ① **非模态**：容器 pointer-events:none，只有气泡自己接管点击 —— 否则挡住画布或
+      挡住 #env 的按钮，pageerror-guard / smoke 的真实点击会直接超时。
+   ② **首次交互即消失**：任何 pointerdown / wheel / keydown（落在 #guide 之外的）都收起。
+      用户已经会用了就别再教，顺带保证引导层**不可能**卡在探针的点击路径上。
+   ⚠️ 气泡的按钮刻意**不放进 #env**：smoke 的「aria-pressed 齐全 / 命中区 ≥38px」
+      只查 `#env button`，放进去会立刻红。 */
+const GUIDE_STEPS = [
+  { sel:null,                   title:'壹 · 转一转',   text:'按住画布拖动，绕着园子转；滚轮推近拉远。' },
+  { sel:'#env .drawer-toggle',  title:'贰 · 换天时',   text:'这里展开四根轴：时段 / 季节 / 天气 / 时辰 —— 随便换，园子跟着变。' },
+  { sel:'button[data-act="tour"]', title:'叁 · 有人带', text:'「巡游」自动带你逛一圈并讲解；「明信片」把这一刻存成一张画。' },
+];
+const GUIDE_KEY = 'garden.guided.v1';
+/* ?guide=1 强制弹出：给门禁（以及想预览引导的人）一条绕过"自动化下不自动弹"的路。
+   没有它，guide-guard 就只能测 `guideStart()`，测不到真实用户会走的那条自动弹路径。 */
+const GUIDE_FORCE = (() => { try { return /[?&]guide=1/.test(location.search); } catch { return false; } })();
+const GUIDE = { on:false, i:0 };
+function guideEl(){ return document.getElementById('guide'); }
+function guideRender(){
+  const el = guideEl(); if (!el) return;
+  const step = GUIDE_STEPS[GUIDE.i]; if (!step) return;
+  const ring = el.querySelector('.g-ring'), bub = el.querySelector('.g-bubble');
+  /* 目标在抽屉里（如「巡游」）就先把抽屉展开 —— 收起状态量不到矩形，光环会画在 0,0。 */
+  if (step.sel && step.sel.indexOf('data-act') >= 0){
+    const env = document.getElementById('env');
+    if (env && !env.classList.contains('expanded')) env.classList.add('expanded');
+  }
+  let r = null;
+  if (step.sel){
+    const t = document.querySelector(step.sel);
+    if (t){ const b = t.getBoundingClientRect(); r = { left:b.left, top:b.top, width:b.width, height:b.height }; }
+  }
+  /* 量不到（元素隐藏 / 窄屏折叠）就退化成画布中心的圆，别画出一个 0×0 的光环 */
+  if (r && r.width < 4) r = null;
+  if (!r){ const w = 160; r = { left:innerWidth/2 - w/2, top:innerHeight/2 - w/2, width:w, height:w }; }
+  const pad = 10;
+  ring.style.left   = (r.left - pad) + 'px';
+  ring.style.top    = (r.top  - pad) + 'px';
+  ring.style.width  = (r.width  + pad * 2) + 'px';
+  ring.style.height = (r.height + pad * 2) + 'px';
+  /* 气泡放在**环的反侧**：三个目标的环都在屏幕下半部（或正中），气泡就一律去顶部，
+     绝不压住左下角的 #env 锚点 —— 那正是探针第一个要点的元素。 */
+  const upper = (r.top + r.height / 2) < innerHeight * 0.42;
+  bub.style.top    = upper ? 'auto' : '16px';
+  bub.style.bottom = upper ? '16px' : 'auto';
+  bub.querySelector('b').textContent = step.title;
+  bub.querySelector('span').textContent = step.text;
+  const next = bub.querySelector('button[data-g="next"]');
+  next.textContent = GUIDE.i === GUIDE_STEPS.length - 1 ? '知道了' : '下一步';
+  const dots = bub.querySelector('.g-dots');
+  dots.innerHTML = '';
+  for (let k = 0; k < GUIDE_STEPS.length; k++){
+    const i = document.createElement('i');
+    if (k === GUIDE.i) i.className = 'on';
+    dots.appendChild(i);
+  }
+}
+function guideStart(){
+  const el = guideEl(); if (!el) return false;
+  GUIDE.on = true; GUIDE.i = 0;
+  el.classList.add('on');
+  guideRender();
+  return true;
+}
+function guideNext(){
+  GUIDE.i++;
+  if (GUIDE.i >= GUIDE_STEPS.length){ guideStop(); return false; }
+  guideRender();
+  return true;
+}
+function guideStop(){
+  const el = guideEl(); if (!el) return false;
+  GUIDE.on = false;
+  el.classList.remove('on');
+  try { localStorage.setItem(GUIDE_KEY, '1'); } catch { /* 隐私模式下写不了，静默 */ }
+  return false;
+}
+function guideMaybeAuto(){
+  /* ⚠️ 被自动化驱动时**不自动弹**（与 QOS 免疫同一条判据：`navigator.webdriver`）。
+     这不是为了迁就测试 —— 气泡是固定压在画面上的一块深色面板，mist-guard /
+     lamp-guard / reel-guard 这些**量像素**的门禁会把它当成画面的一部分采进去
+     （实测：mist-guard 的 x=590 那一列正好落在气泡里，山−天从 −6.86 变 +23.27，假红）。
+     引导本身仍可用：`guideStart()` / 三步翻页 / 收起全部照常，guide-guard 就走这条路。
+     ⚠️ `?guide=1` 是唯一例外：门禁靠它验"真·自动弹"那条路径（见 GUIDE_FORCE）。 */
+  if (PROBE_DRIVEN && !GUIDE_FORCE) return false;
+  let done = false;
+  try { done = localStorage.getItem(GUIDE_KEY) === '1'; } catch { /* 读不了就当没看过 */ }
+  if (!done) guideStart();
+  return GUIDE.on;
+}
+(function bindGuide(){
+  const el = guideEl(); if (!el) return;
+  const bub = el.querySelector('.g-bubble');
+  bub.addEventListener('click', (e)=>{
+    const b = e.target.closest('button[data-g]');
+    if (!b) return;
+    if (b.dataset.g === 'skip') guideStop(); else guideNext();
+  });
+  /* 首次交互即消失。⚠️ 落在气泡上的交互不算 —— 否则点「下一步」会自己把自己关掉 */
+  const dismiss = (e)=>{ if (GUIDE.on && !(e.target && e.target.closest && e.target.closest('#guide'))) guideStop(); };
+  addEventListener('pointerdown', dismiss, true);
+  addEventListener('wheel', dismiss, { passive:true, capture:true });
+  addEventListener('keydown', dismiss, true);
+  addEventListener('resize', ()=>{ if (GUIDE.on) guideRender(); });
+})();
+
+/* ── PWA 离线注册（P1-3）──
+   只在 http(s) 下注册（file:// 无 SW）；注册失败静默（离线能力是加分项，不是门禁）。 */
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+  addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+  });
+}

@@ -9,6 +9,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { launchChromium } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -19,7 +20,8 @@ function loadPlaywright() {
   return require(path.join(globalRoot, 'playwright'));
 }
 
-const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.glb': 'model/gltf-binary' };
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.glb': 'model/gltf-binary',
+               '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
 const server = http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
   fs.readFile(path.join(ROOT, p), (err, data) => {
@@ -39,13 +41,32 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
    探针把 dur 调短 + 轮询 ENV.t>=1 —— 插值机制照跑，只是不等墙钟。 */
 const settled = page => page.waitForFunction(() => window.__garden && window.__garden.ENV.t >= 1,
   { timeout: 30000, polling: 250 }).then(() => true).catch(() => false);
+/* ── 等 stats 标签刷新到位（2026-09-18 新增，修竞态）──
+   `#stats` 不是逐帧写的：渲染循环里按**累加节拍**（约 0.5 秒）刷新一次。
+   于是"设完状态就立刻读 textContent"是在赌 HUD 那一拍恰好已经跑过 ——
+   旧软渲染 harness 一帧 2.4 秒，一帧就跨过节拍，永远踩得中；
+   harness 换到真 GPU（37ms/帧）后这个赌局输了：实测连跑 3 次，2 次读到上一拍的旧标签
+   （"切夜"读到"午夏"、"晨雾"读不到"薄雾"）。
+   ⚠️ 这类"读一次"的断言换 harness 时是最先碎的 —— 判据要改成**轮询到谓词成立**。 */
+async function waitStats(page, test, ms = 6000){
+  const read = () => page.evaluate(() => (document.getElementById('stats') || {}).textContent || '');
+  const t0 = Date.now();
+  for (;;){
+    const txt = await read();
+    if (test(txt)) return { ok: true, txt };
+    if (Date.now() - t0 > ms) return { ok: false, txt };
+    await sleep(80);
+  }
+}
+/* stats 里那行"天气 · 时刻季节"：两处断言都要它，取法统一在这里 */
+const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) || '').trim();
 
 (async () => {
   await new Promise(r => server.listen(0, r));           // 随机可用端口
   const port = server.address().port;
   const { chromium } = loadPlaywright();
-  const browser = await chromium.launch({ headless: true });
-  // 小视口：无头 SwiftShader 软渲染像素越少帧率越高，过渡等仿真推进才等得起
+  const browser = await launchChromium(chromium);
+  // 小视口：像素越少每帧越省，过渡靠仿真推进才等得起（harness 见 _harness.mjs）
   const page = await browser.newPage({ viewport: { width: 480, height: 640 } });
   const consoleMsgs = [];
   page.on('console', m => consoleMsgs.push({ type: m.type(), text: m.text() }));
@@ -53,13 +74,23 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
 
   console.log(`\n[smoke] http://127.0.0.1:${port}/index.html`);
 
+  /* ⚠️ 必须声明在早退分支之前：启动失败时第 63 行就 finish() 了，而下面那句
+     `const info = ...` 还没执行到 —— 此时读取 info 命中 TDZ，finish() 自己抛
+     ReferenceError，把"启动失败"的报告变成 Node 崩溃。用 let 提前置空。 */
+  let info = null;
+
   // ── 1. 启动 ──
-  await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 60000 });
+  const response = await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 60000 });
+  console.log('[source] HTTP=' + response.status() + ' matchesDisk=' + (await response.body()).equals(fs.readFileSync(path.join(ROOT, 'index.html'))));
   const booted = await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 45000 }).then(() => true).catch(() => false);
+    undefined, { timeout: 45000 }).then(() => true).catch(e => { console.log('[boot-wait] ' + e.message); return false; });
   check('页面启动完成（loading 层收起，__garden 就绪）', booted);
-  if (!booted) { finish(); return; }
+  if (!booted) {
+    for (const m of consoleMsgs) console.log('[boot-console] ' + m.type + ': ' + m.text);
+    console.log('[boot-state] ' + JSON.stringify(await page.evaluate(() => ({ garden: !!window.__garden, loading: document.getElementById('loading')?.textContent, state: document.readyState })).catch(e => ({ error: e.message }))));
+    await finish(); return;
+  }
 
   // ── 2. 控制台卫生（SwiftShader 软渲染的 CONTEXT_LOST/Restored 属环境噪声，放行）──
   await sleep(4000);
@@ -72,7 +103,7 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
   check('零资产加载失败', assetFail.length === 0);
 
   // ── 3. 渲染量上限（防性能回退的硬门禁）──
-  const info = await page.evaluate(() => {
+  info = await page.evaluate(() => {
     const r = window.__garden.renderer;
     return { calls: r.info.render.calls, tris: r.info.render.triangles,
              geos: r.info.memory.geometries, tex: r.info.memory.textures };
@@ -106,14 +137,33 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
   await page.evaluate(() => { window.__garden.ENV.dur = 0.25; });   // 探针加速过渡（见 settled 注释）
   await page.evaluate(() => window.__garden.setEnv('time', 'night'));
   check('切夜：过渡完成（ENV.t 收敛）', await settled(page));
+  const nightStats = await waitStats(page, t => t.includes('夜'));
   const night = await page.evaluate(() => ({
     t: window.__garden.ENV.time, lum: window.__garden.scene.environmentIntensity,
-    stats: document.getElementById('stats').textContent,
   }));
   check('切夜：状态落位', night.t === 'night');
-  check('切夜：stats 标签联动', night.stats.includes('夜'),
-        (night.stats.split('\n').find(l => l.includes('·')) || '').trim());
+  check('切夜：stats 标签联动', nightStats.ok, statsLine(nightStats.txt));
   check('切夜：环境强度随亮度下调', night.lum < 0.6, `environmentIntensity=${night.lum && night.lum.toFixed(3)}`);
+  // ── 5.1 月亮（2026-09-19 需求：晴夜有月、随辰起落；雨/阴天无月）──
+  const nightMoon = await page.evaluate(() => {
+    let mat = null;
+    window.__garden.scene.traverse(o => {
+      if (o.material && o.material.uniforms && o.material.uniforms.uMoonAmount) mat = o.material;
+    });
+    if (!mat) return null;
+    /* ⚠️ 场景里有两盏平行光（sun + fill），必须认**投影那盏**：fill 不跟着月亮走，
+       取错灯这条断言会永远红（或者更糟：fill 碰巧同向就假绿）。 */
+    let dl = null;
+    window.__garden.scene.traverse(o => { if (o.isDirectionalLight && o.castShadow && !dl) dl = o; });
+    if (!dl) window.__garden.scene.traverse(o => { if (o.isDirectionalLight && !dl) dl = o; });
+    const d = mat.uniforms.uMoonDir.value;
+    return { vis: mat.uniforms.uMoonAmount.value, alt: Math.asin(Math.max(-1, Math.min(1, d.y))),
+             dot: dl ? dl.position.clone().normalize().dot(d) : null };
+  });
+  check('晴夜有月：天空月可见度>0.5 且月在地平线上', !!nightMoon && nightMoon.vis > 0.5 && nightMoon.alt > 0,
+        nightMoon ? `vis=${nightMoon.vis.toFixed(2)} 仰角=${(nightMoon.alt * 180 / Math.PI).toFixed(1)}°` : '未找到天空材质');
+  check('月光即主光：夜里的平行光方向 = 月亮方向', !!nightMoon && nightMoon.dot !== null && nightMoon.dot > 0.99,
+        nightMoon ? `dot=${nightMoon.dot && nightMoon.dot.toFixed(3)}` : '未找到主光');
 
   await page.evaluate(() => { window.__garden.setEnv('time', 'noon'); window.__garden.setEnv('weather', 'storm'); });
   check('切暴雨：过渡完成', await settled(page));
@@ -148,19 +198,43 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
     reverted: (document.querySelector('#env button[data-v="snow"]').classList.contains('on')),
   }));
   check('冬季切雪合法且生效', winterSnow === true && snowState.eff === 'snow' && snowState.snow > 0 && snowState.reverted);
+  // ── 6.1 冬季植被存在性（紫藤是落叶藤本，冬季花穗必须落尽）──
+  //    回归背景：collectSeasonCaches 曾把所有 InstancedMesh 从 presence 收集里剔除，
+  //    MAT.wisteria 缓存恒空 → applyPresence 落空 → 冬季照常开花（无报错、无门禁，纯静默）。
+  const winterWisteria = await page.evaluate(() => {
+    let meshes = 0, visible = 0, count = 0;
+    window.__garden.scene.traverse(o => {
+      if (o.isInstancedMesh && o.material === window.__garden.MAT.wisteria){
+        meshes++; if (o.visible) visible++; count += o.count;
+      }
+    });
+    return { meshes, visible, count };
+  });
+  check('冬季紫藤落尽：花穗 InstancedMesh 全部 count=0 且不可见',
+        winterWisteria.meshes > 0 && winterWisteria.visible === 0 && winterWisteria.count === 0,
+        `meshes=${winterWisteria.meshes} visible=${winterWisteria.visible} count=${winterWisteria.count}`);
   await page.evaluate(() => { window.__garden.setEnv('season', 'summer'); window.__garden.setEnv('time', 'noon'); });
   await settled(page);
+  const noonMoon = await page.evaluate(() => {
+    let mat = null;
+    window.__garden.scene.traverse(o => {
+      if (o.material && o.material.uniforms && o.material.uniforms.uMoonAmount) mat = o.material;
+    });
+    return mat ? mat.uniforms.uMoonAmount.value : null;
+  });
+  check('正午无月（月亮只在夜里起落）', noonMoon === 0, `uMoonAmount=${noonMoon}`);
 
   // ── 6.5 拓展特性：晨雾 / 连续时辰 / 明信片 / 音景 ──
   await page.evaluate(() => window.__garden.setEnv('weather', 'mist'));
   check('切晨雾：过渡完成', await settled(page));
+  const mistStats = await waitStats(page, t => t.includes('薄雾'));
   const mistState = await page.evaluate(() => ({
     fog: window.__garden.scene.fog.density,
-    stats: document.getElementById('stats').textContent,
     btnEnabled: !document.querySelector('#env button[data-v="mist"]').disabled,
   }));
   check('晨雾：雾密度抬升（fogMul 1.3，主建筑须可读）', mistState.fog > 0.0062 && mistState.fog < 0.0085, `density=${mistState.fog.toFixed(4)}`);
-  check('晨雾：标签联动且全季节可用', mistState.stats.includes('薄雾') && mistState.btnEnabled);
+  check('晨雾：标签联动且全季节可用', mistStats.ok && mistState.btnEnabled,
+        `label="${statsLine(mistStats.txt)}" btnEnabled=${mistState.btnEnabled}`);
 
   const sliderTaken = await page.evaluate(() => {
     const s = document.getElementById('hourSlider');
@@ -174,13 +248,13 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
     hour: window.__garden.ENV.hour,
     time: window.__garden.ENV.time,
     readout: document.getElementById('hourReadout').textContent,
-    stats: document.getElementById('stats').textContent,
   }));
   check('时辰滑杆：ENV.hour 落位、按钮跟随最近锚点',
         Math.abs(hourState.hour - 15.3) < 0.01 && hourState.time === 'dusk',
         `hour=${hourState.hour} time=${hourState.time} readout=${hourState.readout}`);
-  const statsTimeLine = (hourState.stats.split('\n').find(l => l.includes('·')) || '');
-  check('时辰滑杆：stats 显示 HH:MM', /:\d\d/.test(statsTimeLine), statsTimeLine.trim());
+  /* 这一条同样吃 HUD 节拍：等"·"行里出现 HH:MM 为止，别读一次就判 */
+  const hourStats = await waitStats(page, t => /:\d\d/.test(statsLine(t)));
+  check('时辰滑杆：stats 显示 HH:MM', hourStats.ok, statsLine(hourStats.txt));
   await page.evaluate(() => window.__garden.setEnv('time', 'noon'));
   await settled(page);
   const backNoon = await page.evaluate(() => ({
@@ -212,6 +286,32 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
   const pos1 = await page.evaluate(() => { const p = window.__garden.camera.position; return [p.x, p.y, p.z]; });
   const moved = Math.hypot(pos0[0] - pos1[0], pos0[1] - pos1[1], pos0[2] - pos1[2]);
   check('按 0 键视角复位', moved < 1e-3, `复位距离 ${moved}`);
+
+  // ── 7.5 点击水面起涟漪（2026-09-19）：可信鼠标点击 → 射线命中池面 → spawnRipple ──
+  /* 回归要点：① insidePond 是池心局部坐标（池心世界 z=3），世界点要先减 3；
+     ② 必须发**可信** pointerdown+up（page.mouse），合成 pointerup 会被手势过滤丢掉。 */
+  const pondPt = await page.evaluate(() => {
+    const { camera, THREE, insidePond } = window.__garden;
+    const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), hit = new THREE.Vector3();
+    const plane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+    const cv = document.querySelector('canvas');
+    for (const fy of [0.62, 0.58, 0.66, 0.70, 0.55, 0.50]){
+      for (const fx of [0.30, 0.34, 0.26, 0.40, 0.22, 0.45]){
+        ndc.set(fx * 2 - 1, -(fy * 2) + 1);
+        ray.setFromCamera(ndc, camera);
+        if (ray.ray.intersectPlane(plane, hit) && insidePond(hit.x, hit.z - 3))
+          return { x: Math.round(fx * cv.clientWidth), y: Math.round(fy * cv.clientHeight) };
+      }
+    }
+    return null;
+  });
+  check('点击涟漪：默认机位下找得到池面可点屏幕点', !!pondPt, JSON.stringify(pondPt));
+  if (pondPt){
+    await page.mouse.click(pondPt.x, pondPt.y);
+    await sleep(250);
+    const rip = await page.evaluate(() => window.__garden.clickRippleLast());
+    check('点击涟漪：可信点击命中池面并生成水痕', !!(rip && rip.hit), JSON.stringify(rip));
+  }
 
   // ── 8. stats 实时更新 & 视口缩放 ──
   const statsOk = await page.evaluate(() => /draw calls/.test(document.getElementById('stats').textContent));
@@ -245,13 +345,117 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
   check('移动端：按钮 aria-pressed 齐全、命中区 ≥38px', mob.allPressed && mob.minH >= 38,
         `minH=${Math.round(mob.minH)}`);
 
+  // ── 8.6 PWA 离线三件套（P1-3）：manifest 可取 + sw.js 可取 + 注册不报错 ──
+  const pwa = await page.evaluate(async () => {
+    const out = { manifest: false, sw: false, regErr: '' };
+    try {
+      const r = await fetch('./manifest.webmanifest');
+      const j = await r.json();
+      out.manifest = !!(j && j.name && j.start_url);
+    } catch (e) { out.manifest = false; }
+    try {
+      const r2 = await fetch('./sw.js');
+      const t = await r2.text();
+      /* 版本号模式即可：缓存清单每次迭代都可能升 v2/v3（如封面入壳），
+         写死 v1 会逼着每次正常换缓存都来改探针。守的是"sw 可取且声明了版本化缓存"。 */
+      out.sw = /suzhou-garden-v\d+/.test(t);
+    } catch (e) { out.sw = false; }
+    try {
+      if ('serviceWorker' in navigator) await navigator.serviceWorker.register('./sw.js', { scope: './' });
+    } catch (e) { out.regErr = String((e && e.message) || e).slice(0, 80); }
+    return out;
+  });
+  check('PWA：manifest 可取且字段齐全', pwa.manifest);
+  check('PWA：sw.js 可取且缓存版本一致', pwa.sw);
+  check('PWA：SW 注册不抛错（http 下应成功）', !pwa.regErr, pwa.regErr);
+
+  // ── 8.7 导览字幕巡游（P2-2）：启停往返 + 字幕联动 + 用户接管停 ──
+  await page.evaluate(() => { window.__garden.ENV.dur = 0.25; });
+  const tour0 = await page.evaluate(() => {
+    window.__garden.tourStart();
+    return { st: window.__garden.tourState(), cap: window.__garden.tourCaption() };
+  });
+  check('巡游：启动后状态 on 且首站 hero', tour0.st.on === true && tour0.st.idx === 0, JSON.stringify(tour0.st));
+  check('巡游：首站字幕为立峰·云根', /云根/.test(tour0.cap), tour0.cap);
+  // 等首站飞行落定（camFly 熄灭），再确认停留计时不提前切站
+  await page.waitForFunction(() => window.__garden && !window.__garden.camFly(),
+    { timeout: 30000, polling: 200 }).catch(() => {});
+  const tourFly = await page.evaluate(() => window.__garden.tourState());
+  check('巡游：飞行落定后仍在首站（不提前切站）', tourFly.idx === 0, `idx=${tourFly.idx}`);
+  // 用户接管：画布 pointerdown 应停巡游并收字幕
+  const tourTake = await page.evaluate(() => {
+    const c = document.querySelector('canvas');
+    c.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    const el = document.getElementById('caption');
+    return { st: window.__garden.tourState(), shown: el.classList.contains('show') };
+  });
+  check('巡游：画布接管即停并收字幕', tourTake.st.on === false && tourTake.shown === false,
+        `on=${tourTake.st.on} shown=${tourTake.shown}`);
+  // 按钮开关往返：巡游▸ → 停■ → 巡游▸
+  const tourBtn = await page.evaluate(() => {
+    const b = [...document.querySelectorAll('#env button')].find(x => x.dataset.act === 'tour');
+    b.click(); const on1 = window.__garden.tourState().on, t1 = b.textContent;
+    b.click(); const on2 = window.__garden.tourState().on, t2 = b.textContent;
+    return { on1, t1, on2, t2 };
+  });
+  check('巡游：按钮开关往返且文案切换', tourBtn.on1 === true && tourBtn.t1 === '停■' && tourBtn.on2 === false && tourBtn.t2 === '巡游▸',
+        `${tourBtn.t1}/${tourBtn.t2}`);
+  await page.evaluate(() => window.__garden.tourStop());
+
+  // ── 8.8 帧率自适应（P1-1 附带项）：自动化免疫 + 手动降档生效 + 后台暂停接线 ──
+  /* ⚠️ 2026-09-18 判据换过。原来的断言是 `softwareGL === true`（"软渲染下免疫"），
+     但探针 harness 换到真 GPU 之后 SOFTWARE_GL 变 false（实测 66× 提速，见 _harness.mjs），
+     那条断言就红了 —— 而它红得对：**它守的本来就是"探针运行时 QOS 不许自己动"**，
+     软渲染只是那个不变量的**代理**。代理失效了，判据要换成直接信号 `probeDriven`。
+     不变量本身不变：active=false 且档位停在 L0（QOS 会在跑的过程中改 scale / 阴影尺寸，
+     是回归断言最怕的"会自己动的量"）。 */
+  const qos0 = await page.evaluate(() => ({
+    st: window.__garden.qosState(), sw: window.__garden.softwareGL, gpu: window.__garden.gpuName,
+    pd: window.__garden.probeDriven, immune: window.__garden.qosImmune,
+  }));
+  check('QOS：自动化驱动下自适应免疫（active=false，档位停在 L0）',
+        qos0.pd === true && qos0.immune === true && qos0.st.active === false && qos0.st.level === 0,
+        `probeDriven=${qos0.pd} immune=${qos0.immune} software=${qos0.sw} active=${qos0.st.active} L${qos0.st.level}`);
+  /* 手动降档：L3 应关掉 GTAO 并把像素比压到 0.72× 基准 */
+  const qos1 = await page.evaluate(() => {
+    const before = { pr: window.__garden.renderer.getPixelRatio(), base: window.__garden.qosState().baseScale };
+    window.__garden.setQos(3);
+    return { before, after: window.__garden.renderer.getPixelRatio(), st: window.__garden.qosState() };
+  });
+  check('QOS：降档到 L3 生效（像素比 ×0.72）',
+        Math.abs(qos1.after - qos1.before.base * 0.72) < 1e-6 && qos1.st.level === 3,
+        `pixelRatio ${qos1.before.pr}→${qos1.after}（基准 ${qos1.before.base}）`);
+  await page.evaluate(() => window.__garden.setQos(0));
+  const qos2 = await page.evaluate(() => ({
+    pr: window.__garden.renderer.getPixelRatio(), st: window.__garden.qosState(),
+  }));
+  check('QOS：升回 L0 恢复基准像素比',
+        Math.abs(qos2.pr - qos2.st.baseScale) < 1e-6 && qos2.st.level === 0,
+        `pixelRatio=${qos2.pr}`);
+  /* 后台暂停：覆盖 document.hidden 后派发 visibilitychange，页面应记录为隐藏 */
+  const hid = await page.evaluate(() => {
+    const before = window.__garden.hidden();
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+    document.dispatchEvent(new Event('visibilitychange'));
+    const during = window.__garden.hidden();
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => false });
+    document.dispatchEvent(new Event('visibilitychange'));
+    return { before, during, after: window.__garden.hidden() };
+  });
+  check('后台暂停：visibilitychange 接线（隐藏→暂停，恢复→继续）',
+        hid.before === false && hid.during === true && hid.after === false,
+        `${hid.before}→${hid.during}→${hid.after}`);
+
   // ── 汇总 ──
   finish();
 
   async function finish() {
     const bootLog = consoleMsgs.find(m => m.text.includes('[启动分段]'));
     if (bootLog) console.log(`[info] ${bootLog.text}`);
-    console.log(`[info] draw calls=${info.calls} triangles=${info.tris.toLocaleString()} geos=${info.geos} tex=${info.tex}`);
+    /* ⚠️ 启动失败时 info 停在 null（早退分支在赋值之前就走到这儿了）—— 这里必须能安全
+        取值，否则报告"启动失败"的过程本身会崩掉，看到的是一堆栈而不是"哪一项没过"。 */
+    console.log(info ? `[info] draw calls=${info.calls} triangles=${info.tris.toLocaleString()} geos=${info.geos} tex=${info.tex}`
+                     : '[info] 启动未完成，跳过渲染量统计');
     await browser.close().catch(() => {});
     server.close();
     const fails = results.filter(r => !r.ok).length;

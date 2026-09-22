@@ -1,0 +1,20 @@
+{
+  "name": "苏州园林 · 远香堂",
+  "short_name": "远香堂",
+  "description": "拙政园远香堂对景 — Three.js 程序化江南园林，离线可用",
+  "lang": "zh-CN",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#D8DCDA",
+  "theme_color": "#3a5a4a",
+  "icons": [
+    {
+      "src": "./icons/garden.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

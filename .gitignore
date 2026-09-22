@@ -9,3 +9,13 @@ assets/TaihuRock.glb
 .codely/
 .workbuddy-ai/
 outputs/
+
+# 归档区：一次性诊断脚本 / 拆模块前的旧单体备份。留本机可查，不入库（2026-09-22）
+probe/_attic/
+_attic/
+
+# AI 工作记忆（agent 的记事本，不是工程产物）
+.workbuddy/
+
+# 编辑期备份（防止误提交旧单体 index.html）
+index.html.bak-*

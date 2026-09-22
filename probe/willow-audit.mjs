@@ -7,6 +7,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
+import { launchChromium } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function loadPlaywright() {
@@ -29,7 +30,7 @@ const server = http.createServer((req, res) => {
   await new Promise(r => server.listen(0, r));
   const port = server.address().port;
   const { chromium } = loadPlaywright();
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchChromium(chromium);
   const page = await browser.newPage({ viewport: { width: 480, height: 640 } });
   page.on('pageerror', e => console.log('[pageerror]', String(e)));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 60000 });

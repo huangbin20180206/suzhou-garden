@@ -14,6 +14,8 @@ const MIME = {
   '.glb':  'model/gltf-binary',
   '.png':  'image/png',
   '.json': 'application/json',
+  '.webmanifest': 'application/manifest+json',
+  '.svg':  'image/svg+xml',
 };
 
 http.createServer((req, res) => {
@@ -30,4 +32,4 @@ http.createServer((req, res) => {
     });
     res.end(data);
   });
-}).listen(PORT, () => console.log(`serving ${ROOT} → http://127.0.0.1:${PORT}`));
+}).listen(PORT, '127.0.0.1', () => console.log(`serving ${ROOT} → http://127.0.0.1:${PORT}`));

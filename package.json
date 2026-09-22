@@ -6,13 +6,19 @@
   "scripts": {
     "build:vendor": "esbuild build-entry.js --bundle --format=esm --minify --outfile=vendor.js",
     "check": "node probe/check.mjs",
+    "audit": "node probe/import-audit.mjs",
     "test": "node probe/smoke.mjs",
+    "verify": "node probe/verify-all.mjs",
     "serve": "node probe/serve.mjs"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "draco": "^0.0.1",
+    "ktx-parse": "^2.0.0",
+    "meshoptimizer": "^1.2.0",
+    "playwright": "^1.63.0",
     "three": "^0.184.0"
   },
   "devDependencies": {
