@@ -1751,13 +1751,41 @@ export function makeWillow(x, z, scale = 1){
     new THREE.Vector3(rr(-0.3,0.3),  H*0.94, rr(-0.25,0.25)),
   ]);
   g.add(mesh(new THREE.TubeGeometry(trunkCurve, 18, 0.185 * rr(0.9, 1.15), 8, false), MAT.willowBark, { name:'willowTrunk' }));
-  // 根盘
-  for (let i = 0; i < 5; i++){
-    const a = (i/5)*TAU + rr(-0.3,0.3);
-    const root = mesh(new THREE.SphereGeometry(rr(0.18,0.3), 7, 5), MAT.willowBark, { name:'willowRoot' });
-    root.position.set(Math.cos(a)*0.34, rr(0.05,0.18), Math.sin(a)*0.34);
-    root.scale.set(1, 0.62, 1);
-    g.add(root);
+  /* ── 根盘（2026-09-23 重塑 · 老黄："桃/柳露根几乎一模一样，而且真实中没有这种
+     类似花瓣一样的根系"）──
+     旧版：5 块低模球**均匀绕一圈**（72° 间隔）→ 与桃树的 6 块同配方，读作"一圈蒜瓣"。
+     真实垂柳最标志性的恰是**临水盘根**：沿向水一侧伸出粗壮的板根/条带根，向外蜿蜒
+     爬行、半露土面后再入土，**强烈不对称**（背水侧只有零星细根）。
+     ⚠️ 原版在此消耗 15 次全局 rr（5 圈 × 3）。改用本地流后必须**等量燃烧**，
+        否则其后所有 rr 抽样（主枝 / 冠肋 / 叶幕）整体位移 —— §36.6。
+     本地流种子由坐标决定 ⇒ 同一棵树的根盘每次构建逐位一致（§34）。 */
+  const WR = mulberry32(((Math.round(x * 1000) * 73856093)
+                       ^ (Math.round(z * 1000) * 19349663)
+                       ^ (Math.round(scale * 1000) * 83492791)) | 0);
+  const wrr = (a, b) => a + WR() * (b - a);
+  for (let i = 0; i < 15; i++) void rr(0, 1);          // 等量燃烧（原 5 圈 × 3 次）
+  {
+    const toWater = Math.atan2(3 - z, -x);             // 池心在世界 (0,·,3)
+    for (let i = 0; i < 4; i++){
+      const back = (i === 3);                          // 第 4 条放背水侧 —— "不对称"要看得见
+      const a   = (back ? toWater + Math.PI : toWater) + (back ? wrr(-0.35, 0.35) : wrr(-1.05, 1.05));
+      /* ⚠️ 尺度与埋深（第一版实测返工）：r0 0.058~0.098 让根几乎与树干等粗、len 1.75m 拖成
+         "三根扁担"，而且整根**悬在地面上** —— 真实露根是"从土里拱出来的脊"，只有背脊出土。
+         收细收短 + 中心线压到土面上下（0.055 → −0.06），末端渐细没入土中。 */
+      const len = back ? wrr(0.30, 0.50) : wrr(0.50, 0.95);
+      const r0  = back ? wrr(0.026, 0.036) : wrr(0.038, 0.058);
+      const wob = wrr(-0.55, 0.55);                    // 沿长度渐变的方位偏摆 ⇒ 蜿蜒而非直棍
+      const pts = [];
+      for (let k = 0; k <= 3; k++){
+        const t = k / 3, aa = a + wob * t * t, rad = 0.17 + (len - 0.17) * t;
+        pts.push(new THREE.Vector3(Math.cos(aa) * rad, 0.055 - 0.115 * t, Math.sin(aa) * rad));
+      }
+      const rc = new THREE.CatmullRomCurve3(pts);
+      const rt = mesh(tubeRadiusRamp(new THREE.TubeGeometry(rc, 12, 1, 8, false), rc, 12, 8,
+                                     t => r0 * (1 - 0.62 * t)), MAT.willowBark, { name:'willowRoot', cast:true });
+      rt.scale.set(1, 0.66, 1);                        // 压扁＝板根；同时把中心线进一步压向土面（只露背脊）
+      g.add(rt);
+    }
   }
 
   /* 拱形主枝：**低位多级分叉**（验收一轮发现从干顶一点放射读作"灯柱/八爪鱼"）——
@@ -2323,17 +2351,41 @@ export function makePeachTree(x, z, scale = 1){
   trunkMesh.userData.noMerge = true;
   g.add(trunkMesh);
 
-  /* 根盘：6 块低矮隆起，长轴朝外、大半沉进土里，与主干基部的根盘隆起连成一体。
-     ⚠️ 半径随主干同步收小（0.19~0.33 → 0.11~0.19）：干径减半后，旧尺寸的根盘比树还壮，
-     整棵树会读成"蘑菇长在石头墩上"。 */
+  /* ── 根颈 + 不规则斜根（2026-09-23 重塑 · 老黄："桃/柳露根几乎一模一样，
+     而且没有这种类似花瓣一样的根系"）──
+     旧版是 6 块低模扁球**均匀绕一圈**（60° 间隔 + 长轴朝外）→ 标准放射花瓣/蒜瓣，
+     还与柳树的 5 块同配方。真实桃树是**根颈自然外扩 + 若干条粗细不一的根斜插入土**：
+     方位不成对称、长短不齐。故改为「一个根颈扁台 + 2~4 条锥形斜根」。
+     ⚠️ rr2 消耗与原版**严格等量**（6 槽 × 2 次 = 12 次）—— 后面的主枝 / 小枝 / 叶 /
+        花 / 果抽样逐位不变（§36.6 同族：只改"怎么用"，不改"用几次"）。 */
+  const rootSeeds = [];
   for (let i = 0; i < 6; i++){
-    const a = (i / 6) * TAU + rr2(-0.25, 0.25);
-    const rad = rr2(0.11, 0.19);
-    const root = mesh(new THREE.SphereGeometry(rad, 8, 5), MAT.trunk, { name:'peachRoot', cast:true });
-    root.position.set(Math.cos(a) * rad * 0.9, 0.05 - rad * 0.30, Math.sin(a) * rad * 0.9);
-    root.rotation.y = -a;                       // 长轴朝外（+X 旋到该方位角上）
-    root.scale.set(1.35, 0.62, 1);
-    g.add(root);
+    rootSeeds.push({ a: (i / 6) * TAU + rr2(-0.62, 0.62),   // 抖动远大于 60° ⇒ 破掉均匀感
+                     s: rr2(0.75, 1.30) });
+  }
+  /* ① 根颈：主干基部一圈低矮外扩 —— 读作"干脚自然变粗"，而不是"插了几块石头" */
+  const rootFlare = mesh(new THREE.SphereGeometry(trunkR * 1.45, 12, 7), MAT.trunk, { name:'peachRootFlare', cast:true });
+  rootFlare.position.set(0, 0.015, 0);
+  rootFlare.scale.set(1.22, 0.40, 1.22);
+  g.add(rootFlare);
+  /* ② 斜根：条数由 s 筛出（不再多消耗随机数），从根颈斜向外下扎进土里 */
+  const pickedRoots = rootSeeds.filter(o => o.s > 0.95);
+  const nRoot = Math.max(2, pickedRoots.length);
+  for (let i = 0; i < nRoot; i++){
+    const o = pickedRoots[i];
+    /* 桃是**浅根小乔木**：露根比柳树细得多、短得多，同样要"半埋"——
+       第一版 r0 0.050·s / len 0.46·s 实测读作"一根粗香肠趴在地上"。 */
+    const len = 0.34 * o.s, r0 = 0.032 * o.s;
+    const wob = (o.s - 1.0) * 0.9;            // 由 s 派生偏摆（不再多消耗随机数 ⇒ rr2 仍是 12 次）
+    const pts = [];
+    for (let k = 0; k <= 3; k++){
+      const t = k / 3, aa = o.a + wob * t * t;
+      const rrad = trunkR * 0.7 + (len - trunkR * 0.7) * t;
+      pts.push(new THREE.Vector3(Math.cos(aa) * rrad, 0.040 - 0.115 * t, Math.sin(aa) * rrad));
+    }
+    const rc = new THREE.CatmullRomCurve3(pts);
+    g.add(mesh(tubeRadiusRamp(new THREE.TubeGeometry(rc, 12, 1, 7, false), rc, 12, 7,
+                              t => r0 * (1 - 0.70 * t)), MAT.trunk, { name:'peachRoot', cast:true }));
   }
 
   /* 主枝：5~7 根，从主干 **0.16~0.38H**（低位）处分叉斜向上外张 —— 杯状骨架。
