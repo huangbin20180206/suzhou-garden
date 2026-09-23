@@ -23,6 +23,36 @@ try {
      不覆盖 src 的话，这一步对一个搬残的模块完全瞎，只能等浏览器跑到才炸。 */
   const srcFiles = fs.readdirSync(path.join(ROOT, 'src')).filter(f => f.endsWith('.js')).sort();
   for (const f of srcFiles) execFileSync(process.execPath, ['--check', path.join(ROOT, 'src', f)], { stdio: 'pipe' });
+  /* ── PWA 缓存版本门禁（2026-09-23 · sw.js 纳入白名单时一并加）──
+     病因（commit 77ccc60，老黄："这难道不是你程序上的 bug 吗"）：改完要刷两次才生效。
+     策略已改成 代码类 network-first / 大件 cache-first，于是两条规则**分开守**：
+       · `src/*.js`、`vendor.js`、`index.html` → network-first ⇒ **不需要** bump，改了即所见；
+       · `assets/*.glb`、`icons/`、`docs/` → cache-first ⇒ **改了必须 bump `CACHE`**，
+         否则已装 SW 的浏览器永远吃旧副本（`70ca3ab` 改过 LotusPlant.glb 却没 bump，
+         那批客户端可能至今还在用旧贴图 —— 改了看不见、且不报错）。
+     判据用 mtime（不依赖 git），容差 2s。 */
+  {
+    const swPath = path.join(ROOT, 'sw.js');
+    if (!fs.existsSync(swPath)) throw new Error('sw.js 缺失（PWA 离线三件套之一）');
+    execFileSync(process.execPath, ['--check', swPath], { stdio: 'pipe' });
+    const swSrc = fs.readFileSync(swPath, 'utf8');
+    const ver = (swSrc.match(/const CACHE = 'suzhou-garden-(v\d+)'/) || [])[1];
+    if (!ver) throw new Error("sw.js 未声明 `const CACHE = 'suzhou-garden-vN'`");
+    const frozen = [];
+    for (const f of fs.readdirSync(path.join(ROOT, 'assets'))) if (f.endsWith('.glb')) frozen.push(path.join(ROOT, 'assets', f));
+    for (const d of ['icons', 'docs']) {
+      const dp = path.join(ROOT, d);
+      if (fs.existsSync(dp)) for (const f of fs.readdirSync(dp)) frozen.push(path.join(dp, f));
+    }
+    const swM = fs.statSync(swPath).mtimeMs;
+    const stale = frozen.filter(p => fs.statSync(p).mtimeMs > swM + 2000);
+    if (stale.length) {
+      throw new Error(`cache-first 资产比 sw.js 新，必须把 CACHE 从 ${ver} 升到 v${Number(ver.slice(1)) + 1}：\n`
+        + stale.map(p => '        · ' + path.relative(ROOT, p)).join('\n')
+        + '\n      否则已装 SW 的浏览器会一直吃旧副本（改了看不见，且不报错）');
+    }
+    console.log(`      PWA：sw.js 语法 OK · 缓存版本 ${ver} · cache-first 资产（${frozen.length} 件）未越过版本号 ✓`);
+  }
   const lines = m[1].split('\n').length;
   console.log(`check: PASS（内联模块 ${lines} 行 + build-entry.js + src ${srcFiles.length} 个模块：${srcFiles.join(', ')}）`);
 } catch (e) {
