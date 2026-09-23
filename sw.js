@@ -1,9 +1,18 @@
 /* 苏州园林 · 离线 Service Worker（P1-3 PWA）
-   策略：应用壳（index.html / vendor.js / manifest / icon） stale-while-revalidate；
-   重资产（assets/*.glb） cache-first（版本内不变，命中即用）；
-   导航请求离线时回退到缓存的 index.html。
-   版本号升级即整体换缓存，旧缓存整体删除。 */
-const CACHE = 'suzhou-garden-v2';
+   ⚠️ 2026-09-23 策略修正（老黄："为什么要刷两次，这难道不是你程序上的 bug 吗？" —— 是）：
+   旧版对**所有同源 GET 兜底** `return hit || net`（陈旧优先），而 `src/*.js` 又**不在 SHELL
+   预缓存清单**里 —— 它们的缓存只能由运行时写入，于是永远比磁盘晚**一次**：改完必须刷两次
+   才看得见（第一次拿到 network-first 的新 index.html + cache-first 的旧 JS，第二次才是新 JS）。
+   三处叠加：① 兜底分支把 src/*.js 也吞进"陈旧优先"；② 它们不在预缓存清单 ⇒ 缓存滞后一次；
+   ③ CACHE 版本号没随内容 bump ⇒"版本升级即整体换缓存"这条保险从未触发。
+   现按"改不改得动"分流：
+     · 代码类（index.html / src/*.js / vendor.js / manifest）→ **network-first**，离线回退缓存。
+       本项目零 CDN、本地交付，网络即本地文件，network-first 没有延迟代价；换来"改了即所见"。
+     · 大件（assets/*.glb / icons / docs 封面）→ **cache-first**（版本内不变，保持秒开与离线）。
+     · 导航请求 → network-first，离线回退缓存的 index.html。
+   ⚠️ **改了 src/*.js、vendor.js 或 SHELL 内容后必须 bump 版本号** —— 否则已装 SW 的浏览器
+      仍走旧缓存。版本号升级即整体换缓存，旧缓存 activate 时整体删除。 */
+const CACHE = 'suzhou-garden-v3';
 const SHELL = [
   './',
   './index.html',
@@ -54,18 +63,20 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  const isGLB = url.pathname.endsWith('.glb');
+  /* 大件（版本内不变）→ cache-first；其余（代码）→ network-first。理由见头部注释 */
+  const isAsset = url.pathname.endsWith('.glb')
+               || url.pathname.includes('/icons/')
+               || url.pathname.includes('/docs/');
   e.respondWith(
     caches.match(e.request, { ignoreSearch: false }).then((hit) => {
-      if (hit && isGLB) return hit;                    // GLB：命中即用，不碰网络
-      const net = fetch(e.request).then((res) => {
+      if (hit && isAsset) return hit;                  // 大件：命中即用，不碰网络
+      return fetch(e.request).then((res) => {          // 代码：网络优先 ⇒ 改了即所见
         if (res && res.status === 200) {
           const copy = res.clone();
           caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
         }
         return res;
-      }).catch(() => hit || Response.error());
-      return hit || net;                               // 壳：有缓存先显，后台更新
+      }).catch(() => hit || Response.error());          // 离线：回退缓存
     })
   );
 });
