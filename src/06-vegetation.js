@@ -2346,10 +2346,18 @@ export function makePeachTree(x, z, scale = 1){
   for (let i = 0; i < nBranch; i++){
     const a = (i / nBranch) * TAU + rr2(-0.35, 0.35);
     const y0 = H * rr2(0.16, 0.38);
-    const reach = rr2(0.95, 1.30);          // 冠半径 R=0.34H≈1.4m：枝展必须落在冠内
-    /* 梢端高度 0.62~0.94H → 0.50~0.80H：实拍样张里冠层裂成**两根竖柱**（枝全往上窜、
-       中缝露出主干）。压低梢端让主枝朝外张成杯口，冠才收成一个圆。 */
-    const tipY = H * rr2(0.50, 0.80);
+    /* ⚠️ 2026-09-23 冬态重建（老黄截图红框：南岸那棵冬天像一把扫帚）：
+       旧版 reach 与 tipY **各自独立**随机 —— 垂直升幅 tipY−y0 因此在 0.46~2.47m 之间乱跳，
+       7 根主枝里总有几根仰角只剩 ~21°（几乎垂直上窜），冠层裂成"竖柱"；
+       夏天叶/花/果把它糊住看不出来，**冬天叶落尽当场露馅**（老黄：'冬天一眼看出不正常'）。
+       改为**由主枝实长 + 仰角**反算：桃树开心形主枝与水平成 40~52°，
+       冠才朝外张成杯口，而不是几根竿子朝天。
+       ⚠️ rr2 消耗次数与原版一致（reach + tipY 两次 → brLen + brAngle 两次），
+          本地流后续抽样（upBias / 起点抖动）逐位不受影响。 */
+    const brLen   = H * rr2(0.30, 0.40);                 // 主枝实长（范围按 peach-form-guard 反调：撑太大 → 叶摊薄，夏冠层 fill 掉到 0.50 以下）
+    const brAngle = rr2(0.70, 0.91);                     // 与水平 40~52°
+    const reach   = brLen * Math.cos(brAngle);           // 水平投影（落在冠半径方向）
+    const tipY    = y0 + brLen * Math.sin(brAngle);      // 梢端高度 = 起点 + 垂直升幅
     const upBias = rr2(0.10, 0.30);   // 向上弯曲程度
     const c = new THREE.CatmullRomCurve3([
       new THREE.Vector3(rr2(-0.04,0.04), y0, rr2(-0.04,0.04)),
