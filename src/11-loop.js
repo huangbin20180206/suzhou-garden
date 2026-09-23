@@ -7,7 +7,7 @@ import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather } from './06-vegetation.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
@@ -1017,6 +1017,10 @@ warmBoot().then(startAfterWarm, (err) => {
 window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, setEnv, applyEnv,
                   MAT,   // 材质表：门禁要按材质身份断言（如冬季紫藤花穗 count=0），别让探针靠启发式猜
                   WIND, PRECIP, weatherAllowed, effectiveWeather, weatherMutexReason, resetCamera,
+                  /* T0：装配完成信号（2026-09-23）。⚠️ bootDone 是 08-assemble 的 `let` 活绑定，
+                     必须用 getter 函数读 —— 直接写 `bootDone` 会在建这个对象时把 false 定格，
+                     探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
+                  bootDone: () => bootDone, bootDonePromise,
                   /* 风的调度器（2026-09-18）：门禁要断言"风向真的是 16 档之一、风力真的是四档之一"，
                      以及"档位保持时长够久"。靠读 uniform 反推不出档位号，必须显式暴露。
                      ⚠️ updateWindDir / updateWindForce 也要暴露：软渲染下一帧 8.4s，

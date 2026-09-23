@@ -13,6 +13,15 @@ export const CFG = {
 
 // 可复现随机：保证每次刷新园林形态一致
 export function mulberry32(a){return function(){a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};}
+/* ⚠️ 2026-09-23 回退说明：排查"冷/热启动布局不同"期间，这里临时包了一层计数/检查点/栈聚合
+   （rndCalls / captureRnd / __cp / __initEnd）。根因已查清并修掉（见 06-vegetation 的 jr 专用抖动流
+   与 08-assemble 的预抽），故**按当时的约定回退成直接引用** —— 包一层函数会让 rnd 不再是
+   mulberry32 的直接引用（对外语义不变，但没必要留着）。
+   ⚠️ 那段临时实现**从未提交，已随本次回退消失**（不在 git 历史里）。日后若要再查"全局流漂没漂"，
+   按这三件事重新写一遍即可：① 用 `let n = 0` 数抽取次数；② 每 1000 次记一个滚动哈希检查点
+   `h = imul(h ^ ((v*1e9)|0), 16777619)`（冷/热两次比对，第一个不同的检查点就把分歧锁进 1000 次窗口）；
+   ③ 需要"谁抽的"时用 `new Error().stack` 按签名聚合（注意：延迟链会把主线程占满，
+   `setInterval` 轮询会被饿死，得把计数打进入产品日志或按次数区间触发捕获）。 */
 export const rnd = mulberry32(20260909);
 
 export const rr  = (a,b)=>a+rnd()*(b-a);
@@ -54,4 +63,4 @@ export const ENV_REF = { cur: null };
    只在控制台输出。注意外部采集器可能把 performance.now() 换成虚拟时钟，那种环境下本行不准。 */
 export const BOOT = { t0: performance.now(), marks: [] };
 export function bootMark(name){ BOOT.marks.push([name, +(performance.now() - BOOT.t0).toFixed(1)]); }
-
+

@@ -9,6 +9,16 @@ import { world, scene, GPU_TIER, renderer } from './02-scene.js';
    而它 import 08；本模块一旦 import 12-env，12-env 就会把 08 提前拽进来 → 同一个 TDZ。
    它只在 loadAssetOnce 的**回调**里调用（那时一切就绪），故走 00-config 的 HOOKS 延迟绑定。 */
 import { TAU, rnd, rr, CFG, mulberry32, bootMark, HOOKS } from './00-config.js';
+
+/* ── 布局专用抖动流（2026-09-23 · T0）────────────────────────────────────
+   为什么必须独立：`Math.random` 是**全局共享流**，被时序类代码在**异步/按帧**时刻消费
+   （Three.js 每 new 一个对象生成 UUID 就抽 4 次；还有涟漪、音景…）。布局若也吃这条流，
+   它拿到的值就随"加载时序"错位 —— 实测：把 Math.random 换常量后 4 连跑（含冷启动）逐位一致；
+   换回定种子流则冷启动偶发不同（竹叶合计 41989 vs 42230、竹竿首实例坐标不同、全局流总数 996320 vs 999246）。
+   独立种子流后，布局只由 (rnd 全局流 + 本流) 决定，与"资产何时加载完 / 缓存冷热"无关。
+   ⚠️ 本流只给**布局/装配**用；运行期效果（spawnRipple 的水痕抖动、风场调度、雨雪粒子）继续用
+      Math.random —— 它们不参与建场，且"每次不同"正是想要的效果。 */
+const jr = mulberry32(20260923);
 import { MAT, WIND, addWind, AUX_PASS_HIDDEN } from './01-materials.js';
 import { mesh } from './03-factory.js';
 import { POND_RADII, markUnderwater } from './05-water.js';
@@ -275,7 +285,7 @@ export function makeBamboo(x, z, count = 9, hBase = 6.6){
      竹叶按"竿→枝→叶"顺序生成，不洗牌的话春/冬会整竿整枝地秃。
      洗匀后按比例缩减 = 全丛均匀变稀（同 willowLeaf 的第十二轮教训）。 */
   for (let i = leaves.length - 1; i > 0; i--){
-    const j = (Math.random() * (i + 1)) | 0;
+    const j = (jr() * (i + 1)) | 0;
     const t = leaves[i]; leaves[i] = leaves[j]; leaves[j] = t;
   }
   const leafInst = new THREE.InstancedMesh(leafGeo, MAT.leaf, leaves.length);
@@ -716,6 +726,24 @@ export function makeKoiGroup(n = 11){
   const g = new THREE.Group();
   g.position.set(0, 0, 3);          // 池塘中心（与 POND_SHAPE 对齐）
   g.userData.fishes = [];
+  /* ── 预抽（2026-09-23 · T0）────────────────────────────────────────────
+     为什么必须挪到这里抽：这 4×n 次 rr() 原来写在 GLB 的 onLoad 里 —— 而 onLoad
+     **什么时候**执行取决于模型何时加载完（冷启动要取文件，热启动走 HTTP 缓存）。
+     全局流的位置只由"抽了多少次"决定 ⇒ 锦鲤落地早/晚，**其后**的抽样整体偏移量就不同；
+     而柳/竹/立峰是**延迟批**（首帧之后才跑，每批之间让出一帧），恰好落在这个窗口里
+     ⇒ 全园布局随"加载时序"漂移，且不报任何错。
+     实测（2026-09-23，两次加载同一份代码）：157 个实例化网格里 **76 个不同，且全部落在延迟批**
+     —— 柳叶条数 7992 vs 7995、竹竿首实例位置 (−0.09,0,0.90) vs (0.84,0,0.32)；
+     而**模块期网格逐个逐实例完全一致**（正是"漂移发生在延迟批执行窗口内"的指纹）。
+     修法：把 4×n 次抽取挪到本函数**被调用**的时刻（模块期、同步、顺序固定），回调里只读不抽。
+     ⚠️ 次数与顺序必须与原来**逐条一致**（t → speed → jitter → phase），否则等于改了布局。
+     ⚠️ `Math.random()*18`（riseAt）也要一起预抽：它虽不是全局流，但**冻结 Math.random 的探针**
+        靠"调用顺序固定"才可复现（竹叶洗牌也吃这条流），留在异步回调里等于把顺序交给时序。 */
+  const KOI_DRAW = [];
+  for (let i = 0; i < n; i++){
+    KOI_DRAW.push({ t: rr(0, TAU), speed: rr(0.10, 0.22), jitter: rr(0.72, 1.0),
+                    phase: rr(0, TAU), rise: Math.random() * 18 });
+  }
   new GLTFLoader().load('assets/koi.glb', (gltf)=>{
     const src = gltf.scene;
     const b1 = new THREE.Box3().setFromObject(src);
@@ -732,11 +760,12 @@ export function makeKoiGroup(n = 11){
       f.position.sub(c2);                       // 以模型中心为原点
       f.traverse(o=>{ if (o.isMesh){ o.castShadow = false; o.receiveShadow = false; } });
       holder.add(f);
+      const d = KOI_DRAW[i];                    // 预抽值（见函数开头）：回调里**绝不**抽流
       holder.userData = {
         orbit: i % KOI_ORBITS.length,
-        t: rr(0, TAU), speed: rr(0.10, 0.22),
-        jitter: rr(0.72, 1.0), phase: rr(0, TAU),
-        riseAt: 6 + Math.random() * 18, rising: false, riseT0: 0, halfH,
+        t: d.t, speed: d.speed,
+        jitter: d.jitter, phase: d.phase,
+        riseAt: 6 + d.rise, rising: false, riseT0: 0, halfH,
       };
       g.add(holder);
       g.userData.fishes.push(holder);
@@ -1840,28 +1869,28 @@ export function makeWillow(x, z, scale = 1){
        把骨架盖进叶幕——上轮裙帘挂在弧心下方被骨架自身挡住，投影不可见）
        ②0.45m 网格扫冠包络补空格（消"左密右疏"方向性破洞）③内外色差拉到 ~30% 明度差。 */
     const curtains = [];
-    const gauss = () => (Math.random() + Math.random() + Math.random()) / 1.5 - 1;   // 中央聚集
+    const gauss = () => (jr() + jr() + jr()) / 1.5 - 1;   // 中央聚集
     /* 帘长全局参差 ×0.85~1.15（叠加轮廓 ±40% —— 第八轮验收指令⑤：消除"梳齿的整齐感"） */
     const addCurtain = (x, y, z, len, w) => {
       const edge = Math.min(1, Math.hypot(x, z) / 2.6);
       const L = len * (edge > 0.72 ? rr(0.62, 1.42) : 1) * rr(0.85, 1.15);
-      curtains.push({ x, y, z, len: Math.min(L, Math.max(0.35, y - 0.30)), w, rot: Math.random() * TAU });
+      curtains.push({ x, y, z, len: Math.min(L, Math.max(0.35, y - 0.30)), w, rot: jr() * TAU });
     };
     /* 全向叶簇基建（第八轮验收指令①的换法核心）：帘几何只会"往下挂"，挂帘盖不住
        挂点上方的弧背 —— 连续七轮的教训。tuft 记一个全向单位向量，实例化时把帘的
        -Y 轴映射到该方向：同一个 12 tri 几何既当垂帘、又当"长在枝上朝哪都有的叶簇"。 */
     const randDir = () => {
-      const u = Math.random() * 2 - 1, a2 = Math.random() * TAU;
+      const u = jr() * 2 - 1, a2 = jr() * TAU;
       const s2 = Math.sqrt(Math.max(0, 1 - u * u));
       return { x: s2 * Math.cos(a2), y: u, z: s2 * Math.sin(a2) };
     };
     const addTuft = (x, y, z, len, w, d) => {
-      curtains.push({ x, y, z, len: Math.min(len, Math.max(0.30, y - 0.30)), w, dir: d, rot: Math.random() * TAU });
+      curtains.push({ x, y, z, len: Math.min(len, Math.max(0.30, y - 0.30)), w, dir: d, rot: jr() * TAU });
     };
     const addCluster = (cx, cy, cz, n, spread, lenMin, lenMax) => {
       for (let i = 0; i < n; i++){
         addCurtain(cx + gauss()*spread, cy + gauss()*spread*0.4, cz + gauss()*spread,
-                   (lenMin + Math.random()*(lenMax-lenMin)) * rr(0.72, 1.32),   // 强方差：下摆参差
+                   (lenMin + jr()*(lenMax-lenMin)) * rr(0.72, 1.32),   // 强方差：下摆参差
                    rr(1.0, 1.7));                                               // 宽帘：覆盖主力
       }
     };
@@ -1929,9 +1958,9 @@ export function makeWillow(x, z, scale = 1){
     /* ②c 顶冠叶球（指令⑤：短帘长度×1.5 向下衔接，"辐条+串珠"变封闭壳层）——
        干顶汇交区糊一团高密度帘，放射线的汇聚点消失在叶团里 */
     for (let i = 0; i < 140; i++){
-      const a = Math.random() * TAU;
-      const rad = Math.sqrt(Math.random()) * 1.0;
-      addCurtain(Math.cos(a) * rad, H * (0.86 + Math.random() * 0.22), Math.sin(a) * rad,
+      const a = jr() * TAU;
+      const rad = Math.sqrt(jr()) * 1.0;
+      addCurtain(Math.cos(a) * rad, H * (0.86 + jr() * 0.22), Math.sin(a) * rad,
                  rr(0.45, 1.35), rr(0.9, 1.5));
     }
     /* ②d 顶幕横毯 —— 2800 枚是"撒盐必连毯"的过补版本（第十二轮性能回归：
@@ -1941,8 +1970,8 @@ export function makeWillow(x, z, scale = 1){
        ② dir.y ±0.28→+0.18~0.78 偏上仰躺：俯视投影是"面"不是"侧立窄条"，
        从顶上把冠缘盖死（实测单树外环极差 20.5pt → 收敛）。 */
     for (let i = 0; i < 1600; i++){
-      const a = Math.random() * TAU, a2 = Math.random() * TAU;
-      const rad = 0.30 + Math.sqrt(Math.random()) * 2.58;
+      const a = jr() * TAU, a2 = jr() * TAU;
+      const rad = 0.30 + Math.sqrt(jr()) * 2.58;
       const yDome = (1.04 - (rad / 2.5) * 0.42) * H;
       addTuft(Math.cos(a)*rad + rr(-0.12,0.12), yDome * rr(0.93, 1.02), Math.sin(a)*rad + rr(-0.12,0.12),
               rr(0.40, 1.05), rr(1.0, 1.6),
@@ -1955,7 +1984,7 @@ export function makeWillow(x, z, scale = 1){
       for (let j = 0; j < 4; j++){
         const t = 0.85 + j * 0.05 + rr(-0.02, 0.02);
         const pt = rib.getPoint(Math.min(1, t));
-        const a2 = Math.random() * TAU;
+        const a2 = jr() * TAU;
         addTuft(pt.x + rr(-0.08, 0.08), pt.y + rr(0.03, 0.14), pt.z + rr(-0.08, 0.08),
                 rr(0.5, 1.0), rr(1.1, 1.6), { x: Math.cos(a2), y: rr(0.05, 0.70), z: Math.sin(a2) });
       }
@@ -1977,10 +2006,10 @@ export function makeWillow(x, z, scale = 1){
       for (const sec of deficient){
         const az0 = sec * (TAU / 8);
         for (let i = 0; i < 80; i++){
-          const az = az0 + Math.random() * (TAU / 8);
-          const rad = 0.4 + Math.sqrt(Math.random()) * 2.55;
+          const az = az0 + jr() * (TAU / 8);
+          const rad = 0.4 + Math.sqrt(jr()) * 2.55;
           const yDome = (1.00 - (rad / 2.5) * 0.40) * H;
-          const a2 = Math.random() * TAU;
+          const a2 = jr() * TAU;
           addTuft(Math.cos(az)*rad, yDome * rr(0.90, 1.0), Math.sin(az)*rad,
                   rr(0.40, 0.95), rr(0.95, 1.45), { x: Math.cos(a2), y: rr(0.12, 0.70), z: Math.sin(a2) });
         }
@@ -1997,7 +2026,7 @@ export function makeWillow(x, z, scale = 1){
         const rad = r0 + rr(-0.06, 0.06);
         const yDome = (1.04 - (rad / 2.5) * 0.42) * H;
         for (let j = 0; j < 2; j++){
-          const a2 = Math.random() * TAU;
+          const a2 = jr() * TAU;
           addTuft(Math.cos(az) * rad, yDome * rr(0.93, 1.0), Math.sin(az) * rad,
                   rr(0.55, 1.0), rr(1.2, 1.7), { x: Math.cos(a2), y: rr(0.30, 0.80), z: Math.sin(a2) });
         }
@@ -2027,8 +2056,8 @@ export function makeWillow(x, z, scale = 1){
       const longs = curtains.filter(s => s.len > 1.2 && !s.dir);
       let planted = 0;
       for (let tries = 0; tries < 4000 && planted < 200 && longs.length > 1; tries++){
-        const s1 = longs[(Math.random() * longs.length) | 0];
-        const s2 = longs[(Math.random() * longs.length) | 0];
+        const s1 = longs[(jr() * longs.length) | 0];
+        const s2 = longs[(jr() * longs.length) | 0];
         const dist = Math.hypot(s1.x - s2.x, s1.y - s2.y, s1.z - s2.z);
         if (dist < 0.3 || dist > 0.8) continue;
         addCurtain((s1.x + s2.x) / 2 + rr(-0.06, 0.06), (s1.y + s2.y) / 2 + rr(-0.08, 0.08),
@@ -2053,7 +2082,7 @@ export function makeWillow(x, z, scale = 1){
             const key = xi+'|'+yi+'|'+zi;
             if (occ.has(key)) continue;
             occ.add(key);
-            if (Math.random() < 0.62 + 0.33 * (rad / R)){
+            if (jr() < 0.62 + 0.33 * (rad / R)){
               addCurtain(xi*cell + rr(-0.12,0.12), yi*cell, zi*cell + rr(-0.12,0.12),
                          rr(0.5, 1.5) * rr(0.8, 1.25), rr(0.9, 1.5));
             }
@@ -2068,11 +2097,11 @@ export function makeWillow(x, z, scale = 1){
     {   // 碎叶云（第十二轮性能回归：950~1300 → 420~620，够糊缝，省 7k tri/树）
       const R = 2.9, nChip = 420 + ((rnd()*200)|0);
       for (let i = 0; i < nChip; i++){
-        const a = Math.random() * TAU;
-        const rad = Math.sqrt(Math.random()) * R;
+        const a = jr() * TAU;
+        const rad = Math.sqrt(jr()) * R;
         const yTop = H * (1.00 - (rad / R) * 0.40) + (rad < R * 0.55 ? H * 0.10 : 0);   // 顶心区穹面抬高
         const yBot = Math.max(0.55, H * (0.50 - (rad / R) * 0.12));
-        addCurtain(Math.cos(a)*rad + rr(-0.1,0.1), yBot + Math.random()*(yTop - yBot), Math.sin(a)*rad + rr(-0.1,0.1),
+        addCurtain(Math.cos(a)*rad + rr(-0.1,0.1), yBot + jr()*(yTop - yBot), Math.sin(a)*rad + rr(-0.1,0.1),
                    rr(0.25, 0.65), rr(1.2, 1.8));
       }
     }
@@ -2150,7 +2179,7 @@ export function makeWillow(x, z, scale = 1){
      留下的全是内部密雾层，"稀疏"永远读不出来（第十二轮春柳"密实暗块"的根因）。
      洗匀后按比例缩减 = 全冠均匀变稀 ✓ */
   for (let i = curtains.length - 1; i > 0; i--){
-    const j = (Math.random() * (i + 1)) | 0;
+    const j = (jr() * (i + 1)) | 0;
     const t = curtains[i]; curtains[i] = curtains[j]; curtains[j] = t;
   }
   const curtainGeo = makeWillowCurtainGeo();
@@ -2871,7 +2900,7 @@ export function makeLotusPod(x, z, h = 0.85){
   g.add(head);
 
   const R = 0.070;                                   // 莲房半径 7cm → 直径 14cm（第二验收轮 +12%：花/蓬尺度上调）
-  const houseMat = Math.random() < 0.32 ? MAT.lotusPodAged : MAT.lotusPod;
+  const houseMat = jr() < 0.32 ? MAT.lotusPodAged : MAT.lotusPod;
   const house = mesh(new THREE.SphereGeometry(R, 14, 9), houseMat, { name:'podHouse' });
   house.scale.set(1, 0.60, 1);                      // 压扁的莲房
   head.add(house);
@@ -2915,7 +2944,7 @@ export function makeLotusPod(x, z, h = 0.85){
     pad.scale.set(sc, 1, sc);
     g.add(pad);
   }
-  const fr = Math.random();
+  const fr = jr();
   if (fr < 0.55){
     // 伴生荷花：三圈杯瓣（同 makeAquatic 的 ring 手法）+ 短梗
     const fa = rr(0, TAU), fRad = rr(0.30, 0.55);

@@ -5,6 +5,11 @@ import { collectAOSkip } from './10-post.js';
 import { applyEnv, onAssetAttached, collectSeasonCaches, ENV, envEl, initEnvScene } from './12-env.js';
 import { scene, world, renderer, camera, controls, CAM_MIN_DIST, CAM_HOME, PROBE_DRIVEN } from './02-scene.js';
 import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
+
+/* ── 布局专用抖动流（2026-09-23 · T0）：理由见 06-vegetation 同名注释。
+   本模块两处用途：假山埋脚"75% 补石"（条件里还会抽 rr ⇒ 直接改全局流消费次数）与
+   两位点景人物的呼吸相位 —— 都是**建场**性质，必须与加载时序无关。 */
+const jr = mulberry32(20260924);
 import { rippleInst, makeMistField, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree } from './06-vegetation.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater } from './05-water.js';
@@ -47,6 +52,20 @@ bootMark('模块构建');
 const deferRoot = new THREE.Group();
 world.add(deferRoot);
 const bootJobs = [];
+/* ── T0 · 装配完成信号（2026-09-23）──────────────────────────────────────
+   为什么需要它：deferBoot 是"每帧一个 job"（setTimeout(step,0)），探针**没有可等待的完成点**
+   ⇒ 采样时刻不同 ⇒ 布局指纹不可复现（实测同一份代码连测两次：InstancedMesh 数 158/160/161、
+   竹叶实例数 41202/41643/42309）。有了这个信号，"全局随机流守恒"（铁律 1）才第一次**可测量**。
+   探针用法：`await window.__garden.bootDonePromise`（或轮询 `__garden.bootDone()`）。
+   ⚠️ resolve 的落点见 runDeferredBoot 完成分支里的说明 —— 必须在那四步之后，不能提前。 */
+export let bootDone = false;
+let bootDoneResolve = null;
+export const bootDonePromise = new Promise(res => { bootDoneResolve = res; });
+function markBootDone(){
+  if (bootDone) return;                       // 幂等：无延迟批时也会走到这里
+  bootDone = true;
+  if (bootDoneResolve){ bootDoneResolve(); bootDoneResolve = null; }
+}
 function deferBoot(label, fn){ bootJobs.push({ label, fn }); }
 /* 插队登记（unshift）。⚠️ 这不是优化，是正确性：延迟链每个 job 之间都 setTimeout(step,0)，
    在软渲染下一帧要好几秒 → **每多一个 job 就多等一帧**。立峰/伴石/题名石是首帧画面上最
@@ -55,7 +74,7 @@ function deferBoot(label, fn){ bootJobs.push({ label, fn }); }
    立峰晚到等于"画面里没有园子"。所以把大件插到队首。 */
 function deferBootFirst(label, fn){ bootJobs.unshift({ label, fn }); }
 export function runDeferredBoot(){
-  if (!bootJobs.length) return;
+  if (!bootJobs.length){ markBootDone(); return; }   // 无延迟批也要发信号（幂等，T0）
   let i = 0, spent = 0;
   const step = () => {
     if (i >= bootJobs.length){
@@ -68,6 +87,14 @@ export function runDeferredBoot(){
       collectAOSkip();
       renderer.shadowMap.needsUpdate = true;      // 迟到的真投射物
       console.log('[启动分段·延迟] 合计 ' + spent.toFixed(1) + 'ms（' + bootJobs.length + ' 批）');
+      /* ── T0：装配完成信号就发在这里 ──────────────────────────────
+         ⚠️ 必须在这四步**之后**，不能提前：
+           · mergeStatics(deferRoot) 会**改变对象组成**（多个网格并成 1 个）；
+           · collectSeasonCaches() 会**重收季节叶量**（冬季 willowLeaf 写不进去的那个坑）；
+           · applyEnv(ENV.cur) 按当前季节/天气套一遍（影响季节显隐与叶量）；
+           · collectAOSkip() 影响遍历时的可见集合。
+         早 resolve = 把噪声交给探针，那 T0 就白做了。 */
+      markBootDone();
       bootJobs.length = 0;
       return;
     }
@@ -170,7 +197,7 @@ world.add(makeRockery(9.5, 16.0, 1));
   }
   function gtmp(o, mx, mz){
     world.add(o);
-    if (Math.random() < 0.75){
+    if (jr() < 0.75){
       const br = rr(0.18, 0.38);
       const b = new THREE.IcosahedronGeometry(br, 0);
       const bp = b.attributes.position;
@@ -397,7 +424,7 @@ function makeScholar({ x = 0, z = 0, yaw = 0, s = 1, pose = 'observe', skin = 'i
      ① 渲染循环读 `f.userData.robe.scale` 会 undefined 崩、
      ② `root.traverse` 改成 `g.traverse` 会漏掉挂在 root 上的头 →
         头/发髻/簪不是 noMerge，会被 mergeStatics 并进静态大网，人一动头就留在原地。 */
-  root.userData.breathPhase = Math.random() * TAU;
+  root.userData.breathPhase = jr() * TAU;
   root.userData.robe = robe;
   /* 日程道具（第十四轮：人物随时间/天气切换举止 —— 用户要求）
      pose: 'read' 执卷读书 / 'tea' 端盏品茗 / 默认负手
@@ -537,7 +564,7 @@ function makeChildScholar({ x = 0, z = 0, yaw = 0, s = 1, skin = 'moss' } = {}){
     headG.add(top);
   }
   root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不参与躯干椭圆缩放
-  root.userData.breathPhase = Math.random() * TAU;   // 同先生：必须挂 root（figures 存的是 root）
+  root.userData.breathPhase = jr() * TAU;   // 同先生：必须挂 root（figures 存的是 root）
   root.userData.robe = robe;
   root.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
   figures.push(root);
@@ -822,6 +849,14 @@ placeAssets('assets/Turtle.glb', 0.5, [
 ]);
 // 乌龟：池中缓游
 export const swimTurtles = [];
+/* ── 预抽（2026-09-23 · T0）：同 makeKoiGroup 的理由 —— 这 4×2 次 rr() 不能留在异步回调里。
+   泳龟在 `loadAssetOnce` 的 onLoad 里抽流，等于让"Turtle.glb 何时加载完"决定全局流的位置，
+   而柳/竹/立峰是延迟批（首帧后才跑）⇒ 其后所有抽样整体漂移、不报错。
+   顺序与原回调逐条一致：t → speed → jitter → phase。 */
+const SWIM_TURTLE_DRAW = [];
+for (let i = 0; i < 2; i++){
+  SWIM_TURTLE_DRAW.push({ t: rr(0, TAU), speed: rr(0.03, 0.07), jitter: rr(0.7, 0.95), phase: rr(0, TAU) });
+}
 loadAssetOnce('assets/Turtle.glb', 0.46, (src)=>{
   for (let i = 0; i < 2; i++){
     const h = new THREE.Group();
@@ -830,8 +865,9 @@ loadAssetOnce('assets/Turtle.glb', 0.46, (src)=>{
        比没有影子更假；锦鲤本就关投影（loadAssetOnce 的 castShadow=true 只惠及静物），
        泳龟同口径。0.46 的尺寸也低于"小件不投影"的 1.1 阈值，只是它迟到躲过了那道遍历。 */
     h.traverse(o=>{ if (o.isMesh) o.castShadow = false; });
-    h.userData = { orbit: i % KOI_ORBITS.length, t: rr(0, TAU), speed: rr(0.03, 0.07),
-                   jitter: rr(0.7, 0.95), phase: rr(0, TAU) };
+    const d = SWIM_TURTLE_DRAW[i];            // 预抽值（见上）：回调里**绝不**抽流
+    h.userData = { orbit: i % KOI_ORBITS.length, t: d.t, speed: d.speed,
+                   jitter: d.jitter, phase: d.phase };
     markUnderwater(h);                 // 泳龟异步挂载：layer 不继承，进场景前补打折射层标记
     world.add(h);
     swimTurtles.push(h);

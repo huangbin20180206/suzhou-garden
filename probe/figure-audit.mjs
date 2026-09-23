@@ -482,10 +482,18 @@ fs.mkdirSync(shotsDir, { recursive: true });
     const s = f.userData.slot.stroll;
     const period = 1 / (s.sp * 2);           // sin(t·sp·TAU·2) 的周期
     const samp = [];
-    for (let i = 0; i < 5; i++){
+    /* ⚠️ 采样窗从 5 帧扩到 60 帧（2026-09-23 修"刀锋窗口"）：
+       5 帧在 60fps 下只有 ~83ms，而散步是**沿 z 来回**（半周期 1/(sp·2)=18.5s）——
+       窗口一旦正好落在**掉头点**，Δz≈0、yaw 正在平滑转 180° ⇒ "前向量 |z| 须 ≥0.94" 必然误判。
+       实测（2026-09-23 把布局随机改走专用种子流 jr 之后）：散步者的摆动相位 `breathPhase` 由
+       `Math.random()*TAU` 变成确定值，采样窗恰好落到掉头点，这条就红了 —— 而其余四条步态判据
+       （步速/前倾/步相/起伏）全绿 ⇒ **产品行为是对的，是判据在量一个刀锋窗口**。
+       （顺带：相位原来是每次加载随机的 ⇒ 这条判据**本来就偶发红**，前两次只是撞上了直行段。）
+       扩窗后仍用"位移最大的一对样本"判朝向 —— 判据没变软，只是不再靠运气。 */
+    for (let i = 0; i < 60; i++){
       await new Promise(r => requestAnimationFrame(r));
       samp.push({ rx: f.rotation.x, y: f.position.y, st: f.userData.stepPhase || 0, vis: f.visible,
-                  x: f.position.x, z: f.position.z });
+                  x: f.position.x, z: f.position.z, ry: f.rotation.y });
     }
     /* 朝向：模型正面 = +z、`rotation.y = ry` → 前向量 = (sin ry, cos ry)。
        日程里给的初始 yaw 是 π/2（面朝 +x，垂直于廊道）—— 若步态没接管，这里会是 cos(π/2) ≈ 0。 */
@@ -508,12 +516,20 @@ fs.mkdirSync(shotsDir, { recursive: true });
     check('迈步有身体起伏', yMax > 0.004, `max y=${yMax.toFixed(4)}m`);
     /* 朝向必须跟行进方向一致。走廊里人在 z 轴来回走，所以判据是"前向量的 z 分量接近 ±1"。
        ⚠️ 这条是**自检式**判据：日程给的初始 yaw = π/2（面朝 +x）→ cos(π/2) ≈ 0，
-       步态没接管就必然判红；而且"面朝 +z 却在往 -z 走"（倒退）也会被后半段抓住。 */
-    const dz = gait.samp[gait.samp.length - 1].z - gait.samp[0].z;
+       步态没接管就必然判红；而且"面朝 +z 却在往 -z 走"（倒退）也会被后半段抓住。
+       ⚠️ 取"窗口内相邻样本里 |Δz| 最大的那一段"来判（2026-09-23 修）：掉头点上 Δz≈0、yaw 正在
+       平滑转 180°，拿它当判据会误红（那是判据的刀锋，不是产品的问题）。最快那一段必定是直行。 */
+    let best = { dz: 0, ry: gait.ry, k: 0 };
+    for (let i = 0; i + 1 < gait.samp.length; i++){
+      const dz = gait.samp[i + 1].z - gait.samp[i].z;
+      if (Math.abs(dz) > Math.abs(best.dz)) best = { dz, ry: gait.samp[i + 1].ry, k: i + 1 };
+    }
+    const fwdZ = Math.cos(best.ry);
     check('散步者面朝行进方向（不是侧身平移）',
-      Math.abs(gait.fwdZ) >= 0.94 && gait.fwdZ * Math.sign(dz) >= 0,
-      `rotation.y=${gait.ry.toFixed(3)} → 前向量 z=${gait.fwdZ.toFixed(3)}（|z| 须 ≥0.94）；` +
-      `本段位移 Δz=${dz.toFixed(3)}m；侧身时 yaw 停在日程给的 π/2、前向量 z≈0`);
+      Math.abs(fwdZ) >= 0.94 && fwdZ * Math.sign(best.dz) >= 0,
+      `取窗口内位移最大的一段（样本 #${best.k}→#${best.k + 1}，Δz=${best.dz.toFixed(4)}m）：` +
+      `rotation.y=${best.ry.toFixed(3)} → 前向量 z=${fwdZ.toFixed(3)}（|z| 须 ≥0.94）；` +
+      `侧身时 yaw 停在日程给的 π/2、前向量 z≈0`);
   }
 
   check('页面零报错', errs.length === 0, errs.slice(0, 3).join(' | '));

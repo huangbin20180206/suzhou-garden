@@ -144,6 +144,14 @@ const SUITES = [
      「柱状树林」。本门守的是**它不再出现**：场景里不得再有 PlaneGeometry×46 的 InstancedMesh、
      材质库不得再有 MAT.distantTree，且自带"注入同形状网格必须报红"的自检负例。 */
   ['远树剪影下线 far-tree-guard', 'probe/far-tree-guard.mjs'],
+  /* ── 2026-09-23 · T0：「全局随机流守恒」（铁律 1）的**第一个机器守卫** ──
+     守的是"全园布局有没有漂"：把场景里所有静态 InstancedMesh 的实例矩阵做哈希，与基线逐条比对。
+     为此先补了两块地基：① `__garden.bootDonePromise`（装配完成信号 —— 此前 deferBoot 是"每帧一个 job"，
+     探针没有可等待的完成点，采样时刻不同 ⇒ 同一份代码连测两次都不一致）；② 布局类随机改走**专用种子流**
+     （此前布局吃共享 `Math.random`，而它同时被 Three.js 的 UUID 生成/涟漪/音景在异步时刻消费
+     ⇒ 布局随**加载时序**漂，冷/热启动结果都不同）。本门是纯状态门（零像素）⇒ 不受 GPU 档位影响。
+     ⚠️ 若它报"偶发红"，先怀疑"谁又把布局接回了 Math.random"，**别用冻结 Math.random 把红盖掉**。 */
+  ['布局指纹 layout-fingerprint', 'probe/layout-fingerprint.mjs'],
 ];
 
 /* ── T7.1（2026-09-23）三条改进 ──────────────────────────────────────────
