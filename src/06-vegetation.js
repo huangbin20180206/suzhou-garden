@@ -2297,9 +2297,15 @@ function makePeachFruitGeo(){
   return g;
 }
 
-export function makePeachTree(x, z, scale = 1){
+/* ⚠️ `baseY`（2026-09-23 新增 · 老黄第三轮指认）：南岸那株实测树脚四周的可见表面在
+   y = 0.40~1.03（太湖石串 + 埋脚鼓包围成一只"碗"），而树基固定在 y=0、主干只到 1.87m
+   ⇒ **主干下半截连同分叉点一起埋进这圈隆起**，露出来的只剩主枝中上段。老黄看得准：
+   "它的根和枝都是石头或者草皮中长出来的，而不是一个主枝干，再分支的正常形态。"
+   对策：把整树抬到隆起之上（baseY），并让主干**向下加长**穿进土里（见 trunkCurve 第一点），
+   免得抬起来之后树底悬空。根盘跟着树走 —— 树长在丘顶，根颈就在丘顶，这是自然的。 */
+export function makePeachTree(x, z, scale = 1, baseY = 0){
   const g = new THREE.Group();
-  g.position.set(x, 0, z);
+  g.position.set(x, baseY, z);
   g.scale.setScalar(scale);
   /* ⚠️ 本树自带随机流（种子由坐标决定）：园子的全局 rnd/rr 是**一条**可复现流，
      但桃树建在 deferBoot 的延迟任务里 —— 异步资产回调/别的延迟任务先后耗尽它的抽样数，
@@ -2333,7 +2339,7 @@ export function makePeachTree(x, z, scale = 1){
      半径剖面 r(t) = trunkR × (1 − 0.40t) × (1 + 0.38(1−t)^6)：
        t=0 → 1.38r（≈0.14，根盘）→ 中段 ≈1.0r → t=1 → 0.60r（≈0.06）—— 圆管且确实在收细。 */
   const trunkCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, -0.06, 0),
+    new THREE.Vector3(0, -0.06 - baseY, 0),   // 向下加长：穿过隆起的土石层（否则抬高后树底悬空）
     new THREE.Vector3(rr2(-0.05,0.05), H*0.18, rr2(-0.05,0.05)),
     new THREE.Vector3(rr2(-0.04,0.04), H*0.34, rr2(-0.04,0.04)),
     new THREE.Vector3(rr2(-0.03,0.03), H*0.48, rr2(-0.03,0.03)),
