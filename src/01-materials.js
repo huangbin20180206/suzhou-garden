@@ -669,10 +669,11 @@ export function registerSeasonTint(mat, key){ SEASON_TINT_REGISTRY.push([mat, ke
    refreshFogUniforms 会直接 uniforms.fogColor.value.copy(...)，缺了就在暖机
    首帧抛 undefined.value（2026-09-21 实测暖机回退）。 */
 export function makeDistantMat(hex, opacity, topFade, opts = {}){
-  /* opts.map（2026-09-22 · 柱状树林专用）：可选的剪影 alpha 贴图。
-     传了就在 fragment 里按 alpha<0.5 裁形 —— 树卡不再是一块"纯色矩形板"
-     （老黄指认的池北白框真身：46 棵远树 quad 叠雾色，地平线带上读作白色矩形）。
-     远山脊四个调用点不传 opts → shader 源码与旧版逐字一致，零回归。 */
+  /* opts.map（2026-09-22 加，为当时的"柱状树林"做的可裁剪剪影）：可选的 alpha 裁形贴图。
+     传了就在 fragment 里按 alpha<0.5 裁形。
+     ⚠️ 2026-09-23："柱状树林"整层已删除，**现在没有任何调用点传 opts** ——
+        四层远山脊不传 opts → `${opts.map ? … : ''}` 展开为空串，shader 源码与旧版逐字一致。
+        这个能力本身留着（通用、零成本），但别误以为还有谁在用。 */
   const uniforms = {
     uColor:     { value: new THREE.Color(hex) },
     uOpacity:   { value: opacity },
@@ -710,6 +711,11 @@ export function makeDistantMat(hex, opacity, topFade, opts = {}){
   m.color = uniforms.uColor.value;            // 伪装 BasicMaterial 的 .color 接口
   return m;
 }
+
+/* ⚠️ 2026-09-23：原 makeTreeSilhouetteTex()（"柱状树林"的树形剪影 alpha 贴图）**已随该层
+   一并删除** —— 它唯一的使用者是 MAT.distantTree，而那一层因"堂前池面那棵不知名的白色
+   树形剪影"被整层下线（来龙去脉见 07-ground.js 的 makeDistantHills 顶部说明）。
+   留这条注记是为了让后来者知道它是**故意删掉的**，不是漏删。 */
 
 export const MAT = {
   // —— 建筑 ——
@@ -847,19 +853,27 @@ export const MAT = {
   distantDeep: makeDistantMat(0x8D9899, 0.62, 0.26),
   distant:     makeDistantMat(0xA6AFAF, 0.55, 0.32),
   distantFar:  makeDistantMat(0xBCC3C2, 0.45, 0.40),
+  /* ⚠️ 2026-09-23：原 distantTree（"柱状树林"的树形剪影广告牌材质）**已整层删除** ——
+     它被修过三轮（矩形→树形、改深灰绿、降不透明度、并进 DISTANT_MATS 跟天光）都断不了根：
+     只要这层还在，堂前池北岸就会立着一棵淡色树形剪影（并被 Reflector 镜像进水里）。
+     老黄第 3 次指认后明确要求"完全隐藏或者直接删除"，于是连材质带贴图一起下线。
+     来龙去脉见 07-ground.js 的 makeDistantHills 顶部说明；这里留注记以示**故意删除**。 */
 };
 Object.values(MAT).forEach(m => registry.mats++);
 /* 竹叶基色快照（applyEnv 春提亮用，见该处注释） */
 MAT._leafBase = new THREE.Color(0x4E8C36);
 MAT._leafDeepBase = new THREE.Color(0x3A6B2C);
-/* 远山固有色快照（applyEnv 夜段压暗用，见该处注释）。
-   ⚠️ 这四层是 **MeshBasicMaterial —— 不吃任何光**，固有色写死的是白天的灰绿
+/* 远景固有色快照（applyEnv 夜段压暗用，见该处注释）。
+   ⚠️ 这四层远山是 **MeshBasicMaterial —— 不吃任何光**，固有色写死的是白天的灰绿
    （0x76817F → 0xBCC3C2，越远越淡）。白天没问题（它本来就该是那个亮度），
    但夜里灯光全暗、雾色被钳到 0.011 时，山还挂着白天的颜色 → 实测「山 35.4 vs 天 16.9」，
    剪影在夜空上发亮（README P1-2 的真身，probe/mist-guard 抓到）。
    物理上远景山只被天光漫射照明（没有直射、没有材质细节），所以正确做法是把它的 albedo
    乘以「当前天光 / 白天基准」—— 与 environmentIntensity 同源同算，保证山和它背后
-   那片天空同步变暗。 */
+   那片天空同步变暗。
+   ⚠️ 2026-09-22 晚曾把"柱状远树"也并进这张表；2026-09-23 该层整层删除，本表回到四层远山。
+   ⚠️ probe/mist-guard 的"山/天像素"判据用的是**显式四元素数组**（MAT.distant / distantNear /
+      distantDeep / distantFar），与本表一致。 */
 export const DISTANT_MATS = [MAT.distantNear, MAT.distantDeep, MAT.distant, MAT.distantFar];
 DISTANT_MATS.forEach(m => { m.userData.baseColor = m.color.clone(); });
 

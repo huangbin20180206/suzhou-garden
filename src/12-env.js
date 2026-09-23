@@ -954,7 +954,8 @@ export function applyEnv(p){
      不吃任何光，不跟着天光压暗的话夜里会在夜空上发亮（山 35.4 vs 天 16.9 的实测）。
      与上面 environmentIntensity **同源同算**，山和它背后的天同步变暗。
      floor 0.06：留一丝轮廓，别纯黑成一块死斑（夜山仍应有极淡的剪影可读）。
-     ⚠️ 每次都从 baseColor 重算，不要就地乘 —— 就地乘会逐帧累积衰减成纯黑。 */
+     ⚠️ 每次都从 baseColor 重算，不要就地乘 —— 就地乘会逐帧累积衰减成纯黑。
+     ⚠️ 2026-09-22 晚曾把"柱状远树"也挂进这张表；2026-09-23 该层整层删除，本表回到四层远山。 */
   const hillAmb = Math.max(0.06, Math.min(1.0, curLum / ENV_BAKE_LUM));
   for (const m of DISTANT_MATS){
     m.color.copy(m.userData.baseColor).multiplyScalar(hillAmb);

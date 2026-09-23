@@ -16,6 +16,7 @@ _attic/
 
 # AI 工作记忆（agent 的记事本，不是工程产物）
 .workbuddy/
+CODELY.md
 
 # 编辑期备份（防止误提交旧单体 index.html）
 index.html.bak-*

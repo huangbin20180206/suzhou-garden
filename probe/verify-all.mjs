@@ -138,6 +138,11 @@ const SUITES = [
   ['分帧暖编译 warmboot-guard','probe/warmboot-guard.mjs'],
   ['偶得随机场景 random-guard','probe/random-guard.mjs'],
   ['丁达尔体积光 lampvol-guard','probe/lampvol-guard.mjs'],
+  /* ── 2026-09-23：老黄第三次指认"堂前池边那棵不知名的白色树形剪影" ──
+     前两轮都在"修"它（矩形→树形、改色降权跟天光），都没断根；这次按老黄要求**整层删除**
+     「柱状树林」。本门守的是**它不再出现**：场景里不得再有 PlaneGeometry×46 的 InstancedMesh、
+     材质库不得再有 MAT.distantTree，且自带"注入同形状网格必须报红"的自检负例。 */
+  ['远树剪影下线 far-tree-guard', 'probe/far-tree-guard.mjs'],
 ];
 
 console.log('[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并误报）\n');
