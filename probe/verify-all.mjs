@@ -100,6 +100,7 @@
 // 用法: node probe/verify-all.mjs   （或 npm run verify）
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -145,22 +146,71 @@ const SUITES = [
   ['远树剪影下线 far-tree-guard', 'probe/far-tree-guard.mjs'],
 ];
 
-console.log('[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并误报）\n');
+/* ── T7.1（2026-09-23）三条改进 ──────────────────────────────────────────
+   ① **红门必须把明细打出来**：原来只打 `exit=1`、只回显 stdout 最后 3 行 ⇒ 想知道红在哪
+      必须**单独重跑那一门**（实测每次定位多花 3~15 分钟；`mist-guard` 单门就要 225~280s）。
+      现在红门把子进程的**完整 stdout/stderr** 打出来。
+   ② **整轮完整日志落盘**：不必再依赖外层 shell 重定向（漏了就丢证据）。
+   ③ **打 GPU 档位**（开头 / 结尾 / 红门当场各一次）：`_harness` 自己写着"ANGLE 每次挑哪块
+      GPU 不固定"，实测同机出现过 Intel Iris Xe（核显档）与 NVIDIA RTX 4060（独显档），
+      两档的超采样/阴影尺寸/GTAO/粒子量全不同（同场景 draw calls 308 vs 716）⇒ **像素统计不同**
+      ⇒ σ/容差类判据会随档位漂。有这一行才能把"偶发红门"与档位对上。
+   ⚠️ 判"是不是你改坏的"：看**同一门是否每轮都红**，而不是看某一轮有没有红。 */
+const STAMP = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+const LOG = path.join(ROOT, 'outputs', '_diag', `verify-${STAMP}.log`);
+try { fs.mkdirSync(path.dirname(LOG), { recursive: true }); } catch {}
+const logLine = (s) => { try { fs.appendFileSync(LOG, s + '\n', 'utf8'); } catch {} };
+const say = (s) => { console.log(s); logLine(s); };
+const gpuTag = () => {
+  try {
+    const r = spawnSync(NODE, [path.join(ROOT, 'probe', 'gpu-tag.mjs')], { cwd: ROOT, encoding: 'utf8', timeout: 240000 });
+    const line = (r.stdout || '').trim().split('\n').filter(l => l.includes('[GPU]')).pop();
+    return line || '[GPU] (未取到)';
+  } catch { return '[GPU] (未取到)'; }
+};
+
+/* ⚠️ 自检开关（T7.1 配套 · 同 warmboot-guard 的负例文化）：`VERIFY_SELFTEST=<相对路径>`
+   会把整张表换成"只跑那一个脚本"，用来验证**红门路径**本身（明细是否打出、日志是否落盘、
+   GPU 是否打印、退出码是否为 1）—— 否则要验证它就得先真弄红一门、白等 13 分钟。
+   例：`VERIFY_SELFTEST=probe/_selfcheck-fail.mjs node probe/verify-all.mjs` */
+const SELFTEST = process.env.VERIFY_SELFTEST;
+const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]] : SUITES;
+
+say('[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并误报）');
+if (SELFTEST) say(`[verify-all] ⚠️ 自检模式：只跑 ${SELFTEST}（验证红门路径，不是真跑链）`);
+say(`[verify-all] 完整日志：${path.relative(ROOT, LOG)}`);
+say(gpuTag());
+say('');
 const failed = [];
-for (const [name, rel] of SUITES){
-  console.log(`── ${name} ──────────────────────────`);
+for (const [name, rel] of LIST){
+  say(`── ${name} ──────────────────────────`);
   const t0 = Date.now();
   const r = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: 600000 });
   const dt = ((Date.now() - t0) / 1000).toFixed(1);
-  const tail = (r.stdout || '').trim().split('\n').slice(-3).join('\n');
-  if (tail) console.log(tail);
+  const out = (r.stdout || '').trim();
+  const err = (r.stderr || '').trim();
   const ok = r.status === 0;
-  console.log(`${ok ? '✓' : '✗'} ${name} — exit=${r.status}（${dt}s）\n`);
+  if (ok){
+    const tail = out.split('\n').slice(-3).join('\n');
+    if (tail) say(tail);
+  } else {
+    say(`✗✗ 红门明细开始（${name}）—— 完整 stdout / stderr`);
+    say(out || '(stdout 为空)');
+    if (err) say('[stderr]\n' + err);
+    if (r.signal) say(`[signal] ${r.signal}`);
+    say(`✗✗ 红门明细结束（${name}）`);
+    say(gpuTag());
+  }
+  say(`${ok ? '✓' : '✗'} ${name} — exit=${r.status}（${dt}s）`);
+  say('');
   if (!ok) failed.push(name);
 }
 
 if (failed.length){
-  console.error(`[verify-all] FAILED：${failed.join('、')}`);
+  const msg = `[verify-all] FAILED：${failed.join('、')}`;
+  console.error(msg); logLine(msg);
+  console.error(`[verify-all] 完整日志：${path.relative(ROOT, LOG)}`);
   process.exit(1);
 }
-console.log('[verify-all] ALL GATES PASS ✓');
+say(gpuTag());
+say('[verify-all] ALL GATES PASS ✓');
