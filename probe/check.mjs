@@ -38,11 +38,20 @@ try {
     const swSrc = fs.readFileSync(swPath, 'utf8');
     const ver = (swSrc.match(/const CACHE = 'suzhou-garden-(v\d+)'/) || [])[1];
     if (!ver) throw new Error("sw.js 未声明 `const CACHE = 'suzhou-garden-vN'`");
+    /* ⚠️ 2026-09-23 收窄作用域（审核 A · 修假红）：原来扫 `assets/*.glb` + `icons/` + `docs/`
+       **整个目录**，于是**任何**新文件都会被判"改了要 bump"。实测反例：往 docs/ 放一份评审文档
+       就把 check 判红，而那份文件页面根本不请求、根本不需要换缓存 ⇒ **判据与结论不对应（假红）**，
+       正是 §0.4-2「判据是否特异」那一类。
+       正解：只对 **sw.js 里真正声明进 SHELL / GLBS 的那几件**判 mtime；
+       同目录里其余文件（README 配图、说明文档）与 SW 缓存无关，一律不管。 */
+    const arrBody = (name) => (swSrc.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\]`)) || [])[1] || '';
+    const declared = [...(arrBody('SHELL') + arrBody('GLBS')).matchAll(/'([^']+)'/g)]
+      .map(m => m[1].replace(/^\.\//, ''));
     const frozen = [];
-    for (const f of fs.readdirSync(path.join(ROOT, 'assets'))) if (f.endsWith('.glb')) frozen.push(path.join(ROOT, 'assets', f));
-    for (const d of ['icons', 'docs']) {
-      const dp = path.join(ROOT, d);
-      if (fs.existsSync(dp)) for (const f of fs.readdirSync(dp)) frozen.push(path.join(dp, f));
+    for (const rel of declared) {
+      if (/\.(js|mjs|html|webmanifest)$/.test(rel)) continue;   // 代码类走 network-first，改了即所见、不需 bump
+      const p = path.join(ROOT, rel);
+      if (fs.existsSync(p) && fs.statSync(p).isFile()) frozen.push(p);
     }
     const swM = fs.statSync(swPath).mtimeMs;
     const stale = frozen.filter(p => fs.statSync(p).mtimeMs > swM + 2000);
