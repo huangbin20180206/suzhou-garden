@@ -6,7 +6,7 @@ import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-material
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
-import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather } from './06-vegetation.js';
+import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
@@ -64,15 +64,14 @@ renderer.domElement.addEventListener('pointerup', (e)=>{
                -((e.clientY - r.top) / r.height) * 2 + 1);
   _pondRay.setFromCamera(_pondNdc, camera);
   const hit = _pondRay.intersectObject(waterSurface, false)[0];
-  /* ⚠️ 坐标系：insidePond 的多边形是**池心局部坐标**（水面 mesh 位于世界 z=3），
-     hit.point 是世界坐标。用 mesh 的 worldToLocal 换进池心系再判 —— 旋转后
-     水面 mesh 的局部 xz 即池形 Shape 的 xy。直接传世界坐标会整体偏 3m，
-     南半池点击全部误判"不在池内"。 */
+  /* ⚠️ 坐标系：insidePond 的多边形是**池心局部坐标**（池心在世界 z = +3），hit.point 是世界坐标。
+     ⚠️ 2026-09-24 修：原来用 `waterSurface.worldToLocal(...)` 后读 `lp.z` —— 但水面 mesh 带
+     `rotation.x = -π/2`，世界→局部之后**局部 z ≈ 0**（池形的 y 落在**局部 y** 上）⇒
+     那等于在测 `(世界 x, 0)`，于是**岸边点击也被判"在池内"**（涟漪画到岸上，与雨滴那条同源）。
+     改成与世界→池心的**唯一口径**一致：`insidePond(世界 x, 世界 z − 3)`
+     （同 07-ground.js 的 `dz = z - 3.0`、06-vegetation 里 `z = 3 + sin(ang)*rad`）。 */
   let ok = false;
-  if (hit){
-    const lp = waterSurface.worldToLocal(hit.point.clone());
-    ok = insidePond(lp.x, lp.z);
-  }
+  if (hit) ok = insidePond(hit.point.x, hit.point.z - 3.0);
   if (ok) spawnRipple(hit.point.x, hit.point.z, frameT, 5, 1.6);
   lastClickRipple = { at: performance.now(), hit: ok,
     x: hit ? hit.point.x : null, z: hit ? hit.point.z : null };
@@ -291,6 +290,19 @@ export function queuePostcard(){ takePostcard(); }
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.sound = toggleSound;
+/* 反射按需更新：把"水面是否活跃"的判断放在这里（本模块已经 import 了 ENV / REEL / 涟漪状态），
+   05-water 经 HOOKS 读 —— 它不能 import 06-vegetation / 12-env（会成环，见 05 的注释）。
+   活跃 = 下雨 / 时光流转（时间快进）/（可选）刚刚起过涟漪。
+   ⚠️ "锦鲤出水"默认**不**算活跃 —— 实测（outputs/_diag/water-busy-share.mjs，晴、1200 帧）：
+     池里有活涟漪 100% ｜ 最近 1.5s 起过涟漪 ~98% ｜ **有锦鲤正在出水 76%**。
+     11 条鱼轮流跳是常态，把"鱼跃"算进去 ⇒ 观景态只剩 ~24%，本特性的收益基本被吃掉。
+     而鱼的倒影在墨绿水面上只是一个很小的暗斑 ⇒ 1/3 刷新率下几乎不可辨（**待真人观感确认**）。
+     要回到计划书原文口径（鱼跃也满速）把下面开关置 true 即可。
+   ⚠️ 判断源全部复用既有状态（`lastRippleAge` 由 updateRipples 每帧维护），不新增真值来源。 */
+const REFLECT_FULL_ON_FISH = false;
+HOOKS.waterBusy = () => (ENV.cur.rainAmount || 0) > 0.02
+                    || REEL.on
+                    || (REFLECT_FULL_ON_FISH && lastRippleAge < 1.5);
 /* 偶得：抽完一幅景色，用巡游字幕条把结果亮一下（2.6s 自动隐） */
 HOOKS.randomScene = ()=>{
   const r = randomScene();
@@ -453,6 +465,9 @@ export function longExposureData(){
   ga.globalCompositeOperation = 'lighter';
   const weight = 1 / N;
   try {
+    /* 长曝是把"一段时间"压进一张画：每一步都推时间再渲一帧 ⇒ 反射也必须**每步**刷新，
+       否则水面反射只更新 1/3 步、长曝出来的倒影会缺轨迹（反射按需更新见 05-water 的注释）。 */
+    if (waterSurface) waterSurface.userData.reflectEveryFrame = true;
     for (let i = 0; i < N; i++){
       if (skyU.uStarRot) skyU.uStarRot.value = rotStep * i;   // 星野逐帧转一微角 → 圆弧
       lxpSyncWind(adv, rainNow);
@@ -461,6 +476,7 @@ export function longExposureData(){
       ga.drawImage(renderer.domElement, 0, 0);
     }
   } finally {
+    if (waterSurface) waterSurface.userData.reflectEveryFrame = false;
     /* 星野旋转必须归一：否则日常实时渲染里星星会按 uStarRot 一直转下去 */
     if (skyU.uStarRot) skyU.uStarRot.value = 0;
   }
@@ -1057,6 +1073,12 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      必须用 getter 函数读 —— 直接写 `bootDone` 会在建这个对象时把 false 定格，
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
                   bootDone: () => bootDone, bootDonePromise,
+                  /* 反射按需更新（2026-09-24）：把"水面是否活跃"暴露给门禁 ——
+                     门禁必须先**断言**这个前提（晴 + 无涟漪）才能测"观景态降频"，
+                     否则测到的可能是"有涟漪/在下雨"下的满速（那是正确行为）。 */
+                  waterBusy: () => HOOKS.waterBusy ? HOOKS.waterBusy() : false,
+                  ripplesActive,
+                  lastRippleAge: () => lastRippleAge,   // 供门禁/诊断读"距最近一次起涟漪多久"
                   /* 风的调度器（2026-09-18）：门禁要断言"风向真的是 16 档之一、风力真的是四档之一"，
                      以及"档位保持时长够久"。靠读 uniform 反推不出档位号，必须显式暴露。
                      ⚠️ updateWindDir / updateWindForce 也要暴露：软渲染下一帧 8.4s，

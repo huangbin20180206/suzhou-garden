@@ -105,6 +105,16 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   const setEnv = (time, season, weather) => page.evaluate((a) => {
     const g = window.__garden; g.setEnv('time', a[0]); g.setEnv('season', a[1]); g.setEnv('weather', a[2]);
   }, [time, season, weather]);
+  /* ⚠️ 把水面反射钉成"每帧刷"（2026-09-24）：本门的热点判据要**全幅**找"差分最强格"，
+     而"反射按需更新"会让水面像素带 ≤3 帧旧倒影（那是另一个子系统的设计行为，见 05-water 的注释）
+     ⇒ 水面会造出与光团无关的**假热点**：实测热点跑到 (1200,560) 值 3.71，而光团格是 (640,320)，
+     且两次跑数值完全相同（确定性，不是瞬时噪声）⇒ 是"水面刷新相位"这一个变量。
+     用产品自带的覆盖开关把它钉住（长曝光路径也用同一个开关），本门只量**光团**。
+     ⚠️ 反射的"按需降频"本身由 probe/reflect-adaptive.mjs 守，别在这里断言。 */
+  await page.evaluate(() => {
+    const w = window.__garden.scene.getObjectByName('waterSurface');
+    if (w) w.userData.reflectEveryFrame = true;
+  });
 
   /* ── ① 归属与形态 ── */
   await setEnv('night', 'winter', 'clear'); await settled(); await sleep(900);

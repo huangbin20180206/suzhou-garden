@@ -1,6 +1,6 @@
 // 05-water: from index.html inline 1062..1435
 import { THREE, mergeGeometries, Reflector } from '../vendor.js';
-import { CFG, rnd, rr, pick, TAU, DEG, registry, mulberry32, bootMark } from './00-config.js';
+import { CFG, rnd, rr, pick, TAU, DEG, registry, mulberry32, bootMark, HOOKS } from './00-config.js';
 import { MAT, waterNormalTex, WATER_REFLECT_SHADER, waterSurface, setWaterSurface, auxPass, makePondBedTex, WIND, addWind } from './01-materials.js';
 import { scene, renderer, camera, controls, skyMesh, lumOf, ENV_BAKE_LUM, GPU_TIER } from './02-scene.js';
 import { mesh, box, makeColumn, instancedBoxes, instancedGeo, makeCorrugatedSlab, DOUGONG_H, makeDougongGeo, makeChineseRoof, makeCeiling, makeQueTu, makeGuaLuo, makeJiangnanWindow, makeChangChuang, makeLatticePanel, makeWallRun, makeWallCap } from './03-factory.js';
@@ -206,11 +206,58 @@ export function makePond(){
   // 核显档：跳过平面反射的镜像渲染（这是核显上最大的一笔开销）
   // 高档位：只在**主 pass**里刷新反射，辅助 pass（AO 的法线/深度）里不刷（见 GTAO wrapper）
   const reflectOnce = water.onBeforeRender.bind(water);
+  /* ── 反射按需更新（2026-09-24 · 计划书第 2 项）──────────────────────────────
+     现状：高档位下水面的平面反射**每帧**把整场景再渲一遍（这是高档位最大的一笔开销之一；
+     核显档直接关掉，见下）。但"观景态"（相机静止 + 水面静默）不需要每帧刷。
+     ⚠️ 反过来**必须**留一条无条件的每帧路径：人对反射滞后的容忍度极低 ——
+        计划书 v2.0 补注明确写着"快速拖动时'慢半拍'一定会被感知"，所以相机一动就每帧。
+     三条任一成立即每帧：
+       ① 相机位移/转角超过阈值（每帧比一次；阈值取得很小 ⇒ 只有真静止才算"静止"）；
+       ② 水面活跃：雨（ENV.cur.rainAmount）、涟漪池（雨痕/鱼跃/点击）、时光流转（REEL.on）
+          —— 判断源复用既有状态、不新增，经 HOOKS 读（05 不能 import 06/12，会成环）；
+       ③ 长曝光合成：那是一次**同步堆积循环**（每步推时间再渲一帧），必须每步都刷，
+          由调用方在 `waterSurface.userData.reflectEveryFrame` 上打标记。
+     都不成立时才降频到每 REFLECT_STATIC_EVERY 帧一次（观景态，反射里只剩风摆植被这类慢动作）。
+     停滞上限 = REFLECT_STATIC_EVERY 帧（60fps 下 ~50ms），肉眼不可辨。 */
+  const REFLECT_STATIC_EVERY = 3;
+  const MOVE_POS = 0.0015, MOVE_ROT = 0.0008;   // ≈9cm/s、≈2.7°/s 即视为"在动"
+  const SETTLE_FRAMES = 12;                     // 停下后再保持每帧 12 帧，让最后位置/涟漪落定
+  /* ⚠️ 先把主相机存成常量：`reflectAdaptive` 的参数也叫 camera（onBeforeRender 的签名），
+     直接比 `camera === camera` 会永远为真（遮蔽）。 */
+  const mainCam = camera;
+  let prevCam = null, settle = SETTLE_FRAMES, tick = 0;
+  const reflectAdaptive = (renderer, scene, camera) => {
+    if (auxPass) return;                        // 辅助 pass（AO 的法线/深度）里不刷
+    /* ⚠️ 只认**主相机**（2026-09-24 修）：`onBeforeRender` 每帧会被调用多次
+       （主 pass + 折射 pass 各一遍），而折射 pass 用的是**另一台**相机（refractCam，正交）。
+       原来不区分相机 ⇒ "上一帧相机"在主相机与折射相机之间反复比 ⇒ **每帧都判为"在动"**
+       ⇒ 降频永不生效（门禁实测：静止态仍 100% 满速）。而反射贴图是给**主画面**用的，
+       折射 pass 里根本不需要它 ⇒ 直接跳过（顺带省掉一次整场景重渲）。
+       门禁读的 `reflectCount` 只统计"真的渲了几次反射"，见下。 */
+    if (camera !== mainCam) return;
+    const p = camera.position, q = camera.quaternion;
+    let moved = !prevCam;                       // 首帧必须刷
+    if (prevCam){
+      moved = Math.abs(p.x - prevCam[0]) > MOVE_POS || Math.abs(p.y - prevCam[1]) > MOVE_POS
+           || Math.abs(p.z - prevCam[2]) > MOVE_POS
+           || Math.abs(q.x - prevCam[3]) > MOVE_ROT || Math.abs(q.y - prevCam[4]) > MOVE_ROT
+           || Math.abs(q.z - prevCam[5]) > MOVE_ROT || Math.abs(q.w - prevCam[6]) > MOVE_ROT;
+    }
+    prevCam = [p.x, p.y, p.z, q.x, q.y, q.z, q.w];
+    const busy = water.userData.reflectEveryFrame === true || HOOKS.waterBusy?.() === true;
+    const doReflect = () => {
+      water.userData.reflectCount = (water.userData.reflectCount || 0) + 1;   // 门禁/诊断读
+      reflectOnce(renderer, scene, camera);
+    };
+    if (moved || busy){ settle = SETTLE_FRAMES; doReflect(); return; }
+    if (settle > 0){ settle--; doReflect(); return; }
+    if ((tick++ % REFLECT_STATIC_EVERY) === 0) doReflect();
+  };
   if (GPU_TIER === 'low'){
     water.onBeforeRender = () => {};
     water.material.uniforms.uReflMix.value = 0;
   } else {
-    water.onBeforeRender = (renderer, scene, camera) => { if (!auxPass) reflectOnce(renderer, scene, camera); };
+    water.onBeforeRender = reflectAdaptive;
   }
   setWaterSurface(water);
   setupRefraction(water);                    // 折射相机 + 池底贴图，创建一次、接好 uniform

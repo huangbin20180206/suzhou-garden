@@ -21,7 +21,7 @@ import { TAU, rnd, rr, CFG, mulberry32, bootMark, HOOKS } from './00-config.js';
 const jr = mulberry32(20260923);
 import { MAT, WIND, addWind, AUX_PASS_HIDDEN } from './01-materials.js';
 import { mesh } from './03-factory.js';
-import { POND_RADII, markUnderwater } from './05-water.js';
+import { POND_RADII, insidePond, markUnderwater } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    6 · 植被
    ══════════════════════════════════════════════════════════════ */
@@ -678,6 +678,16 @@ rippleInst.instanceMatrix.needsUpdate = true;
    圈数更多、铺得更大、亮峰更高，交互反馈要明显强过环境自发的水痕，
    否则点击看起来"什么都没发生"（薄雾区实测浅圈几乎不可见）。 */
 export function spawnRipple(x, z, t, rings = 3, strength = 1, kind = ''){
+  /* ⚠️ 落点必须在**池域内**（2026-09-24 修"涟漪画到岸上草地"）：
+     雨滴涟漪原来按**外接椭圆**撒点（半轴 12.5 × 6.4、心在世界 (0,3)），而池形是**不规则多边形**
+     （POND_PTS / POND_RADII）⇒ 椭圆边缘在若干方向落到岸上。老黄截图实证：狂风暴雨时
+     **石驳岸下方的草皮**与**睡莲交界带**各出现一圈同心圆环（涟漪画在陆地纹理上、越过了岸线）。
+     拦在**唯一入口**处（所有调用方一起受保护：雨滴 / 点击 / 鱼跃 / 泳龟），而不是逐个调用点修。
+     坐标口径：`insidePond` 是**池心局部坐标**，池心在世界 z = +3
+     （同 07-ground.js 的 `dz = z - 3.0`、本文件里 `z = 3 + sin(ang)*rad` 的写法）
+     ⇒ 世界 (x,z) → 局部 (x, z − 3)。 */
+  if (!insidePond(x, z - 3.0)) return;
+  lastSpawnT = t;                       // 供"反射按需更新"判断"刚刚有快速动作"（见 lastRippleAge）
   for (let k = 0; k < rings; k++){
     const i = RIPPLE_STATE.findIndex(r => !r.active);
     if (i < 0) return;
@@ -698,7 +708,23 @@ export function spawnRipple(x, z, t, rings = 3, strength = 1, kind = ''){
   }
   rippleInst.instanceMatrix.needsUpdate = true;
 }
+/* 供"水面反射按需更新"读的两个量（05-water 经 HOOKS 取 —— 它不能 import 本模块，会成环）：
+   · `lastRippleAge`：距**最近一次起涟漪**过了多久（秒），由 updateRipples 每帧更新；
+   · `ripplesActive()`：池里还有几圈活着的涟漪（诊断用）。
+   ⚠️ 判断"水面是否活跃"要用 **lastRippleAge（刚发生）**，不能用 ripplesActive（还在）。
+   实测：场里 11 条锦鲤轮流出水、每圈活 ~1.9s ⇒ **涟漪几乎永远存在**，用"还在"当判据会让
+   反射按需更新**永远不生效**（而且涟漪环本身不在反射里 —— Reflector 渲的是镜像场景、
+   水面自己的网格被排除）；真正需要满速的是"**刚刚**发生了快速动作"（鱼跃/龟/点击/雨）。 */
+let lastSpawnT = -1e9;
+export let lastRippleAge = 1e9;
+export function ripplesActive(){
+  let n = 0;
+  for (const r of RIPPLE_STATE) if (r.active) n++;
+  return n;
+}
+
 export function updateRipples(t){
+  lastRippleAge = t - lastSpawnT;
   let mChanged = false, aChanged = false;
   for (let i = 0; i < RIPPLE_N; i++){
     const d = RIPPLE_STATE[i];
