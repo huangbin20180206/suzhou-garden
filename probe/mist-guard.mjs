@@ -203,17 +203,30 @@ function median(arr) {
       pairs = await findRidge(az);
       if (pairs.length >= 3) { usedAz = az; break; }
     }
-    const buf = await page.screenshot();
-    fs.writeFileSync(path.join(OUT, `${tag}.png`), buf);
-    const img = decodePNG(buf);
+    /* ── 多张截图取"逐列中位数"（2026-09-24 把统计量做硬；阈值一个字没改）────────────
+       原来只取**一张**截图做逐列（山 − 天）最差 ⇒ 暴雨里**雨丝与雾在动**，粒子恰好扫过采样列
+       就把那一列的差值顶上去：实测 night+storm 的"最差列"在 0.86 / 1.86 / 12.72(x=550) / 18.00(x=830)
+       之间跳（预算 12）⇒ 时红时绿，且与 GPU 档位、就绪竞态都无关 —— 是**统计量太脆**。
+       改成连拍 N 张（间隔 ~160ms）、每一列取**跨帧中位数**：瞬时粒子被中位数吃掉，
+       而"某列结构性反超"（真缺陷）会稳定留下来 ⇒ 判据意图不变，只是不再靠运气。
+       （night+clear / night+mist / night+overcast 三条本来已可复现：2.00 / 11.00 / 2.93。） */
+    const N_SHOT = 5;
+    const shots = [];
+    for (let i = 0; i < N_SHOT; i++){
+      const b = await page.screenshot();
+      if (i === 0) fs.writeFileSync(path.join(OUT, `${tag}.png`), b);   // 存证仍存第一张
+      shots.push(decodePNG(b));
+      if (i < N_SHOT - 1) await sleep(160);
+    }
+    const colLuma = (q, ys) => median(shots.map(im => median(ys.map(y => lumaBox(im, q.x, y, 6)))));
 
     const samples = pairs.map(q => ({
       x: q.x,
-      hill: +median(q.hillYs.map(y => lumaBox(img, q.x, y, 6))).toFixed(2),
-      sky:  +median(q.skyYs.map(y => lumaBox(img, q.x, y, 6))).toFixed(2),
+      hill: +colLuma(q, q.hillYs).toFixed(2),
+      sky:  +colLuma(q, q.skyYs).toFixed(2),
     })).filter(s => s.sky > 0);
 
-    return { st, pairs: samples, usedAz, img };
+    return { st, pairs: samples, usedAz, img: shots[0] };
   }
 
   /* ── 1. 白天不该被钳位误伤 ── */
