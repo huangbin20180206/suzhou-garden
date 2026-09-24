@@ -6,7 +6,7 @@ import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-material
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
-import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge } from './06-vegetation.js';
+import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
@@ -72,8 +72,12 @@ renderer.domElement.addEventListener('pointerup', (e)=>{
      （同 07-ground.js 的 `dz = z - 3.0`、06-vegetation 里 `z = 3 + sin(ang)*rad`）。 */
   let ok = false;
   if (hit) ok = insidePond(hit.point.x, hit.point.z - 3.0);
-  if (ok) spawnRipple(hit.point.x, hit.point.z, frameT, 5, 1.6);
-  lastClickRipple = { at: performance.now(), hit: ok,
+  /* 投喂（计划书 Phase 3 第 6 项）：**同一击**先出涟漪、饵落在涟漪中心 —— 与既有的
+     "点水面出涟漪"共存而不是抢事件（计划书 v2.0 补注①），因此不需要新增手势，
+     iPad 触摸也天然可用（pointer 事件本就覆盖触摸）。饵点由 dropBait 夹紧在池域内（防鱼上岸）。 */
+  if (ok){ spawnRipple(hit.point.x, hit.point.z, frameT, 5, 1.6);
+           dropBait(hit.point.x, hit.point.z, frameT); }
+  lastClickRipple = { at: performance.now(), hit: ok, bait: ok,
     x: hit ? hit.point.x : null, z: hit ? hit.point.z : null };
 });
 
@@ -685,6 +689,45 @@ function animate(){
     f.rotation.y = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
     f.rotation.z = Math.sin(t * 4 + d.phase) * 0.1;
 
+    /* ── 投喂吸引（计划书 Phase 3 第 6 项）────────────────────────────────
+       有饵时把"轨道位置"按权重 `aw` 插值到饵点旁的一个**簇位**；饵到期后 aw 平滑回 0
+       ⇒ 鱼沿插值路径滑回原轨道（d.t 一直在推进 ⇒ 回位即归队，不会"迷路"）。
+       · 簇位绕饵缓慢公转（`t*0.5`）：鱼聚在饵边**打转抢食**，同时避免"到位后朝向退化"
+         （位置与目标重合 ⇒ 方向向量为 0 ⇒ 朝向会突变成 0）。
+       · 每条鱼的簇位半径/初相由 orbit+phase 定死 ⇒ 11 条不会叠在一点。
+       · **无饵时 aw=0** ⇒ 下面的插值/朝向混合全被跳过，逐字等价于原公式
+         （koi-orbit 门禁守的"鱼在各自轨道取值域内"因此不受影响）。 */
+    const bait = nearestBait(f.position.x, f.position.z);
+    if (d.aw === undefined){ d.aw = 0; d.baitAng = d.phase * 1.7; }
+    const awTarget = bait ? 1 : 0;
+    /* 斜坡：3.0s 靠拢（远者约 2m/s，够快但不瞬移）、2.5s 散开
+       ⇒ 满足验收"3 秒内 ≥3 条转向"与"散开后 10 秒内恢复轨道"。 */
+    d.aw += Math.sign(awTarget - d.aw) * dt / (awTarget > d.aw ? 3.0 : 2.5);
+    d.aw = Math.max(0, Math.min(1, d.aw));
+    if (d.aw > 0.001 && bait){
+      const cr = 0.35 + 0.45 * (((d.orbit * 0.37) + d.phase) % 1);
+      const ca = d.baitAng + t * 0.5;
+      const cx = bait.lx + Math.cos(ca) * cr, cz = bait.lz + Math.sin(ca) * cr;
+      f.position.x += (cx - f.position.x) * d.aw;
+      f.position.z += (cz - f.position.z) * d.aw;
+      /* 朝向：轨道切向 与 "指向簇位" 按 aw 混合（atan2 的实参口径与原公式一致：
+         原式 = atan2(-vz, vx)，其中 vx = -a·sin(t)、vz = b·cos(t)） */
+      let vx = -o.a * Math.sin(d.t), vz = o.b * Math.cos(d.t);
+      const ax = cx - f.position.x, az = cz - f.position.z, al = Math.hypot(ax, az);
+      if (al > 0.02){ vx = vx * (1 - d.aw) + (ax / al) * d.aw;
+                      vz = vz * (1 - d.aw) + (az / al) * d.aw; }
+      f.rotation.y = Math.atan2(-vz, vx);
+    }
+    /* 半径夹紧：防"轨道点 → 饵点"的直线插值在葫芦形**收腰**处切出池外。
+       阈值 0.95×POND_RADII（≈0.87× 岸线）远大于轨道半径 ⇒ 无饵时不触发（不扰动门禁）。 */
+    const rr2 = Math.hypot(f.position.x, f.position.z);
+    if (rr2 > 1e-6){
+      let ang2 = Math.atan2(f.position.z, f.position.x); if (ang2 < 0) ang2 += TAU;
+      const ri2 = Math.min(POND_RADII.length - 1, Math.floor(ang2 / TAU * POND_RADII.length));
+      const cap = POND_RADII[ri2] * 0.95;
+      if (rr2 > cap){ const k2 = cap / rr2; f.position.x *= k2; f.position.z *= k2; }
+    }
+
     // 偶尔自深水区上浮，鱼背破水再沉回
     let lift = 0;
     if (!d.rising && t >= d.riseAt){ d.rising = true; d.riseT0 = t; }
@@ -715,6 +758,7 @@ function animate(){
   }
   updateRipples(t);
   updateRainRipples(t);
+  updateBaits(t);                        // 投喂：饵粒子下沉/淡出 + 饵点到期回收
   updatePrecip(dt, t);
 
   /* 蜻蜓：游弋航迹 + 高频振翅。
@@ -1155,7 +1199,10 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 氛围粒子：门禁断言"夏夜晴有萤火 / 暴雨有镜前雨" */
                   fireflyOpacity: () => fireflies.material.uniforms.uOpacity.value,
                   lensLevel: () => lensWeather.level(),
-                  clickRippleLast: () => lastClickRipple };
+                  clickRippleLast: () => lastClickRipple,
+                  /* 投喂（计划书 Phase 3 第 6 项）：门禁要断言"饵落水 / 鱼转向 / 不游上岸 /
+                     散后归队"。**必须显式暴露** —— 靠 traverse 猜对象会漏（灯笼那次踩过）。 */
+                  dropBait, baitsActive, BAITS };
 
 /* ══ 首次引导（P2-7）══
    三步：转视角 → 换天时 → 巡游/留影。只在**第一次**进来时出现（localStorage 记账）。

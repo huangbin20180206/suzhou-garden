@@ -747,6 +747,119 @@ export function updateRipples(t){
   if (aChanged) rippleGeo.attributes.instanceAlpha.needsUpdate = true;
 }
 
+/* ══ 投喂（2026-09-24 · 计划书 Phase 3 第 6 项）════════════════════════════════
+   点水面 → 撒饵（Points 粒子缓慢下沉 + 末段淡出）→ 附近的锦鲤**放弃轨道**游来抢食 →
+   饵散后**平滑滑回原轨道**（不做瞬移 ⇒ 不会出现"迷路鱼"）。
+   三条硬约束（都是本项目踩过的坑，别省）：
+     ① **坐标**：锦鲤位置是 `koiGroup` 的**局部**坐标（父组在世界 z=+3；见 makeKoiGroup 与
+        probe/koi-orbit.mjs）⇒ 世界 (x,z) → 局部 (x, z−3)，与 spawnRipple / insidePond 同口径。
+     ② **不许游上岸**：`koi-orbit` 门禁守"11 条鱼全在池内"。所以饵点必须**夹紧在池域内**留余量；
+        而且"轨道点 → 饵点"的**直线插值在葫芦形收腰处会切出池外** ⇒ 每帧对结果再做一次
+        半径夹紧（r ≤ 0.95×POND_RADII ≈ 0.87× 岸线）。轨道本身远小于该阈值
+        ⇒ **无饵时逐字等价于原公式**（不扰动 koi-orbit 门禁，那条判据一个字没动）。
+     ③ **随机流**：撒饵/抢食是**运行期效果**（每次点都不一样才对）⇒ 用 `Math.random`；
+        布局类才用顶部那个专用种子流 `jr`。粒子位置不参与布局指纹。
+   ⚠️ 未激活粒子的初始位置**故意放在水面之上**（y = CFG.water + 0.05）而不是丢到 y=-50：
+      `refract-coverage` 会扫"下探水面 >15cm 却不在折射层"的对象，丢到水下会被它报红。 */
+const BAIT_N = 48;                       // 粒子池容量（够 3~4 次连点）
+const BAIT_PER_DROP = 14;                // 每次撒几粒
+export const BAIT_LIFE = 7.0;            // 饵存活（秒）：够鱼游到、又不至于长期占场
+export const BAIT_ATTRACT_R = 6.5;       // 吸引半径（米，池局部）
+const BAIT_SINK = 0.035;                 // 下沉速度（米/秒）
+const baitPos = new Float32Array(BAIT_N * 3);
+const baitAlpha = new Float32Array(BAIT_N);
+const BAIT_P = [];
+for (let i = 0; i < BAIT_N; i++){
+  baitPos[i * 3] = 0; baitPos[i * 3 + 1] = CFG.water + 0.05; baitPos[i * 3 + 2] = 3;
+  baitAlpha[i] = 0;
+  BAIT_P.push({ t0: -1e9, life: 0, y0: 0, sink: 0 });
+}
+const baitGeo = new THREE.BufferGeometry();
+baitGeo.setAttribute('position', new THREE.BufferAttribute(baitPos, 3));
+baitGeo.setAttribute('aAlpha', new THREE.BufferAttribute(baitAlpha, 1));
+const baitMat = new THREE.ShaderMaterial({
+  transparent: true, depthWrite: false,
+  vertexShader: `
+    attribute float aAlpha;
+    varying float vA;
+    void main(){
+      vA = aAlpha;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = clamp(30.0 / max(2.0, -mv.z), 1.6, 7.0);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    varying float vA;
+    void main(){
+      float d = length(gl_PointCoord - 0.5);
+      float a = smoothstep(0.5, 0.16, d) * vA;
+      if (a < 0.01) discard;
+      gl_FragColor = vec4(0.80, 0.62, 0.34, a);   /* 饵料：暖褐黄，深绿水面上一眼看得见 */
+    }`,
+});
+export const baitPoints = new THREE.Points(baitGeo, baitMat);
+baitPoints.frustumCulled = false;
+baitPoints.userData.aoSkip = true;       // 不进 GTAO 法线 pass（与萤火虫同）
+baitPoints.userData.noMerge = true;
+markUnderwater(baitPoints);              // 会沉到水面之下 ⇒ 进折射层（透过水看得见）
+export const BAITS = [];                 // 活跃饵点（池局部）：{ lx, lz, t0 }
+export function baitsActive(){ return BAITS.length; }
+
+/* 在**世界**坐标 (wx,wz) 撒一次饵；返回夹紧后的饵点（池局部）—— 供门禁断言"夹紧生效"。 */
+export function dropBait(wx, wz, tNow){
+  let lx = wx, lz = wz - 3.0;                       // 世界 → 池局部
+  const r = Math.hypot(lx, lz);
+  let a = Math.atan2(lz, lx); if (a < 0) a += TAU;
+  const ri = Math.min(POND_RADII.length - 1, Math.floor(a / TAU * POND_RADII.length));
+  const maxR = POND_RADII[ri] * 0.95;               // 夹紧：留 ~0.87× 岸线，防鱼贴岸/上岸
+  if (r > maxR){ const k = maxR / Math.max(1e-6, r); lx *= k; lz *= k; }
+  const bait = { lx, lz, t0: tNow };
+  BAITS.push(bait);
+  for (let k = 0; k < BAIT_PER_DROP; k++){
+    const i = BAIT_P.findIndex(p => (tNow - p.t0) > p.life);
+    if (i < 0) break;
+    const ang = Math.random() * TAU, rad = Math.sqrt(Math.random()) * 0.5;
+    const p = BAIT_P[i];
+    p.t0 = tNow; p.life = BAIT_LIFE;
+    p.y0 = CFG.water + 0.05 + Math.random() * 0.05;
+    p.sink = BAIT_SINK * (0.7 + Math.random() * 0.6);
+    baitPos[i * 3]     = lx + Math.cos(ang) * rad;
+    baitPos[i * 3 + 1] = p.y0;
+    baitPos[i * 3 + 2] = 3.0 + lz + Math.sin(ang) * rad;
+    baitAlpha[i] = 1;
+  }
+  baitGeo.attributes.position.needsUpdate = true;
+  baitGeo.attributes.aAlpha.needsUpdate = true;
+  return bait;
+}
+
+/* 每帧：粒子下沉 + 末段淡出；到期回收饵点。 */
+export function updateBaits(tNow){
+  let any = false;
+  for (let i = 0; i < BAIT_N; i++){
+    const p = BAIT_P[i];
+    const age = tNow - p.t0;
+    if (age < 0 || age > p.life){ if (baitAlpha[i] !== 0){ baitAlpha[i] = 0; any = true; } continue; }
+    baitPos[i * 3 + 1] = p.y0 - p.sink * age;
+    baitAlpha[i] = age < p.life - 1.6 ? 1 : Math.max(0, (p.life - age) / 1.6);
+    any = true;
+  }
+  if (any){ baitGeo.attributes.position.needsUpdate = true;
+            baitGeo.attributes.aAlpha.needsUpdate = true; }
+  for (let i = BAITS.length - 1; i >= 0; i--)
+    if (tNow - BAITS[i].t0 > BAIT_LIFE) BAITS.splice(i, 1);
+}
+
+/* 距 (lx,lz) 最近、且还在吸引半径内的饵（池局部坐标）；没有则 null。 */
+export function nearestBait(lx, lz){
+  let best = null, bd = BAIT_ATTRACT_R * BAIT_ATTRACT_R;
+  for (const b of BAITS){
+    const dx = b.lx - lx, dz = b.lz - lz, d2 = dx * dx + dz * dz;
+    if (d2 < bd){ bd = d2; best = b; }
+  }
+  return best;
+}
+
 /* 锦鲤：沿椭圆轨道游动 */
 export function makeKoiGroup(n = 11){
   const g = new THREE.Group();
