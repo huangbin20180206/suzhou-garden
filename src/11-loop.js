@@ -885,32 +885,68 @@ const WARM_STAGES = ['立屋架', '铺黛瓦', '叠山石', '引池水', '植花
 const _warmRaf2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
 
 function collectWarmBuckets(){
+  /* ── 装箱度量：按**渲染签名分组 + 轮转摊开"首现"**（2026-09-24 配平）─────────────
+     为什么换掉原来的"材质重量"模型：实测（outputs/_diag/warm-buckets2.mjs）各桶权重都是 ~100，
+     编译耗时却从 5ms 到 1943ms —— 权重几乎无预测力（r=0.199）。真正的成本是
+     "该帧**首次编译的 program 数**"（r=0.940，全场 36~42 个 program）：program 编过一次，
+     之后复用它的对象免费（这正是靠后的桶几乎不花时间的原因）。
+     用什么当 program 的代理：**渲染签名**（材质类型 + 有无各类贴图 + side/transparent/alphaTest/
+     vertexColors/flatShading + 是否实例化/投影/收影）。离线用真实 program 身份验证过
+     （outputs/_diag/warm-scheme.mjs，同一页对比四种方案，判据是"每桶新增 program 数"）：
+       现行重量贪心 [1,18,7,2,2,1,1,3,1,0] 最大 18
+       材质 uuid   [1,11,3,4,5,5,3,3,1,0] 最大 11
+       **签名       [1,7,7,6,3,2,4,1,3,2] 最大 7**   ← 采用
+       oracle      [1,6,4,4,4,4,4,4,4,1] 最大 6
+     签名数 34 ≈ program 数 36（几乎一一对应），所以按它摊开首现就能把最坏帧从 18 个 program
+     压到 7 个。桶数仍 10、循环结构不变（加载页进度更新次数也不变）。
+     ⚠️ 若将来某个桶又变重：先看是不是新增了"同签名但不同 program"的用法（如新的材质变体）。 */
+  const sig = (o, m) => [
+    m.type, !!m.map, !!m.normalMap, !!m.alphaMap, !!m.aoMap, !!m.roughnessMap, !!m.metalnessMap,
+    !!m.emissiveMap, m.side, m.transparent ? 1 : 0, (m.alphaTest || 0) > 0 ? 1 : 0,
+    m.vertexColors ? 1 : 0, m.flatShading ? 1 : 0,
+    o.isInstancedMesh ? 1 : 0, o.castShadow ? 1 : 0, o.receiveShadow ? 1 : 0,
+  ].join(',');
   const items = [];
   scene.traverse(o => {
     if (!(o.isMesh || o.isPoints || o.isLine)) return;
     if (o.visible === false) return;             // 萤火虫/镜前雨等初始隐藏：用到时再编
     const mats = Array.isArray(o.material) ? o.material : [o.material];
-    let w = 0;
-    for (const m of mats){
-      const t = (m && m.type) || '';
-      w += t.includes('Physical') || t.includes('Standard') ? 3 : t.includes('Shader') ? 2 : 1;
-    }
-    items.push({ o, w: Math.max(1, w) });
+    items.push({ o, key: mats.filter(Boolean).map(m => sig(o, m)).join('+') });
   });
-  /* 天空独占第一桶（天空球 shader 是全场最重之一，和 20+ 材质挤一桶会让首帧卡 2s）；
-     其余对象贪心装箱进余下 9 桶：每桶重量尽量均等 → 每帧卡顿量均匀。
-     桶数取 10：再多每桶的 rAF/后处理固定开销会把总耗时显著拉长（实测 12 桶多 ~0.3s）。 */
-  const skyItem = items.find(it => it.o === skyMesh);
-  const rest = items.filter(it => it.o !== skyMesh);
-  const N = 10;
-  const buckets = [{ list: skyItem ? [skyItem.o] : [], w: skyItem ? skyItem.w : 0 }];
-  for (let i = 1; i < N; i++) buckets.push({ list: [], w: 0 });
-  for (const it of rest){
-    let b = buckets[1];
-    for (let k = 1; k < N; k++) if (buckets[k].w < b.w) b = buckets[k];
-    b.list.push(it.o); b.w += it.w;
+  const groups = new Map();
+  for (const it of items){
+    if (!groups.has(it.key)) groups.set(it.key, []);
+    groups.get(it.key).push(it);
   }
-  return buckets.filter(b => b.list.length > 0);
+  const N = 10;
+  const buckets = Array.from({ length: N }, () => ({ list: [], firsts: 0 }));
+  /* 天空独占第一桶（天空球 shader 是全场最重之一，且它只有一个对象） */
+  const skyItem = items.find(it => it.o === skyMesh);
+  if (skyItem){
+    buckets[0].list.push(skyItem.o); buckets[0].firsts++;
+    const g = groups.get(skyItem.key);
+    g.splice(g.indexOf(skyItem), 1);
+  }
+  /* 组按大小降序，首现只摊到桶 1..N-1（桶 0 留给天空：它自己的 program 就 ~250ms，
+     再塞别的首现会变成最重桶）；**余下对象塞进"首现最少"的桶**。
+     ⚠️ 别改成"余下对象也轮转摊匀"：实测那样会让每桶新增 program 从最大 10 涨到 17
+     （签名是 program 的**近似**，同签名的对象仍可能引入新 program；把它们摊开反而打乱了首现的摊布）。
+     实测（outputs/_diag/warm-buckets-ab.mjs 连跑 3 轮，program 分布逐轮相同）：
+       本方案           每桶新增 [5,10,4,3,4,3,2,5,4,0] 最大 10 ｜ 最重桶 1189ms
+       余下对象也轮转   每桶新增 [5,17,6,1,0,4,1,3,2,1] 最大 17 ｜ 最重桶 2885ms
+       原始重量贪心     每桶新增 [1,18,7,2,2,1,1,3,1,0] 最大 18 ｜ 最重桶 1751~1943ms */
+  const order = [...groups.values()].filter(g => g.length).sort((a, b) => b.length - a.length);
+  let rot = 0;
+  for (const g of order){
+    const b = buckets[1 + (rot++ % (N - 1))];
+    b.list.push(g[0].o); b.firsts++;
+    for (let k = 1; k < g.length; k++){
+      let light = buckets[1];
+      for (let j = 1; j < N; j++) if (buckets[j].firsts < light.firsts) light = buckets[j];
+      light.list.push(g[k].o);
+    }
+  }
+  return buckets.filter(b => b.list.length > 0).map(b => ({ list: b.list, w: b.firsts }));
 }
 
 function setWarmUI(done, total){
