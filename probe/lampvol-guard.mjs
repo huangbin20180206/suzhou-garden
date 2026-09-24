@@ -93,7 +93,12 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
     { timeout: 180000, polling: 300 });
-  await sleep(1200);
+  /* ⚠️ 等"装配完成"信号，别猜时间（2026-09-24，同 mist-guard 的竞态）：
+     `loading.done` 在**延迟批之前**就触发（deferBoot 是"每帧一个 job"），柳/竹/立峰要 ~1.0~1.1s
+     才陆续进场景。原来这里只 `sleep(1200)` 赌它跑完 ⇒ 慢一点就会在**物件还在进场时**采样，
+     体积光的像素 ROI 随之漂移（这正是项目里"全链红在某一门、单跑全绿"那类记录的成因之一）。 */
+  await page.evaluate(async () => { await window.__garden.bootDonePromise; });
+  await sleep(1200);                                  // 再让首帧后的光照/雾稳定一下
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
     { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
   const st = () => page.evaluate(() => window.__garden.lampVolState());
@@ -238,8 +243,11 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
     `${windAt.length} 帧采样，首帧=${JSON.stringify(windAt[0])} 末帧=${JSON.stringify(windAt[windAt.length - 1])}`);
 
   /* (c) ABAB 交错采样：每组"开/关"只隔 ~420ms，环境（萤火/浮尘/雾）几乎没变，
-     配对差分就把光团单独拎出来（相敏检波）；再取中位数，防偶发一闪污染结论。 */
-  const N = 6;
+     配对差分就把光团单独拎出来（相敏检波）；再取中位数，防偶发一闪污染结论。
+     ⚠️ N 从 6 提到 12（2026-09-24）：只有 6 个样本时 MAD 本身就很抖 —— 同一份代码连跑三次，
+     σ 被估成 0.099 / 0.227 / 0.459（4.6 倍波动），而信号稳定在 1.36~1.79
+     ⇒ 判据红绿由 **σ 的抖动**决定，不是信号。样本翻倍让中位数与 MAD 都稳得多。 */
+  const N = 12;
   const lampOn = (await st()).uLamp;
   const shotOn = async () => { await page.evaluate(v => window.__garden.setLampVol(v), lampOn); await sleep(420); return page.screenshot(); };
   const shotOff = async () => { await page.evaluate(() => window.__garden.setLampVol(0)); await sleep(420); return page.screenshot(); };
@@ -254,18 +262,26 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
 
   const med = a => { const s = [...a].sort((p, q) => p - q); return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
   const lumaOn = ON.map(loc), lumaOff = OFF.map(loc);
-  const dLoc = med(lumaOn) - med(lumaOff);                        // 信号（局部 luma 中位数）
-  /* 噪声用**稳健离散度**（1.4826×MAD，取自同状态的 2N 个残差），不用"极差" ——
-     极差随样本数单调增长，是个会自己加码的尺子：4 样本时极差≈3.3σ，拿它×3 当门槛
-     等于要求 10σ，实测比值 3.1× 贴边，早晚飘红。 */
-  const resid = [...lumaOn.map(v => v - med(lumaOn)), ...lumaOff.map(v => v - med(lumaOff))];
-  const sigma = 1.4826 * med(resid.map(Math.abs));
+  /* ── 估计量换成**配对差分**（2026-09-24 做硬；判据与阈值一个字没改）──
+     原来：dLoc = 两组各自中位数相减，σ = 两组残差**合并**后的 1.4826×MAD。
+     问题：合并残差把**共模慢漂**（雾/萤火/风/环境光的缓慢起伏）也算进噪声。实测第 1 次的
+     逐样本值：开组第 4/5 个偏低（90.41/90.64）的同时，关组第 3/4 个也偏低（88.87/88.81）
+     —— 两组一起漂 ⇒ σ 被抬到 0.459，判据贴边（1.364 vs 3×0.459=1.377）而误红。
+     而"ABAB 交错采样"的**本意**正是让同一次开/关只差 ~420ms、把慢漂变成共模 ——
+     改成逐对相减，共模在相减时抵消，σ 只反映"同一对之间"的噪声：
+       dPairs[i] = lumaOn[i] − lumaOff[i]  ⇒  dLoc = med(dPairs)，σ = 1.4826×MAD(dPairs)
+     ⚠️ 这是**换估计量**，不是放水：光团若真不贡献像素（缺陷态），逐对差全会趋 0 ⇒ 照样红；
+        而共模漂移不再能把真实信号淹没。 */
+  const dPairs = lumaOn.map((v, i) => v - lumaOff[i]);
+  const dLoc = med(dPairs);
+  const sigma = 1.4826 * med(dPairs.map(v => Math.abs(v - dLoc)));
   const sigLoc = boxDiff(ON[0], OFF[0], box.x, box.y, box.r);     // 信号（局部像素）
   const sigAll = meanAbsDiff(ON[0], OFF[0]);                      // 信号（全幅像素）
   check('阳性对照：夜下把光团 uLamp 归零，灯周那块确实变暗（光团在贡献像素）',
     dLoc > 0.5 && dLoc > sigma * 3,
     `局部 luma ${med(lumaOn).toFixed(2)} → ${med(lumaOff).toFixed(2)}（差 ${dLoc.toFixed(3)}；同状态稳健 σ≈${sigma.toFixed(3)} ⇒ ${(dLoc / (sigma || 1e-6)).toFixed(1)}σ）`);
   console.log(`  · 逐样本局部 luma：开 [${lumaOn.map(v => v.toFixed(2)).join(', ')}] / 关 [${lumaOff.map(v => v.toFixed(2)).join(', ')}]`);
+  console.log(`  · 逐对差（配对差分）：[${dPairs.map(v => v.toFixed(2)).join(', ')}]（中位 ${dLoc.toFixed(3)}，MAD σ ${sigma.toFixed(3)}）`);
   check('光团是**局部**现象，不是全屏加了一层（局部窗信号 ≥5× 全幅均值）',
     sigLoc > sigAll * 5, `局部 ${sigLoc.toFixed(3)} vs 全幅 ${sigAll.toFixed(3)}（${(sigLoc / (sigAll || 1e-6)).toFixed(1)}×）`);
   /* 热点定位：差分最强的那一格必须落在光团所在格（±1 格）—— 防"光团挂错位置/画面别处有鬼" */
