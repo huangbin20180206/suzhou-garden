@@ -114,6 +114,12 @@ const check = (name, ok, detail = '') => {
     window.__garden.scene.traverse(o => { if (o.isMesh && o.name === 'stele') has = true; });
     return has;
   }, { timeout: 180000, polling: 400 });
+  /* ⚠️ 还要等**整条延迟链**跑完（2026-09-24 修偶发红）：竹竿在延迟链**靠后**的批次里，
+     而 G0 自检是"把竹竿移出雪表 ⇒ G1 必须报出来"，G1 只看**场景在用**的材质
+     ⇒ 竹竿还没进场时把它移出雪表，G1 自然 = 0，自检就报假红。
+     实测：整轮 verify 里红的正是这条（"移出后 G1=0"），而单跑却绿 —— 典型竞态。
+     等 bootDonePromise（T0 补的装配完成信号）后竹竿必定在场，负例必触发。 */
+  await page.evaluate(async () => { await window.__garden.bootDonePromise; });
   await page.evaluate(() => { try { window.__garden.guideStop?.(); } catch (_) {} });
   await sleep(900);
 

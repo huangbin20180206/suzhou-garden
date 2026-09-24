@@ -95,7 +95,14 @@ function median(arr) {
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
     { timeout: 120000, polling: 300 });
-  await sleep(1200);
+  /* ⚠️ 必须等"装配完成"信号，不能只靠猜时间（2026-09-24 修偶发红）：
+     `loading.done` 在**延迟批之前**就触发（deferBoot 是"每帧一个 job"），而柳/竹/立峰要 ~1.0~1.1s
+     才陆续进场景。原来这里只 `sleep(1200)` 赌它跑完 ⇒ 慢一点（冷启动 / 低档 GPU / 并发负载）就会在
+     **物件还在进场时**做射线取列 + 截图：山脊列与遮挡物都变，"逐列最差"随之乱跳 ——
+     实测同一份代码两次跑：最差列 x=590/差 0.79 ↔ x=830/差 18.00（阈值 12），红绿全由竞态决定。
+     现在等 bootDonePromise（T0 补的装配完成信号），把"猜时间"换成"等信号"。 */
+  await page.evaluate(async () => { await window.__garden.bootDonePromise; });
+  await sleep(1200);                                  // 再让首帧后的光照/雾稳定一下
 
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
     { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
@@ -271,6 +278,11 @@ function median(arr) {
        故预算提至「电白」量级：最差列 ≤12（≈4.7% 绝对）抓真·整列过亮，
        严格均值判据（+1.5）仍是守住「远山≤天空」的主门。 */
     const COL_BUDGET = 12.0;
+    /* ⚠️ 余量提示（2026-09-24 修竞态后实测）：night+mist 的最差列**稳定在 11.00**（x=550，
+       两次连跑逐位相同）—— 它是**结构性**的（雾填充山脊 vs 其上暗天缝），不是噪声，
+       但已用到预算的 92%。所以：① 本判据的偶发红**不是**它造成的（那是"没等装配完成"的竞态，
+       见文件头的等待段），别为了让它变绿去抬 COL_BUDGET；② 将来若它开始越线，
+       先查雾色/天光的改动（fogLum / skyHorizonLum），那是它的物理来源。 */
     check(`${label}：逐列最差也不反用电白（单列山 − 天 ≤ ${COL_BUDGET}）`,
       worst.hill - worst.sky <= COL_BUDGET,
       `最差列 x=${worst.x}: ${(worst.hill - worst.sky).toFixed(2)}`);
