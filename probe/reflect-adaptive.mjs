@@ -12,6 +12,13 @@
 // 为什么这么判：① 静止态若仍是 1:1，说明"按需更新"没做（或失效）⇒ 红；
 //   ② 运动态若不是 1:1，说明为了省开销牺牲了拖动观感 ⇒ 红（这条比省开销更重要）；
 //   ③ 相机跳变后必须在 ≤2 帧内刷出反射（延迟 <100ms 的机器可验版本）。
+//
+// ⚠️ 档位分支（2026-09-24 修）：**核显档（low）下平面反射是按设计整条关掉的**
+//   （src/05-water.js：`GPU_TIER==='low'` ⇒ `onBeforeRender` 置空 + `uReflMix=0`）。
+//   门禁先读产品自己的 `uReflMix` 开关**断言前提**：
+//     · 开（独显档）⇒ 走上面 ①②③ 的速率判据；
+//     · 关（核显档）⇒ 改为断言"24 帧零重渲"（有牙：低档位偷偷开反射 = 性能红线 ⇒ 红）。
+//   不分支的话，核显档上 ①②③ 必然红、而"降频 ≤60% 满速"会因 0 ≤ 0 **假绿**。
 // 用法: node probe/reflect-adaptive.mjs
 import http from 'node:http';
 import fs from 'node:fs';
@@ -55,8 +62,11 @@ const check = (name, ok, detail = '') => {
   const errs = [];
   page.on('pageerror', e => errs.push(String(e)));
   console.log(`\n[reflect-adaptive] http://127.0.0.1:${port}/index.html`);
+  /* 档位可强制（`TIER=low|mid|high`）：本门要同时守住两个档位的**不同**判据，
+     而 ANGLE 每次挑哪块 GPU 不固定 ⇒ 不强制就没法确定性地验到某一条分支。 */
+  const TIERQ = process.env.TIER ? '&tier=' + process.env.TIER : '';
 
-  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0', { waitUntil: 'domcontentloaded' });
+  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0' + TIERQ, { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading')
     && document.getElementById('loading').classList.contains('done'), null, { timeout: 180000 });
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
@@ -77,6 +87,17 @@ const check = (name, ok, detail = '') => {
   else {
     check('找到水面（Reflector）且已装反射计数器', true,
       `reflectCount=${setup.count}${setup.has ? '' : '（首次读取前为 undefined，正常）'}`);
+    /* ⚠️ 前提断言（2026-09-24 修）：**低档位（核显档）下平面反射是按设计整条关掉的**
+       （src/05-water.js：`GPU_TIER==='low'` ⇒ `onBeforeRender` 置空 + `uReflMix=0`）。
+       不先断言这个前提，"反射满速/降频"那几条在核显档上必然红（实测 3 条红），
+       而且"降频 ≤60% 满速"会因 `0 ≤ 0` 变成**假绿**（判据用错了前提）。
+       ⇒ 按"反射是否真的开着"（读产品自己的 uReflMix 开关，而不是猜档位）分两条判据。 */
+    const reflOn = await page.evaluate(() => {
+      const w = window.__garden.scene.getObjectByName('waterSurface');
+      const u = w.material && w.material.uniforms && w.material.uniforms.uReflMix;
+      return u ? u.value > 0.5 : true;      // 读不到开关时保守按"开"处理（走原速率判据）
+    });
+    console.log(`  平面反射开关 uReflMix：${reflOn ? '开 ⇒ 走速率判据' : '关（核显档按设计）⇒ 只断言"零重渲"'}`);
     /* 采样工具：在页内跑 n 帧，返回 (反射重渲次数, 帧数) */
     const sample = (frames, driver) => page.evaluate(async ({ frames, driver }) => {
       const g = window.__garden;
@@ -102,6 +123,8 @@ const check = (name, ok, detail = '') => {
       }
       return { refl: (r.w.userData.reflectCount || 0) - r.n, frames: r.frames };
     }, { frames, driver });
+
+    if (reflOn){
 
     /* ⚠️ 先把"水面静默"这个**前提**建立起来再测静止态：默认天气可能是雨，锦鲤也会出水起涟漪
        —— 那两种情况按设计**就该满速**刷反射，拿它们测"降频"是判据用错了前提。
@@ -156,6 +179,14 @@ const check = (name, ok, detail = '') => {
     const D = await sample(24, 'static');
     check('下雨（水面活跃）：反射每帧刷新', D.refl >= D.frames * 0.9,
       `24 帧里重渲 ${D.refl} 次（活跃态应为每帧）`);
+    } else {
+      /* 核显档：平面反射按设计整条关闭（uReflMix=0）—— 本门改为守"它确实没在重渲"。
+         这条**有牙**：若谁在低档位偷偷开了反射（性能红线），reflectCount 会随帧增长 ⇒ 红；
+         （原先那 4 条在这里要么红、要么因 0≤0 假绿，所以必须分开判。） */
+      const off = await sample(24, 'orbit');
+      check('核显档：平面反射按设计关闭 —— 24 帧零重渲（偷偷开会红）', off.refl === 0,
+        `24 帧里重渲 ${off.refl} 次（应为 0）`);
+    }
   }
 
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));

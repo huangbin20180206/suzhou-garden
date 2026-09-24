@@ -98,6 +98,44 @@ const REQUIRED_BY_COLOR = [
       return m.name || (m.color ? '#' + m.color.getHexString() : '?');
     };
 
+    /* ⚠️ bbox 中心在池内 ⇒ 判"池内"，对**环形**物体会误判：池岸草环 bank 的几何全在池外
+       （1.0×~1.14× 岸线的一圈，2026-09-24 起它成"池岸缓坡"、外缘贴地形、下探水面 0.99m），
+       但它的 bbox 中心正是池心 ⇒ 会被当成"池内无理由缺席"报红。
+       补**两道**复核（取"或"，两道都失手才归"岸外跨界"）：① 有顶点落在池内；
+       ② 从上方垂直下打射线命中它（占住池内空间）。
+       复核**不会放过真缺陷**：真半浸在池里的几何必有顶点在池内、或必被射线命中
+       —— 门禁自带负例自检（注入池心水面下的无名白网格必须被报出来）。 */
+    function hasVertexInsidePond(o){
+      if (o.isInstancedMesh || o.isPoints || !o.geometry || !o.geometry.attributes.position) return true;
+      o.updateWorldMatrix(true, false);
+      const pos = o.geometry.attributes.position;
+      const step = Math.max(1, Math.floor(pos.count / 400));
+      const v = new T.Vector3();
+      for (let i = 0; i < pos.count; i += step){
+        v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld);
+        if (shoreSigned(v.x, v.z) < -0.15) return true;
+      }
+      return false;
+    }
+    /* 第二道复核：在池内取 9 个采样点、从上方垂直下打射线，命中 ⇒ 它确实**占住池内空间**
+       （环形物件的 hole 会让射线穿过；"横跨池面但顶点全在岸外"的大板会被这道抓住）。
+       与 hasVertexInsidePond 取"或"：任一成立即按池内处理 ⇒ 两道都失手才会漏判。 */
+    const _rc = new T.Raycaster(), _down = new T.Vector3(0, -1, 0);
+    function occupiesPond(o){
+      if (o.isInstancedMesh || o.isPoints || !o.geometry) return true;      // 保守：不改判
+      const pts = [[0, 3]];
+      for (let k = 0; k < 8; k++){
+        const a = k / 8 * Math.PI * 2;
+        const rr_ = RAD[Math.floor(a / (Math.PI * 2) * N) % N] * 0.55;
+        pts.push([Math.cos(a) * rr_, 3 + Math.sin(a) * rr_]);
+      }
+      for (const [x, z] of pts){
+        _rc.set(new T.Vector3(x, 50, z), _down);
+        if (_rc.intersectObject(o, false).length) return true;
+      }
+      return false;
+    }
+    function scan(){
     const inLayer = [], untaggedInPond = [], untaggedCross = [];
     /* ⚠️ 判据 ① 必须**直接读 layer 标记**，不能复用下面那套几何扫描的结果：
        扫描有 15cm 下探阈值，而锦鲤是会游到水面附近的 —— 一旦某条鱼恰好贴着水面，
@@ -130,14 +168,17 @@ const REQUIRED_BY_COLOR = [
         verts: o.geometry && o.geometry.attributes.position ? o.geometry.attributes.position.count : 0,
         depth: +(WATER_Y - box.min.y).toFixed(2),
         span: +Math.max(size.x, size.z).toFixed(1),
-        inPond: shoreSigned(c.x, c.z) < 0,
+        inPond: shoreSigned(c.x, c.z) < 0 && (hasVertexInsidePond(o) || occupiesPond(o)),
         inst: !!o.isInstancedMesh,
         tagged: (o.layers.mask & MASK) !== 0,
       };
       if (rec.tagged) inLayer.push(rec);
       else (rec.inPond ? untaggedInPond : untaggedCross).push(rec);
     });
-    return { layer: G.refractInfo().layer, inLayer, untaggedInPond, untaggedCross, named };
+    return { inLayer, untaggedInPond, untaggedCross, named };
+    }
+    window.__rcScan = scan;
+    return Object.assign({ layer: G.refractInfo().layer }, scan());
   });
 
   /* ── 判据 ① 正向清单（直接读 layer 标记，与几何扫描无关）── */
@@ -182,6 +223,26 @@ const REQUIRED_BY_COLOR = [
   const whys = out.untaggedInPond.map(r => whitelistReason(r)).filter(Boolean);
   if (whys.length) console.log('    豁免（逐条有理由）：');
   [...new Set(whys)].forEach(w => console.log(`      · ${w}`));
+
+  /* ── 判据 ② 的负例自检（有牙）：往池心注入一块**无名白材质、下探水面 0.5m** 的网格，
+        判据 ② 必须报出来 —— 证明上面那道"逐顶点复核"没有把"真半浸在池里的几何"一起放过。
+        （复核只改判"一个池内顶点都没有"的对象，这类对象按定义不可能半浸在池里。） */
+  const neg = await page.evaluate(() => {
+    const G = window.__garden, T = G.THREE;
+    const m = new T.Mesh(new T.PlaneGeometry(6, 6),
+                         new T.MeshStandardMaterial({ color: 0xffffff }));
+    m.name = '__refract_negctl';
+    m.rotation.x = -Math.PI / 2;
+    m.position.set(0, 0.06 - 0.5, 3);          // 池心、水面下 0.5m
+    m.updateMatrixWorld(true);
+    G.scene.add(m);
+    const r = window.__rcScan();
+    G.scene.remove(m);
+    const hit = r.untaggedInPond.find(x => x.name === '__refract_negctl');
+    return { flagged: !!hit, depth: hit ? hit.depth : 0, span: hit ? hit.span : 0, n: r.untaggedInPond.length };
+  });
+  check('② 负例自检：注入"池心水面下 0.5m 的无名白网格"必须被报出来（复核没失牙）',
+    neg.flagged, neg.flagged ? `报出 下探 ${neg.depth}m @跨${neg.span}m` : '没有被报出 ⇒ 逐顶点复核把真缺陷也放过了');
 
   /* ── 判据 ③ 白名单没吞掉一切 ── */
   check('③ 在层对象数 ≥ 20（白名单没把扫描吞干净）', out.inLayer.length >= 20,

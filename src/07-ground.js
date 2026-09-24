@@ -2,7 +2,7 @@
 import { THREE, mergeGeometries } from '../vendor.js';
 import { validateGeometry } from './09-lights.js';
 import { CFG, TAU, rr, rnd, mulberry32, bootMark } from './00-config.js';
-import { POND_RADII } from './05-water.js';
+import { groundHeight } from './05-water.js';
 import { groundTex, registerSeasonTint, MAT, registerWeatherRoles, pavingTex, pavingNormalTex } from './01-materials.js';
 import { mesh, makeWallRun, makeWallCap, box } from './03-factory.js';
 /* ══════════════════════════════════════════════════════════════
@@ -15,15 +15,7 @@ export function makeGround(){
   geo.rotateX(-Math.PI/2);
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++){      // 自然微起伏 + 池内下挖（保证不冒出水面）
-    const x = p.getX(i), z = p.getZ(i);
-    const h = Math.sin(x*0.19)*0.28 + Math.cos(z*0.16)*0.24 + Math.sin((x+z)*0.09)*0.16;
-    const dx = x, dz = z - 3.0;
-    let ang = Math.atan2(dz, dx);
-    if (ang < 0) ang += TAU;
-    const ri = Math.min(POND_RADII.length - 1, Math.floor(ang / TAU * POND_RADII.length));
-    const d = Math.hypot(dx, dz) / Math.max(0.5, POND_RADII[ri]);
-    const dip = d < 1.35 ? (1 - d / 1.35) * 2.2 : 0;
-    p.setY(i, h - 0.34 - dip);
+    p.setY(i, groundHeight(p.getX(i), p.getZ(i)));
   }
   geo.computeVertexNormals();
   const gt = groundTex.clone();

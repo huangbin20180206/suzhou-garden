@@ -52,6 +52,22 @@ export const POND_RADII = (()=>{
   return res;
 })();
 
+/* 地面高度函数：自然微起伏 + 池内下挖（保证不冒出水面）。
+   ⚠️ 与 07-ground 的 makeGround 共用同一实现，勿两处手抄（会漂）——
+      放 05 是因为它依赖 POND_RADII（05 定义），而 07 已经 import 05（反向 import 会成环）。
+   ⚠️ 表达式必须与 makeGround 原实现逐字同序（否则地面网格每个顶点的 float 变了，
+      所有与地形有关的像素门/装配都会跟着动）。bank（池岸草环）外缘用它贴地。 */
+export function groundHeight(x, z){
+  const h = Math.sin(x * 0.19) * 0.28 + Math.cos(z * 0.16) * 0.24 + Math.sin((x + z) * 0.09) * 0.16;
+  const dx = x, dz = z - 3.0;
+  let ang = Math.atan2(dz, dx);
+  if (ang < 0) ang += TAU;
+  const ri = Math.min(POND_RADII.length - 1, Math.floor(ang / TAU * POND_RADII.length));
+  const d = Math.hypot(dx, dz) / Math.max(0.5, POND_RADII[ri]);
+  const dip = d < 1.35 ? (1 - d / 1.35) * 2.2 : 0;
+  return h - 0.34 - dip;
+}
+
 /* 池底：径向网格 + 碗形。原来是 ShapeGeometry 的**一整块平面**（还只有外轮廓顶点），
    既无法做出深度变化，也没法位移成缓坡 —— 低头看就是一块均匀的深色板。
    这里改成「角向 128 × 径向 24」的网格：中心最深、向岸抬升，并带轻微起伏。 */
@@ -313,8 +329,32 @@ export function makePond(){
   bankOuter.holes.push(bankInner);
   const bankGeo = new THREE.ShapeGeometry(bankOuter, 8);
   bankGeo.rotateX(-Math.PI/2);
+  /* 岸草环坡度（2026-09-24 · 计划书 #13）：原来整圈平铺在 y=+0.02 —— 池岸线处地面已被
+     下挖（dip 区延伸到 1.24× 岸线、深达 ~0.5-0.9m），平板外缘悬在草地上方（低机位可见黑缝，
+     `_bank-ab.mjs` 测得 bbox y 跨度=0、在 (0,0.02,3)）。改成真"池岸缓坡"：
+     内缘（水边）留在水位 +0.02 不动（保住"遮水岸交界草纹"的原职责），外缘贴回 groundHeight
+     ⇒ 与地形无缝衔接、任意方向不外露缝隙。只有外缘顶点改 y，内缘顶点保持 y=0。
+     ⚠️ 逐顶点判内外缘：ShapeGeometry 的顶点只在内外两条轮廓上（无内插点），
+        取"到 POND_PTS（内）/ POND_PTS×1.14（外）"最近的那个归类。 */
+  const bankPos = bankGeo.attributes.position;
+  const BK_Y = CFG.water + 0.02;
+  for (let i = 0; i < bankPos.count; i++){
+    const vx = bankPos.getX(i), vz = bankPos.getZ(i);
+    const ys = -vz;                                   // 形状空间 y（rotateX 后 z = -y）
+    let dIn = 1e18, dOut = 1e18;
+    for (let k = 0; k < POND_PTS.length; k++){
+      const q = POND_PTS[k];
+      const a = vx - q.x, b = ys - q.y, c = vx - q.x * 1.14, e = ys - q.y * 1.14;
+      const di = a * a + b * b, do_ = c * c + e * e;
+      if (di < dIn) dIn = di;
+      if (do_ < dOut) dOut = do_;
+    }
+    if (dOut < dIn)                                  // 外缘：贴回地面高度
+      bankPos.setY(i, groundHeight(vx, 3.0 + vz) - BK_Y);
+  }
+  bankGeo.computeVertexNormals();
   const bank = mesh(bankGeo, MAT.grass, { cast:false });
-  bank.position.set(0, CFG.water + 0.02, 3.0);
+  bank.position.set(0, BK_Y, 3.0);
   /* 岸草环与别处共用 MAT.grass，会被 mergeStatics 并进静态大网。
      不 markUnderwater：岸草环是岸边的草，不在水下，不应进入折射贴图。
      冬季 MAT.grass 变白（积雪）后，若留在折射层会在水面形成明显的白色异常。
