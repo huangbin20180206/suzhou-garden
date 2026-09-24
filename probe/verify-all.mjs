@@ -165,6 +165,15 @@ const SUITES = [
      本门读**涟漪池的实例落点**断言"所有活跃圈都在池域内"，带前置门与正向对照
      （⚠️ 判活跃必须用 `instanceAlpha`，不能用矩阵缩放 —— 回收时不重置缩放）。 */
   ['涟漪池域 ripple-bounds', 'probe/ripple-bounds.mjs'],
+  /* ── 2026-09-24 · 计划书第 1 项：GTAO 半分辨率 ──
+     守的是"GTAO 的三张内部 RT（法线/AO/去噪）必须半分辨率，**且 composer.setSize 之后仍是**"
+     —— 窗口 resize（11-loop.js:28）与 QOS 变分辨率（11-loop.js:536）都会回调 pass.setSize，
+     只把半尺寸交给构造函数会在下一次 setSize 被拉回全尺寸（计划书原文点名的坑）。
+     纯状态门（零像素）⇒ 不受 GPU 档位影响；这类退化**画面几乎看不出**（只白丢性能），
+     正是必须靠门禁守住的静默性能回退。画质那半边由 `outputs/_diag/gtao-ab.mjs`
+     的**冻结帧** A/B 量（同任务内连渲 ⇒ 零动画噪声；实测 全↔半 0.77 vs 全↔关AO 2.74）。
+     ⚠️ 本门强制 `tier=high`：核显档 `AO_ENABLED=false` 根本没有 AO。 */
+  ['GTAO 半分辨率 gtao-halfres', 'probe/gtao-halfres.mjs'],
 ];
 
 /* ── T7.1（2026-09-23）三条改进 + T7.4（2026-09-24）④ ────────────────────

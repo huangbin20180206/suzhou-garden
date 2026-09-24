@@ -59,9 +59,36 @@ export function collectAOSkip(){
    即原 §8 跑完的时点；顺序也不能反 —— 合并后收集才看得见合并后的网格）。 */
 
 export let gtaoPass = null;          // 提到外层，供 ENV 调节 AO 权重
+/* ── GTAO 半分辨率（2026-09-24 · 计划书第 1 项）────────────────────────────────
+   GTAO 的代价是"把场景几何再画一遍"（法线 pass）+ AO / 泊松去噪两遍全屏片元。
+   内部 RT 减半 ⇒ 这三遍的**片元**成本降到 1/4、法线 pass 的**片元**减半
+   （draw call 与顶点数不变 —— 省的是后处理那一段，不是几何）。
+   AO 贴图在合成时按 UV 采样 ⇒ 由 blend 那一遍自动双线性放大
+   （three r184 的 `GTAOPass.OUTPUT.Default` 正是：copy readBuffer → blend pdRenderTarget），
+   不需要额外上采样代码。
+   ⚠️ 必须**包住 setSize**：`composer.setSize` 会回调每个 pass 的 setSize —— 窗口 resize
+      （11-loop.js:28）与 QOS 变分辨率（11-loop.js:536 `composer.setPixelRatio(s); setSize(...)`）
+      都会调到，只把半尺寸交给构造函数会在下一次 setSize 时被拉回全尺寸。
+      已核对 three@0.184 的 `GTAOPass.setSize`：它同时改 gtao/pd/normal 三个 RT 与
+      两个 shader 的 `resolution` uniform ⇒ 包一层是自洽的（不会出现"RT 半尺寸但
+      uniform 还是全尺寸"的错配）。
+   ⚠️ 档位前提：`AO_ENABLED = GPU_TIER !== 'low'` ⇒ **核显档本来就没有 AO**，
+      这条优化只在独显档（以及 QOS 降档到 L1 关 AO 之前）有意义 —— 见计划书 v2.0 补注。 */
+const AO_SCALE = 0.5;
 if (AO_ENABLED){
-  const gtao = new GTAOPass(scene, camera, innerWidth, innerHeight);
+  const gtao = new GTAOPass(scene, camera, Math.max(1, Math.round(innerWidth * AO_SCALE)),
+                                            Math.max(1, Math.round(innerHeight * AO_SCALE)));
   gtaoPass = gtao;
+  /* 倍率放 userData（本项目既有套路：noMerge / reflectEveryFrame 同此）——
+     门禁/诊断可临时置 1 做"全尺寸 vs 半尺寸"的 A/B，不必改产品代码。
+     ⚠️ `Pass` 基类**没有** userData（r184 实测：直接写 `gtao.userData.aoScale` 会
+        "Cannot set properties of undefined" ⇒ 模块 body 抛错 ⇒ **页面永久停在加载页**）。 */
+  gtao.userData = { aoScale: AO_SCALE };
+  const gtaoSetSize = gtao.setSize.bind(gtao);
+  gtao.setSize = (w, h) => {
+    const s = gtao.userData.aoScale || 1;
+    return gtaoSetSize(Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s)));
+  };
   gtao.output = GTAOPass.OUTPUT.Default;
   gtao.blendIntensity = 0.85;
   gtao.updateGtaoMaterial({
@@ -101,7 +128,8 @@ if (AO_ENABLED){
           （白白多一整遍镜像渲染，两条 pass 的状态互相污染）。
        ② 阴影：renderer.render 在 shadowMap.autoUpdate 打开时会重渲整张 shadow map，
           而此刻植被正被隐藏着 —— 等于每帧白渲一张 6144² 阴影图，且结果还会被下一帧覆盖。
-       两者都必须 try/finally 还原。 */    setAuxPass(true);
+       两者都必须 try/finally 还原。 */
+    setAuxPass(true);
     const prevShadowAuto = renderer.shadowMap.autoUpdate;
     if (!window.__NO_SHADOW_GUARD) renderer.shadowMap.autoUpdate = false;   // 隔离实验开关
     try { gtaoRender(...args); }
