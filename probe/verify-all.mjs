@@ -154,7 +154,7 @@ const SUITES = [
   ['布局指纹 layout-fingerprint', 'probe/layout-fingerprint.mjs'],
 ];
 
-/* ── T7.1（2026-09-23）三条改进 ──────────────────────────────────────────
+/* ── T7.1（2026-09-23）三条改进 + T7.4（2026-09-24）④ ────────────────────
    ① **红门必须把明细打出来**：原来只打 `exit=1`、只回显 stdout 最后 3 行 ⇒ 想知道红在哪
       必须**单独重跑那一门**（实测每次定位多花 3~15 分钟；`mist-guard` 单门就要 225~280s）。
       现在红门把子进程的**完整 stdout/stderr** 打出来。
@@ -163,6 +163,8 @@ const SUITES = [
       GPU 不固定"，实测同机出现过 Intel Iris Xe（核显档）与 NVIDIA RTX 4060（独显档），
       两档的超采样/阴影尺寸/GTAO/粒子量全不同（同场景 draw calls 308 vs 716）⇒ **像素统计不同**
       ⇒ σ/容差类判据会随档位漂。有这一行才能把"偶发红门"与档位对上。
+   ④ **红门重跑一次 + FLAKY 标注**（见下方 STRICT/RETRY 一段的说明）：把"偶发"与"真红"分开报，
+      既不静默变绿、也不让偶发红门一直拖着整轮。
    ⚠️ 判"是不是你改坏的"：看**同一门是否每轮都红**，而不是看某一轮有没有红。 */
 const STAMP = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
 const LOG = path.join(ROOT, 'outputs', '_diag', `verify-${STAMP}.log`);
@@ -184,41 +186,88 @@ const gpuTag = () => {
 const SELFTEST = process.env.VERIFY_SELFTEST;
 const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]] : SUITES;
 
+/* ── 红门重跑 + FLAKY 标注（2026-09-24）────────────────────────────────────
+   为什么要有它：项目里反复出现"**全链红在某一门、单跑全绿**"（GPU 档位切换 / 并发负载 /
+   就绪竞态）。这类红**不是缺陷**，但也不是"通过" —— 处理原则写死在这里，别改成静默重试：
+     · 红门先打出**第 1 次完整明细 + GPU 档位**（证据不丢），再**自动重跑一次**；
+     · 重跑通过 ⇒ 记 **FLAKY**：响亮打印、写进汇总、**默认不判红**（exit 0）；
+       `VERIFY_STRICT=1` 时 FLAKY 也判红 —— 想把"偶发"当缺陷处理时用它；
+     · 重跑仍红 ⇒ **真红**，走原路径（完整明细 + exit 1）。
+   ⚠️ 绝不做的事：把重跑结果当"绿"写进主日志而不标注 —— 那会让"系统性偶发"永远藏着。
+   ⚠️ 为什么只重跑一次：偶发与真缺陷的区分只需要一次独立复现；重跑两次以上是在用时间换假绿。
+   开关：`VERIFY_NO_RETRY=1` 关掉重跑（调试时想要第一手红）。 */
+const STRICT = process.env.VERIFY_STRICT === '1';
+const RETRY = process.env.VERIFY_NO_RETRY === '1' ? 0 : 1;
+
 say('[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并误报）');
 if (SELFTEST) say(`[verify-all] ⚠️ 自检模式：只跑 ${SELFTEST}（验证红门路径，不是真跑链）`);
+if (!RETRY) say('[verify-all] ⚠️ VERIFY_NO_RETRY=1：红门**不重跑**（要第一手红时用）');
+if (STRICT) say('[verify-all] ⚠️ VERIFY_STRICT=1：FLAKY 也判红');
 say(`[verify-all] 完整日志：${path.relative(ROOT, LOG)}`);
 say(gpuTag());
 say('');
-const failed = [];
+const failed = [], flaky = [];
+const dumpRed = (name, tag, r, dt) => {
+  say(`✗✗ 红门明细开始（${name}${tag}）—— 完整 stdout / stderr`);
+  say((r.stdout || '').trim() || '(stdout 为空)');
+  if ((r.stderr || '').trim()) say('[stderr]\n' + (r.stderr || '').trim());
+  if (r.signal) say(`[signal] ${r.signal}`);
+  say(`✗✗ 红门明细结束（${name}${tag}）`);
+  say(gpuTag());
+};
 for (const [name, rel] of LIST){
   say(`── ${name} ──────────────────────────`);
   const t0 = Date.now();
-  const r = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: 600000 });
-  const dt = ((Date.now() - t0) / 1000).toFixed(1);
+  const r1 = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: 600000 });
+  const dt1 = ((Date.now() - t0) / 1000).toFixed(1);
+  let r = r1, dt = dt1, retried = false;
+  if (r1.status !== 0 && RETRY){
+    say(`⚠ 第 1 次 exit=${r1.status}（${dt1}s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）`);
+    dumpRed(name, ' · 第 1 次', r1, dt1);
+    const t2 = Date.now();
+    r = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: 600000 });
+    dt = ((Date.now() - t2) / 1000).toFixed(1);
+    retried = true;
+    say(`↻ 重跑结果：exit=${r.status}（${dt}s）`);
+  }
   const out = (r.stdout || '').trim();
-  const err = (r.stderr || '').trim();
   const ok = r.status === 0;
   if (ok){
     const tail = out.split('\n').slice(-3).join('\n');
     if (tail) say(tail);
+    if (retried){
+      say(`⚠⚠ **FLAKY（偶发）**：${name} —— 第 1 次 exit=1、重跑 exit=0。`);
+      say('   ⚠️ 这不等于"通过"：它说明**这门不稳**。排查两条线：① GPU 档位（_harness 明说 ANGLE');
+      say('      每次挑哪块 GPU 不固定，像素类阈值会随档位漂）；② 就绪竞态（是否只等 loading.done');
+      say('      而没等 __garden.bootDonePromise —— 延迟批还在进场时采样）。');
+      say('   要把它当缺陷处理：`VERIFY_STRICT=1 npm run verify`（FLAKY 也判红）。');
+    }
   } else {
-    say(`✗✗ 红门明细开始（${name}）—— 完整 stdout / stderr`);
-    say(out || '(stdout 为空)');
-    if (err) say('[stderr]\n' + err);
-    if (r.signal) say(`[signal] ${r.signal}`);
-    say(`✗✗ 红门明细结束（${name}）`);
-    say(gpuTag());
+    dumpRed(name, retried ? ' · 重跑仍红' : '', r, dt);
   }
-  say(`${ok ? '✓' : '✗'} ${name} — exit=${r.status}（${dt}s）`);
+  say(`${ok ? (retried ? '⚠' : '✓') : '✗'} ${name} — exit=${r.status}（${dt}s${retried ? ' · 重跑' : ''}）`);
   say('');
   if (!ok) failed.push(name);
+  else if (retried) flaky.push(name);
 }
 
+const flakyNote = flaky.length ? `偶发（FLAKY，重跑通过）${flaky.length} 道：${flaky.join('、')}` : '';
 if (failed.length){
-  const msg = `[verify-all] FAILED：${failed.join('、')}`;
+  const msg = `[verify-all] FAILED：${failed.join('、')}${flakyNote ? ` ｜ ${flakyNote}` : ''}`;
   console.error(msg); logLine(msg);
   console.error(`[verify-all] 完整日志：${path.relative(ROOT, LOG)}`);
   process.exit(1);
 }
 say(gpuTag());
-say('[verify-all] ALL GATES PASS ✓');
+if (flaky.length){
+  say(`[verify-all] ALL GATES PASS ✓ —— 但有 **${flaky.length} 道 FLAKY**：${flaky.join('、')}`);
+  say('[verify-all] ⚠️ FLAKY ≠ 通过：它们是"不稳的门"，按 GPU 档位 / 就绪竞态两条线查；');
+  say('[verify-all]     `VERIFY_STRICT=1 npm run verify` 可让 FLAKY 也判红。');
+  if (STRICT){
+    const m = `[verify-all] STRICT：FLAKY 判红 —— ${flaky.join('、')}`;
+    console.error(m); logLine(m);
+    process.exit(1);
+  }
+} else {
+  say('[verify-all] ALL GATES PASS ✓');
+}
