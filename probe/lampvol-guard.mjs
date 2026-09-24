@@ -294,19 +294,29 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   console.log(`  · 逐对差（配对差分）：[${dPairs.map(v => v.toFixed(2)).join(', ')}]（中位 ${dLoc.toFixed(3)}，MAD σ ${sigma.toFixed(3)}）`);
   check('光团是**局部**现象，不是全屏加了一层（局部窗信号 ≥5× 全幅均值）',
     sigLoc > sigAll * 5, `局部 ${sigLoc.toFixed(3)} vs 全幅 ${sigAll.toFixed(3)}（${(sigLoc / (sigAll || 1e-6)).toFixed(1)}×）`);
-  /* 热点定位：差分最强的那一格必须落在光团所在格（±1 格）—— 防"光团挂错位置/画面别处有鬼" */
+  /* 热点定位（2026-09-24 做硬）：差分最强的那一格必须落在光团所在格（±1 格）。
+     ⚠️ 原来只拿 **单对** ON[0]/OFF[0] 全幅找最强格 —— 单对会被瞬时噪声（萤火/浮尘/雾絮
+        恰好扫过别的格，同状态噪声 0.27~0.46）顶上去：别的格真值只差零点几，瞬时粒子
+        一叠就把"最强格"顶到别处 ⇒ 时红时绿。按项目既定方针把**统计量**做硬（不是抬容差）：
+        每格取 **12 对样本的差分中位数**（同 mist-guard 多帧中位数的思路）—— 瞬时粒子被
+        中位数吃掉，判据意图（最强差分格 = 光团所在格、别处没有假光）一个字没变。
+        顺带报出"次强格"的值与领先量，红了好定位（多灯笼 setLampVol 是全局的，
+        游廊 3 盏一起灭、它们的格有真实差分，贴边时先看这里）。 */
   const hot = (() => {
-    let best = { v: -1, x: 0, y: 0 };
+    let best = { v: -1, x: 0, y: 0 }, second = { v: -1, x: 0, y: 0 };
     for (let gy = 0; gy < H; gy += CELL) for (let gx = 0; gx < W; gx += CELL) {
-      const v = boxDiff(ON[0], OFF[0], Math.min(W - 1, gx + CELL / 2), Math.min(H - 1, gy + CELL / 2), CELL / 2);
-      if (v > best.v) best = { v, x: gx, y: gy };
+      const cxp = Math.min(W - 1, gx + CELL / 2), cyp = Math.min(H - 1, gy + CELL / 2);
+      const v = med(ON.map((im, i) => boxDiff(im, OFF[i], cxp, cyp, CELL / 2)));
+      if (v > best.v){ second = best; best = { v, x: gx, y: gy }; }
+      else if (v > second.v) second = { v, x: gx, y: gy };
     }
-    return best;
+    return { ...best, secondV: second.v, secondAt: [second.x, second.y] };
   })();
   const cxCell = Math.floor(box.x / CELL) * CELL, cyCell = Math.floor(box.y / CELL) * CELL;
   check('差分热点落在光团所在格（±1 格）——光团没挂错位置，别处也没有假光',
     Math.abs(hot.x - cxCell) <= CELL && Math.abs(hot.y - cyCell) <= CELL,
-    `热点 (${hot.x},${hot.y}) 值 ${hot.v.toFixed(2)} · 光团格 (${cxCell},${cyCell})`);
+    `热点 (${hot.x},${hot.y}) 值 ${hot.v.toFixed(2)} · 光团格 (${cxCell},${cyCell})` +
+    ` · 次强格 (${hot.secondAt.join(',')}) 值 ${hot.secondV.toFixed(2)}（领先 ${(hot.v - hot.secondV).toFixed(2)}）`);
   /* ⚠️ 还原判据比 luma 不比像素：光团 shader 自带 uTime 湍流花纹，开灯两张图天然对不上 */
   check('还原 uLamp 后亮度回到开灯态（|Δluma| < 信号一半，非单向漂移）',
     Math.abs(loc(BK) - med(lumaOn)) < Math.abs(dLoc) / 2,
