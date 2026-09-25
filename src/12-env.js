@@ -11,7 +11,7 @@ import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
          cancelCamFly, CAM_FLY, introActive, introCancel } from './08-assemble.js';
 import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
-import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer } from './02-scene.js';
+import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
 import { TAU, HOOKS, ENV_REF, mulberry32 } from './00-config.js';
@@ -291,24 +291,34 @@ export function makeLanterns(){
          原来堂前两盏开着它 = 每帧多渲 12 张深度图，纯亏不赚。
        · distance 收紧（堂前 8m / 游廊 5m）+ decay=2：光只落在灯笼脚下那一圈，
          不会把整座园子染成橘色。 */
+    /* 灯笼聚光灯（2026-09-25）：PointLight 改 SpotLight —— 灯笼本来就往下照，
+       聚光灯更贴物理且阴影成本从 6 面降到 1 张。高画质档允许前 3 盏（堂前 2 + 游廊 1）
+       开投影；低档与 QOS 降档后由 applyQuality 关掉。 */
     const isHall = (z === -7.1);
-    const spot = new THREE.PointLight(0xFFAA33, 0, isHall ? 8.0 : 5.0, 2.0);
-    /* 点光位置修复（2026-09-21 方案 n2 顺带）：旧式 `0.25 + (y - hang)` 是
-       对 grp 下移量的**二次补偿** —— pivot 在挂点 + grp 在 y-hang 之后，子级
-       世界 y 本来就是 y + local，再补一遍把光源推到灯笼中心下方 0.6~1.2m
-       （堂前实测 3.63 vs 灯体 4.85，光团悬在灯笼下方的空气里）。
-       现在放到底盖与流苏结之间（local −0.21）：对脚下地面照度 = intensity/d²
-       恰好落在设计值（堂前 6.5/4.64²≈0.30、游廊 2.8/2.09²≈0.64），
-       且光路不被灯壳遮挡（Lathe 是闭合薄壳，光源塞进体内只会照内壁）。 */
-    spot.position.set(0, -0.21, 0);   // 底盖（−0.178±0.0225）与流苏结（顶 −0.24）之间
-    spot.castShadow = false;
-    /* ⚠️ 强度必须按 **1/d² 反算**，不能拍脑袋：r155+ 的点光是物理单位（坎德拉），
-       辐照度 = intensity / d²。堂前灯挂在 4.85m 高，取 1.35 的话传到地面只剩
-       1.35 / 4.85² ≈ 0.06 —— 实测「开与关」整幅亮度只差 0.2，等于没照亮。
-       要在脚下地面留下约 0.3 的照度，得 0.3 × 4.85² ≈ 7。游廊灯只有 2.3m 高，
-       同样照度只需 0.3 × 2.3² ≈ 1.6，但廊下离得更近、给到 2.8 更聚拢。
-       ⚠️ 上限别再往上加：灯笼本体距光源仅 ~0.15m，照度 = intensity/0.02，
-       再大会把灯罩烤成纯白（它是自发光 + bloom 的对象，本来就是画面最亮处）。 */
+    const useSpot = true;
+    let spot;
+    if (useSpot){
+      spot = new THREE.SpotLight(0xFFAA33, 0, isHall ? 9.0 : 6.5, Math.PI * 0.22, 0.55, 2.0);
+      spot.target = new THREE.Object3D();
+      spot.target.position.set(0, 0, 0);
+      grp.add(spot.target);
+      spot.position.set(0, -0.21, 0);
+      // 堂前 2 盏 + 游廊第一盏 = 3 盏有投影，high 档才开；QOS 降档后由 11-loop 统一关闭
+      const lightIndex = worldLights.length;
+      spot.castShadow = ACTIVE_QUALITY.ao && lightIndex < 3;
+      if (spot.castShadow){
+        spot.shadow.mapSize.set(512, 512);
+        spot.shadow.camera.near = 0.5;
+        spot.shadow.camera.far = 12;
+        spot.shadow.bias = -0.003;
+      }
+    } else {
+      spot = new THREE.PointLight(0xFFAA33, 0, isHall ? 8.0 : 5.0, 2.0);
+      spot.position.set(0, -0.21, 0);
+      spot.castShadow = false;
+    }
+    /* 强度必须按 **1/d² 反算**：堂前 4.85m 高 → 6.5；游廊 2.3m → 2.8。
+       SpotLight 同为物理单位（坎德拉），衰减参数一致。 */
     spot.userData.base = isHall ? 6.5 : 2.8;
     grp.add(spot);
     worldLights.push(spot);
@@ -952,11 +962,16 @@ export function applyEnv(p){
     if (fLum > fMax) scene.fog.color.multiplyScalar(fMax / fLum);
   }
   /* 环境贴图强度随天光走（见 ENV_BAKE_LUM 处的说明）：否则夜景里的石材/木材/水面
-     仍在反射白天的天空，明明白墙已经暗下去了。 */
+     仍在反射白天的天空，明明白墙已经暗下去了。
+     ⚠️ 2026-09-25：反射**色**由 setEnvPreset 按时段缓存贴图解决（见下），
+        这里只负责把**强度**标量调对 —— 两者互补，不要删掉任何一边。 */
   const curLum = (lumOf(p.skyTop) + lumOf(p.skyHorizon)) * 0.5;
   if (scene.environmentIntensity !== undefined){
     scene.environmentIntensity = Math.max(0.08, Math.min(1.25, curLum / ENV_BAKE_LUM));
   }
+  /* PMREM 按时段缓存（2026-09-25）：不在 applyEnv 里调用（它会每帧兜底触发），改为
+     在 setEnv 的时段变化后一次性切换缓存。稳态零重烘，过渡期间也不重烘（过渡用缓存的旧贴图）。 */
+  // setEnvPreset 已移到 setEnv() 中时段变化后调用
   /* 远山 albedo 跟天光走（见 DISTANT_MATS 处的说明）：四层远山是 MeshBasicMaterial，
      不吃任何光，不跟着天光压暗的话夜里会在夜空上发亮（山 35.4 vs 天 16.9 的实测）。
      与上面 environmentIntensity **同源同算**，山和它背后的天同步变暗。
@@ -1731,6 +1746,13 @@ export function setEnv(axis, val){
   ENV.from = cloneParams(ENV.cur);      // 从「当前实际画面」出发，连点也不会跳
   ENV.to   = resolveEnv();
   ENV.t    = 0;
+  /* PMREM 按时段缓存：切时段时一次性切换环境贴图（缓存命中则零烘焙）。
+     不能在 applyEnv 里调 —— applyEnv 每帧兜底触发会反复烘或压成 'default' 键。 */
+  if (axis === 'time' && ENV.to.skyTop){
+    setEnvPreset({ key: val, skyTop: ENV.to.skyTop.getHex(), skyMid: ENV.to.skyMid.getHex(),
+                   skyHorizon: ENV.to.skyHorizon.getHex(), sunDisk: ENV.to.sunDisk.getHex(),
+                   ground: 0x5F7B45, sunPos: ENV.to.sunPos });
+  }
   enforceWeather();                     // 非法组合在这里就被打回，不留非法状态
   syncEnvUI();
 }

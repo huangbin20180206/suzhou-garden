@@ -37,7 +37,7 @@ export function makeRoofTileTex(){                      // 青灰筒瓦：筒瓦
 }
 
 export function makePavingTex(){                        // 青砖铺地：45° 斜向菱形拼花 + 磨损
-  const S = 512;
+  const S = 1024;
   const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d');
   g.fillStyle = '#BEBAB0'; g.fillRect(0, 0, S, S);   // 原 #DDD9D0 在 ACES 下会糊成纯白
@@ -89,9 +89,10 @@ export function makePavingTex(){                        // 青砖铺地：45° �
 }
 
 export function makeGroundTex(){                        // 草地：多尺度变化（大色块 → 草簇 → 细叶）
-  const c = document.createElement('canvas'); c.width = c.height = 512;
+  const c = document.createElement('canvas'); c.width = c.height = 1024;
   const g = c.getContext('2d');
-  g.fillStyle = '#6E9C42'; g.fillRect(0,0,512,512);
+  const P = 1024;
+  g.fillStyle = '#6E9C42'; g.fillRect(0,0,P,P);
 
   // ① 大尺度色块：打破平铺重复感（受旱泛黄 / 湿润深绿 / 中绿 / 草尖高光）
   const blobs = [
@@ -104,7 +105,7 @@ export function makeGroundTex(){                        // 草地：多尺度变
     g.fillStyle = col;
     for (let i = 0; i < n; i++){
       g.beginPath();
-      g.ellipse(rnd()*512, rnd()*512, rr(rMin, rMax), rr(rMin, rMax)*rr(0.5,1.0), rnd()*Math.PI, 0, Math.PI*2);
+      g.ellipse(rnd()*P, rnd()*P, rr(rMin, rMax), rr(rMin, rMax)*rr(0.5,1.0), rnd()*Math.PI, 0, Math.PI*2);
       g.fill();
     }
   }
@@ -114,7 +115,7 @@ export function makeGroundTex(){                        // 草地：多尺度变
     const v = rr(-24, 26);
     g.fillStyle = `rgba(${96+v|0},${138+v|0},${54+v|0},0.5)`;
     g.beginPath();
-    g.arc(rnd()*512, rnd()*512, rr(2, 7), 0, Math.PI*2);
+    g.arc(rnd()*P, rnd()*P, rr(2, 7), 0, Math.PI*2);
     g.fill();
   }
 
@@ -122,7 +123,7 @@ export function makeGroundTex(){                        // 草地：多尺度变
   for (let i = 0; i < 14000; i++){
     const v = rr(-30, 26);
     g.fillStyle = `rgba(${100+v|0},${146+v|0},${56+v|0},.5)`;
-    g.fillRect(rnd()*512, rnd()*512, rr(1,2.4), rr(2,6));
+    g.fillRect(rnd()*P, rnd()*P, rr(1,2.4), rr(2,6));
   }
   const t = new THREE.CanvasTexture(c);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
@@ -131,7 +132,7 @@ export function makeGroundTex(){                        // 草地：多尺度变
 }
 
 export function makePondBedTex(){                       // 池底：淤泥 + 藻斑 + 卵石
-  const S = 512;
+  const S = 1024;
   const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d');
   g.fillStyle = '#4A4E3C'; g.fillRect(0, 0, S, S);          // 淤泥（不是黑）
@@ -236,7 +237,7 @@ export function makeSteleTex(chars, sub){
 }
 
 export function makeInkWashTex(){                        // 水墨山水（屏风背景）
-  const W = 512, H = 384;
+  const W = 1024, H = 768;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
   g.fillStyle = '#EDE6D6'; g.fillRect(0, 0, W, H);          // 宣纸底

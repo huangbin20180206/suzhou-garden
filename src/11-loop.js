@@ -1,7 +1,7 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
 import { camera, renderer, RENDER_SCALE, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
-         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST } from './02-scene.js';
+         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
@@ -1229,6 +1229,8 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS }),
                   /* 涟漪容量：门禁要断言"暴雨+密集点击+鱼跃"不抢不到槽（2026-09-25 由 20 提到 64） */
                   rippleCapacity,
+                  /* PMREM 四时段缓存：门禁要断言"切时段时反射色变了但只烘一次" */
+                  envBakeState,
                   probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,
                   queuePostcard, postcardData, toggleSound, sndState: () => Snd.on,
                   /* 长曝光明信片：门禁要能触发并量 uStarRot 是否归零（叠完忘复位=星星天天靠它转） */

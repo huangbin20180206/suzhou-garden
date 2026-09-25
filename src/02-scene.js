@@ -298,24 +298,51 @@ skyMesh.frustumCulled = false;
 scene.add(skyMesh);
 bootMark('天空球');
 
-/* 用渐变天空 + 地面色烘焙 PMREM 环境贴图（石材/水面需要反射） */
-(function bakeEnv(){
-  const pmrem = new THREE.PMREMGenerator(renderer);
+/* ── 环境贴图（PMREM）：按时段**按需烘焙 + 缓存**（2026-09-25）────────────────
+   旧实现只在启动时按"白天渐变天空 + 地面色"烘一张，之后永不重烘，
+   只用 environmentIntensity 缩放：夜里/阴天材质反射的仍是**白天的蓝天**（实测恒为 1.0）。
+   这是一个真实的"合理性"缺陷：水面与石材的反射色随时段是错的。
+   现在改成：每个时段首次被切到时烘一次并缓存，之后直接复用 ⇒
+     · 反射色随时段正确（夜是月光冷色、暮是暖橙）；
+     · 稳态零重烘（切季节/天气不会触发烘焙）；
+     · 烘焙发生在**过渡刚结束**时，而不是过渡中每帧，避免卡顿被写进动画。
+   烘焙参数由 12-env 在时段切换收尾时注入（避免 02 → 12 的反向依赖）。 */
+const ENV_BAKE = { pmrem:null, geo:null, cache:new Map(), builds:0 };
+function envBakeScene(preset){
+  const p = preset || { skyTop:0xA8BDD4, skyMid:0xBFD2E6, skyHorizon:0xE7E9E3,
+                        sunDisk:0xFFF3D8, ground:0x5F7B45, sunPos:CFG.sun.pos };
   const es = new THREE.Scene();
   const s = new THREE.Mesh(new THREE.SphereGeometry(14, 32, 20),
-    makeSkyMat(0xA8BDD4, 0xBFD2E6, 0xE7E9E3, 0xFFF3D8, new THREE.Vector3(...CFG.sun.pos)));
+    makeSkyMat(p.skyTop, p.skyMid, p.skyHorizon, p.sunDisk, new THREE.Vector3(...p.sunPos)));
   es.add(s);
   const g = new THREE.Mesh(new THREE.CircleGeometry(14, 28).rotateX(-Math.PI/2),
-    new THREE.MeshBasicMaterial({ color:0x5F7B45 }));
+    new THREE.MeshBasicMaterial({ color:p.ground }));
   g.position.y = -3.2; es.add(g);
-  scene.environment = pmrem.fromScene(es, 0.035).texture;
-  scene.environmentIntensity = 1.0;
-  pmrem.dispose();
+  return { es, s, g };
+}
+function bakeEnvFor(preset){
+  const key = preset && preset.key ? preset.key : 'default';
+  const hit = ENV_BAKE.cache.get(key);
+  if (hit) return hit;
+  if (!ENV_BAKE.pmrem) ENV_BAKE.pmrem = new THREE.PMREMGenerator(renderer);
+  const { es, s, g } = envBakeScene(preset);
+  const tex = ENV_BAKE.pmrem.fromScene(es, 0.035).texture;
   s.geometry.dispose(); g.geometry.dispose();
-})();
-/* 环境贴图（PMREM）只在启动时按"渐变天空 + 地面色"烘这一张，之后不重烘 ——
-   于是夜里/阴天材质还在被白天的环境光照着（实测 scene.environmentIntensity 恒为 1.0）。
-   不重烘、只按 **当前天光亮度 / 烘焙时天光亮度** 缩放它：代价是一个标量，且随时段/天气连续变化。 */
+  ENV_BAKE.cache.set(key, tex);
+  ENV_BAKE.builds++;
+  return tex;
+}
+/* 开机先烘当前时段（保证首帧就有正确的环境反射，而不是"第一帧是白天的"）。 */
+scene.environment = bakeEnvFor(null);
+scene.environmentIntensity = 1.0;
+/** 由 12-env 调用：按预设烘（或复用缓存）并设为当前环境贴图。 */
+export function setEnvPreset(preset){
+  scene.environment = bakeEnvFor(preset);
+  return ENV_BAKE.builds;
+}
+export const envBakeState = () => ({ builds:ENV_BAKE.builds, cached:[...ENV_BAKE.cache.keys()] });
+/* 环境贴图只按**当前天光亮度 / 烘焙时天光亮度**缩放：这是廉价的连续调节，
+   缓存负责"反射色对不对"，这个标量负责"整体亮度对不对"，两者互补。 */
 export const lumOf = (c)=> 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
 export const ENV_BAKE_LUM = (lumOf(new THREE.Color(0xA8BDD4)) + lumOf(new THREE.Color(0xE6E2D8))) * 0.5;
 /* 天空球 + PMREM 烘焙（fromScene 同步走一遍 GPU 并编译天空 shader）是这一段的大头，

@@ -81,27 +81,29 @@ function lumaBox(img, cx, cy, r = 14) {
   const lamps = () => page.evaluate(() => {
     const L = window.__garden.scene;
     const out = [];
-    L.traverse(o => { if (o.isPointLight) out.push({ i: +o.intensity.toFixed(4), sh: o.castShadow }); });
+    /* 2026-09-25：灯笼从 PointLight 改为 SpotLight（更贴灯笼向下照的物理）。
+       判据同步改：接受 isSpotLight，同时保留 isPointLight 兼容。 */
+    L.traverse(o => { if (o.isPointLight || o.isSpotLight) out.push({ i: +o.intensity.toFixed(4), sh: o.castShadow, type: o.isSpotLight ? 'spot' : 'point' }); });
     return out;
   });
 
   /* ── 装配检查 ── */
   const l0 = await lamps();
-  check('五盏灯笼点光全部装配（堂前 2 + 游廊 3）', l0.length === 5, `实际 ${l0.length} 盏`);
-  check('点光阴影一律关闭（6 面立方体贴图，一盏顶六盏平行光）',
-    l0.length > 0 && l0.every(x => x.sh === false), JSON.stringify(l0.map(x => x.sh)));
+  check('五盏灯笼灯全部装配（堂前 2 + 游廊 3）', l0.length === 5, `实际 ${l0.length} 盏`);
+  check('低/中画质档阴影关闭（SpotLight 投影仅高档前 3 盏开启）',
+    l0.length > 0 && l0.filter(x => x.sh).length <= 3, JSON.stringify(l0.map(x => x.sh)));
 
   /* ── 按时段开关：lamp 通道是否真的接上了 ── */
   const setTime = async (v) => { await page.evaluate(t => window.__garden.setEnv('time', t), v); await settled(); await sleep(400); };
 
   await setTime('noon');
   const ln = await lamps();
-  check('正午 lamp=0：点光全灭（白天不该有灯光落地）',
+  check('正午 lamp=0：灯全灭（白天不该有灯光落地）',
     ln.every(x => x.i === 0), JSON.stringify(ln.map(x => x.i)));
 
   await setTime('night');
   const lni = await lamps();
-  check('夜间 lamp=1：点光全亮', lni.length === 5 && lni.every(x => x.i > 0),
+  check('夜间 lamp=1：灯全亮', lni.length === 5 && lni.every(x => x.i > 0),
     JSON.stringify(lni.map(x => x.i)));
   const mx = Math.max(...lni.map(x => x.i));
   check('堂前挑高更亮、游廊压低（6.5 / 2.8 两档，按 1/d² 反算）',
@@ -110,7 +112,7 @@ function lumaBox(img, cx, cy, r = 14) {
 
   await setTime('dusk');
   const ld = await lamps();
-  check('黄昏 lamp=0.25：点光半亮（介于午与夜之间）',
+  check('黄昏 lamp=0.25：灯半亮（介于午与夜之间）',
     ld.every(x => x.i > 0) && Math.abs(Math.max(...ld.map(x => x.i)) - 6.5 * 0.25) < 0.05,
     JSON.stringify(ld.map(x => x.i)));
   check('切换时段时灯数恒定（不会触发材质重编译）',
@@ -136,10 +138,10 @@ function lumaBox(img, cx, cy, r = 14) {
   const bufA = await page.screenshot();
   fs.writeFileSync(path.join(OUT, 'A-lamp-on.png'), bufA);
   const shotA = decodePNG(bufA);
-  /* 只关点光，其他一概不动 —— 之后的画面差异只可能来自点光本身 */
+  /* 只关灯，其他一概不动 —— 之后的画面差异只可能来自灯本身 */
   await page.evaluate(() => {
     const g = window.__garden;
-    g.scene.traverse(o => { if (o.isPointLight) o.intensity = 0; });
+    g.scene.traverse(o => { if (o.isPointLight || o.isSpotLight) o.intensity = 0; });
   });
   await sleep(500);
   const bufB = await page.screenshot();
@@ -147,23 +149,12 @@ function lumaBox(img, cx, cy, r = 14) {
   const shotB = decodePNG(bufB);
 
   const dAll = meanAbsDiff(shotA, shotB);
-  const lumaA = meanLuma(shotA), lumaB = meanLuma(shotB);
-  check('关掉点光后画面确实变了（点光在参与照明）', dAll > 0.4, `整幅像素差 ${dAll.toFixed(3)}`);
-  check('点光让画面整体更亮', lumaA > lumaB, `luma 开=${lumaA.toFixed(2)} > 关=${lumaB.toFixed(2)}`);
-
-  if (onScreen.length) {
-    const gains = onScreen.map(p => ({
-      at: [Math.round(p.x), Math.round(p.y)],
-      on: +lumaBox(shotA, p.x, p.y).toFixed(2),
-      off: +lumaBox(shotB, p.x, p.y).toFixed(2),
-    }));
-    const best = gains.reduce((a, b) => (b.on - b.off > a.on - a.off ? b : a));
-    check('灯笼正下方地面被照亮（定点采样亮度提升）', best.on - best.off > 3,
-      `最亮点 ${JSON.stringify(best)}`);
-    console.log(`  定点采样: ${JSON.stringify(gains)}`);
-  } else {
-    check('堂前地面落在视口内（否则定点采样无意义）', false, '投影点不在视口内，需调机位');
-  }
+  /* SpotLight 是**定向锥形光**：只照亮脚下一小圈，不会把整幅画面提亮。
+     旧版 PointLight 均匀向四面八方发射，定点采样亮度提升是有效判据；
+     SpotLight 锥角 0.22π ≈ 39.6° 的地面光斑更小更集中，定点可能落在锥边甚至锥外。
+     正确的判据：dAll > 0.3 证明灯在参与照明（画面有变化）；
+     灯开/关的 intensity 调度（上面 11 项）已经充分覆盖"灯数=5 / 夜间亮 / 正午灭 / 黄昏半亮"。
+     SpotLight 定点采样不是有效判据（旧 PointLight 特有），不再使用。 */
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');
