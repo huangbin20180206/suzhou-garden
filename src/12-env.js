@@ -7,7 +7,9 @@ import { THREE, mergeGeometries } from '../vendor.js';
    before initialization"，渲染循环每帧重复）。这两处都只在**事件回调**里调用，
    回调触发时所有模块早已就绪 → 走 00-config 的 HOOKS 延迟绑定（见该文件注释）。 */
 import { MAT, waterSurface, DISTANT_MATS, SEASON_TINT_REGISTRY, addWind, wetUniform, WET_MATS, SNOW_COVER_MATS, SNOW_HOOK } from './01-materials.js';
-import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart, gotoViewpoint, showCaption, hideCaption, VIEWPOINTS } from './08-assemble.js';
+import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart,
+         gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
+         cancelCamFly, CAM_FLY, introActive, introCancel } from './08-assemble.js';
 import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
 import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, GPU_TIER, renderer } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
@@ -1620,6 +1622,75 @@ function applyWetness(v){
   }
 }
 
+/* ══ 四季自动演示（2026-09-25 · 计划书 Phase 3 第 8 项）══════════════════════
+   与 REEL 的时辰流转不同：这里只推进 season，并复用导览机位与字幕。
+   默认不自动播放，只由按钮启动；任意手动操作立即停止并恢复控制权。 */
+const SEASON_DEMO_ORDER = ['spring', 'summer', 'autumn', 'winter'];
+const SEASON_DEMO_SHOTS = ['hall', 'pavilion', 'hero', 'overview'];
+export const SEASON_DEMO = { on: false, phase: 'idle', idx: 0, hold: 0,
+                             flyDur: 7, holdDur: 3.5, history: [] };
+function syncSeasonDemoBtn(){
+  const b = envEl && envEl.querySelector('[data-act="season-demo"]');
+  if (!b) return;
+  b.classList.toggle('on', SEASON_DEMO.on);
+  b.setAttribute('aria-pressed', SEASON_DEMO.on ? 'true' : 'false');
+  b.textContent = SEASON_DEMO.on ? '四季停■' : '四季▸';
+}
+function stopTourForDemo(){ if (TOUR.on) tourStop(); }
+export function stopSeasonDemo(reason = 'manual'){
+  if (!SEASON_DEMO.on) return false;
+  SEASON_DEMO.on = false; SEASON_DEMO.phase = 'idle'; SEASON_DEMO.hold = 0;
+  cancelCamFly('season-demo');
+  hideCaption('season-demo');
+  syncSeasonDemoBtn();
+  return true;
+}
+function enterSeasonDemo(i, flyDur = SEASON_DEMO.flyDur){
+  const idx = ((i % SEASON_DEMO_ORDER.length) + SEASON_DEMO_ORDER.length) % SEASON_DEMO_ORDER.length;
+  const season = SEASON_DEMO_ORDER[idx];
+  SEASON_DEMO.idx = idx; SEASON_DEMO.phase = 'flying';
+  SEASON_DEMO.history.push(season);
+  setEnv('season', season);
+  showSeasonCaption(season);
+  gotoViewpoint(SEASON_DEMO_SHOTS[idx], flyDur, 'season-demo');
+  syncSeasonDemoBtn();
+}
+export function startSeasonDemo(opts = {}){
+  const flyDur = Number.isFinite(opts.flyDur) ? Math.max(0.01, opts.flyDur) : SEASON_DEMO.flyDur;
+  const holdDur = Number.isFinite(opts.holdDur) ? Math.max(0, opts.holdDur) : SEASON_DEMO.holdDur;
+  SEASON_DEMO.flyDur = flyDur; SEASON_DEMO.holdDur = holdDur;
+  if (REEL.on) toggleReel();
+  stopTourForDemo();
+  if (introActive()) introCancel();
+  cancelCamFly();
+  if (envEl.classList.contains('expanded')){
+    const toggle = envEl.querySelector('.drawer-toggle');
+    if (toggle) toggle.click();
+  }
+  SEASON_DEMO.on = true; SEASON_DEMO.history = []; SEASON_DEMO.hold = holdDur;
+  enterSeasonDemo(0, flyDur);
+  return true;
+}
+export function toggleSeasonDemo(){ return SEASON_DEMO.on ? (stopSeasonDemo('button'), false) : startSeasonDemo(); }
+export function advanceSeasonDemo(dt){
+  if (!SEASON_DEMO.on) return;
+  if (CAM_FLY.on && CAM_FLY.owner === 'season-demo') return;
+  if (SEASON_DEMO.phase === 'flying') SEASON_DEMO.phase = 'holding';
+  SEASON_DEMO.hold -= dt;
+  if (SEASON_DEMO.hold <= 0) enterSeasonDemo(SEASON_DEMO.idx + 1, SEASON_DEMO.flyDur);
+}
+export function seasonDemoUserTakeover(){ stopSeasonDemo('user'); }
+export function seasonDemoState(){
+  return { ...SEASON_DEMO, history: SEASON_DEMO.history.slice() };
+}
+export function seasonDemoCaption(){
+  const el = document.getElementById('caption');
+  return { shown: !!(el && el.classList.contains('show')),
+           title: el && el.querySelector('b') ? el.querySelector('b').textContent : '',
+           text: el && el.querySelector('span') ? el.querySelector('span').textContent : '',
+           season: ENV.season };
+}
+
 /* ══ 状态机与过渡 ══ */
 export const ENV = {
   time:'noon', season:'summer', weather:'clear',
@@ -1688,6 +1759,17 @@ export const envEl = document.getElementById('env');
    start 系事件（手按下/滚轮即停），不赌 change/end，低延迟。 */
 renderer.domElement.addEventListener('pointerdown', tourUserTakeover);
 renderer.domElement.addEventListener('wheel', tourUserTakeover, { passive: true });
+renderer.domElement.addEventListener('pointerdown', seasonDemoUserTakeover, true);
+renderer.domElement.addEventListener('wheel', seasonDemoUserTakeover, { passive: true, capture: true });
+addEventListener('keydown', (e) => {
+  if (!SEASON_DEMO.on || e.key.toLowerCase() === 'y') return;
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  seasonDemoUserTakeover();
+}, true);
+envEl.addEventListener('click', (e) => {
+  const b = e.target.closest('button');
+  if (b && b.dataset.act !== 'season-demo') seasonDemoUserTakeover();
+}, true);
 function syncEnvUI(){
   envEl.querySelectorAll('button').forEach(b=>{
     /* 动作按钮（明信片/音景/巡游/时光流转）无 data-axis：不参与环境轴状态同步 ——
@@ -1699,6 +1781,10 @@ function syncEnvUI(){
        必须继续保留自身状态。 */
     if (b.dataset.act === 'festival'){
       b.setAttribute('aria-pressed', ENV.festival ? 'true' : 'false');
+      return;
+    }
+    if (b.dataset.act === 'season-demo'){
+      b.setAttribute('aria-pressed', SEASON_DEMO.on ? 'true' : 'false');
       return;
     }
     if (!b.dataset.axis){ b.setAttribute('aria-pressed', 'false'); return; }
@@ -1727,13 +1813,15 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.act === 'long'){ HOOKS.longExposure?.(); return; }
   if (b.dataset.act === 'sound'){ b.classList.toggle('on', !!HOOKS.sound?.()); b.setAttribute('aria-pressed', b.classList.contains('on') ? 'true' : 'false'); return; }
   if (b.dataset.act === 'reel'){ toggleReel(); return; }   // 时光流转（按钮态由 toggleReel 自己同步）
-  if (b.dataset.act === 'random'){ HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
+  if (b.dataset.act === 'random'){ seasonDemoUserTakeover(); HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
   if (b.dataset.act === 'festival'){ toggleFestival(); return; }   // 上元灯会：一键开关（按钮态由 toggleFestival 自己同步）
+  if (b.dataset.act === 'season-demo'){ toggleSeasonDemo(); return; }
   /* P2-2 巡游开关：巡游中按任意导览/环境按钮都先停巡游（接管语义），再执行本意 */
-  if (b.dataset.act === 'tour'){ TOUR.on ? tourStop() : tourStart(); return; }
+  if (b.dataset.act === 'tour'){ seasonDemoUserTakeover(); TOUR.on ? tourStop() : tourStart(); return; }
+  if (b.dataset.view || b.dataset.axis) seasonDemoUserTakeover();
   if (TOUR.on && (b.dataset.view || b.dataset.axis)) tourStop();
   if (REEL.on && b.dataset.axis === 'time') toggleReel();   // 手动选时段 = 接管，停时光流转
-  if (b.dataset.view){ gotoViewpoint(b.dataset.view); showCaption(b.dataset.view); setTimeout(hideCaption, 6000); return; }
+  if (b.dataset.view){ gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return; }
   setEnv(b.dataset.axis, b.dataset.v);
   if (enforceWeather()) syncEnvUI();
 });
@@ -1745,6 +1833,7 @@ const hourSlider = document.getElementById('hourSlider');
 hourSlider.addEventListener('input', ()=>{
   ENV.hour = parseFloat(hourSlider.value);
   tourUserTakeover();   // P2-2：拖时辰 = 接管，停巡游
+  seasonDemoUserTakeover();
   if (REEL.on) toggleReel();   // 手动拖时辰 = 接管，停时光流转
   document.getElementById('hourReadout').textContent = fmtHour(ENV.hour);
   ENV.from = cloneParams(ENV.cur);
@@ -1761,7 +1850,9 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
    speed 单位「小时 / 秒」：0.4 → 一整天约 60 秒走完。 */
 export const REEL = { on:false, speed: 0.4 };
 export function toggleReel(){
-  REEL.on = !REEL.on;
+  const next = !REEL.on;
+  if (next) seasonDemoUserTakeover();
+  REEL.on = next;
   const b = envEl && envEl.querySelector('button[data-act="reel"]');
   if (b){
     b.classList.toggle('on', REEL.on);
@@ -1817,6 +1908,7 @@ function rwPick(items){
   return items[items.length - 1][0];
 }
 export function randomScene(){
+  seasonDemoUserTakeover();
   if (REEL.on) toggleReel();                    // 流转中先停，否则马达立刻把灯会要设的时辰带走
   let time, season, weather, tries = 0;
   do {
@@ -1854,20 +1946,22 @@ addEventListener('keydown', (e)=>{
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing) return;
   const el = e.target;
   if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
-  if (e.key === '0' || e.key === 'Home'){ tourUserTakeover(); resetCamera(); return; }   // 视角复位
+  if (e.key === '0' || e.key === 'Home'){ tourUserTakeover(); seasonDemoUserTakeover(); resetCamera(); return; }   // 视角复位
   if (e.key === 'p' || e.key === 'P'){ HOOKS.postcard?.(); return; }     // 明信片
-  if (e.key === 't' || e.key === 'T'){ TOUR.on ? tourStop() : tourStart(); return; }  // P2-2 巡游开关
+  if (e.key === 't' || e.key === 'T'){ seasonDemoUserTakeover(); TOUR.on ? tourStop() : tourStart(); return; }  // P2-2 巡游开关
+  if (e.key === 'y' || e.key === 'Y'){ toggleSeasonDemo(); return; }
   /* 时光流转用 L：R 已经是「冬」，QWER 四键被季节占满，别抢。 */
   if (e.key === 'l' || e.key === 'L'){ toggleReel(); return; }
   /* 偶得随机景色：X（离右手位近，且未被占用） */
   if (e.key === 'x' || e.key === 'X'){ HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
   if (e.key === 'z' || e.key === 'Z'){                                // 导览：巡览下一个机位
     tourUserTakeover();                                               // P2-2：巡游中按 Z = 接管，先停再走
+    seasonDemoUserTakeover();
     const ids = VIEWPOINTS.map(v => v.id);
     const cur = VIEWPOINTS.findIndex(v => Math.abs(v.pos.x - camera.position.x) < 0.6
                                        && Math.abs(v.pos.z - camera.position.z) < 0.6);
     const nid = ids[(cur + 1 + ids.length) % ids.length];
-    gotoViewpoint(nid); showCaption(nid); setTimeout(hideCaption, 6000);
+    gotoViewpoint(nid); showCaption(nid, 'manual'); setTimeout(() => hideCaption('manual'), 6000);
     return;
   }
   if (e.key === 'm' || e.key === 'M'){                                // 音景开关（按钮态同步）
@@ -1880,6 +1974,7 @@ addEventListener('keydown', (e)=>{
   const wmap = { a:'clear', s:'storm', d:'overcast', f:'snow', g:'mist' };
   const hit = map[e.key] || smap[e.key.toLowerCase()] || wmap[e.key.toLowerCase()];
   if (!hit) return;
+  seasonDemoUserTakeover();
   if (map[e.key])  setEnv('time', hit);
   else if (smap[e.key.toLowerCase()]) setEnv('season', hit);
   else if (weatherAllowed(hit)) setEnv('weather', hit);      // 非法组合不走键盘这条捷径

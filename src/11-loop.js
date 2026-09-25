@@ -3,7 +3,7 @@ import { THREE } from '../vendor.js';
 import { camera, renderer, RENDER_SCALE, GPU_TIER, QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS } from './06-vegetation.js';
@@ -885,6 +885,7 @@ function animate(){
     }
   }
 
+  if (SEASON_DEMO.on) advanceSeasonDemo(dt);
   updateCamFly(dt);
   updateTour(dt);
   updateIntro(dt);                        // 开场运镜（controls 已被它禁用，update 只刷新阻尼）
@@ -1140,6 +1141,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   perchingDragonflies, perchingAnchors, updatePerchingDragonflies,
                   perchShow: () => perchShowOK, PERCH_LIFT,
                   camFly: () => CAM_FLY.on,
+                  camFlyState: () => ({ on: CAM_FLY.on, owner: CAM_FLY.owner, t: CAM_FLY.t, dur: CAM_FLY.dur }),
                   /* 本次飞行落位后要恢复的 OrbitControls 最小半径。暴露给门禁做**确定性**断言：
                      "gotoViewpoint 是否真的把机位自带的 minDist 交给了 flyTo" —— 这条一旦断，
                      近观机位会被静默弹回 9m（方位正确、行程走完、不报错，只有量落位距离才看得见）。 */
@@ -1207,7 +1209,9 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 上元灯会（计划书 Phase 3 第 7 项）：门禁要断言"河灯/灯串的实例数与落点、
                      真光源没被加多、避开桥/汀步/立峰"—— 显式暴露，不靠 traverse 猜。
                      tickFestival 暴露是为了门禁做**负例自检**（冻结 t ⇒ 河灯不动 ⇒ 漂移判据必须报红）。 */
-                  toggleFestival, festivalState, tickFestival, setFestivalFreeze };
+                  toggleFestival, festivalState, tickFestival, setFestivalFreeze,
+                  /* 四季自动演示：专项门禁用加速参数跑完整顺序，用户默认仍为 7s 飞行 + 3.5s 停留。 */
+                  startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, seasonDemoState, seasonDemoCaption };
 
 /* ══ 首次引导（P2-7）══
    三步：转视角 → 换天时 → 巡游/留影。只在**第一次**进来时出现（localStorage 记账）。

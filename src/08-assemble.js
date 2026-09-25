@@ -1213,16 +1213,27 @@ deferBootFirst('立峰·云根', function heroStones(){
    名石在园子里从来不是"一块石头"，而是"有名字、有座、有观赏位置的一景"。
    机位切换用平滑飞行（从当前画面出发，1.4s 缓出），不是瞬移；
    与 ENV 的过渡同源，键盘 Z 巡览、面板按钮直达。 */
-export const CAM_FLY = { on: false, t: 0, dur: 1.4, from: null, to: null, minDist: null };
+export const CAM_FLY = { on: false, t: 0, dur: 1.4, from: null, to: null, minDist: null,
+                         owner: '', restoreMinDist: CAM_MIN_DIST };
 /* minDist：落位后要恢复的 OrbitControls 最小半径（机位自带则用它，否则回默认 9）。
    飞行途中把下限整体放开 —— 否则从远处飞向"近观"机位时，controls.update() 会在半途
    把相机半径夹回 9m，路径被扯成"先到 9m 再贴上去"的折线。 */
-export function flyTo(pos, target, dur = 1.4, minDist = null){
+export function flyTo(pos, target, dur = 1.4, minDist = null, owner = 'manual'){
+  CAM_FLY.restoreMinDist = CAM_FLY.on ? CAM_FLY.restoreMinDist : controls.minDistance;
   CAM_FLY.from = { p: camera.position.clone(), t: controls.target.clone() };
   CAM_FLY.to   = { p: pos.clone(), t: target.clone() };
   CAM_FLY.minDist = minDist;
+  CAM_FLY.owner = owner;
   CAM_FLY.t = 0; CAM_FLY.dur = dur || 1.4; CAM_FLY.on = true;
   controls.minDistance = 0.2;
+}
+export function cancelCamFly(owner = null){
+  if (!CAM_FLY.on || (owner && CAM_FLY.owner !== owner)) return false;
+  CAM_FLY.on = false;
+  CAM_FLY.owner = '';
+  controls.enabled = true;
+  controls.minDistance = CAM_FLY.restoreMinDist;
+  return true;
 }
 export function updateCamFly(dt){
   if (!CAM_FLY.on) return;
@@ -1232,6 +1243,7 @@ export function updateCamFly(dt){
   controls.target.lerpVectors(CAM_FLY.from.t, CAM_FLY.to.t, e);
   if (CAM_FLY.t >= 1){
     CAM_FLY.on = false;
+    CAM_FLY.owner = '';
     controls.minDistance = CAM_FLY.minDist != null ? CAM_FLY.minDist : CAM_MIN_DIST;
   }
 }
@@ -1345,12 +1357,12 @@ export const VIEWPOINTS = (()=>{
       pos: CAM_HOME.pos.clone(), target: CAM_HOME.target.clone() },
   ];
 })();
-export function gotoViewpoint(id){
+export function gotoViewpoint(id, dur = 1.4, owner = 'manual'){
   const v = VIEWPOINTS.find(x => x.id === id);
   /* ⚠️ 必须把机位自带的 minDist 交给 flyTo：近观机位离目标 2.86m，远小于默认下限 9m，
      不放开的话相机落位瞬间就被 controls.update() 沿**视线方向**推到 9m ——
      方位完全正确、行程走完、也不报错，只有量落位后的真实距离才看得出来（probe/stele-station）。 */
-  if (v) flyTo(v.pos, v.target, 1.4, v.minDist || CAM_MIN_DIST);
+  if (v) flyTo(v.pos, v.target, dur, v.minDist || CAM_MIN_DIST, owner);
   return !!v;
 }
 
@@ -1368,23 +1380,42 @@ const TOUR_CAPTIONS = {
   pavilion: { title: '荷风四面', text: '临水水榭 —— 三面临水，一面接岸。午后到这里听雨，雨点打在荷叶上最响。' },
   overview: { title: '全园', text: '一池三山式水院 —— 水居其半，建筑临水，假山作屏。晨雾与暮色最见层次。' },
 };
+const SEASON_CAPTIONS = {
+  spring: { title: '春 · 惊蛰', text: '春雷初动，池边新芽与远香堂的花事一同醒来。' },
+  summer: { title: '夏 · 芒种', text: '荷花渐盛，水榭临风，正是荷风四面时。' },
+  autumn: { title: '秋 · 霜降', text: '桂香渐远，枫色染上池岸，石峰在澄水里更显瘦峻。' },
+  winter: { title: '冬 · 大雪', text: '雪压竹梢，亭台静敛，满园水墨只剩清瘦的骨架。' },
+};
 const TOUR_ORDER = ['hero', 'stele', 'hall', 'pavilion', 'overview'];
 export const TOUR = { on: false, idx: 0, dwell: 6.0, wait: 0 };
+let captionOwner = '';
 export const captionEl = () => document.getElementById('caption');
-export function showCaption(id){
-  const el = captionEl(), c = TOUR_CAPTIONS[id];
-  if (!el || !c) return;
+function setCaption(c, owner){
+  const el = captionEl();
+  if (!el || !c) return false;
   el.querySelector('b').textContent = c.title;
   el.querySelector('span').textContent = c.text;
+  captionOwner = owner;
   el.classList.add('show');
+  return true;
 }
-export function hideCaption(){
+export function showCaption(id, owner = 'manual'){
+  return setCaption(TOUR_CAPTIONS[id], owner);
+}
+export function showSeasonCaption(season){
+  return setCaption(SEASON_CAPTIONS[season], 'season-demo');
+}
+export function hideCaption(owner = null){
+  if (owner && captionOwner && owner !== captionOwner) return false;
   const el = captionEl();
+  captionOwner = '';
   if (el) el.classList.remove('show');
+  return true;
 }
 export function tourStop(){
   TOUR.on = false; TOUR.wait = 0;
-  hideCaption();
+  cancelCamFly('tour');
+  hideCaption('tour');
   syncTourBtn();
 }
 export function tourStart(){
@@ -1394,8 +1425,8 @@ export function tourStart(){
 function stepTour(){
   if (!TOUR.on) return;
   const id = TOUR_ORDER[TOUR.idx % TOUR_ORDER.length];
-  showCaption(id);
-  gotoViewpoint(id);
+  showCaption(id, 'tour');
+  gotoViewpoint(id, 1.4, 'tour');
   TOUR.wait = TOUR.dwell;      // 含飞行 1.4s：字幕边飞边读，站后纯停 ≈ dwell-1.4
   syncTourBtn();
 }
