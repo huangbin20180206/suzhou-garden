@@ -88,6 +88,8 @@ const check = (name, ok, detail = '') => {
   });
   const found = await page.evaluate(() => !!window.__rb.ripple);
   check('找到涟漪池（RingGeometry InstancedMesh）', found, found ? '' : '场景里没有涟漪实例网格');
+  const cap = await page.evaluate(() => window.__garden.rippleCapacity());
+  check('涟漪容量 64（暴雨+密集点击+鱼跃不抢不到槽）', cap === 64, `容量=${cap}`);
   if (!found){ check('（后续判据）', false, '没有涟漪池就无法判'); }
   else {
     /* ① 暴雨下持续采样：所有活跃圈都必须在池域内 */

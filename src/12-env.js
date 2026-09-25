@@ -2244,7 +2244,10 @@ export function updateRainRipples(t){
   const cluster = 2 + Math.floor(Math.random() * (2 + Math.round(rain * 2)));
   const night = ENV.time === 'night';
   for (let k = 0; k < cluster; k++){
-    if (rainRippleActive >= 14) break;             // 池上限：给点击/鱼跃留 6 槽
+    /* 雨滴配额随容量同比放大：64 槽时留 3/4 给点击与鱼跃（上限 44），
+       否则暴雨会把池子占满 —— 表现是"点了没反应"，且不报错。
+       ⚠️ 这个数字必须与 06-vegetation 的 RIPPLE_N 一起看，改容量就要改这里。 */
+    if (rainRippleActive >= 44) break;
     const a = Math.random() * TAU, r = Math.sqrt(Math.random());
     const strength = (night ? 0.75 : 1.0) * (0.7 + Math.random() * 0.6);
     spawnRipple(Math.cos(a) * 12.5 * r, 3.0 + Math.sin(a) * 6.4 * r, t,

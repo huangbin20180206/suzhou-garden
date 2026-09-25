@@ -634,7 +634,12 @@ export const KOI_ORBITS = [
    P1-9 并批：20 个独立 Mesh（激活几个就几个 draw call）→ 单个 InstancedMesh +
    自定义 instanceAlpha（onBeforeCompile 注入 per-instance 透明度）。
    draw call 恒为 1；未激活实例 alpha=0 视觉消失；实例矩阵编码位置与 s 缩放。 */
-const RIPPLE_N = 20;
+/* 容量 20 → 64（2026-09-25）：单 InstancedMesh，容量只吃显存里 64 个矩阵与 alpha，
+   draw call 恒为 1。扩容是为了"暴雨 + 密集点击 + 鱼跃同时发生"时不丢圈 ——
+   旧容量下 20 槽很快占满，新点击/鱼跃分不到槽，表现为"点了没反应"（静默失效）。
+   ⚠️ 雨滴配额仍必须保留（`rainRippleActive` 上限 12）：雨是持续发生的，
+     不限量就会把交互槽位吃光，正是原注释要防的那个回归。 */
+const RIPPLE_N = 64;
 /* 环带 0.88→0.82：原来 12% 带宽在 20m 外的斜视机位只剩一条发丝，
    点击反馈读不出来；加宽到 18% 后远观仍是一圈水痕而非光圈。 */
 const rippleGeo = new THREE.RingGeometry(0.82, 1.0, 30);
@@ -662,10 +667,11 @@ rippleInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 const RIPPLE_ALPHA = new Float32Array(RIPPLE_N);
 rippleGeo.setAttribute('instanceAlpha', new THREE.InstancedBufferAttribute(RIPPLE_ALPHA, 1));
 const RIPPLE_STATE = [];
-/* 雨滴涟漪占用计数：与点击/鱼跃共用 20 槽的池子，雨最多占 12，
-   否则暴雨下 10 圈/s 的生成会把池子饿死（findIndex 找不到空槽，
-   玩家点击和鱼跃全部静默失效）。计数在 spawn/expiry 两侧配对增减。 */
+/* 雨滴涟漪占用计数：与点击/鱼跃共用同一池子，雨的配额由 12-env 的 updateRainRipples
+   按容量比例限（当前 64 槽 ⇒ 44）。计数在 spawn/expiry 两侧配对增减。 */
 export let rainRippleActive = 0;
+/** 容量对外暴露（门禁与诊断读；改容量时 12-env 的雨滴配额必须同步）。 */
+export function rippleCapacity(){ return RIPPLE_N; }
 const _rippleM4 = new THREE.Matrix4(), _rippleQ = new THREE.Quaternion();
 const _rippleP = new THREE.Vector3(), _rippleS = new THREE.Vector3();
 for (let i = 0; i < RIPPLE_N; i++){

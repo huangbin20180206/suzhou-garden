@@ -7,7 +7,7 @@ import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-material
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
-import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS } from './06-vegetation.js';
+import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
@@ -602,20 +602,43 @@ let pageHidden = false;
 document.addEventListener('visibilitychange', () => { pageHidden = document.hidden; });
 if (document.hidden) pageHidden = true;      // 启动即在后台（如后台标签打开链接）
 
+/* ── 固定步长仿真（2026-09-25）────────────────────────────────────────────
+   旧写法是 `dt = min(rawDt, 0.05)`：一帧不管多久都只推进 50ms。60fps 下看不出问题，
+   掉到 20fps 时**每真实秒只走 0.05×20 = 1.0s**（刚好）；掉到 10fps 就只剩一半 ——
+   风摆变慢、环境过渡变慢、鱼游得慢，用户会觉得"机器越差动画越卡"。
+   正解是固定步长累加器：仿真按固定 1/60 步进，累加器消化真实帧间隔；
+   一帧内可补多步（速度因此正确），但**补步总数有上限**（MAX_STEPS），
+   否则切回标签页/断点调试后一帧补几百步会把相位、涟漪、鱼群一次性推穿。
+   ⚠️ 渲染仍每帧一次（不插值）：本项目所有运动都是"按 dt 积分"，多帧补步与单帧大步
+      在数学上等价，插值只会带来额外状态。 */
+const FIXED_DT = 1 / 60;
+const MAX_STEPS = 6;                 // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
+let simAccum = 0, simTime = 0, simSteps = 0;
+/** 推进仿真时钟；返回本帧实际推进的秒数（供风钟等读数同源）。
+    ⚠️ 风钟也在这里推进：仿真与风**必须共用同一条时间线** —— 拆成两条时，
+       任何一处漏调都会让"风在吹但相位不走"这类现象出现，且不报错。 */
+function stepSim(rawDt){
+  simAccum += Math.max(0, rawDt);
+  let advanced = 0, n = 0;
+  while (simAccum >= FIXED_DT && n < MAX_STEPS){ simAccum -= FIXED_DT; advanced += FIXED_DT; n++; }
+  if (n >= MAX_STEPS) simAccum = 0;   // 补步用尽：丢弃余量，宁可慢也不要雪崩
+  simTime += advanced; simSteps = n;
+  advanceWindClock(advanced);         // 走 2b-wind 的推进函数：导入绑定只读，不能就地 +=
+  return advanced;
+}
 function animate(){
   requestAnimationFrame(animate);
   timer.update();                        // 先 update，getDelta/getElapsed 同帧多次调用值不变
   const rawDt = timer.getDelta();        // 真实帧间隔 —— 统计必须用它
-  const dt = Math.min(rawDt, 0.05);      // 仿真仍钳制（Timer 已挡后台跳变，这是双保险）
+  const dt = stepSim(rawDt);             // 仿真时间（固定步长累加；60fps 下与 rawDt 同值）
   const t = timer.getElapsed();
   frameT = t;
   if (pageHidden) return;                // 后台：不推进仿真、不渲染（发热主因）
 
-  /* 风：推进仿真时钟并跑 L1/L2 调度 + 阵风（所有风材质共享 WIND 这组 uniform）。
+  /* 风：风钟已由 stepSim 随仿真一起推进（同一时间线），这里只把相位刷进材质并跑调度。
      ⚠️ 必须吃**累加的 dt**，不能吃墙钟 t：软渲染一帧 8.4 秒，用墙钟会让所有相位每帧
      跳过 8.4 秒（枝叶瞬移、调度器一帧跨过整段过渡 / 一帧换一次档）。
      真机 60fps 下两者等价，缺陷只在低帧率现形 —— 与步态人物同一个坑（见 MEMORY 铁律）。 */
-  advanceWindClock(dt);                 // 走 2b-wind 的推进函数：导入绑定只读，不能就地 +=
   WIND.uTime.value = windClock;         // 读仍走 live binding，与推进同源
   updateWind(windClock);
   /* 灯笼秋千摆（2026-09-17 用户："这个灯也应该晃动"）：
@@ -1200,6 +1223,12 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   qualityState: () => QOS.state(), setQualityMode: (m) => QOS.setMode(m),
                   qosSample: (fps) => QOS.sample(fps),
                   hidden: () => pageHidden, gpuName: GPU_NAME, softwareGL: SOFTWARE_GL,
+                  /* 固定步长仿真（2026-09-25）：门禁要在**低帧率**下验证“仿真速度不膨胀”，
+                     但无头浏览器很难稳定造出 20fps ⇒ 暴露纯函数让它直接按指定 dt 步进。 */
+                  simClock: () => simTime, stepSim, windClockNow: () => windClock,
+                  simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS }),
+                  /* 涟漪容量：门禁要断言"暴雨+密集点击+鱼跃"不抢不到槽（2026-09-25 由 20 提到 64） */
+                  rippleCapacity,
                   probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,
                   queuePostcard, postcardData, toggleSound, sndState: () => Snd.on,
                   /* 长曝光明信片：门禁要能触发并量 uStarRot 是否归零（叠完忘复位=星星天天靠它转） */
