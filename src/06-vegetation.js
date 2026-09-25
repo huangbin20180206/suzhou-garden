@@ -2465,6 +2465,52 @@ function makePeachFruitGeo(){
   return g;
 }
 
+/* ══ 枯枝挂灯（2026-09-25 · 灯会方案B）══════════════════════════════════════
+   挂在树上的小灯笼：一盏一个 InstancedMesh 实例（每株树一个网格 ⇒ 全园 +2 draw call）。
+   · **每盏不同色**：用 `InstancedMesh.setColorAt`（instanceColor），色板取参考图那五色系
+     （橙/粉/黄/绿/蓝）。⚠️ 必须配 `vertexColors:false` + 实例色才生效，且材质要 `toneMapped:false`
+     —— 灯是"自己在发光"，不该被 ACES 色调映射压暗，否则远看全是灰点。
+   · **不新增真光源**：纯 emissive/Basic 材质伪造发光，全场真光源仍只有灯笼那 5 盏
+     （夜里月光接管阴影方向，加真灯就必须同步改阴影逻辑 —— 计划书坑①）。
+   · 形状：极简灯笼 = 上下两个小盖 + 鼓腹（Lathe），高 ~0.20m、直径 ~0.13m ——
+     远看是一串彩点，近看能认出是灯笼；不追求细节（挂满上百盏，细节看不见还白花三角）。 */
+const TREE_LANTERN_COLORS = [
+  0xFF6B35,   // 橙
+  0xFF8FAB,   // 粉
+  0xFFD166,   // 黄
+  0x7BD389,   // 绿
+  0x6BA8FF,   // 蓝
+];
+function treeLanternColor(rr2){
+  const c = TREE_LANTERN_COLORS[(rr2(0, TREE_LANTERN_COLORS.length)) | 0];
+  /* 每盏亮度再抖动一档（±18%）：同色系全等亮度会读成"塑料玩具"，有亮度差才像一串灯 */
+  const k = 0.82 + rr2(0, 0.36);
+  return new THREE.Color(c).multiplyScalar(k);
+}
+function makeTreeLanternGeo(){
+  const body = new THREE.LatheGeometry([
+    new THREE.Vector2(0.026, -0.085),
+    new THREE.Vector2(0.062, -0.062),
+    new THREE.Vector2(0.068,  0.000),   // 鼓腹
+    new THREE.Vector2(0.062,  0.062),
+    new THREE.Vector2(0.026,  0.085),
+  ], 10);
+  const cap = new THREE.CylinderGeometry(0.030, 0.030, 0.016, 8);
+  cap.translate(0,  0.090, 0);
+  const base = new THREE.CylinderGeometry(0.030, 0.030, 0.016, 8);
+  base.translate(0, -0.090, 0);
+  const cord = new THREE.CylinderGeometry(0.004, 0.004, 0.10, 4);
+  cord.translate(0, 0.148, 0);          // 挂绳：连到枝上，灯才是"挂"着的不是"飘"着的
+  return mergeGeometries([body, cap, base, cord], false) || body;
+}
+/* 已挂上的挂灯网格（12-env 的 applyPresence 按 count 开/关；门禁也读它） */
+export const treeLanternInsts = [];
+/* 材质：MeshBasic + toneMapped:false —— 自发光色直接进 bloom，不吃光照也不被色调映射压暗。 */
+export const TREE_LANTERN_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false,
+                                                            transparent: true, opacity: 0.95,
+                                                            depthWrite: false });
+const MATB = { treeLantern: TREE_LANTERN_MAT };
+
 /* ⚠️ `baseY`（2026-09-23 新增 · 老黄第三轮指认）：南岸那株实测树脚四周的可见表面在
    y = 0.40~1.03（太湖石串 + 埋脚鼓包围成一只"碗"），而树基固定在 y=0、主干只到 1.87m
    ⇒ **主干下半截连同分叉点一起埋进这圈隆起**，露出来的只剩主枝中上段。老黄看得准：
@@ -2635,6 +2681,48 @@ export function makePeachTree(x, z, scale = 1, baseY = 0){
   twMesh.name = 'peachTwig';
   twMesh.castShadow = true;
   g.add(twMesh);
+
+  /* ── 枯枝挂灯（2026-09-25 · 计划书 Phase 3 第 7 项方案B）────────────────────
+     挂在**真实枝条**上：主枝取梢段、小枝取中后段，每处挂一盏下垂的小灯笼。
+     挂点用本树自己的 R2 流（rr2）取样 ⇒ 与树形同源。
+     ⚠️ 挂灯是**运行期开关**（灯会才显示），但几何在装配时一次建好：count=0 ⇒ three 不提交，
+        零 draw call（与紫藤/桃叶的季节通道同一套路，见 12-env 的 applyPresence）。
+     ⚠️ 挂灯是 `g` 的**子节点** ⇒ 树的位置/缩放/根盘基准自动继承，不会"灯浮在半空"。
+     ⚠️ 这里用的是 rr2（本树私有流），**不碰共享 rnd** ⇒ 布局指纹基线不受影响。 */
+  const hangPts = [];
+  for (const br of mainBranches){
+    const nH = 5 + (i2(3));                       // 主枝 5~7 处
+    for (let k = 0; k < nH; k++){
+      const t = rr2(0.45, 0.97);                  // 梢段：叶幕挡不到的地方才看得见灯
+      hangPts.push(br.getPointAt(t).clone());
+    }
+  }
+  for (const tw of twigs){
+    if (rr2(0, 1) < 0.55) continue;               // 一半小枝挂灯：太密会糊成一团
+    hangPts.push(tw.getPointAt(rr2(0.45, 0.92)).clone());
+  }
+  if (hangPts.length){
+    const inst = new THREE.InstancedMesh(makeTreeLanternGeo(), MATB.treeLantern, hangPts.length);
+    inst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    inst.userData.noMerge = true;                 // 实例色会被几何合并丢掉
+    inst.userData.aoSkip = true;                  // 灯自身在发光，不进 GTAO 法线 pass
+    inst.name = 'treeLanterns';
+    inst.frustumCulled = false;
+    const mm = new THREE.Matrix4(), pv = new THREE.Vector3(),
+          qq = new THREE.Quaternion(), sv = new THREE.Vector3(1, 1, 1),
+          upv = new THREE.Vector3(0, 1, 0);
+    for (let i = 0; i < hangPts.length; i++){
+      pv.copy(hangPts[i]);
+      pv.y -= 0.15;                               // 从枝上垂下来（灯顶贴着枝）
+      qq.setFromAxisAngle(upv, rr2(0, TAU));      // 每盏自转，避免"一模一样"
+      mm.compose(pv, qq, sv);
+      inst.setMatrixAt(i, mm);
+      inst.setColorAt(i, treeLanternColor(rr2));
+    }
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    g.add(inst);
+    treeLanternInsts.push(inst);
+  }
 
   /* ── 挂点基建：沿木质枝条按**固定弧长**取样 ──
      枝有多长就有多少挂点，叶/花/果全部挂在这些点上（不再"每枝随机几片"）。

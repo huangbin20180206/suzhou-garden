@@ -9,7 +9,7 @@ import os from 'node:os';
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { launchChromium } from './_harness.mjs';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -62,8 +62,7 @@ async function waitStats(page, test, ms = 6000){
 const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) || '').trim();
 
 (async () => {
-  await new Promise(r => server.listen(0, r));           // 随机可用端口
-  const port = server.address().port;
+  const port = await listenEphemeral(server);
   const { chromium } = loadPlaywright();
   const browser = await launchChromium(chromium);
   // 小视口：像素越少每帧越省，过渡靠仿真推进才等得起（harness 见 _harness.mjs）

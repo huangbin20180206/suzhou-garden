@@ -18,7 +18,7 @@ import path from 'node:path';
 import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { launchChromium } from './_harness.mjs';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function loadPlaywright(){
@@ -44,8 +44,7 @@ const check = (name, ok, detail = '') => {
 };
 
 (async () => {
-  await new Promise(r => server.listen(13000 + ((Math.random() * 17000) | 0), r));
-  const port = server.address().port;
+  const port = await listenEphemeral(server);
   const { chromium } = loadPlaywright();
   const browser = await launchChromium(chromium);
   const page = await browser.newPage({ viewport: { width: 800, height: 600 } });
@@ -124,6 +123,7 @@ const check = (name, ok, detail = '') => {
     const click = await page.evaluate(async () => {
       const g = window.__garden, THREE = g.THREE;
       const before = window.__rb.sample().length;
+      const t0 = performance.now();
       const v = new THREE.Vector3(0, 0.06, 3).project(g.camera);          // 池心 → NDC
       const rect = g.renderer.domElement.getBoundingClientRect();
       const cx = rect.left + (v.x * 0.5 + 0.5) * rect.width;
@@ -132,12 +132,20 @@ const check = (name, ok, detail = '') => {
       const opts = { clientX: cx, clientY: cy, button: 0, bubbles: true, pointerId: 1, pointerType: 'mouse' };
       el.dispatchEvent(new PointerEvent('pointerdown', opts));
       el.dispatchEvent(new PointerEvent('pointerup', opts));
-      await new Promise(res => requestAnimationFrame(res));
-      await new Promise(res => requestAnimationFrame(res));
-      return { before, after: window.__rb.sample().length, ndc: [+v.x.toFixed(2), +v.y.toFixed(2)] };
+      /* 不能拿"活跃圈总数必须增加"当命中判据：锦鲤/泳龟仍可能出水，旧圈也会自然到期；
+         两股变化可以互相抵消（3 连跑实测 8→8 一次），但产品已经权威记录了本击的
+         手势过滤、射线与池域判定。读它才能证明正常点击链路没被拦。 */
+      let last = null;
+      while (performance.now() - t0 < 1000){
+        await new Promise(res => requestAnimationFrame(res));
+        last = g.clickRippleLast();
+        if (last && last.at >= t0) break;
+      }
+      return { t0, before, after: window.__rb.sample().length, last, ndc: [+v.x.toFixed(2), +v.y.toFixed(2)] };
     });
     check('正向对照：池心点击确实出圈（"拦"没把正常路径拦掉）',
-      click.after > click.before, `点击前后活跃圈 ${click.before} → ${click.after}（池心 NDC ${click.ndc.join(',')}）`);
+      !!click.last && click.last.at >= click.t0 && click.last.hit === true,
+      `clickRipple={hit:${click.last && click.last.hit}, bait:${click.last && click.last.bait}, x:${click.last && click.last.x}, z:${click.last && click.last.z}} · 同期活跃圈 ${click.before}→${click.after}（池心 NDC ${click.ndc.join(',')}）`);
   }
 
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));

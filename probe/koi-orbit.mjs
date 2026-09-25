@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { launchChromium } from './_harness.mjs';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'outputs');
@@ -39,8 +39,7 @@ const check = (name, ok, detail = '') => {
 };
 
 (async () => {
-  await new Promise(r => server.listen(0, r));
-  const port = server.address().port;
+  const port = await listenEphemeral(server);
   const { chromium } = loadPlaywright();
   const browser = await launchChromium(chromium);
   const page = await browser.newPage({ viewport: { width: 480, height: 640 } });

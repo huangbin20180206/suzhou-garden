@@ -31,7 +31,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
-import { launchChromium } from './_harness.mjs';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
 import { decodePNG } from './_png.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -94,8 +94,7 @@ const check = (name, ok, detail = '') => {
 };
 
 (async () => {
-  await new Promise(r => server.listen(0, r));
-  const port = server.address().port;
+  const port = await listenEphemeral(server);
   const require = createRequire(import.meta.url);
   const { chromium } = require('playwright');
   const browser = await launchChromium(chromium);

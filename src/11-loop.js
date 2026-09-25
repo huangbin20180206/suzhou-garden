@@ -3,7 +3,7 @@ import { THREE } from '../vendor.js';
 import { camera, renderer, RENDER_SCALE, GPU_TIER, QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS } from './06-vegetation.js';
@@ -759,6 +759,7 @@ function animate(){
   updateRipples(t);
   updateRainRipples(t);
   updateBaits(t);                        // 投喂：饵粒子下沉/淡出 + 饵点到期回收
+  tickFestival(t);                       // 上元灯会：河灯随波漂移（非灯会态零成本直接 return）
   updatePrecip(dt, t);
 
   /* 蜻蜓：游弋航迹 + 高频振翅。
@@ -1202,7 +1203,11 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   clickRippleLast: () => lastClickRipple,
                   /* 投喂（计划书 Phase 3 第 6 项）：门禁要断言"饵落水 / 鱼转向 / 不游上岸 /
                      散后归队"。**必须显式暴露** —— 靠 traverse 猜对象会漏（灯笼那次踩过）。 */
-                  dropBait, baitsActive, BAITS };
+                  dropBait, baitsActive, BAITS,
+                  /* 上元灯会（计划书 Phase 3 第 7 项）：门禁要断言"河灯/灯串的实例数与落点、
+                     真光源没被加多、避开桥/汀步/立峰"—— 显式暴露，不靠 traverse 猜。
+                     tickFestival 暴露是为了门禁做**负例自检**（冻结 t ⇒ 河灯不动 ⇒ 漂移判据必须报红）。 */
+                  toggleFestival, festivalState, tickFestival, setFestivalFreeze };
 
 /* ══ 首次引导（P2-7）══
    三步：转视角 → 换天时 → 巡游/留影。只在**第一次**进来时出现（localStorage 记账）。

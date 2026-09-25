@@ -24,7 +24,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
-import { launchChromium } from './_harness.mjs';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript',
@@ -61,8 +61,7 @@ const REQUIRED_BY_COLOR = [
 ];
 
 (async () => {
-  await new Promise(r => server.listen(0, r));
-  const port = server.address().port;
+  const port = await listenEphemeral(server);
   const require = createRequire(import.meta.url);
   const { chromium } = require('playwright');
   const browser = await launchChromium(chromium);

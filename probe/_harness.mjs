@@ -37,6 +37,27 @@ export function launchChromium(chromium, extra = {}){
   return chromium.launch({ headless: true, args: CHROMIUM_ARGS, ...extra });
 }
 
+/* 本地静态服务器统一走浏览器安全端口。`listen(0)` 也可能被 Windows 分到
+   Chrome 的 ERR_UNSAFE_PORT 禁用端口（如 5060），表现为首跑假红、重跑却绿。 */
+export async function listenEphemeral(server, host = '127.0.0.1'){
+  for (let i = 0; i < 20; i++){
+    const port = 40000 + ((Math.random() * 8000) | 0);
+    try {
+      await new Promise((resolve, reject) => {
+        const onError = (e) => { server.off('listening', onListening); reject(e); };
+        const onListening = () => { server.off('error', onError); resolve(); };
+        server.once('error', onError);
+        server.once('listening', onListening);
+        server.listen(port, host);
+      });
+      return server.address().port;
+    } catch (e) {
+      if (!e || e.code !== 'EADDRINUSE') throw e;
+    }
+  }
+  throw new Error('连续 20 次未找到可用的浏览器安全端口');
+}
+
 /* PWA 类的 `launchPersistentContext` 也走同一套参数（它有独立签名，单独包一层）。 */
 export const PERSISTENT_ARGS = CHROMIUM_ARGS;
 

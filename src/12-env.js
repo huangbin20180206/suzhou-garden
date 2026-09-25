@@ -12,8 +12,9 @@ import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from '
 import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, GPU_TIER, renderer } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
-import { TAU, HOOKS, ENV_REF } from './00-config.js';
-import { spawnRipple, rainRippleActive } from './06-vegetation.js';
+import { TAU, HOOKS, ENV_REF, mulberry32 } from './00-config.js';
+import { spawnRipple, rainRippleActive, treeLanternInsts } from './06-vegetation.js';
+import { POND_RADII } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    12 · 环境时序系统（ENV）
    ══════════════════════════════════════════════════════════════
@@ -759,6 +760,10 @@ function composeEnv(p){
   }
   // 第三层：天气（乘法打底 + 专属通道 + 去色）
   applyWeatherTo(p, effectiveWeather());
+  // 第四层：灯会（存在性通道 + 暖光曝光）。festivalShow 两种态都必须写进参数集
+  // —— mixInto 只遍历 from 的键，缺键就插不出 0↔1 的缓动。
+  p.festivalShow = ENV.festival ? 1 : 0;
+  if (ENV.festival) applyFestivalTo(p);
   return p;
 }
 function resolveEnv(){
@@ -1131,6 +1136,206 @@ for (const [mat, key] of SEASON_TINT_MATS){
 
 /* 存在性：程序化植被已被 mergeStatics 按材质合并，只能整体开关；
    GLB 资产（荷/芭蕉/龟）异步挂载、晚于合并，可以逐个控制。 */
+/* ══ 上元灯会（2026-09-24 · 计划书 Phase 3 第 7 项）════════════════════════════
+   一键切换 = 夜 + 水面河灯（随波漂移）+ 游廊灯串 + 桃树枯枝挂灯 + 暖光曝光提升。
+   三条硬规矩（计划书 v2.0 补注，全是绕坑，别省）：
+   ① **不新增真光源**：夜里月光接管阴影方向 —— 河灯/灯串/挂灯一律用自发光材质"伪造"发光，
+     全场真实灯数仍是灯笼那 5 盏 PointLight（festival-guard 断言这一点）。
+   ② **draw calls 预算吃紧**（上限 800）：河灯 1 + 烛焰 1 + 灯串 1 + 两株桃树挂灯 2 = **+5**；
+     非灯会态全部 count=0 ⇒ three 根本不提交，白天零成本。
+   ③ 现有灯笼的"20 件故意不合并"是给单独寻址留的 —— 本功能不碰它们。
+   ⚠️ 河灯落点必须避开三类**出水物**（实测坐标见 outputs/_diag/festival-geo.mjs）：
+     · 桥体：08 里 world(8.4,0,4.6) 旋转 90°，跨度 9.4×厚 2.4 ⇒ 世界 x∈[7.2,9.6]、z∈[-0.1,9.3]
+       （桥体被 mergeStatics 并网，运行期找不到名字 ⇒ 用源码常量）；
+     · 汀步石：05 的 z=5.6 直线上 11 块 ⇒ 实测 x∈[-4.12,6.99]、z∈[4.93,6.32]；
+     · 立峰石组（石矶+伴石）：实测 x∈[-6.97,-2.83]、z∈[5.9,9.81]。
+     漂移是慢速小轨道（半径 ≤0.5m），落点对三者各留 ≥1m 余量 ⇒ 永远到不了；岸边同理
+     （r ≤ 0.80×POND_RADII − 轨道半径）。 */
+const FEST_RIVER_N = 24;
+const FEST_BRIDGE  = { x0: 7.2, x1: 9.6, z0: -0.1, z1: 9.3 };     // 桥体（世界）
+const FEST_STONES  = { x0: -4.12, x1: 6.99, z0: 4.93, z1: 6.32 }; // 汀步石（世界，实测）
+const FEST_HERO    = { x0: -6.97, x1: -2.83, z0: 5.9, z1: 9.81 }; // 立峰石组（世界，实测）
+const FEST_PAD = 1.0;                                             // 河灯对出水物的避让余量
+const _inRect = (r, x, z, pad) => x > r.x0 - pad && x < r.x1 + pad && z > r.z0 - pad && z < r.z1 + pad;
+/* 河灯：暖光纸罩（emissive 伪造发光）。烛火照透纸壳 —— 整盏自发光本来就是对的物理。
+   ⚠️ 亮度是**量出来的**（2026-09-24 目视复核 fest-low.png）：初版 emissive 1.7 + 0xFF9A3C
+   近看糊成一簇"实心亮黄块"，既不像灯也不像火（bloom 阈值 0.90，1.7 远远越线）。
+   现在 0.85 + 更暖的橙（绿通道压低 ⇒ 不再偏黄绿）⇒ 近看能读出"一朵发光的花"。 */
+const riverLampMat = new THREE.MeshStandardMaterial({
+  color: 0xFFE9C8, emissive: 0xFF7A28, emissiveIntensity: 0.85, roughness: 0.62, metalness: 0.0 });
+/* 灯串小灯泡：比纸罩亮一档（它们是"光源"本身），但同样压在 bloom 阈值附近。 */
+const stringBulbMat = new THREE.MeshStandardMaterial({
+  color: 0xFFE2B0, emissive: 0xFFB84D, emissiveIntensity: 1.15, roughness: 0.5, metalness: 0.0 });
+const _festRiver = { inst: null, flame: null, data: [] };   // data: { bx, bz, orbR, orbSp, ph, yaw, yawSp }
+const _festBulbs = { inst: null, n: 0 };
+let _festBuilt = false;
+
+function makeRiverLampGeo(){
+  /* 莲花灯：托盘 + 6 片烫花瓣 —— 单几何单材质（1 draw call）。
+     尺寸刻意小（直径 ~0.32m）：24 盏铺一池要"星星点点"，不是"漂浮的路灯"。
+     ⚠️ **烛焰不进这个几何**：烛焰要用**更亮一档的材质**（独立 InstancedMesh），
+     否则"灯芯"和"纸罩"同亮度 ⇒ 近看是一坨均匀亮块，读不出"火在花里"
+     （初版就是这样，量图 fest-low.png 看出来的）。 */
+  const dish = new THREE.CylinderGeometry(0.10, 0.13, 0.05, 9);
+  dish.translate(0, 0.025, 0);
+  const parts = [dish];
+  for (let i = 0; i < 6; i++){
+    const p = new THREE.CylinderGeometry(0.03, 0.085, 0.16, 6, 1, true);
+    const a = (i / 6) * TAU;
+    p.translate(0, 0.095, 0);
+    p.rotateX(0.85);                                   // 花瓣外张
+    p.rotateY(a);
+    p.translate(Math.sin(a) * 0.10, 0, Math.cos(a) * 0.10);
+    parts.push(p);
+  }
+  return mergeGeometries(parts, false) || dish;
+}
+/* 烛焰材质：亮一档（bloom 会给它拖出小光晕）⇒ 花是柔光、芯是亮点。 */
+const riverFlameMat = new THREE.MeshStandardMaterial({
+  color: 0xFFF0D0, emissive: 0xFFB050, emissiveIntensity: 1.6, roughness: 0.4, metalness: 0.0 });
+
+export function makeFestivalLights(){
+  if (_festBuilt) return;
+  _festBuilt = true;
+  /* —— 河灯落点（世界坐标）：本地种子流 —— 布局类随机不走共享 Math.random（项目铁律） */
+  const fr = mulberry32(20260925);
+  const data = [];
+  let guard = 0;
+  while (data.length < FEST_RIVER_N && guard++ < 4000){
+    const a = fr() * TAU;
+    const ri = Math.min(POND_RADII.length - 1, Math.floor(a / TAU * POND_RADII.length));
+    const orbR = 0.16 + fr() * 0.34;                   // 轨道半径 ≤0.5 ⇒ 与 1m 避让余量配平（实测漂移量级见 festival-guard）
+    const maxR = POND_RADII[ri] * 0.80 - orbR;         // 岸线内 20% 再扣轨道半径
+    if (maxR < 2.0) continue;
+    const r = 1.6 + Math.sqrt(fr()) * (maxR - 1.6);
+    const wx = Math.cos(a) * r, wz = 3.0 + Math.sin(a) * r;   // 池局部 → 世界（池心 z=+3）
+    if (_inRect(FEST_BRIDGE, wx, wz, FEST_PAD)) continue;
+    if (_inRect(FEST_STONES, wx, wz, FEST_PAD)) continue;
+    if (_inRect(FEST_HERO,  wx, wz, FEST_PAD)) continue;
+    if (data.some(d => Math.hypot(d.bx - wx, d.bz - wz) < 0.9)) continue;   // 彼此不叠
+    data.push({ bx: wx, bz: wz, orbR, orbSp: (fr() * 0.5 + 0.5) * (fr() < 0.5 ? 1 : -1) * 0.22,
+                ph: fr() * TAU, yaw: fr() * TAU, yawSp: (fr() - 0.5) * 0.3 });
+  }
+  const inst = new THREE.InstancedMesh(makeRiverLampGeo(), riverLampMat, data.length);
+  inst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  inst.frustumCulled = false;
+  inst.userData.noMerge = true;
+  inst.userData.aoSkip = true;             // 河灯小且随波动，AO 贡献可忽略 ⇒ 不进法线 pass
+  inst.name = 'riverLanterns';
+  world.add(inst);
+  _festRiver.inst = inst; _festRiver.data = data;
+
+  /* 烛焰：同一批落点、同一套漂移，但用更亮的材质（+1 draw call：灯会共 +5，仍低于 800）。 */
+  const flameGeo = new THREE.ConeGeometry(0.022, 0.07, 6);
+  flameGeo.translate(0, 0.105, 0);
+  const fInst = new THREE.InstancedMesh(flameGeo, riverFlameMat, data.length);
+  fInst.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  fInst.frustumCulled = false;
+  fInst.userData.noMerge = true;
+  fInst.userData.aoSkip = true;
+  fInst.name = 'riverLanternFlames';
+  world.add(fInst);
+  _festRiver.flame = fInst;
+
+  /* —— 游廊灯串：两跨悬链（锚点复用 lanternSpots 的游廊三点，额枋下 3.05m）—— */
+  const CORRIDOR = [[13.2, -6.0], [18.2, -1.8], [24.0, 6.5]];   // 见上方 lanternSpots 注释
+  const SAG = 0.34, Y = 3.02, PER = 14;
+  const bulbs = [];
+  for (let s = 0; s < CORRIDOR.length - 1; s++){
+    const [x0, z0] = CORRIDOR[s], [x1, z1] = CORRIDOR[s + 1];
+    for (let i = 0; i < PER; i++){
+      const u = (i + 0.5) / PER;
+      const sag = Math.sin(u * Math.PI) * SAG;                 // 悬链近似：正弦下垂
+      bulbs.push([x0 + (x1 - x0) * u, Y - sag, z0 + (z1 - z0) * u]);
+    }
+  }
+  const bulbGeo = new THREE.SphereGeometry(0.035, 8, 6);
+  const bInst = new THREE.InstancedMesh(bulbGeo, stringBulbMat, bulbs.length);
+  const m4 = new THREE.Matrix4();
+  bulbs.forEach((p, i) => { m4.makeTranslation(p[0], p[1], p[2]); bInst.setMatrixAt(i, m4); });
+  bInst.frustumCulled = false;
+  bInst.userData.noMerge = true;
+  bInst.userData.aoSkip = true;
+  bInst.name = 'corridorStringLights';
+  world.add(bInst);
+  _festBulbs.inst = bInst; _festBulbs.n = bulbs.length;
+}
+
+/* 每帧推进河灯漂移（随波 = 慢速小轨道 + 起伏 + 缓旋）。只在灯会开着时写矩阵。 */
+const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(),
+      _v = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _e = new THREE.Euler();
+/* `_festFreeze`：门禁**负例自检**用（冻结漂移时钟）。置 true 时 tickFestival 提前 return ——
+   ⚠️ 不能靠"在页内反复调 tickFestival(0)"来冻结：渲染循环每帧都会用真时钟再调一次，
+   两次调用互相覆盖 ⇒ 冻结无效（实测"冻结"后仍漂 0.062m，门禁当场报红，暴露了这个竞态）。
+   所以冻结必须是**权威开关**，而不是"再调一次"。 */
+let _festFreeze = false;
+export function setFestivalFreeze(v){ _festFreeze = !!v; }
+export function tickFestival(t){
+  const inst = _festRiver.inst, flame = _festRiver.flame;
+  if (_festFreeze) return;
+  if (!inst || !(ENV.cur && ENV.cur.festivalShow > 0.03)) return;
+  for (let i = 0; i < _festRiver.data.length; i++){
+    const d = _festRiver.data[i];
+    const a = d.ph + t * d.orbSp;
+    const x = d.bx + Math.cos(a) * d.orbR;
+    const z = d.bz + Math.sin(a) * d.orbR;
+    const y = 0.055 + Math.sin(t * 0.8 + d.ph * 3.0) * 0.02;      // 水面微起伏（水面 0.06 之下贴着）
+    _e.set(0, d.yaw + t * d.yawSp, Math.sin(t * 0.9 + d.ph) * 0.06);
+    _q.setFromEuler(_e);
+    _m4.compose(_v.set(x, y, z), _q, _s);
+    inst.setMatrixAt(i, _m4);
+    if (flame) flame.setMatrixAt(i, _m4);        // 烛焰与灯花同位同姿（只是材质更亮）
+  }
+  inst.instanceMatrix.needsUpdate = true;
+  if (flame) flame.instanceMatrix.needsUpdate = true;
+}
+
+/* 灯会状态（festival-guard 读）—— 按项目规矩**显式暴露可判定的量**，不靠 traverse 猜。 */
+export function festivalState(){
+  const inst = _festRiver.inst;
+  let treeN = 0, treeFull = 0;
+  for (const o of treeLanternInsts){
+    treeN += o.count;
+    treeFull += o.userData.fullCount ?? o.count;
+  }
+  return {
+    on: !!ENV.festival,
+    riverN: inst ? inst.count : 0, riverFull: inst ? _festRiver.data.length : 0,
+    riverPos: inst && inst.count > 0
+      ? _festRiver.data.map((d, i) => {
+          inst.getMatrixAt(i, _m4); _m4.decompose(_v, _q, _s);
+          return [+_v.x.toFixed(3), +_v.z.toFixed(3)];
+        }) : [],
+    stringN: _festBulbs.inst ? _festBulbs.inst.count : 0,
+    treeN, treeFull,
+    lampLights: worldLights.length,               // 真光源数必须仍等于灯笼的 5 盏
+  };
+}
+
+/* 一键切换灯会：开 = 切到夜再叠灯会层；关 = 只撤灯会层（留在夜里）。 */
+export function toggleFestival(force){
+  const on = force === undefined ? !ENV.festival : !!force;
+  if (on === !!ENV.festival) return;
+  if (on && ENV.time !== 'night'){ ENV.time = 'night'; ENV.hour = 21.5; }   // 灯会 = 夜的 plus 版
+  ENV.festival = on;
+  ENV.from = cloneParams(ENV.cur);
+  ENV.to = resolveEnv();
+  ENV.t = 0;
+  syncEnvUI();                              // 夜按钮、时辰滑杆、灯会按钮必须同帧落位
+}
+
+/* 灯会的"look"层：叠在时段/季节/天气之上的**第 4 层**（乘性/单键修改既有通道 ⇒
+   关灯会时 mixInto 自动把这些键插值回原值，不需要反向代码）。 */
+const _FEST_WARM = new THREE.Color(0xFFC890);
+const _FEST_FOG  = new THREE.Color(0x3A2A20);
+function applyFestivalTo(p){
+  p.exposure *= 1.08;                                   // 暖光曝光提升（计划书原文）
+  p.bloomStrength = Math.min(0.68, p.bloomStrength * 1.12);   // 辉光加一档（阈值 0.90 不动 ⇒ 不炸死白）
+  p.grade.split = Math.min(0.55, p.grade.split + 0.05);
+  p.grade.warm.lerp(_FEST_WARM, 0.55);                  // 高光更暖（灯笼红光弥漫）
+  p.fogColor.lerp(_FEST_FOG, 0.45);                     // 夜雾里带一点灯会的暖
+}
+
 const SEASON_PRESENCE = [
   ['lotusShow',[MAT.lotus]], ['lilyShow',[MAT.lily]], ['wisteriaShow',[MAT.wisteria]],
   /* 芭蕉假茎**不进** presence 表（第八轮用户常识反馈）：芭蕉是多年生草本，
@@ -1148,6 +1353,8 @@ const SEASON_PRESENCE = [
      全植物用一种材质的话季节只能整棵树显/隐，做不出"春开花 → 夏结果 → 秋叶黄"。 */
   ['peachShow',[MAT.peachLeaf]], ['peachBlossomShow',[MAT.peachBlossom]],
   ['peachFruitShow',[MAT.peachFruit]], ['peachPetalShow',[MAT.peachPetal]],
+  /* 灯会内容也走同一套存在性通道：festivalShow>0.03 才提交。 */
+  ['festivalShow',[riverLampMat, riverFlameMat, stringBulbMat]],
 ];
 const seasonMeshCache = new Map();
 /* 填充已并入 collectSeasonCaches()（见 willowLeafInsts 一段）：一次遍历同时收
@@ -1179,7 +1386,12 @@ export function applyPresence(p){
   for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaShow', false],
                                 [MAT.peachLeaf, 'peachShow', true],
                                 [MAT.peachFruit, 'peachFruitShow', true],
-                                [MAT.peachPetal, 'peachPetalShow', true]]){
+                                [MAT.peachPetal, 'peachPetalShow', true],
+                                /* 河灯/灯串是 InstancedMesh：count=0 ⇒ three 不提交、GTAO 也改不动
+                                   （同紫藤那条路的理由）。非灯会态零 draw call。 */
+                                [riverLampMat, 'festivalShow', false],
+                                [riverFlameMat, 'festivalShow', false],
+                                [stringBulbMat, 'festivalShow', false]]){
     const list = seasonMeshCache.get(m);
     if (!list) continue;
     for (const o of list){
@@ -1190,6 +1402,20 @@ export function applyPresence(p){
                      : (p[key] > 0.03 ? full : 0);
       if (o.count !== n) o.count = n;
     }
+  }
+  /* ── 枯枝挂灯：走**直接清单**而不是上面的材质缓存表 ──
+     ⚠️ 原因：挂灯网格是 `makePeachTree` 在 **deferBoot 延迟批**里建的，而
+        `collectSeasonCaches()` 在装配收尾时跑 —— 时序上它能收得到，但**更关键**是
+        挂灯网格是**每株桃树一个**、材质共用同一个 TREE_LANTERN_MAT，走材质表虽然也对，
+        可它的存在性语义与"季节"无关（只随灯会），混进季节表反而容易被人误读。
+        显式清单也和紫藤/柳叶那两组的做法一致（各自一份 max/count 记账）。
+     ⚠️ 桃树是**两株**（西岸/北岸），必须整组处理 —— 只改第一个就会出现"一棵树挂灯、
+        另一棵没有"（同紫藤只改第一个的老 bug）。 */
+  const treeOn = p.festivalShow > 0.03;
+  for (const o of treeLanternInsts){
+    if (o.userData.fullCount === undefined) o.userData.fullCount = o.count;
+    const n = treeOn ? o.userData.fullCount : 0;
+    if (o.count !== n) o.count = n;
   }
 }
 
@@ -1397,6 +1623,7 @@ function applyWetness(v){
 /* ══ 状态机与过渡 ══ */
 export const ENV = {
   time:'noon', season:'summer', weather:'clear',
+  festival:false,                                 // 上元灯会（第 4 层开关，见 makeFestivalLights 一段）
   hour:12.5,                                   // 连续时辰（0~24）：按钮切时段只是对齐到锚点
   cur:null, from:null, to:null, t:1, dur:2.8,      // dur = 过渡时长（秒）
 };
@@ -1467,9 +1694,13 @@ function syncEnvUI(){
        否则 ENV[undefined]===undefined 恒真，它们初始就被错误点亮 .on 高亮。
        ⚠️ 这里**必须**补齐 aria-pressed（不能跳过 data-act 的那几个）：
        smoke 断言「所有 env 按钮 aria-pressed 齐全」，动作按钮的初始属性正是靠
-       这里补上的，漏一个就红。开关类（音景/巡游/流转）的真实按下态由各自的
-       toggle* 维护；环境轴切换时本函数会把它们归零，而那几类开关在环境切换时
-       本来就会被接管停下（拖滑杆 / 点时段都停流转），归零恰好是对的。 */
+       这里补上的，漏一个就红。开关类（音景/巡游/流转/灯会）的真实按下态由各自的
+       toggle* 维护；环境轴切换时本函数会把普通动作按钮归零，而灯会是与时段正交的第 4 层，
+       必须继续保留自身状态。 */
+    if (b.dataset.act === 'festival'){
+      b.setAttribute('aria-pressed', ENV.festival ? 'true' : 'false');
+      return;
+    }
     if (!b.dataset.axis){ b.setAttribute('aria-pressed', 'false'); return; }
     const axis = b.dataset.axis, v = b.dataset.v;
     b.classList.toggle('on', ENV[axis] === v);
@@ -1497,6 +1728,7 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.act === 'sound'){ b.classList.toggle('on', !!HOOKS.sound?.()); b.setAttribute('aria-pressed', b.classList.contains('on') ? 'true' : 'false'); return; }
   if (b.dataset.act === 'reel'){ toggleReel(); return; }   // 时光流转（按钮态由 toggleReel 自己同步）
   if (b.dataset.act === 'random'){ HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
+  if (b.dataset.act === 'festival'){ toggleFestival(); return; }   // 上元灯会：一键开关（按钮态由 toggleFestival 自己同步）
   /* P2-2 巡游开关：巡游中按任意导览/环境按钮都先停巡游（接管语义），再执行本意 */
   if (b.dataset.act === 'tour'){ TOUR.on ? tourStop() : tourStart(); return; }
   if (TOUR.on && (b.dataset.view || b.dataset.axis)) tourStop();
@@ -1585,7 +1817,7 @@ function rwPick(items){
   return items[items.length - 1][0];
 }
 export function randomScene(){
-  if (REEL.on) toggleReel();                    // 流转中先停，否则马达立刻把抽中的时辰带走
+  if (REEL.on) toggleReel();                    // 流转中先停，否则马达立刻把灯会要设的时辰带走
   let time, season, weather, tries = 0;
   do {
     time = rwPick(R_TIMES);
@@ -1665,6 +1897,7 @@ addEventListener('keydown', (e)=>{
    world 就绪之后。由 08 的 body 末尾调用。 */
 export function initEnvScene(){
   makeLanterns();
+  makeFestivalLights();               // 河灯/烛焰/灯串（须在 collectSeasonCaches 前；桃树挂灯由延迟批后置显隐）
   collectSeasonCaches();             // 同步建的物件（紫藤叶/苇/荷盘…）不能等延迟批
   syncEnvUI();
   applyEnv(ENV.cur);

@@ -13,7 +13,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createRequire } from 'node:module';
 import { execSync } from 'node:child_process';
-import { launchChromium } from './_harness.mjs';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 function loadPlaywright(){
@@ -34,8 +34,7 @@ const server = http.createServer((req, res) => {
 });
 
 (async () => {
-  await new Promise(r => server.listen(13000 + ((Math.random() * 17000) | 0), r));
-  const port = server.address().port;
+  const port = await listenEphemeral(server);
   const { chromium } = loadPlaywright();
   const browser = await launchChromium(chromium);
   const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
