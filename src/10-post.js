@@ -1,6 +1,6 @@
 // 10-post: from index.html inline 499..648
 import { THREE, EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass, GTAOPass } from '../vendor.js';
-import { renderer, RENDER_SCALE, scene, camera, GPU_TIER, world } from './02-scene.js';
+import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world } from './02-scene.js';
 import { MAT, setAuxPass, AUX_PASS_HIDDEN } from './01-materials.js';
 /* ⚠️ world 从 02-scene 取，**不能**从 08-assemble 取：08 import 本模块的 collectAOSkip，
    反向 import 就成环 → 本模块 body 被推迟到 08 之后，而 08 的 body 末尾要调 collectAOSkip()
@@ -34,7 +34,7 @@ composer.addPass(new RenderPass(scene, camera));
 //    L2 分辨率 ×0.85 + 阴影 2048 / L3 ×0.72 + 阴影 1024；连续 6 窗口 <45fps 降档、
 //    12 窗口 >58fps 升档、变档后冷却 10 窗口）。smoke 已断言降档 ×0.72 与升回 L0。
 //    （2026-09-20 核对开发计划时发现的过时注释 —— 它害得"帧率滞回"被当成未完项。）
-export const AO_ENABLED = GPU_TIER !== 'low';
+export const AO_ENABLED = ACTIVE_QUALITY.ao;
 
 /* AO 阶段排除表提到模块级：P1-4 的延迟装配（柳/竹）在首帧之后才入场景，
    排除表必须在延迟批跑完后补收（collectAOSkip），否则迟到植被会进法线 pass，
@@ -72,8 +72,8 @@ export let gtaoPass = null;          // 提到外层，供 ENV 调节 AO 权重
       已核对 three@0.184 的 `GTAOPass.setSize`：它同时改 gtao/pd/normal 三个 RT 与
       两个 shader 的 `resolution` uniform ⇒ 包一层是自洽的（不会出现"RT 半尺寸但
       uniform 还是全尺寸"的错配）。
-   ⚠️ 档位前提：`AO_ENABLED = GPU_TIER !== 'low'` ⇒ **核显档本来就没有 AO**，
-      这条优化只在独显档（以及 QOS 降档到 L1 关 AO 之前）有意义 —— 见计划书 v2.0 补注。 */
+   ⚠️ 档位前提：`AO_ENABLED` 取自画质配置（性能档关闭、均衡/高开启）⇒ **低画质档本来就没有 AO**，
+      这条优化只在开启了 AO 的档位（以及 QOS 降档关 AO 之前）有意义 —— 见计划书 v2.0 补注。 */
 const AO_SCALE = 0.5;
 if (AO_ENABLED){
   const gtao = new GTAOPass(scene, camera, Math.max(1, Math.round(innerWidth * AO_SCALE)),

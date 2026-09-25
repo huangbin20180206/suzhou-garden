@@ -4,7 +4,7 @@ import { THREE, mergeGeometries, GLTFLoader, DRACOLoader, KTX2Loader, MeshoptDec
    rippleInst / perchingAnchors 等模块级常量，若本模块反向 import 08 就成环 ——
    本模块的 body 被推迟到 08 之后，而 08 的 body 读到的就是 TDZ
    （实测 "Cannot access 'rippleInst' before initialization"）。依赖方向：02 → 06 → 08。 */
-import { world, scene, GPU_TIER, renderer } from './02-scene.js';
+import { world, scene, ACTIVE_QUALITY, renderer } from './02-scene.js';
 /* ⚠️ onAssetAttached 也**不能**静态 import 12-env：12-env 的模块体在 world 之前求值，
    而它 import 08；本模块一旦 import 12-env，12-env 就会把 08 提前拽进来 → 同一个 TDZ。
    它只在 loadAssetOnce 的**回调**里调用（那时一切就绪），故走 00-config 的 HOOKS 延迟绑定。 */
@@ -3355,7 +3355,7 @@ export function makeWaterGrass(x, z, n = 60, spread = 3.2){
    存在性/亮度由 11-loop 按「夏 · 夜 · 晴/薄雾」驱动 uOpacity（平滑淡入淡出）。
    userData.aoSkip：不进 GTAO 法线 pass（见 10-post 的 collectAOSkip）。 */
 export function makeFireflies(){
-  const N = GPU_TIER === 'low' ? 34 : 62;
+  const N = ACTIVE_QUALITY.fireflies;
   /* 三簇，权重和为 1：池南灌丛岸 / 东瓣近水榭 / 西瓣水边。基准点全在岸上，
      高 0.35~2.1m。rnd 固定种子 → 每次刷新萤火分布一致（与全园同范式）。 */
   const clusters = [
@@ -3444,7 +3444,7 @@ export function makeFireflies(){
 export function makeLensWeather(cam){
   if (!cam.parent) scene.add(cam);
   /* 近景粒子宜疏不宜密：上一版 180 粒 + 30px 大 sprite，糊成一屏毛玻璃。 */
-  const N = GPU_TIER === 'low' ? 60 : 110;
+  const N = ACTIVE_QUALITY.lensWeather;
   const data = new Float32Array(N * 3);
   for (let i = 0; i < N; i++){
     data[i*3]   = rnd() * 2 - 1;   // nx：水平随机

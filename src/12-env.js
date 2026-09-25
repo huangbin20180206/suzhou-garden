@@ -11,7 +11,7 @@ import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
          cancelCamFly, CAM_FLY, introActive, introCancel } from './08-assemble.js';
 import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
-import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, GPU_TIER, renderer } from './02-scene.js';
+import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
 import { TAU, HOOKS, ENV_REF, mulberry32 } from './00-config.js';
@@ -265,7 +265,7 @@ export function makeLanterns(){
   _groundSplashMat = groundSplashMat;
   _groundSplashGeo = new THREE.CircleGeometry(1, 22);
   const volGeo = new THREE.SphereGeometry(1, 24, 16);   // 弥散光团：以灯芯为源的各向同性散射，非向下聚光锥
-  const WITH_VOL = GPU_TIER !== 'low';
+  const WITH_VOL = ACTIVE_QUALITY.volume;
   for (const [x, y, z, hang] of lanternSpots){
     const pivot = new THREE.Group();          // 摆动支点 = 挂点
     const grp = new THREE.Group();            // 灯笼本体（含吊绳），相对挂点偏移
@@ -1787,6 +1787,13 @@ function syncEnvUI(){
       b.setAttribute('aria-pressed', SEASON_DEMO.on ? 'true' : 'false');
       return;
     }
+    if (b.dataset.quality){
+      const q = HOOKS.qualityState?.();
+      const on = (q?.mode || 'auto') === b.dataset.quality;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      return;
+    }
     if (!b.dataset.axis){ b.setAttribute('aria-pressed', 'false'); return; }
     const axis = b.dataset.axis, v = b.dataset.v;
     b.classList.toggle('on', ENV[axis] === v);
@@ -1808,6 +1815,7 @@ function syncEnvUI(){
 envEl.addEventListener('click', (e)=>{
   const b = e.target.closest('button');
   if (!b || b.disabled) return;
+  if (b.dataset.quality){ HOOKS.setQuality?.(b.dataset.quality); return; }
   /* 动作按钮（明信片/音景）没有 data-axis，先于环境轴处理，避免落进 setEnv 的非法告警 */
   if (b.dataset.act === 'shot'){ HOOKS.postcard?.(); return; }
   if (b.dataset.act === 'long'){ HOOKS.longExposure?.(); return; }
@@ -2125,10 +2133,10 @@ export const PRECIP = (()=>{
      uSize 覆盖成 30（雨本该是 9），雨被画成一颗颗大雪球。
      ShaderMaterial.clone() 会克隆 uniforms：材质实例分开、着色器源码仍共用。 */
   const snowMat = mat.clone();
-  const rain = mk(GPU_TIER === 'low' ? 5000 : 14000, 0.0,  9.0, 0.115, mat);
+  const rain = mk(ACTIVE_QUALITY.rain, 0.0,  9.0, 0.115, mat);
   // 雪刻意比雨少：雨可以铺满画面，雪片一大就糊住视线
   // uSize 30→22→18：单片基础尺寸继续收（shader 内钳 15px）；强度 0.150：厚雪靠密度不靠单片不透明度
-  const snow = mk(GPU_TIER === 'low' ? 1200 : 2400,   1.0, 18.0, 0.150, snowMat);
+  const snow = mk(ACTIVE_QUALITY.snow,   1.0, 18.0, 0.150, snowMat);
   return { mat, snowMat, rain, snow, list: [rain, snow] };
 })();
 scene.add(PRECIP.rain.points, PRECIP.snow.points);

@@ -6,7 +6,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
    → 启动期 TDZ。放 02-scene 后依赖方向单纯：02 → 09 → 08。
    （world 在本模块只在函数体内用，见下方 refreshCasterBox。） */
 import { bootMark, CFG } from './00-config.js';
-import { GPU_TIER, scene, renderer, world } from './02-scene.js';
+import { ACTIVE_QUALITY, scene, renderer, world } from './02-scene.js';
 /* ══════════════════════════════════════════════════════════════
    9 · 灯光
    ══════════════════════════════════════════════════════════════ */
@@ -113,10 +113,8 @@ export function mergeStatics(root){
 export const sun = new THREE.DirectionalLight(CFG.sun.color, CFG.sun.intensity);
 sun.position.set(...CFG.sun.pos);
 sun.castShadow = true;
-// 收紧扣到主体范围（园 60×45 + 围墙），配 4096² 贴图 → texel 密度从 45/m 提到 68/m
-// 8192² 的阴影填充代价偏高（实测挤占了帧预算），退到 6144²：
-//  6144 / 56 世界单位 ≈ 110 texel/m，仍是原始（45/m）的 2.4 倍
-sun.shadow.mapSize.set(GPU_TIER === 'low' ? 2048 : 6144, GPU_TIER === 'low' ? 2048 : 6144);
+// 阴影精度由电脑画质档统一决定：性能 2048 / 均衡 4096 / 高 6144。
+sun.shadow.mapSize.set(ACTIVE_QUALITY.shadow, ACTIVE_QUALITY.shadow);
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 190;
 sun.shadow.bias = -0.0009;

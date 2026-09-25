@@ -2,7 +2,7 @@
 import { THREE, mergeGeometries, Reflector } from '../vendor.js';
 import { CFG, rnd, rr, pick, TAU, DEG, registry, mulberry32, bootMark, HOOKS } from './00-config.js';
 import { MAT, waterNormalTex, WATER_REFLECT_SHADER, waterSurface, setWaterSurface, auxPass, makePondBedTex, WIND, addWind } from './01-materials.js';
-import { scene, renderer, camera, controls, skyMesh, lumOf, ENV_BAKE_LUM, GPU_TIER } from './02-scene.js';
+import { scene, renderer, camera, controls, skyMesh, lumOf, ENV_BAKE_LUM, ACTIVE_QUALITY } from './02-scene.js';
 import { mesh, box, makeColumn, instancedBoxes, instancedGeo, makeCorrugatedSlab, DOUGONG_H, makeDougongGeo, makeChineseRoof, makeCeiling, makeQueTu, makeGuaLuo, makeJiangnanWindow, makeChangChuang, makeLatticePanel, makeWallRun, makeWallCap } from './03-factory.js';
 /* ══════════════════════════════════════════════════════════════
    5 · 水体 · 桥 · 驳岸
@@ -138,7 +138,7 @@ export function markUnderwater(root){
 
 function setupRefraction(water){
   if (!REFRACT_ON || refractRT) return;
-  const texW = GPU_TIER === 'low' ? 384 : 768;
+  const texW = ACTIVE_QUALITY.refraction;
   /* UnsignedByte 而非 HalfFloat：池底视图是 LDR 内容，8 位足够；HalfFloat 贴图
      在 readPixels 时要求 Uint16Array 读回，门禁多一道转换，且显存翻倍。 */
   refractRT = new THREE.WebGLRenderTarget(texW, Math.round(texW * PBD / PBW),
@@ -207,8 +207,8 @@ export function makePond(){
   //     水面便采样到过期贴图（用新投影矩阵采旧画面，UV 全错）而拖出紫色。
   //     改为给 mesh 加旋转，matrixWorld 里就有正确的 up 法线了。
   const water = new Reflector(wGeo, {
-    textureWidth: GPU_TIER === 'high' ? 1024 : 640,
-    textureHeight: GPU_TIER === 'high' ? 1024 : 640,
+    textureWidth: ACTIVE_QUALITY.reflection || 512,
+    textureHeight: ACTIVE_QUALITY.reflection || 512,
     clipBias: 0.004,
     color: 0x25443C,          // 深水底色（0x14201E → 0x1C2E29 → 现在 0x25443C：俯视时的自色别再是黑洞）
     shader: WATER_REFLECT_SHADER,
@@ -269,7 +269,7 @@ export function makePond(){
     if (settle > 0){ settle--; doReflect(); return; }
     if ((tick++ % REFLECT_STATIC_EVERY) === 0) doReflect();
   };
-  if (GPU_TIER === 'low'){
+  if (!ACTIVE_QUALITY.reflection){
     water.onBeforeRender = () => {};
     water.material.uniforms.uReflMix.value = 0;
   } else {

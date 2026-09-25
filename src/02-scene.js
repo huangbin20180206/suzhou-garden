@@ -29,23 +29,38 @@ export const SOFTWARE_GL = /SwiftShader|llvmpipe|Software|Mesa OffScreen|Microso
 export const PROBE_DRIVEN = (() => { try { return navigator.webdriver === true; } catch { return false; } })();
 export const QOS_IMMUNE = SOFTWARE_GL || PROBE_DRIVEN;
 /* Tier 档位支持 `?tier=high` 覆盖（诊断/探针验证写实档用）：headless SwiftShader 会被
-   误判成 low，从而跳过体积光锥等高写实效果 —— 探针带 ?tier=high 即可拍到它们。 */
-const GPU_TIER_FORCED = (() => { try { return /[?&]tier=(low|mid|high)/.exec(location.search)?.[1] || null; } catch { return null; } })();
-export const GPU_TIER = GPU_TIER_FORCED || (/Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i.test(GPU_NAME)
-                 ? 'low' : 'high');
+   误判成 low，从而跳过体积光锥等高写实效果 —— 探针带 ?tier=high 即可拍到它们。
+   2026-09-25：mid 从“能解析但等同 high”改成真正独立的均衡档。 */
+export const GPU_TIER_FORCED = (() => { try { return /[?&]tier=(low|mid|high)/.exec(location.search)?.[1] || null; } catch { return null; } })();
+const autoTier = /Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i.test(GPU_NAME)
+  ? 'low'
+  : (/Apple M[1-9]|Intel Arc|GTX\s*(1[06]\d{2}|20[567]\d{2})|Radeon RX\s*[56]\d{3}/i.test(GPU_NAME) ? 'mid' : 'high');
+export const GPU_TIER = GPU_TIER_FORCED || autoTier;
+
+/* 电脑画质单一真值：分辨率、阴影、AO、反射、折射与粒子预算都从这里派生。
+   mid 是真正的均衡档：4096 阴影 + 半分辨率 GTAO + 768 反射；high 才开放 4K 与 6144 阴影。 */
+export const QUALITY_PRESETS = Object.freeze({
+  low: Object.freeze({ key:'low', label:'性能', pixelBudget:1920*1080*1.10, supersample:1.00,
+                       shadow:2048, ao:false, reflection:0, refraction:384,
+                       rain:5000, snow:1200, lensWeather:60, fireflies:34, volume:false }),
+  mid: Object.freeze({ key:'mid', label:'均衡', pixelBudget:2560*1440*1.05, supersample:1.10,
+                       shadow:4096, ao:true, reflection:768, refraction:768,
+                       rain:10000, snow:1800, lensWeather:85, fireflies:48, volume:true }),
+  high: Object.freeze({ key:'high', label:'高', pixelBudget:3840*2160*1.05, supersample:1.25,
+                       shadow:6144, ao:true, reflection:1024, refraction:768,
+                       rain:14000, snow:2400, lensWeather:110, fireflies:62, volume:true }),
+});
+export const ACTIVE_QUALITY = QUALITY_PRESETS[GPU_TIER];
+export function pixelRatioForTier(tier = GPU_TIER, width = innerWidth, height = innerHeight){
+  const q = QUALITY_PRESETS[tier] || ACTIVE_QUALITY;
+  return Math.min(Math.max(devicePixelRatio, q.supersample),
+                 Math.max(1, Math.sqrt(q.pixelBudget / Math.max(1, width * height))));
+}
 
 /* 超采样抗锯齿（SSAA）：按高于画布的分辨率渲染，由浏览器呈现时降采样。
-   对竹林叶片、窗棂、瓦垄这类高频细节的提升比任何后期 AA 都直接。
-   代价是填充率按倍率平方增长；核显档位直接关掉。 */
-export const SUPERSAMPLE = GPU_TIER === 'low' ? 1.0 : 1.15;   // 原 1.5 → 2.25 倍像素面积太烧（用户实测掉帧到十几帧）；1.15 已足够柔化边缘
-/* ⚠️ Math.max 是"下限"，不是"上限"：DPR=3 的屏幕等于 9 倍像素面积。
-   加一条 *物理像素预算**：整幅渲染目标不超预算，超了就把倍率压回来。
-   预算给得宽松，常见 1080p/1440p 桌面机的 1.5× 超采样一点不受影响；
-   只有 4K + 高 DPR 这类才会被压回原生（那种情况本来也跑不动）。 */
-const PIXEL_BUDGET = GPU_TIER === 'low' ? 1920 * 1080 * 1.1 : 2560 * 1440 * 1.05;   // 原 3840*2160*1.05：高 DPR/大屏上 2.25× 像素把帧率拖到 10-20（用户实测）
-export const RENDER_SCALE = Math.min(
-  Math.max(devicePixelRatio, SUPERSAMPLE),
-  Math.max(1, Math.sqrt(PIXEL_BUDGET / Math.max(1, innerWidth * innerHeight))));
+   对竹林叶片、窗棂、瓦垄这类高频细节的提升比任何后期 AA 都直接。 */
+export const SUPERSAMPLE = ACTIVE_QUALITY.supersample;
+export const RENDER_SCALE = pixelRatioForTier(GPU_TIER);
 renderer.setPixelRatio(RENDER_SCALE);
 bootMark('渲染器');
 renderer.setSize(innerWidth, innerHeight);

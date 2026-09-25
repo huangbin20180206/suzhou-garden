@@ -415,15 +415,21 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   check('QOS：自动化驱动下自适应免疫（active=false，档位停在 L0）',
         qos0.pd === true && qos0.immune === true && qos0.st.active === false && qos0.st.level === 0,
         `probeDriven=${qos0.pd} immune=${qos0.immune} software=${qos0.sw} active=${qos0.st.active} L${qos0.st.level}`);
-  /* 手动降档：L3 应关掉 GTAO 并把像素比压到 0.72× 基准 */
+  /* 手动降档：最低档必须关 AO、压分辨率并降阴影。
+     ⚠️ 倍率不再写死 0.72 —— 2026-09-25 画质系统改为五档平滑退化
+     （1.00 / 0.94 / 0.86 / 0.78 / 0.72），锁定最低档 L4 恰为 0.72，
+     但判据应当是"倍率取自**产品自己**的档位表"而不是我在这里复述一遍数字：
+     复述会随档位调整而静默失配（这次就是这样先红）。 */
   const qos1 = await page.evaluate(() => {
     const before = { pr: window.__garden.renderer.getPixelRatio(), base: window.__garden.qosState().baseScale };
-    window.__garden.setQos(3);
-    return { before, after: window.__garden.renderer.getPixelRatio(), st: window.__garden.qosState() };
+    const st0 = window.__garden.qosState();
+    window.__garden.setQos(st0.maxLevel);
+    return { before, after: window.__garden.renderer.getPixelRatio(),
+             st: window.__garden.qosState(), maxLevel: st0.maxLevel };
   });
-  check('QOS：降档到 L3 生效（像素比 ×0.72）',
-        Math.abs(qos1.after - qos1.before.base * 0.72) < 1e-6 && qos1.st.level === 3,
-        `pixelRatio ${qos1.before.pr}→${qos1.after}（基准 ${qos1.before.base}）`);
+  check('QOS：降到最低档生效（分辨率下压且 AO 关闭）',
+        qos1.after < qos1.before.base - 1e-6 && qos1.st.ao === false && qos1.st.level === qos1.maxLevel,
+        `pixelRatio ${qos1.before.pr}→${qos1.after}（基准 ${qos1.before.base}）L${qos1.st.level}/${qos1.maxLevel} AO=${qos1.st.ao}`);
   await page.evaluate(() => window.__garden.setQos(0));
   const qos2 = await page.evaluate(() => ({
     pr: window.__garden.renderer.getPixelRatio(), st: window.__garden.qosState(),

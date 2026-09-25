@@ -1,6 +1,7 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
-import { camera, renderer, RENDER_SCALE, GPU_TIER, QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST } from './02-scene.js';
+import { camera, renderer, RENDER_SCALE, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
+         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
@@ -515,19 +516,25 @@ export function queueLongExposurePostcard(){
      后处理开关）就会随宿主机器负载漂移。这既是工程判断，也是测试稳定性要求。
    · 页签隐藏即停渲染（见 animate 顶部）：移动端长时间挂后台是发热与掉电主因。 */
 const QOS = (()=>{
-  const BASE_SCALE  = RENDER_SCALE;
-  const BASE_SHADOW = GPU_TIER === 'low' ? 2048 : 6144;
-  const LEVELS = [
-    { scale: 1.00, ao: GPU_TIER !== 'low', shadow: BASE_SHADOW },
-    { scale: 1.00, ao: false,              shadow: BASE_SHADOW },
-    { scale: 0.85, ao: false,              shadow: 2048 },
-    { scale: 0.72, ao: false,              shadow: 1024 },
-  ];
-  const st = { level: 0, active: !QOS_IMMUNE, low: 0, high: 0, cool: 0, changes: 0, fps: 0 };
+  const P = ACTIVE_QUALITY;
+  /* 平滑退化：先轻降倍率，再逐步关 AO / 降阴影。避免旧 L1→L2 一步同时砍掉
+     分辨率与阴影导致“突然丑很多”。high 的 4K 预算只在 L0 全开，之后按帧率逐级回收。 */
+  const shadowFor = n => [P.shadow, P.shadow, Math.min(P.shadow, 4096), 2048, 1024][n];
+  const LEVELS = [1.00, 0.94, 0.86, 0.78, 0.72].map((scale, i) => ({
+    scale, ao: P.ao && i < 2, shadow: shadowFor(i),
+  }));
+  const st = { level:0, active:!QOS_IMMUNE, low:0, high:0, cool:0, changes:0, fps:0,
+               mode:'auto', locked:false };
+  function syncQualityButtons(){
+    document.querySelectorAll('[data-quality]').forEach(b=>{
+      const on = b.dataset.quality === st.mode;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+  }
   function applyShadow(size){
     if (sun.shadow.mapSize.width === size) return;
     sun.shadow.mapSize.set(size, size);
-    /* 改 mapSize 必须弃掉旧图，否则 three 会继续用老尺寸的 RT（实测不出错但尺寸不生效） */
     if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
     renderer.shadowMap.needsUpdate = true;
   }
@@ -535,13 +542,28 @@ const QOS = (()=>{
     const i = Math.max(0, Math.min(LEVELS.length - 1, level));
     const L = LEVELS[i];
     st.level = i;
-    const s = BASE_SCALE * L.scale;
+    const s = pixelRatioForTier(GPU_TIER) * L.scale;
     renderer.setPixelRatio(s); renderer.setSize(innerWidth, innerHeight);
     composer.setPixelRatio(s); composer.setSize(innerWidth, innerHeight);
-    /* GTAO 用 pass.enabled 关，而不是从 passes 数组里摘 —— 摘了再插会重建 RT，
-       而 EffectComposer 的 RT 与 pass 顺序绑定，中途改数组风险大。 */
     if (gtaoPass) gtaoPass.enabled = L.ao;
     applyShadow(L.shadow);
+    syncQualityButtons();
+  }
+  function setMode(mode){
+    const m = ['auto','high','balanced','performance'].includes(mode) ? mode : 'auto';
+    st.mode = m;
+    st.locked = m !== 'auto';
+    st.active = !QOS_IMMUNE && m === 'auto';
+    st.low = st.high = st.cool = 0;
+    if (m === 'high') apply(0);
+    else if (m === 'balanced') apply(Math.min(1, LEVELS.length - 1));
+    else if (m === 'performance') apply(LEVELS.length - 1);
+    else apply(st.level);
+    if (!GPU_TIER_FORCED){
+      try { localStorage.setItem('garden.quality.v1', m); } catch {}
+    }
+    syncQualityButtons();
+    return state();
   }
   function sample(fps){
     if (!st.active) return;
@@ -558,9 +580,20 @@ const QOS = (()=>{
       console.log('[QOS] 升档 → L' + st.level + '（fps ' + fps + '）');
     }
   }
-  return { sample, apply, state: () => ({ ...st, baseScale: BASE_SCALE,
-           software: SOFTWARE_GL, probeDriven: PROBE_DRIVEN, immune: QOS_IMMUNE }) };
+  function state(){
+    return { ...st, tier:GPU_TIER, tierLabel:QUALITY_PRESETS[GPU_TIER].label,
+             maxLevel:LEVELS.length - 1, baseScale:pixelRatioForTier(GPU_TIER),
+             pixelRatio:renderer.getPixelRatio(), pixelBudget:P.pixelBudget,
+             presetShadow:P.shadow, presetAO:P.ao, shadow:sun.shadow.mapSize.width,
+             ao:!!(gtaoPass && gtaoPass.enabled), software:SOFTWARE_GL,
+             probeDriven:PROBE_DRIVEN, immune:QOS_IMMUNE };
+  }
+  const saved = (()=>{ if (GPU_TIER_FORCED) return 'auto'; try { return localStorage.getItem('garden.quality.v1') || 'auto'; } catch { return 'auto'; } })();
+  setMode(saved);
+  return { sample, apply, setMode, state };
 })();
+HOOKS.setQuality = QOS.setMode;
+HOOKS.qualityState = QOS.state;
 
 /* 页签隐藏暂停渲染：rAF 仍排程（保持循环存活），但跳过这一帧的全部工作。
    仍调用 timer.update() 让 delta 归零，否则回到前台的第一次 getDelta 会带着
@@ -915,7 +948,7 @@ function animate(){
       `geometries  ${info.memory.geometries}\n` +
       `textures    ${info.memory.textures}\n` +
       `${weatherTag()} · ${timeLabelNow()}${ENV_SEASON[ENV.season].label}\n` +
-      `GPU ${GPU_TIER === 'low' ? '核显档' : '独显档'} · ${AO_ENABLED && (q.level === 0) ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n` +
+      `画质 ${q.mode === 'auto' ? '自动' : q.mode === 'high' ? '高' : q.mode === 'balanced' ? '均衡' : '性能'} · ${q.tierLabel}档 · ${q.ao ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n` +
       `按 0 复位视角 · 拖动旋转 / 滚轮缩放`;
     acc = 0; frames = 0;
   }
@@ -1164,6 +1197,8 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   tourStart, tourStop, tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
                   tourCaption: () => { const el = captionEl(); return el ? el.querySelector('b').textContent : ''; },
                   qosState: () => QOS.state(), setQos: (lv) => QOS.apply(lv),
+                  qualityState: () => QOS.state(), setQualityMode: (m) => QOS.setMode(m),
+                  qosSample: (fps) => QOS.sample(fps),
                   hidden: () => pageHidden, gpuName: GPU_NAME, softwareGL: SOFTWARE_GL,
                   probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,
                   queuePostcard, postcardData, toggleSound, sndState: () => Snd.on,
