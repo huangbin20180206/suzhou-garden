@@ -650,11 +650,48 @@ export function getWaterSurface(){ return waterSurface; }
 export let auxPass = false;
 export function setAuxPass(v){ auxPass = v; }
 export function getAuxPass(){ return auxPass; }
-/* 辅助 pass 期间需要**整体隐藏**的对象名单（GTAO wrapper 逐帧存/还原 visible）。
+/* 辅助 pass（GTAO 的法线/深度）期间需要**整体隐藏**的对象名单（GTAO wrapper 逐帧存/还原 visible）。
    aoSkipped 只遍历 world 且只认材质身份；挂在相机下的镜头粒子（镜前雨帘/雪粒）
    不在 world 里、材质也不在 AO_SKIP_MATS 里 —— 它们若进法线 pass，会被 override
    材质画成一批贴镜头的纯色方块污染 AO。制造者把对象 push 进这里即可。 */
 export const AUX_PASS_HIDDEN = [];
+
+/* ══════════════════════════════════════════════════════════════
+   高度雾 uniform 登记表（2026-09-26）
+   ══════════════════════════════════════════════════════════════
+   为什么**不是**把 scene.fog 调浓（这条已被项目证伪过两次，别再走一遍）：
+     FogExp2 是**均匀介质**，没有上边界。实测 density 0.0052 时整条 3~10m 近景带
+     的雾占比只有 0.02%→0.27%（<0.3/255），近景在数值上就是"干的"；而要让它
+     在 10m 处到 5% 就得 density=0.0226（4.4×），那时 80m 远山 96%、176m 100% ——
+     2026-09-19 mist 预设的 fogMul 正是为此从 4.4 一路退回 1.3（见 06-vegetation.js 顶部）。
+     结论：**近景要浓**与**远景不能糊**在 Exp2 里是同一个自由度的两个互斥目标。
+   高度雾是唯一能给"浓度"一个**上边界**的形态：贴水面/地面那一层浓，柱顶与远山不受影响。
+   ⚠️ 与 scene.fog **并存、不替换** —— 远处的大气透视仍由 Exp2 负责（mist-guard 守的就是它），
+      本层只负责 10~30m 的近中景分层。
+   ⚠️ uniform 放本模块而不是 10-post：ShaderPass 会 clone uniforms，写模板是写给一份没人用的
+      对象（GradeShader 处踩过这个坑）⇒ 集中登记在这里、10-post import 它再把指针接回去。
+   ⚠️ uColor **不在这条同步链上**：12-env/11-loop 只刷 scene.fog.color 与 MIST.uColor，
+      不会碰 HFOG。所以 10-post 的 render wrapper 每帧从 scene.fog.color 抄一份 ——
+      scene.fog.color 就是那条链的**权威出口**。（这里曾写"刷新的地方在已有同步链上"，
+      那是错的：后果是夜里高度雾仍用白天的雾色，而近中景恰恰是夜里最需要层次的地方。） */
+export const HFOG = {
+  uColor:     { value: new THREE.Color(CFG.fog.color) },
+  /* 贴地浓、离地渐隐的两个高度（米）。上沿 2.6m 是量出来的：实测中近景（3~25m）里
+     ≤2m 的像素占 26%（pavilion 视角）~69%（hero 视角），上沿压到 2.6~3m 才吃得下
+     pavilion 视角的中景。 */
+  uTop:       { value: 2.6 },
+  /* 沿视线的积分步数：越大越平滑也越贵。8 步在 944×590 上够用（见 10-post 的降级说明）。 */
+  uSteps:     { value: 8 },
+  /* 浓度总闸。**近景上限是硬约束**：6d07a9c「近景水面清透」要求 3~10m 总衰减
+     ≤5%（≈12.8/255），所以近段系数被刻意压到 0.20；真正出效果的是 10~30m 的 1.0 段。 */
+  uDensity:   { value: 0.030 },
+  uNearGain:  { value: 0.20 },   // 0~10m 段系数（刻意压低，保护刚做出来的清透）
+  uFarGain:   { value: 1.00 },   // 10~30m 段系数（"层次"真正起作用的地方）
+  uFarEnd:    { value: 30.0 },
+};
+/* 档位降级：核显（GPU_TIER low）跳过高成本的 16 步档，统一走 8 步。
+   写在 uniform 里而不是 10-post 的 if 里，是为了让门禁能直接断言"步数与档位相符"。 */
+export function setHFogQuality(steps){ HFOG.uSteps.value = steps; }
 /* 启动分段计时的实现已上移到 00-config.js —— 必须比本文件的贴图段更早。
    这里只做转出，index.html 的 `from './src/01-materials.js'` 导入路径不变。 */
 export { BOOT, bootMark };

@@ -1,7 +1,7 @@
 // 10-post: from index.html inline 499..648
 import { THREE, EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass, GTAOPass } from '../vendor.js';
 import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world } from './02-scene.js';
-import { MAT, setAuxPass, AUX_PASS_HIDDEN } from './01-materials.js';
+import { MAT, setAuxPass, AUX_PASS_HIDDEN, HFOG } from './01-materials.js';
 /* ⚠️ world 从 02-scene 取，**不能**从 08-assemble 取：08 import 本模块的 collectAOSkip，
    反向 import 就成环 → 本模块 body 被推迟到 08 之后，而 08 的 body 末尾要调 collectAOSkip()
    → 启动期 TDZ。world 在本模块只在 collectAOSkip 内用。 */
@@ -13,6 +13,40 @@ import { bootMark } from './00-config.js';
 // 走 EffectComposer 时会被完全绕过（实测 samples 为 0，全场景边缘锯齿）
 const composerTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
 export const composer = new EffectComposer(renderer, composerTarget);
+
+/* ══════════════════════════════════════════════════════════════
+   深度纹理（高度雾的输入）—— **必须在 EffectComposer 构造之后再挂**
+   ══════════════════════════════════════════════════════════════
+   ⚠️⚠️ 这是本项目最隐蔽的一个坑，也是本轮唯一真正的"实现失败"（第一版渲染完全无效、
+      分带中位差全是 0 —— 深度恒读到 0）。根因在 three r184 的 **WebGLRenderTarget.copy()**：
+        this.depthTexture = e.depthTexture.clone()          ← 拷配置，不是拷引用
+      而 EffectComposer 恰好两条路径都会走 copy()：
+        ① 构造时 `this.renderTarget2 = renderTarget.clone()`；
+        ② 每次 setSize()：`this.renderTarget2.setSize(...)`（RT.setSize 内部再 copy 一次）。
+      ⇒ 在**构造前**给 composerTarget 挂 depthTexture，pass 手里的 tDepth 会指向
+        那个"从没被渲染过"的克隆体，采样恒为 0 ⇒ 整个 pass 静默失效。
+      ⇒ 所以顺序必须是：先建 composer，再把 depthTexture 挂上并**每帧指回活跃 RT**。
+   ⚠️ UnsignedIntType + DepthFormat：HalfFloat 深度附件在本机 ANGLE/Intel Iris Xe
+      上不支持，采样会得到全 1。 */
+function attachDepthTexture(){
+  /* 两个缓冲**都要**挂：swapBuffers() 每帧换人，指到没挂的那一个就会退回
+     不可读的 renderbuffer（采样恒 0 ⇒ 整层静默失效）。
+     ⚠️ 挂在 EffectComposer **构造之后**、且每帧对着 readBuffer 自愈 ——
+        RT.setSize() 内部会 copy() 再把 depthTexture 克隆掉，不自愈就会指向旧纹理。 */
+  for (const rt of [composer.readBuffer, composer.renderTarget2]){
+    if (rt && !rt.depthTexture){
+      const dt = new THREE.DepthTexture(rt.width, rt.height);
+      dt.type = THREE.UnsignedIntType;
+      dt.format = THREE.DepthFormat;
+      dt.minFilter = THREE.NearestFilter;
+      dt.magFilter = THREE.NearestFilter;
+      rt.depthTexture = dt;
+    }
+  }
+  /* ⚠️ 真正给高度雾用的，是**场景那一帧**的深度，由 gradePass.render 捕获（见该处注释）。
+     此刻回退到 readBuffer，只在"从未经过 gradePass"的旁路调用（直接 composer.render 一次）下生效。 */
+  return sceneDepthTex || composer.readBuffer.depthTexture;
+}
 // 与 renderer 用同一倍率，否则超采样会在最后一次 blit 时被丢掉
 composer.setPixelRatio(RENDER_SCALE);
 composer.setSize(innerWidth, innerHeight);
@@ -195,5 +229,149 @@ const GradeShader = {
    也就是说对比 / 饱和 / 分离调色 / 暗角**从来没随时段天气变过**。必须写 pass 自己那份。 */
 export const gradePass = new ShaderPass(GradeShader);
 composer.addPass(gradePass);
+/* ── 场景深度纹理的**捕获点**（高度雾的输入）────────────────────────────────
+   ⚠️⚠️ 取深度的正确时机极容易搞错，本轮为此栽了两次，两次症状都是"整层静默失效"：
+     ① 挂在 EffectComposer **构造前** → RT.copy() 会 depthTexture.clone()，
+        拿到的是一张"从没被渲染过"的图（采样恒 0）。
+     ② 每帧指 composer.readBuffer → 也错：**RenderPass 的 needsSwap 是 false**，
+        它把颜色和深度都写进 readBuffer 且**不换手**；随后 gradePass（needsSwap=true）
+        换了一次手 ⇒ 高度雾看到的 readBuffer 已经是 gradePass 的**输出缓冲**，
+        它的深度纹理从没人写过。
+   ⇒ 正确做法：在 **gradePass 渲染时**（此刻 readBuffer 仍是 RenderPass 的输出）
+     把 `composer.readBuffer.depthTexture` 存下来给高度雾用。 */
+let sceneDepthTex = null;
+const gradeRenderOrig = gradePass.render.bind(gradePass);
+gradePass.render = function (...a){
+  const rb = composer.readBuffer;
+  if (rb && rb.depthTexture) sceneDepthTex = rb.depthTexture;
+  return gradeRenderOrig(...a);
+};
 bootMark('后处理链');
+
+/* ══════════════════════════════════════════════════════════════
+   近地面高度雾（2026-09-26）
+   ══════════════════════════════════════════════════════════════
+   动机与被证伪的替代方案见 01-materials.js 的 HFOG 注释（要点：FogExp2 是均匀介质，
+   近景要浓与远景不能糊在它那里互斥 —— 实测 4.4× 密度会让 176m 远山 100% 消失）。
+
+   算法：把视线**切成 uSteps 段**，逐段累加"该处世界高度上的雾浓度"，最后按 Beer-Lambert
+   合成 —— 所以它是真正的**沿视线积分**，而不是"按距离贴一个系数"。
+     浓度(p) = uDensity · 高度衰减(p.y) · 距离分段系数(p 的视线距离)
+     高度衰减 = 1 - smoothstep(uTop·0.35, uTop, p.y)   —— 贴水面最浓，柱顶几乎为 0
+     距离分段 = uNearGain (0~10m) / uFarGain (10m~uFarEnd)，uFarEnd 之后线性归零
+   世界高度用 depthTexture 里的 NDC 深度**反投影**出来：
+     viewZ = perspectiveDepthToViewZ(d, near, far) → 沿视线前进 -viewZ 得到世界点
+   不额外传 uniform：cameraPosition 由 three 自动注入，near/far 在 pass 构造时抓进闭包。
+
+   ⚠️ 必须放在 gradePass **之后**、OutputPass 之前：
+      放前面会连暗角/对比一起被雾洗平（雾是"空气"，不作用于调色曲线），
+      放 OutputPass 之后则要在 sRGB 空间里混颜色，会和 tone mapping 的响应打架。 */
+const HeightFogShader = {
+  uniforms:{
+    tDiffuse:    { value:null },
+    tDepth:      { value:null },
+    uColor:      { value:new THREE.Color(0xDCE0E2) },
+    uTop:        { value:2.6 },
+    uSteps:      { value:8 },
+    uDensity:    { value:0.030 },
+    uNearGain:   { value:0.20 },
+    uFarGain:    { value:1.00 },
+    uFarEnd:     { value:30.0 },
+    uNear:       { value:camera.near },
+    uFar:        { value:camera.far },
+    uEnabled:    { value:1.0 },
+    uAspect:     { value:camera.aspect },
+    uTanHalfFov: { value:Math.tan((camera.fov * Math.PI / 180) * 0.5) },
+    uCamPos:     { value:new THREE.Vector3() },
+    uCamFwd:     { value:new THREE.Vector3(0, 0, -1) },
+    uCamRight:   { value:new THREE.Vector3(1, 0, 0) },
+    uCamUp:      { value:new THREE.Vector3(0, 1, 0) },
+  },
+  vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+  /* 视线方向由 uCamFwd/Right/Up 三个基向量 + uv 在片元里重建 —— 不用 three 的
+     cameraPosition 注入（那是给顶点着色器准备的），也不用为每帧变化的 FOV 传 uniform
+     快照：基向量每帧刷一次即可（见下方 render wrapper）。
+     ⚠️ 早期版本曾用 cameraPosition + 字符串 replace 拼 rayDir，GLSL1 下"先用后声明"
+        会编译失败；现在是把声明顺序一次写对，不是靠 replace 打补丁。 */
+  fragmentShader:`
+    uniform sampler2D tDiffuse, tDepth;
+    uniform vec3 uColor;
+    uniform float uTop, uSteps, uDensity, uNearGain, uFarGain, uFarEnd;
+    uniform float uNear, uFar, uEnabled, uAspect, uTanHalfFov;
+    uniform vec3 uCamPos, uCamFwd, uCamRight, uCamUp;
+    varying vec2 vUv;
+    /* three 的 GLSL1 chunk 同款换算：把 DepthTexture 的 [0,1] 深度变回视空间 z */
+    float viewZFromDepth(float d){
+      float ndc = d * 2.0 - 1.0;
+      return (2.0 * uNear * uFar) / (uFar + uNear - ndc * (uFar - uNear));
+    }
+    void main(){
+      vec4 src = texture2D(tDiffuse, vUv);
+      if (uEnabled < 0.5){ gl_FragColor = src; return; }
+      float dRaw = texture2D(tDepth, vUv).x;
+      float vz = viewZFromDepth(dRaw);
+      /* 天空不参与积分：否则地平线以上会糊成一片白墙。
+         阈值取 uFar 的 92% —— 远山最远才 176m 而 uFar=900，判据不会误伤真几何。 */
+      if (dRaw >= 0.9999 || vz > uFar * 0.92){ gl_FragColor = src; return; }
+      float dist = max(vz, 0.0);
+      vec3 dir = normalize(uCamFwd
+                         + uCamRight * ((vUv.x * 2.0 - 1.0) * uTanHalfFov * uAspect)
+                         + uCamUp    * ((vUv.y * 2.0 - 1.0) * uTanHalfFov));
+      float stepLen = dist / uSteps;
+      float acc = 0.0;
+      int N = int(uSteps);
+      for (int i = 0; i < 16; i++){
+        if (i >= N) break;
+        /* 样本落在该步中点：比取端点更接近积分均值，8 步下误差可忽略 */
+        float seg = (float(i) + 0.5) * stepLen;
+        vec3 p = uCamPos + dir * seg;
+        float hFall = 1.0 - smoothstep(uTop * 0.35, uTop, p.y);
+        float dGain = (seg < 10.0) ? uNearGain
+                     : uFarGain * (1.0 - smoothstep(uFarEnd * 0.55, uFarEnd, seg));
+        acc += hFall * dGain;
+      }
+      acc *= uDensity * stepLen;
+      /* Beer-Lambert：与 FogExp2 的观感一致，但"上边界"来自 uTop 而不是距离平方律 */
+      float tr = clamp(exp(-acc), 0.0, 1.0);
+      gl_FragColor = vec4(mix(uColor * src.rgb, src.rgb, tr), src.a);
+    }`,
+};
+export const heightFogPass = new ShaderPass(HeightFogShader);
+/* ⚠️⚠️ ShaderPass 会 **UniformsUtils.clone** 模板的 uniforms（GradeShader 处踩过：
+   写模板是写给一份没人用的对象）。所以上面 `...HFOG` 的共享在这里等于失效 ——
+   必须把 pass 自己的这批 uniform **指回** HFOG 的同一批对象，否则：
+     · 门禁改 HFOG.uDensity 不会生效，A/B 全部退化成 0 差。
+   这是**指针回接**（不是拷贝值），所以外部写 HFOG 立刻对 pass 生效。
+   ⚠️ uColor 是**例外**：它每帧从 scene.fog.color 抄（见 render wrapper），
+      因为 12-env/11-loop 那条同步链只刷 scene.fog.color 与 MIST.uColor，**不碰** HFOG。 */
+for (const k of ['uColor', 'uTop', 'uSteps', 'uDensity', 'uNearGain', 'uFarGain', 'uFarEnd']){
+  heightFogPass.uniforms[k] = HFOG[k];
+}
+/* 相机基向量每帧刷一次（走 composer 链的 render 时 camera 已经就位）。
+   ⚠️ 必须在 render 里刷而不是只在构造时抓：FOV 会随 12-env 的运镜/季节变，
+   uTanHalfFov / uAspect 跟着 camera 走才对。
+   ⚠️ tDepth 也在这里指：composer 的 setSize 会重建 RT 尺寸，DepthTexture 的
+   size 由 EffectComposer 同步，但**引用**必须每帧指一次，resize 后才不会指向旧纹理。 */
+heightFogPass.render = (function(orig){
+  return function(...a){
+    const u = heightFogPass.uniforms;
+    /* ⚠️ 雾色每帧从 scene.fog 抄。12-env/11-loop 那条同步链只刷 scene.fog.color 与
+       MIST.uColor，**不碰** HFOG —— 不抄的后果是夜里高度雾仍用白天的雾色，而近中景
+       恰恰是夜里最需要层次的地方，这个错偏偏在暗场最显眼。
+       在这里抄而不是去改 12-env：12 不在本轮文件边界内，而 scene.fog.color 就是那条链的
+       **权威出口**，从出口读是最短路径、也最不容易再走偏。 */
+    if (scene.fog) u.uColor.value.copy(scene.fog.color);
+    u.uCamPos.value.copy(camera.position);
+    camera.getWorldDirection(u.uCamFwd.value);
+    u.uCamRight.value.set(1, 0, 0).applyQuaternion(camera.quaternion).normalize();
+    u.uCamUp.value.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
+    u.uAspect.value = camera.aspect;
+    u.uTanHalfFov.value = Math.tan((camera.fov * Math.PI / 180) * 0.5);
+    /* ⚠️ 必须**每帧**指向 composer 当前的活跃 RT：RT.setSize 会内部 copy() ⇒
+       depthTexture 被换成新克隆体，缓存引用会指向一张"从没被渲染过"的深度图。 */
+    u.tDepth.value = attachDepthTexture();
+    return orig.apply(this, a);
+  };
+})(heightFogPass.render.bind(heightFogPass));
+composer.addPass(heightFogPass);
 composer.addPass(new OutputPass());
