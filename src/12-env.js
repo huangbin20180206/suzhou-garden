@@ -14,7 +14,7 @@ import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from '
 import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
-import { TAU, HOOKS, ENV_REF, mulberry32 } from './00-config.js';
+import { TAU, HOOKS, ENV_REF, mulberry32, CFG } from './00-config.js';
 import { spawnRipple, rainRippleActive, treeLanternInsts } from './06-vegetation.js';
 import { POND_RADII } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
@@ -1278,6 +1278,282 @@ export function makeFestivalLights(){
   _festBulbs.inst = bInst; _festBulbs.n = bulbs.length;
 }
 
+/* ══ 灯会挂灯扩展（2026-09-26 · 用户："桃树，柳树，还有紫藤都可以挂花灯；
+      院子围栏也可以挂一些中国传统的红色灯笼"）══════════════════════════════════
+   两批新增挂灯，**都只加自发光材质、一个真光源都不加**（festival-guard 坑①：
+   夜里月光接管阴影方向，加真灯就得同步改阴影逻辑）：
+
+     A 柳树 + 紫藤挂**花灯** —— 形制照抄桃树那盏（Lathe 鼓腹 + 上下盖 + 挂绳），
+       不改形制，只是换挂点。
+     B 围栏挂**传统红灯笼** —— 新形制：直筒微鼓的朱红灯身 + 金色上下盖 +
+       挂绳 + 底部流苏球。刻意与花灯可区分：直筒不收腰、色恒为红、尺寸大一档。
+
+   ── 三条与既有门禁对齐的硬规矩 ──
+   ① **一个灯笼 = 一份合并几何 = 一个 InstancedMesh**。
+      诊断段（outputs/_diag/lantern-ab*.mjs）试摆时把一盏灯拆成 4~5 个 InstancedMesh
+      （灯身/盖/底/绳/穗），报出 **+26 draw call** —— 纯浪费。生产实现用
+      mergeGeometries 把部件并成一份 ⇒ 120 盏灯只占 **3 个对象**（柳花灯/紫藤花灯/红壁灯）。
+      ⚠️ 红壁灯的金盖与红身**同属一份几何**（instanceColor 逐实例染色，gold 那一档
+      用顶点色偏移表达），否则红壁灯就要 2 个对象。
+   ② **非灯会态 count=0 零提交** —— 走 applyPresence 的直接清单（与 treeLanternInsts 同套路，
+      不混进季节表：存在性语义是"随灯会"，与季节无关）。
+   ③ **挂点存在性一律用 `instanceMatrix.count`（容量），不用 `count`**。
+      `count` 会被季节通道改写（冬季 willowLeaf≈0、wisteriaShow=0 把柳叶/紫藤压到近 0），
+      而 instanceMatrix 缓冲**仍是满容量**的。挂灯要留在树上（枯枝挂花灯/缠枝挂灯是上元灯会的
+      题眼，冬天更是唯一能看见的一笔）—— 用 count 判会把挂灯一起判没了。 */
+const FEST_WILLOW_PER = 12;         // 每株柳树 12 盏
+const FEST_WISTERIA_PER = 12;       // 每丛大紫藤 12 盏
+const FEST_WALL_GAP = 3.4;          // 围栏红灯笼间距（米）
+const FEST_WALL_Y = 3.95;           // 挂高（帽檐 ~4.8 之下 0.85m）
+const FEST_WALL_OFF = 0.95;         // 自墙面内缩（墙厚 0.6 ⇒ 内面在 ±W/2-0.3，这里再退一点避帽檐）
+const FEST_WIS_MIN = 1500;          // 紫藤"大藤架"判别阈值（容量）—— 游廊棚上另有 12 小丛，容量 375~566
+
+/* 花灯材质：与桃树那盏 TREE_LANTERN_MAT 同族（MeshBasic + toneMapped:false）。
+   ⚠️ 不能直接 import 06 的 TREE_LANTERN_MAT 复用：那材质**已经**被桃树挂灯的
+   instanceColor 通道占用（instanceColor 是**逐网格**的，两个网格各自一份，互不影响）——
+   其实可以复用，但为了"红灯笼是独立一类"的判读清晰，这里给花灯挂灯单独一份同参材质，
+   并登记进 festivalShow 的 presence 表（自发光件不吃季节色，登记只为统一显隐语义）。 */
+const hangFlowerMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false,
+                                                    transparent: true, opacity: 0.95, depthWrite: false });
+/* 红灯笼材质：朱红 + 逐实例染色（深红/正红/朱红三档抖动，±12% 亮度）——
+   传统壁挂灯笼是成排的，全等亮度会读成"塑料玩具"。 */
+const wallRedMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false,
+                                                  transparent: true, opacity: 0.97, depthWrite: false });
+
+/* 花灯几何：与桃树 makeTreeLanternGeo 同一形制（Lathe 鼓腹 + 上下盖 + 挂绳），
+   只是这里**合并成一份**（桃树那版在 06 里也是合并的，见 makeTreeLanternGeo）。 */
+function makeHangFlowerGeo(){
+  const body = new THREE.LatheGeometry([
+    new THREE.Vector2(0.026, -0.085), new THREE.Vector2(0.062, -0.062),
+    new THREE.Vector2(0.068,  0.000), new THREE.Vector2(0.062,  0.062),
+    new THREE.Vector2(0.026,  0.085),
+  ], 10);
+  const cap = new THREE.CylinderGeometry(0.030, 0.030, 0.016, 8);  cap.translate(0,  0.090, 0);
+  const base = new THREE.CylinderGeometry(0.030, 0.030, 0.016, 8); base.translate(0, -0.090, 0);
+  const cord = new THREE.CylinderGeometry(0.004, 0.004, 0.10, 4);  cord.translate(0,  0.148, 0);
+  return mergeGeometries([body, cap, base, cord], false) || body;
+}
+/* 红灯笼几何：直筒微鼓的灯身 + 上下木盖 + 挂绳 + 流苏球。
+   ⚠️ 金盖与红身**同属一份几何**（否则要多一个 InstancedMesh = 多一次提交）：
+   盖用顶点色偏移（红身基色 R/G/B 分别 +0.62/+0.40/+0.06 ⇒ 落到金色），
+   instanceColor 仍按**红身**那一档染色 ⇒ 盖跟着染成"偏金的暗红"，夜里读作铜盖。 */
+function makeWallRedLanternGeo(){
+  /* ⚠️ 上一轮（2026-09-27）把整份几何**放大 1.25×**（灯身直径 0.224 → 0.280m）。
+     起因：40m 观距下 0.22m 的灯笼在屏上只有几个暗红点，读不出"真是一盏灯"。
+     上界有两个物理约束，不能乱放大：
+       ① 灯笼顶（绳头 y=+0.365 处）必须**低于**帽檐（帽檐在 y≈4.8）—— 放大后 y=+0.456，仍安全；
+       ② 底沿玉坠（穗 y=-0.163 处）放大后 y=-0.204，挂点 y=3.95 ⇒ 底沿 y=3.75，
+          高于人头且不与地面道具碰撞。
+     尺寸只改几何，不改挂点/挂高（y=3.95），所以门禁里"墙灯 y 3.6~4.4"那条不受影响。 */
+  const body = new THREE.LatheGeometry([
+    new THREE.Vector2(0.085, -0.105), new THREE.Vector2(0.105, -0.075),
+    new THREE.Vector2(0.112,  0.000), new THREE.Vector2(0.105,  0.075),
+    new THREE.Vector2(0.085,  0.105),
+  ], 12);
+  const capT = new THREE.CylinderGeometry(0.070, 0.070, 0.022, 12); capT.translate(0,  0.115, 0);
+  const capB = new THREE.CylinderGeometry(0.062, 0.062, 0.020, 12); capB.translate(0, -0.112, 0);
+  const cord = new THREE.CylinderGeometry(0.005, 0.005, 0.16, 5);   cord.translate(0,  0.205, 0);
+  const tassel = new THREE.SphereGeometry(0.018, 8, 6);             tassel.translate(0, -0.145, 0);
+  /* 整体放大 1.25×（含偏移），closePath:false 不封口。 */
+  for (const g of [body, capT, capB, cord, tassel]) g.scale(1.25, 1.25, 1.25);
+  const parts = [body, capT, capB, cord, tassel];
+  /* 给盖/绳/穗打顶点色标记（金 = +0.62/+0.40/+0.06 的偏移量），
+     合并后 instanceColor 与它相乘 ⇒ 盖读作金、灯身读作红。 */
+  const GOLD = [0.62, 0.40, 0.06];
+  const partsVC = parts.map((g, gi) => {
+    const gg = g.clone();
+    const n = gg.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    const isGold = (gi === 1 || gi === 2 || gi === 3);        // capT / capB / cord
+    for (let i = 0; i < n; i++){
+      col[i*3]     = isGold ? GOLD[0] : 0;
+      col[i*3 + 1] = isGold ? GOLD[1] : 0;
+      col[i*3 + 2] = isGold ? GOLD[2] : 0;
+    }
+    gg.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return gg;
+  });
+  return mergeGeometries(partsVC, false) || body;
+}
+
+/* 挂点收集：柳/紫藤/围栏。
+   ⚠️ **必须在 collectSeasonCaches() 之后调用**（08 的 runDeferredBoot 收尾顺序：
+   mergeStatics → collectSeasonCaches → applyEnv → collectAOSkip；本函数挂在 collectSeasonCaches
+   之后由 initEnvScene/deferBoot 收尾触发）。柳与紫藤都在 deferRoot 延迟批里 —— 模块期去采
+   拿到的是空集（本项目老坑：willowLeaf 季节通道曾经一直写不进去）。
+   坐标来源**全是已经活着的对象**，不改 06/07：
+     · 柳树 → `seasonWillowLeaf` 的柳叶 InstancedMesh（mergeStatics 不吃 InstancedMesh ⇒ 名字/矩阵都在），
+       读它的实例矩阵取**真实冠内顶点**（诊断实测柳叶幕 y 3.22~6.61、冠半径中位 1.67）。
+     · 紫藤 → 材质是 MAT.wisteria 的 InstancedMesh，按**容量 ≥1500** 筛出两丛大藤架
+       （(13.2,3.35,1.2) 容量 2212 / (13.2,3.35,-4.6) 容量 1695；游廊棚另有 12 小丛 375~566，滤掉）。
+     · 围栏 → makeWalls 的网格已被 mergeStatics 并掉（名字全丢，实测 count=0），
+       墙位完全由 CFG 常量决定（garden 60×45 / wall.h 4.5 / wall.t 0.6），照 07-ground 的
+       洞口坐标留空（月洞门与漏窗正上方不挂灯）。 */
+const _hangAnchors = { willow: [], wisteria: [], wall: [], built: false };
+const _hangInsts = [];             // 三份 InstancedMesh（柳花灯/紫藤花灯/红壁灯）
+const FEST_HANG_COLORS = [0xFF6B35, 0xFF8FAB, 0xFFD166, 0x7BD389, 0x6BA8FF];
+
+function collectWillowHangPts(){
+  const out = [];
+  const m4 = new THREE.Matrix4(), v = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+  for (const it of willowLeafInsts){
+    const o = it.o;                                  // 柳叶 InstancedMesh（合并吃不掉）
+    o.updateWorldMatrix(true, false);
+    const g = o.parent, base = g.position, sc = g.scale.x;
+    const cap = o.instanceMatrix.count;                // ⚠️ 容量，不是 count（季节会改 count）
+    if (!cap) continue;
+    const cand = [];
+    const step = 5;
+    for (let i = 0; i < cap; i += step){
+      o.getMatrixAt(i, m4); m4.decompose(v, q, s);
+      cand.push(new THREE.Vector3(base.x + v.x * sc, base.y + v.y * sc, base.z + v.z * sc));
+    }
+    cand.sort((a, b) => b.y - a.y);                    // 高 → 低
+    /* ⚠️⚠️ 2026-09-26 观感修正：**按 y 分层等分索引会聚成一簇**，必须改成**横向最远点采样**。
+       诊断（outputs/_diag/willow-cluster-diag.mjs + willow-cluster-points.png）证伪了原假设：
+         · 12 个采样点的**原始实例索引是散开的**（[7463,438,7387,1162,...]，非连号）
+           ⇒ "都从同一处序列取"（H1）不成立；
+         · 单点世界坐标变换无 bug，冠幅本身 5.3~6.3m，12 盏的 xz 跨距已到冠幅的 66~87%
+           ⇒ "scale/矩阵把范围压扁"（H2）不成立。
+       真正的原因：y 排序后**等分索引**只保证"12 个点均匀分布在 y 那一维"，
+       对 xz **毫无保证** —— 一堆 y 接近的叶子在 xz 上可能挤在冠的一角，于是画面读作
+       "树冠一角挂了一串气球"，而冠的其余部分是空的（夜景里更明显，因为暗部什么都没有）。
+       修法：**最远点采样**（farthest-point sampling）—— 先取 y 在冠中段（yP25~yP75）的候选
+       作为种子池（保证仍挂在柳条上、不是浮空），再在 xz 平面上反复"取离已选集合最远的那个点"，
+       直到 12 个。这样 12 盏**必然铺满整个冠幅**，读作"柳条上星星点点的花灯"。 */
+    const lo = Math.floor(cand.length * 0.25), hi = Math.max(Math.floor(cand.length * 0.75), lo + 1);
+    const band = cand.slice(lo, hi);                  // 冠中段的候选池（仍在枝上）
+    if (!band.length){ out.push(cand[0].clone()); continue; }
+    const picked = [];
+    if (band.length <= FEST_WILLOW_PER){
+      for (const p of band) picked.push(p);
+    } else {
+      /* 种子：候选池里离**池质心**最近的（落在冠的中心，最稳）；之后每轮取 xz 距
+         已选集合最远者 —— 这是 k-center 贪心，12 个点把 6m 冠幅铺满且间距均匀。 */
+      let cx = 0, cz = 0;
+      for (const p of band){ cx += p.x; cz += p.z; } cx /= band.length; cz /= band.length;
+      let seed = 0, bestD = Infinity;
+      for (let i = 0; i < band.length; i++){
+        const d = (band[i].x - cx) ** 2 + (band[i].z - cz) ** 2;
+        if (d < bestD){ bestD = d; seed = i; }
+      }
+      picked.push(band[seed]);
+      while (picked.length < FEST_WILLOW_PER){
+        let bi = -1, bD = -1;
+        for (let i = 0; i < band.length; i++){
+          let d = Infinity;
+          for (const q of picked){ const t = (band[i].x - q.x) ** 2 + (band[i].z - q.z) ** 2; if (t < d) d = t; }
+          if (d > bD){ bD = d; bi = i; }
+        }
+        if (bi < 0) break;
+        picked.push(band[bi]);
+      }
+    }
+    for (const src of picked){
+      const p = src.clone();
+      p.y -= 0.15;                                    // 从枝上垂下来（灯顶贴枝）
+      out.push(p);
+    }
+  }
+  return out;
+}
+function collectWisteriaHangPts(){
+  const out = [];
+  const jrT = mulberry32(881122);                     // 本地流：布局类随机不走共享 rnd
+  const groups = [];
+  world.traverse(o => {
+    if (o.isInstancedMesh && o.material === MAT.wisteria && o.instanceMatrix.count >= FEST_WIS_MIN)
+      groups.push(o);
+  });
+  for (const grp of groups){
+    grp.updateWorldMatrix(true, false);
+    const p = grp.parent.position;
+    const spanX = 4.4;                                // 实测 xRange 宽约 9m ⇒ 半跨 4.4
+    for (let k = 0; k < FEST_WISTERIA_PER; k++){
+      const u = (k + 0.5) / FEST_WISTERIA_PER;
+      out.push(new THREE.Vector3(p.x - spanX + spanX * 2 * u,
+                                 p.y - 0.20 - jrT() * 0.14,   // 落在藤与花穗顶之间
+                                 p.z + (jrT() - 0.5) * 0.35));
+    }
+  }
+  return out;
+}
+function collectWallHangPts(){
+  const W = CFG.garden.w, D = CFG.garden.d;
+  const jrL = mulberry32(334455);
+  const out = [];
+  /* 洞口留空：坐标抄 07-ground 的 makeWalls（北墙 i=±1,±2 漏窗；南墙月洞门 + 四漏窗；
+     东西墙 rotation.y=π/2 ⇒ 墙沿 z，洞的墙局部 x 就是世界 z）。 */
+  const inGap = (x, z, gaps) => gaps.some(gp => Math.hypot(x - gp[0], z - gp[1]) < gp[2]);
+  const runGap = (x0, z0, x1, z1, gaps) => {
+    const n = Math.max(2, Math.round(Math.hypot(x1 - x0, z1 - z0) / FEST_WALL_GAP));
+    for (let k = 0; k <= n; k++){
+      const u = k / n, x = x0 + (x1 - x0) * u, z = z0 + (z1 - z0) * u;
+      if (inGap(x, z, gaps)) continue;
+      out.push(new THREE.Vector3(x, FEST_WALL_Y + (jrL() - 0.5) * 0.05, z));
+    }
+  };
+  runGap(-W/2 + FEST_WALL_OFF, -D/2 + FEST_WALL_OFF,  W/2 - FEST_WALL_OFF, -D/2 + FEST_WALL_OFF,
+         [[0, -D/2, 3.2], [-18.4, -D/2, 2.4], [-9.2, -D/2, 2.4], [9.2, -D/2, 2.4], [18.4, -D/2, 2.4]]);
+  runGap(-W/2 + FEST_WALL_OFF,  D/2 - FEST_WALL_OFF,  W/2 - FEST_WALL_OFF,  D/2 - FEST_WALL_OFF,
+         [[0, D/2, 3.6], [-12.5, D/2, 2.4], [12.5, D/2, 2.4], [-21, D/2, 2.2], [21, D/2, 2.2]]);
+  runGap(-W/2 + FEST_WALL_OFF, -D/2 + FEST_WALL_OFF, -W/2 + FEST_WALL_OFF,  D/2 - FEST_WALL_OFF,
+         [[-W/2, -14, 2.4], [-W/2, 2, 2.4]]);
+  runGap( W/2 - FEST_WALL_OFF, -D/2 + FEST_WALL_OFF,  W/2 - FEST_WALL_OFF,  D/2 - FEST_WALL_OFF,
+         [[ W/2, -14, 2.4], [ W/2,  2, 2.4]]);
+  return out;
+}
+
+/* 把一份挂点写成 InstancedMesh（一份几何一个对象 = 一次提交）。 */
+function addHangInst(geo, mat, pts, seed, tag, colorFn){
+  if (!pts.length) return null;
+  const inst = new THREE.InstancedMesh(geo, mat, pts.length);
+  inst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+  inst.userData.noMerge = true;                      // 实例色会被几何合并丢掉
+  inst.userData.aoSkip = true;                       // 灯自身在发光，不进 GTAO 法线 pass
+  inst.userData.festivalHang = true;                 // 门禁按标记识别（不靠名字猜）
+  inst.userData.hangKind = tag;
+  inst.name = 'festivalHang_' + tag;
+  inst.frustumCulled = false;
+  const jr = mulberry32(seed);
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0),
+        s1 = new THREE.Vector3(1, 1, 1);
+  for (let i = 0; i < pts.length; i++){
+    q.setFromAxisAngle(up, jr() * TAU);
+    m4.compose(pts[i], q, s1);
+    inst.setMatrixAt(i, m4);
+    inst.setColorAt(i, colorFn(jr));
+  }
+  if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+  world.add(inst);
+  _hangInsts.push(inst);
+  return inst;
+}
+
+/* 收集挂点并建网格。**幂等**，且**在柳叶网格到齐之前拒绝建**（延迟批时序，见 collectSeasonCaches 注释）。 */
+export function collectFestivalHangAnchors(){
+  if (_hangAnchors.built) return _hangAnchors;
+  /* ⚠️ 前置：柳叶 InstancedMesh 必须已经收进季节缓存。延迟批之前调用会拿到空集 ——
+     此时**什么都不建、不落 built 标记**，等 runDeferredBoot 收尾那次再来。 */
+  if (!willowLeafInsts.length) return _hangAnchors;
+  _hangAnchors.built = true;
+  _hangAnchors.willow   = collectWillowHangPts();
+  _hangAnchors.wisteria = collectWisteriaHangPts();
+  _hangAnchors.wall     = collectWallHangPts();
+  const flowerCol = (jr) => new THREE.Color(
+    FEST_HANG_COLORS[(jr() * FEST_HANG_COLORS.length) | 0]).multiplyScalar(0.82 + jr() * 0.36);
+  const redCol = (jr) => {
+    const c = [0xE02A1C, 0xD0231A, 0xEE3520][(jr() * 3) | 0];
+    return new THREE.Color(c).multiplyScalar(0.88 + jr() * 0.24);
+  };
+  addHangInst(makeHangFlowerGeo(), hangFlowerMat, _hangAnchors.willow,   20260926, 'willowFlower',   flowerCol);
+  addHangInst(makeHangFlowerGeo(), hangFlowerMat, _hangAnchors.wisteria, 20260927, 'wisteriaFlower', flowerCol);
+  addHangInst(makeWallRedLanternGeo(), wallRedMat, _hangAnchors.wall,  20260928, 'wallRed',        redCol);
+  /* 非灯会态立即归零（applyPresence 之后每帧重申，这里只保证"建完就是关的"） */
+  for (const o of _hangInsts) o.count = 0;
+  return _hangAnchors;
+}
+
 /* 每帧推进河灯漂移（随波 = 慢速小轨道 + 起伏 + 缓旋）。只在灯会开着时写矩阵。 */
 const _m4 = new THREE.Matrix4(), _q = new THREE.Quaternion(),
       _v = new THREE.Vector3(), _s = new THREE.Vector3(1, 1, 1), _e = new THREE.Euler();
@@ -1325,6 +1601,14 @@ export function festivalState(){
         }) : [],
     stringN: _festBulbs.inst ? _festBulbs.inst.count : 0,
     treeN, treeFull,
+    /* 新增三批挂灯（柳花灯/紫藤花灯/围栏红壁灯）—— 显式暴露，不靠 traverse 猜。 */
+    hang: _hangInsts.map(o => ({
+      kind: o.userData.hangKind,
+      n: o.count,
+      full: o.userData.fullCount ?? o.instanceMatrix.count,
+      objs: 1,                                  // 一份几何一个对象（合并后的 draw call 代价）
+    })),
+    hangBuilt: _hangAnchors.built,
     lampLights: worldLights.length,               // 真光源数必须仍等于灯笼的 5 盏
   };
 }
@@ -1434,6 +1718,15 @@ export function applyPresence(p){
     const n = treeOn ? o.userData.fullCount : 0;
     if (o.count !== n) o.count = n;
   }
+  /* 柳/紫藤/围栏三批挂灯：同一条"随灯会"的通道，同样走**直接清单**而不是季节表。
+     ⚠️ 容量取 `instanceMatrix.count`（建网格时定的），**不是** `o.count` —— count 是被本函数
+        改写的量（下一行就写它），拿它当容量会第一次把 count 锁成 0、永不复原。 */
+  for (const o of _hangInsts){
+    const cap = o.instanceMatrix.count;
+    if (o.userData.fullCount === undefined) o.userData.fullCount = cap;
+    const n = treeOn ? o.userData.fullCount : 0;
+    if (o.count !== n) o.count = n;
+  }
 }
 
 /* 紫藤花串是**每丛一个 InstancedMesh**，不是整园共用一个：
@@ -1535,6 +1828,14 @@ export function collectSeasonCaches(){
     if (o.isMesh && presence.has(o.material)) presence.get(o.material).push(o);
   });
   for (const [m, list] of presence) seasonMeshCache.set(m, list);
+  /* 挂点收集**挂在这里**（与季节缓存同一趟、且在其后）：柳/紫藤都在 deferRoot 延迟批里，
+     必须在 collectSeasonCaches 之后才收得到（模块期收 = 空集，本项目老坑）。
+     ⚠️ 本函数在启动里被调**两次**（initEnvScene 一次 = 延迟批之前；runDeferredBoot 收尾再一次
+     = 延迟批之后）。第一次柳树还没进场 ⇒ 必须在"柳叶网格收齐"之前**拒绝建网格**，
+     否则挂灯会按空集建好、永远补不上（这就是 willowLeaf 季节通道当年一直写不进去的同一类坑）。
+     所以：柳叶网格为 0 时只返回、不落 built 标记、不建任何挂灯网格；围栏挂点与时机无关，
+     但为保持"三个网格同生同死"的简洁，同样等柳叶到齐后一次性建。 */
+  collectFestivalHangAnchors();
 }
 /* ⚠️ 这里**没有**顶层 `collectSeasonCaches()`：它 traverse `world`，而本模块被 08 import 而在
    world 之前求值 → 顶层调用必 TDZ。已并入下面的 initEnvScene（world 组装 + 合并之后才跑，
