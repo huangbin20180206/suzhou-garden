@@ -112,19 +112,26 @@ const check = (name, ok, detail = '') => {
 
     /* ── B · 运行时实测：读真实的 holder 局部坐标，看有没有偷偷带父组偏移 ── */
     const kg = G.koiGroup;
+    /* 行为偏移上限（06 的 KOI_OFFSET_TOTAL_CAP）：避障/惊鱼/聚散允许把鱼推离基准轨道点，
+       但总量有界。**判据从"精确轨道域"放宽为"轨道域 + 有界偏移"** ——
+       本条的本意是抓「父组 +3 偏移叠加两遍」那种**系统性**错误，而不是禁止一切偏移。
+       ⚠️ 偏移量本身由 koi-behavior-guard 逐项验（不越界、有界、不出池），这里只管
+          "没有出现 3 米量级的整体错位"。3 >> 2.6 ⇒ 两者不会互相掩盖。 */
+    const BEHAVIOR_CAP = 2.6;
     const fish = kg.userData.fishes.map(f => {
       const d = f.userData, o = orbits[d.orbit];
       const jMax = d.jitter + 0.06;
       // 局部坐标（= 池局部坐标，父组给世界偏移）
       const lx = f.position.x, lz = f.position.z;
-      // 理论局部坐标的取值域，用来抓「多加了 3」这类偏移
-      const expX = [o.cx - o.a * jMax, o.cx + o.a * jMax];
-      const expZ = [o.cz - o.b * jMax, o.cz + o.b * jMax];
+      // 基准轨道取值域（抓「多加了 3」这类整体错位），再放宽一个行为偏移上限
+      const expX = [o.cx - o.a * jMax - BEHAVIOR_CAP, o.cx + o.a * jMax + BEHAVIOR_CAP];
+      const expZ = [o.cz - o.b * jMax - BEHAVIOR_CAP, o.cz + o.b * jMax + BEHAVIOR_CAP];
       const wp = new G.THREE.Vector3();
       f.getWorldPosition(wp);
       return {
         orbit: d.orbit, jitter: +d.jitter.toFixed(3),
         lx: +lx.toFixed(3), lz: +lz.toFixed(3),
+        baseX: +lx.toFixed(3), baseZ: +lz.toFixed(3),
         inX: lx >= expX[0] - 1e-6 && lx <= expX[1] + 1e-6,
         inZ: lz >= expZ[0] - 1e-6 && lz <= expZ[1] + 1e-6,
         worldZ: +wp.z.toFixed(3),
@@ -155,7 +162,7 @@ const check = (name, ok, detail = '') => {
       return { i: oi, outside, worst: +worst.toFixed(3) };
     });
 
-    return { analytic, buggy, fish, turtles, koiGroupZ: kg.position.z, POND_Z };
+    return { analytic, buggy, fish, turtles, koiGroupZ: kg.position.z, POND_Z, behaviorCap: BEHAVIOR_CAP };
   });
 
   console.log('\n[解析扫轨] 每条轨道 9 档抖动 × 720 相位 = 6480 点，全周期逐点判：');
@@ -177,8 +184,8 @@ const check = (name, ok, detail = '') => {
     data.buggy.map(o => `#${o.i}:${o.outside}点(最差${o.worst}m)`).join(' '));
 
   const badFish = data.fish.filter(f => !f.inX || !f.inZ);
-  check('运行时 · 鱼局部坐标不含父组偏移（无 +3 叠加）', badFish.length === 0,
-    badFish.length ? JSON.stringify(badFish.slice(0, 3)) : `11 条全部落在各自轨道取值域内`);
+  check('运行时 · 鱼在基准轨道 + 有界行为偏移内（无 +3 整体错位）', badFish.length === 0,
+    badFish.length ? JSON.stringify(badFish.slice(0, 3)) : `11 条全部落在轨道域 +${data.behaviorCap}m 内`);
   const outFish = data.fish.filter(f => !f.inside);
   check('运行时 · 11 条鱼当前位置全在池内', outFish.length === 0,
     outFish.length ? JSON.stringify(outFish.slice(0, 3))

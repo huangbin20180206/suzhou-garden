@@ -7,7 +7,7 @@ import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-material
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
-import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity } from './06-vegetation.js';
+import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
@@ -806,9 +806,17 @@ function animate(){
 
   // 锦鲤沿椭圆轨道游动（轨道经核算落在池内）
   const fishes = koiGroup.userData.fishes;
+  /* 行为层（避障 / 惊鱼 / 聚集）的"同组邻居"必须用**同一帧的快照**：
+     若就地读 f.position，循环里前面的鱼已是本帧位置、后面的还是上帧位置，
+     同一条轨道上会出现半帧错位 ⇒ 聚散力不对称，鱼群会整体偏向一侧。
+     这里先拍一份按 orbit 分组的浅拷贝（11 条 × 每帧一次，可忽略）。 */
+  const koiPeers = KOI_BEHAVIOR.cohesion ? fishes.map(f => ({ x:f.position.x, z:f.position.z })) : null;
   for (const f of fishes){
     const d = f.userData;
-    d.t += dt * d.speed * (ENV.cur.koiSpeed || 1);   // 季节：冬季迟缓
+    /* 惊鱼加速：读取本鱼当前惊扰能量（0 起，上限约 1.6），乘进推进速度。
+       只改"走得快一点"，不改轨道形状 ⇒ 惊散后仍回到原轨道，不会迷路。 */
+    const koiE = koiStartleEnergy(f.position.x, f.position.z, t);
+    d.t += dt * d.speed * (ENV.cur.koiSpeed || 1) * (1 + koiE * 0.5);   // 季节：冬季迟缓
     const o = KOI_ORBITS[d.orbit];
     const j = d.jitter + Math.sin(t * 0.35 + d.phase) * 0.06;
     /* ⚠️ 锦鲤越岸穿模（2026-09-17 修）：holder 是 **koiGroup 的子节点**，
@@ -818,8 +826,18 @@ function animate(){
        z_local≈5.54 越过 4.1 的腰，鱼就骑到草皮上了。
        轨道参数 cx/cz 本来就是**池局部坐标**，直接写即可；世界坐标由父组给。
        （泳龟是 world 的直接子节点，没有父组偏移，所以下面那段必须保留 —— 别照抄删掉。） */
-    f.position.x = o.cx + Math.cos(d.t) * o.a * j;
-    f.position.z = o.cz + Math.sin(d.t) * o.b * j;
+    const bx = o.cx + Math.cos(d.t) * o.a * j;
+    const bz = o.cz + Math.sin(d.t) * o.b * j;
+    f.position.x = bx; f.position.z = bz;
+    /* ── 行为偏移（避障 + 惊鱼 + 聚散）叠加在轨道点之上 ──
+       ⚠️ 三条纪律：① 叠加在**基准轨道点**上，不是叠加在 f.position 上（否则逐帧累积漂移）；
+       ② 偏移量自身有界（合计 ≤2.6m）且已在 06 内过 pondClamp；
+       ③ 后面原有的 0.95×POND_RADII 夹紧与投喂路径**继续保留**，投喂优先、行为让位。
+       无行为时偏移恒为 0 ⇒ 逐字等价于原公式（koi-orbit / koi-feed 门禁不受影响）。 */
+    if (KOI_BEHAVIOR.avoid || KOI_BEHAVIOR.startle || KOI_BEHAVIOR.cohesion){
+      const bo = koiBehaviorOffset(bx, bz, t, koiPeers);
+      f.position.x += bo.dx; f.position.z += bo.dz;      // 字段是 dx/dz（已含池域夹紧）
+    }
     f.rotation.y = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
     f.rotation.z = Math.sin(t * 4 + d.phase) * 0.1;
 
