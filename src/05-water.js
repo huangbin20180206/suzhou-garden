@@ -364,32 +364,47 @@ export function makePond(){
   return g;
 }
 
-/* 太湖石驳岸：沿池边实例化圆润河石（水流冲刷感，非棱角） */
+/* 太湖石驳岸：沿池边实例化圆润河石（水流冲刷感，非棱角）
+   ── 2026-09-26 重做（依据近景实拍诊断，outputs/_diag/bank-rocks-audit）──────
+   旧版三个问题，都在近景（3m）下看得见：
+   ① **轮廓太尖、读作碎石**：Icosahedron(r=1, detail=1/2) 只有 20~80 面，
+      再叠 rr(0.9,1.12) 的强扰动 ⇒ 低模尖锐面在 3m 处看得一清二楚，就是"施工碎石"的来源。
+      换成 Sphere(1, 14, 10) / Sphere(1, 12, 9) / Icosahedron(1, 2)，
+      扰动幅度收窄到 rr(0.94, 1.07) —— 轮廓圆润，保留"水流冲刷的河石"而非"碎石"。
+   ② **反光过白**：色相亮度 HSL lightness 0.4~0.66 正午被打到中位亮度 66（水面 129），
+      在水边读成一片灰白。汀步石当年就是同一问题，压到 0.28~0.54 才解决。
+      这里同口径压到 0.30~0.48（比汀步略深：驳岸石体积大，压太狠会读成黑岩）。
+   ③ **出水过高**：旧版 y ∈ [-0.28, +0.12]、竖向缩放 0.6~1.0 ⇒ 有一半石头
+      露出水面一截，池边读成一排"立着的石块"。压到 y ∈ [-0.34, -0.02]、竖向 0.5~0.75
+      ⇒ 只露低矮的背脊，接近真实汀岸的"卧石"。
+   ⚠️ **尺寸不要放大**（实测踩坑）：试过把 s 从 0.26~0.52 放大到 0.48~0.88 并把步距 2→4，
+      结果贴岸实例数从 80 涨到 321~427（每块跨更长岸线 ⇒ 覆盖率翻倍），
+      近景反而更挤、读成一条黑岩带。体积问题靠**形状**（圆润）解决，不靠放大。 */
 export function makeBankRocks(){
   const geos = [
-    new THREE.IcosahedronGeometry(1, 2),
-    new THREE.SphereGeometry(1, 12, 9),
-    new THREE.IcosahedronGeometry(1, 1),
+    new THREE.SphereGeometry(1, 14, 10),        // 圆润主体（水流冲刷的卵石感）
+    new THREE.IcosahedronGeometry(1, 2),        // 略带回棱的次体，破除"全是球"的规整
+    new THREE.SphereGeometry(1, 10, 7),         // 小体量填充
   ];
   geos.forEach(g=>{
     const p = g.attributes.position;
-    for (let i = 0; i < p.count; i++){        // 轻微扰动 → 自然河石
-      const n = rr(0.9, 1.12);
-      p.setXYZ(i, p.getX(i) * n, p.getY(i) * n * rr(0.6, 0.85), p.getZ(i) * n);
+    for (let i = 0; i < p.count; i++){        // 轻微扰动 → 自然河石（幅度比旧版收窄）
+      const n = rr(0.94, 1.07);
+      p.setXYZ(i, p.getX(i) * n, p.getY(i) * n * rr(0.62, 0.80), p.getZ(i) * n);
     }
     g.computeVertexNormals();
   });
   const buckets = geos.map(()=> []);
   const N = POND_PTS.length;
-  for (let i = 0; i < N; i += 2){
+  for (let i = 0; i < N; i += 2){             // 步距保持 2（实测放大尺寸时改 3/4 都会更挤）
     const p = POND_PTS[i];
     const ang = Math.atan2(p.y, p.x);
-    const jitter = rr(0.86, 1.06);
+    const jitter = rr(0.88, 1.04);
     const x = p.x * jitter, z = p.y * jitter + 3.0;
     const k = (rnd()*3)|0;
     buckets[k].push({
-      x, y: rr(-0.28, 0.12), z,
-      s: rr(0.26, 0.52), ry: rr(0, TAU),
+      x, y: rr(-0.34, -0.02), z,                // ③ 只露低矮背脊，接近真实汀岸卧石
+      s: rr(0.30, 0.58), ry: rr(0, TAU),        // ⚠️ 尺寸保持接近原版（放大反而更挤）
     });
   }
   const group = new THREE.Group();
@@ -402,10 +417,12 @@ export function makeBankRocks(){
     const col = new THREE.Color();
     list.forEach((it, i)=>{
       pv.set(it.x, it.y, it.z);
-      q.setFromEuler(new THREE.Euler(rr(-0.3,0.3), it.ry, rr(-0.3,0.3)));
-      sv.set(it.s*rr(0.8,1.4), it.s*rr(0.6,1.0), it.s*rr(0.8,1.4));
+      q.setFromEuler(new THREE.Euler(rr(-0.18,0.18), it.ry, rr(-0.18,0.18)));
+      sv.set(it.s*rr(0.9,1.3), it.s*rr(0.5,0.75), it.s*rr(0.9,1.3));   // ③ 更扁：卧石而非立石
       m.compose(pv, q, sv); inst.setMatrixAt(i, m);
-      col.setHSL(0.09, 0.06, rr(0.4, 0.66));       // 石色深浅不一
+      /* ② 与汀步石同口径压暗（0.26~0.46）：汀步当年从 0.60~0.80 压到 0.28~0.54
+         才把中位亮度从 83 拉到 66；驳岸石此前没压，实测同样偏白。 */
+      col.setHSL(0.09, 0.06, rr(0.30, 0.48));
       inst.setColorAt(i, col);
     });
     inst.instanceMatrix.needsUpdate = true;
