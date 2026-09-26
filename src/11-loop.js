@@ -673,6 +673,28 @@ const AA = (()=>{
 })();
 AA_HOOK = AA;
 
+/* ══ 锦鲤跃水间隔（2026-09-26 · "鱼游出水面会泛起涟漪的频率太过频繁"）══
+   旋钮是下面鱼段里的 `d.riseAt = t + …`，但它**必须可被门禁从产品侧改回旧值**
+   做负例自检（铁律 3：探针不能自己重调产品函数 —— 每帧会用自己参数再调一次，冻不住）。
+   所以间隔参数收在这里，由 `setKoiBreachConfig()` 改写；鱼段每帧读同一份，探针改它就等于改产品。
+
+   ⚠️ **必须物理放在模块作用域**（不是鱼循环体内）：曾误放在循环里，
+      而 `__garden` 的暴露块在循环外 —— 模块体求值时那些 `const/function` 还在
+      块级作用域里，直接 ReferenceError ⇒ 整个场景起不来（且报错点离病因很远）。
+
+   ⚠️ 只影响**跃水节奏**，不碰落圈判据，也不碰投喂 / 点击 / 雨滴 / 泳龟任何一条链。 */
+const KOI_BREACH = { floor: 9, spread: 48, on: true };
+/** 产品侧权威开关：{floor, spread, on}。on=false ⇒ 锦鲤完全不再跃水（因而不落圈）。 */
+function setKoiBreachConfig(v){
+  if (v && typeof v === 'object'){
+    if (Number.isFinite(v.floor))  KOI_BREACH.floor  = v.floor;
+    if (Number.isFinite(v.spread)) KOI_BREACH.spread = v.spread;
+    if (typeof v.on === 'boolean') KOI_BREACH.on = v.on;
+  }
+  return { ...KOI_BREACH };
+}
+const koiBreachConfig = () => ({ ...KOI_BREACH });
+
 /* 页签隐藏暂停渲染：rAF 仍排程（保持循环存活），但跳过这一帧的全部工作。
    仍调用 timer.update() 让 delta 归零，否则回到前台的第一次 getDelta 会带着
    几分钟的间隔（Timer 自身也挡了一道，这里是双保险）。 */
@@ -882,12 +904,24 @@ function animate(){
 
     // 偶尔自深水区上浮，鱼背破水再沉回
     let lift = 0;
-    if (!d.rising && t >= d.riseAt){ d.rising = true; d.riseT0 = t; }
+    if (KOI_BREACH.on && !d.rising && t >= d.riseAt){ d.rising = true; d.riseT0 = t; }
     if (d.rising){
       const e = t - d.riseT0, rd = 2.8;
       if (e >= rd){
         d.rising = false;
-        d.riseAt = t + 9 + Math.random() * 18;      // 每条鱼各自随机，不会同时跃水
+        /* ⚠️ 跃水**间隔**才是"涟漪泛得频繁"的真旋钮（2026-09-26 用户："鱼游出水面会泛起涟漪的频率太过频繁"）。
+           一次跃水 = 上浮 + 破水 + 沉回，破水与入水**各**触发一次落圈（见下）⇒ 事件数 = 落圈数 ÷ 2。
+           11 条鱼、间隔中位 18s ⇒ 事件 11/18×60 = 36.7 次/分、落圈 73 次/分；
+           加两只泳龟的 1.5~2.7s 尾迹（56 次/分）⇒ 池面合计 **实测 120 次/分、平均每 0.5s 一圈**，
+           池子长期有活涟漪，"偶发一记"读成了"持续不断"（见 spawnRipple 上方 REFLECT_FULL_ON_FISH 注释）。
+           取 **floor 9s + spread 48（中位 33s）**：事件 11/33×60 = **20 次/分**、落圈 **40 次/分**，
+           回到"每隔几秒偶有一条鱼破水"的合理水位，且不牺牲"游着游着忽然一条窜出水面"的生气。
+           ⚠️ `Math.random()` 调用**次数仍为 1**、**位置仍在原处**（运行期效果，不吃布局流 rr()）——
+             改的是系数不是流拓扑，全局 rnd 序列零漂移（layout-fingerprint 基线不动）。
+           ⚠️ 下界 9s 保留：不能短到"鱼刚沉回去就又窜起来"（那才叫机械）。
+           ⚠️ 初值 `riseAt`（06-vegetation 的 KOI_DRAW.rise = Math.random()*18 + 6）**未动**：
+             它只决定开场多久起第一条鱼，与稳态频率无关。 */
+        d.riseAt = t + KOI_BREACH.floor + Math.random() * KOI_BREACH.spread;
       } else {
         lift = Math.sin(Math.PI * (e / rd)) * 0.11; // 上浮再沉回
       }
@@ -1374,6 +1408,11 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 投喂（计划书 Phase 3 第 6 项）：门禁要断言"饵落水 / 鱼转向 / 不游上岸 /
                      散后归队"。**必须显式暴露** —— 靠 traverse 猜对象会漏（灯笼那次踩过）。 */
                   dropBait, baitsActive, BAITS,
+                  /* 锦鲤跃水节奏（2026-09-26）：门禁要断言"破水事件频率落在水位内"，
+                     并做**负例自检**（把 spread 改回旧的 18 ⇒ 频率必须飙红）。
+                     **必须显式暴露权威开关**（铁律 3）—— 探针里改 f.userData.riseAt 会被
+                     下一帧 11-loop 的自增覆盖，冻不住。 */
+                  setKoiBreachConfig, koiBreachConfig,
                   /* 上元灯会（计划书 Phase 3 第 7 项）：门禁要断言"河灯/灯串的实例数与落点、
                      真光源没被加多、避开桥/汀步/立峰"—— 显式暴露，不靠 traverse 猜。
                      tickFestival 暴露是为了门禁做**负例自检**（冻结 t ⇒ 河灯不动 ⇒ 漂移判据必须报红）。 */
