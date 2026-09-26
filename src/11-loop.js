@@ -515,6 +515,9 @@ export function queueLongExposurePostcard(){
      而且无头探针全跑在它上面 —— 若让它自适应，回归断言（draw calls / 三角形 /
      后处理开关）就会随宿主机器负载漂移。这既是工程判断，也是测试稳定性要求。
    · 页签隐藏即停渲染（见 animate 顶部）：移动端长时间挂后台是发热与掉电主因。 */
+/* AA 的反向句柄：QOS 需要在改档时让 AA 归零，而 AA 定义在 QOS 之后。
+   用可空变量而不是直接引用后面的 const（会撞 TDZ），也不靠 typeof（对 TDZ 无效）。 */
+let AA_HOOK = null;
 const QOS = (()=>{
   const P = ACTIVE_QUALITY;
   /* 平滑退化：先轻降倍率，再逐步关 AO / 降阴影。避免旧 L1→L2 一步同时砍掉
@@ -549,6 +552,17 @@ const QOS = (()=>{
     applyShadow(L.shadow);
     syncQualityButtons();
   }
+  function state(){
+    const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, st.level))];
+    return { ...st, tier:GPU_TIER, tierLabel:QUALITY_PRESETS[GPU_TIER].label,
+             maxLevel:LEVELS.length - 1, baseScale:pixelRatioForTier(GPU_TIER),
+             pixelRatioScale:L.scale,          // 当前 QOS 档的倍率（AA 需要叠加在它之上）
+             pixelRatio:renderer.getPixelRatio(), pixelBudget:P.pixelBudget,
+             presetShadow:P.shadow, presetAO:P.ao, shadow:sun.shadow.mapSize.width,
+             ao:!!(gtaoPass && gtaoPass.enabled), software:SOFTWARE_GL,
+             probeDriven:PROBE_DRIVEN, immune:QOS_IMMUNE };
+  }
+  /* QOS 改档后通知 AA 归零：否则 AA 停在高档而 QOS 刚降档，两者叠加会直接卡死。 */
   function setMode(mode){
     const m = ['auto','high','balanced','performance'].includes(mode) ? mode : 'auto';
     st.mode = m;
@@ -563,6 +577,10 @@ const QOS = (()=>{
       try { localStorage.setItem('garden.quality.v1', m); } catch {}
     }
     syncQualityButtons();
+    /* QOS 改档后通知 AA 归零：否则 AA 停在高档而 QOS 刚降档，两者叠加会直接卡死。
+       ⚠️ 句柄必须在 QOS **之前**声明：AA 是后面才定义的 const，直接引用会撞 TDZ，
+       而 `typeof AA` 对 TDZ 里的 const 同样抛 ReferenceError（防不住）。 */
+    if (AA_HOOK) AA_HOOK.setStep(0);
     return state();
   }
   function sample(fps){
@@ -581,8 +599,10 @@ const QOS = (()=>{
     }
   }
   function state(){
+    const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, st.level))];
     return { ...st, tier:GPU_TIER, tierLabel:QUALITY_PRESETS[GPU_TIER].label,
              maxLevel:LEVELS.length - 1, baseScale:pixelRatioForTier(GPU_TIER),
+             pixelRatioScale:L.scale,          // 当前 QOS 档的倍率（AA 需要叠加在它之上）
              pixelRatio:renderer.getPixelRatio(), pixelBudget:P.pixelBudget,
              presetShadow:P.shadow, presetAO:P.ao, shadow:sun.shadow.mapSize.width,
              ao:!!(gtaoPass && gtaoPass.enabled), software:SOFTWARE_GL,
@@ -594,6 +614,64 @@ const QOS = (()=>{
 })();
 HOOKS.setQuality = QOS.setMode;
 HOOKS.qualityState = QOS.state;
+
+/* ── 静止帧渐进超采样（2026-09-26）────────────────────────────────────────
+   目标：把"1.5× SSAA 的干净边缘"和"1.25× 的流畅度"两者兼得 ——
+   **相机不动时逐级把渲染倍率抬上去，一动立刻回落**。
+   为什么不做 TAA：TAA 靠历史帧抗锯齿，而本场景里**枝叶、灯笼、水面每帧都在动**，
+   历史帧必然拖影（这是 TAA 在场景里的主要难点）；渐进超采样没有历史帧，
+   天然零鬼影，代价只是"动起来时边缘略软"——而那时画面本身在运动，没人盯着边缘看。
+   三条硬约束（都来自实测教训）：
+   ① **只认主相机**：onBeforeRender/controls 每帧被调多次的现象在水体那边已踩过；
+   ② **QOS 降档后必须停**：QOS 已经在为帧率让路，AA 再加负载会把"降档救不回来"；
+   ③ **改倍率必须走 QOS 的 apply 路径**：否则又出现两套分辨率逻辑互相覆盖。 */
+const AA = (()=>{
+  /* 抬到几档：1.00 / 1.18 / 1.36 —— 顶档 1.36 而不是 1.75：
+     1.75 的像素面积是 3.06 倍，4K 屏上必然拖垮帧率；1.36 只多 1.85 倍，
+     边缘改善已非常明显（SSAA 收益在 1.3 之后急剧递减）。 */
+  const STEPS = [1.00, 1.18, 1.36];
+  const RISE_FRAMES = 45;          // 静止多少帧后升一档（约 0.75s，太快会"看着在抖"）
+  const MOVE_POS = 0.02, MOVE_ROT = 0.004;
+  const st = { step:0, hold:0, lastPr:-1 };
+  let prev = null;
+  function cameraStill(){
+    const p = camera.position, q = camera.quaternion;
+    if (!prev) { prev = [p.x,p.y,p.z,q.x,q.y,q.z,q.w]; return false; }
+    const still = Math.abs(p.x-prev[0])<MOVE_POS && Math.abs(p.y-prev[1])<MOVE_POS
+               && Math.abs(p.z-prev[2])<MOVE_POS && Math.abs(q.x-prev[3])<MOVE_ROT
+               && Math.abs(q.y-prev[4])<MOVE_ROT && Math.abs(q.z-prev[5])<MOVE_ROT
+               && Math.abs(q.w-prev[6])<MOVE_ROT;
+    prev = [p.x,p.y,p.z,q.x,q.y,q.z,q.w];
+    return still;
+  }
+  function tick(){
+    /* 画质锁定在"性能"（最低档）时不参与：那里本就是为了帧率牺牲一切。 */
+    const q = QOS.state();
+    if (q.mode === 'performance'){ if (st.step !== 0) setStep(0); st.hold = 0; return; }
+    /* QOS 已降档：说明机器吃力，此时加 AA 等于雪上加霜 —— 立即回落并停手。 */
+    if (q.level >= 2){ if (st.step !== 0) setStep(0); st.hold = 0; return; }
+    if (!cameraStill()){ if (st.step !== 0) setStep(0); st.hold = 0; return; }
+    if (st.step >= STEPS.length - 1) return;
+    if (++st.hold >= RISE_FRAMES) setStep(st.step + 1);
+  }
+  function setStep(step){
+    const s = Math.max(0, Math.min(STEPS.length - 1, step));
+    st.step = s;
+    st.hold = 0;
+    const pr = pixelRatioForTier(GPU_TIER) * QOS.state().pixelRatioScale * STEPS[s];
+    if (Math.abs(pr - st.lastPr) < 1e-4) return;
+    st.lastPr = pr;
+    renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
+    composer.setPixelRatio(pr); composer.setSize(innerWidth, innerHeight);
+  }
+  function state(){
+    return { step:st.step, scale:STEPS[st.step], maxScale:STEPS[STEPS.length-1],
+             baseScale:pixelRatioForTier(GPU_TIER), pixelRatio:renderer.getPixelRatio(),
+             mode:QOS.state().mode, qosLevel:QOS.state().level };
+  }
+  return { tick, setStep, state, STEPS };
+})();
+AA_HOOK = AA;
 
 /* 页签隐藏暂停渲染：rAF 仍排程（保持循环存活），但跳过这一帧的全部工作。
    仍调用 timer.update() 让 delta 归零，否则回到前台的第一次 getDelta 会带着
@@ -946,6 +1024,9 @@ function animate(){
   updateTour(dt);
   updateIntro(dt);                        // 开场运镜（controls 已被它禁用，update 只刷新阻尼）
   controls.update();
+  /* 相机一切就位后再判"是否静止"：自动运镜/巡游/四季演示的飞行都会被认成运动，
+     于是升采样只发生在真正的静观时刻（这正是它最该生效的地方）。 */
+  AA.tick();
   renderer.info.reset();
   tickLampVol(performance.now() * 0.001);   // 体散射/地面光斑的时间源
   composer.render();
@@ -1229,6 +1310,9 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS }),
                   /* 涟漪容量：门禁要断言"暴雨+密集点击+鱼跃"不抢不到槽（2026-09-25 由 20 提到 64） */
                   rippleCapacity,
+                  /* 渐进超采样（2026-09-26）：门禁要断言"静止升档/一动回落/性能档不上探/
+                     QOS 降档后停手"，这些都不能靠像素差看出来，只能读状态。 */
+                  aaState: () => AA.state(), aaSetStep: (s) => AA.setStep(s),
                   /* PMREM 四时段缓存：门禁要断言"切时段时反射色变了但只烘一次" */
                   envBakeState,
                   probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,
