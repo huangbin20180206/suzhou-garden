@@ -2,7 +2,7 @@
 import { THREE } from '../vendor.js';
 import { camera, renderer, RENDER_SCALE, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState } from './02-scene.js';
-import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom } from './10-post.js';
+import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
@@ -1379,7 +1379,12 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      tickFestival 暴露是为了门禁做**负例自检**（冻结 t ⇒ 河灯不动 ⇒ 漂移判据必须报红）。 */
                   toggleFestival, festivalState, tickFestival, setFestivalFreeze,
                   /* 四季自动演示：专项门禁用加速参数跑完整顺序，用户默认仍为 7s 飞行 + 3.5s 停留。 */
-                  startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, seasonDemoState, seasonDemoCaption };
+                  startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, seasonDemoState, seasonDemoCaption,
+                  /* 高度雾总闸（2026-09-26）：uEnabled 是 pass 自己的 uniform、**刻意没进**
+                     HFOG 共享表（它是"要不要开这层"、不是雾的形状参数）。不显式暴露的话，
+                     门禁与诊断只能伸手去抠 heightFogPass 内部 —— 而抠 pass 正是本项目反对的
+                     做法：探针里重调会被下一帧的参数覆盖。 */
+                  setHFogEnabled };
 
 /* ══ 首次引导（P2-7）══
    三步：转视角 → 换天时 → 巡游/留影。只在**第一次**进来时出现（localStorage 记账）。

@@ -347,6 +347,12 @@ export const heightFogPass = new ShaderPass(HeightFogShader);
 for (const k of ['uColor', 'uTop', 'uSteps', 'uDensity', 'uNearGain', 'uFarGain', 'uFarEnd']){
   heightFogPass.uniforms[k] = HFOG[k];
 }
+/* ⚠️ uEnabled 刻意**不进**上面那张共享表：它是"要不要开这层"的总闸，与雾的形状参数
+   不是一回事。上一版没导出它，于是想"整层关掉"的人只能伸手去抠
+   `heightFogPass.uniforms.uEnabled` —— 而抠 pass 内部正是本项目反对的做法（探针里重调
+   会被下一帧的参数覆盖；要按住一个每帧推进的东西必须走产品侧权威开关）。
+   门禁/诊断要关它请走这个导出，别直接改 pass。 */
+export function setHFogEnabled(v){ heightFogPass.uniforms.uEnabled.value = v ? 1 : 0; }
 /* 相机基向量每帧刷一次（走 composer 链的 render 时 camera 已经就位）。
    ⚠️ 必须在 render 里刷而不是只在构造时抓：FOV 会随 12-env 的运镜/季节变，
    uTanHalfFov / uAspect 跟着 camera 走才对。
