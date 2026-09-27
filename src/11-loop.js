@@ -10,6 +10,9 @@ import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TI
 import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
+/* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
+   依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
+import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL } from './13-preload.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    11 · 循环与自适应
@@ -695,6 +698,28 @@ function setKoiBreachConfig(v){
 }
 const koiBreachConfig = () => ({ ...KOI_BREACH });
 
+/* ══ 泳龟尾迹间隔（2026-09-27 · D2，与 KOI_BREACH 同套路）══════════════════════
+   上一笔把锦鲤跃水节流（546344c）之后实测：**锦鲤链已降到 36 次/分，但龟链仍是 57.5 次/分**
+   —— 龟只有 2 只，却贡献了水面 62% 的涟漪，合计 92.5 次/分（≈每 0.65s 一圈），
+   仍是"持续不断"而不是"偶发"。用户选定 A：把龟拉回合理水位。
+   原式 `t + 1.5 + rnd*1.2`（中位 2.1s × 2 只 = 57 次/分）⇒ 改 **floor 3 + spread 2.4**
+   （中位 4.2s × 2 只 ≈ 29 次/分），水面合计 92.5 → **约 64**，与锦鲤链（36）同量级。
+   ⚠️ 下界 3s 不能更短：龟是"贴着水面慢慢游"的活物，尾迹应当是**缓缓拖出**的，
+      太密反而像机关水车；上界 5.4s 也不该更长，否则龟几乎不拖尾迹、又退回"滑行"。
+   ⚠️ 只改**间隔**，不动尾迹的形态（仍是 spawnRipple(..., 2) 两圈）—— 这条链的"活物感"
+      靠的是尾迹拖在龟身后，不是靠频率。 */
+const TURTLE_WAKE = { floor: 3, spread: 2.4, on: true };
+/** 产品侧权威开关：{floor, spread, on}。探针做负例自检必须走它（铁律 3）。 */
+function setTurtleWake(v){
+  if (v && typeof v === 'object'){
+    if (Number.isFinite(v.floor))  TURTLE_WAKE.floor  = v.floor;
+    if (Number.isFinite(v.spread)) TURTLE_WAKE.spread = v.spread;
+    if (typeof v.on === 'boolean')  TURTLE_WAKE.on     = v.on;
+  }
+  return { ...TURTLE_WAKE };
+}
+const turtleWakeConfig = () => ({ ...TURTLE_WAKE });
+
 /* 页签隐藏暂停渲染：rAF 仍排程（保持循环存活），但跳过这一帧的全部工作。
    仍调用 timer.update() 让 delta 归零，否则回到前台的第一次 getDelta 会带着
    几分钟的间隔（Timer 自身也挡了一道，这里是双保险）。 */
@@ -986,9 +1011,9 @@ function animate(){
     /* 乌龟是"壳贴着水面游"的（实测壳顶高出水面 0.15~0.20m），
        但原来一条尾迹都没有 —— 看起来像贴在水面上滑行。
        按自己的节奏留圈；季节把乌龟藏起来时（冬季 turtleShow=0）不要再留。 */
-    if (tw.visible && t >= (d.wakeAt || 0)){
+    if (TURTLE_WAKE.on && tw.visible && t >= (d.wakeAt || 0)){
       spawnRipple(tw.position.x, tw.position.z, t, 2);
-      d.wakeAt = t + 1.5 + Math.random() * 1.2;
+      d.wakeAt = t + TURTLE_WAKE.floor + Math.random() * TURTLE_WAKE.spread;
     }
     tw.rotation.y = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
   }
@@ -1200,10 +1225,41 @@ function collectWarmBuckets(){
   return buckets.filter(b => b.list.length > 0).map(b => ({ list: b.list, w: b.firsts }));
 }
 
+/* ══ 两段进度合成（2026-09-27 · 高精资产预载）════════════════════════════
+   下载段占前 PRELOAD_SHARE（45%），暖编译 10 桶占后 55% —— 合成一条单调不减的进度。
+   ⚠️ 为什么不直接分两条：两条各自推进再相加会出现"下载占 45% 后卡住不动"的观感，
+      而合成一条后，每一段的推进都在同一条 bar 上可见（这才是"下载好再开园"的感觉）。
+   ⚠️ 文案红线：下载段的文案**不许带 %**（见 13-preload.describe 的说明），
+      只有暖编译段才产出 `营 造 中 · <WARM_STAGES 值> <pct>%` —— 那是 loading-guard 认的格式。 */
+const PRELOAD_SHARE = 45;   // 下载段占前 45%，暖编译占后 55%
+const _ldTxt = () => document.querySelector('#loading .ld-text');
+const _ldProg = () => document.querySelector('#loading .ld-prog');
+const _ldNote = () => document.querySelector('#loading .ld-note');
+
+/* 下载段：把 13-preload 的聚合进度画成 0→45%。
+   采样合并由 preloadPhase 保证（≥250ms + 整数百分比去重），这里只负责渲染。 */
+function setPreloadUI(a){
+  const prog = _ldProg();
+  const pct = Math.min(PRELOAD_SHARE, Math.round(a.pct * PRELOAD_SHARE));
+  if (prog) prog.style.width = pct + '%';
+  const txt = _ldTxt();
+  if (txt) txt.textContent = preloadDescribe(a);
+  const note = _ldNote();
+  if (note){
+    const s = a.notice || slowNotice();
+    /* 慢网提示挂 .ld-note（常驻小字）而不是 .ld-text ——
+       loading-guard 用 MutationObserver 记录 .ld-text 的 textContent 变更序列，
+       把提示塞进去会被算进"文案序列"、干扰"收尾文案 == 即将开园"的判定。 */
+    note.textContent = s ? s.text : '';
+    note.classList.toggle('on', !!s);
+  }
+}
+
+/* 暖编译段：格式与文案**逐字不变**（loading-guard 依赖它）。done/total 仍是桶进度。 */
 function setWarmUI(done, total){
-  const txt = document.querySelector('#loading .ld-text');
-  const prog = document.querySelector('#loading .ld-prog');
-  const pct = Math.min(100, Math.round(done / total * 100));
+  const txt = _ldTxt();
+  const prog = _ldProg();
+  const pct = Math.min(100, Math.round(PRELOAD_SHARE + (done / total) * (100 - PRELOAD_SHARE)));
   if (prog) prog.style.width = pct + '%';
   if (txt){
     const stage = WARM_STAGES[Math.min(WARM_STAGES.length - 1,
@@ -1213,6 +1269,14 @@ function setWarmUI(done, total){
 }
 
 async function warmBoot(){
+  /* ── 阶段 0：资产预载（2026-09-27 · 高精资产批次）────────────────────────
+     4 个 GLB 在**模块求值期**就发起了（08-assemble/06 的 loadAssetOnce），本函数
+     是在它们之后才被调用的 —— 所以这里不是"开始下载"，而是**等它们到位**，
+     并把等待如实播报成 0→45% 的进度（1.1 MB 实测余量 9456/3220ms，本来就被
+     暖编译窗口完全掩盖；10 MB 目标下不再能掩盖，这才必需）。
+     ⚠️ preloadPhase 永不 reject：预载失败不是启动失败，降级继续开园才是正解。 */
+  await preloadPhase(setPreloadUI);
+
   const buckets = collectWarmBuckets();
   const saved = [];
   for (const b of buckets) for (const o of b.list) saved.push(o);
@@ -1413,6 +1477,21 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      **必须显式暴露权威开关**（铁律 3）—— 探针里改 f.userData.riseAt 会被
                      下一帧 11-loop 的自增覆盖，冻不住。 */
                   setKoiBreachConfig, koiBreachConfig,
+                  /* 泳龟尾迹间隔（D2）：与锦鲤同套路，权威开关供门禁做负例自检。 */
+                  setTurtleWake, turtleWakeConfig,
+                  /* ── 资产预载（2026-09-27 · 高精资产批次）────────────────────────
+                     探针要断言的是**"进度不撒谎"**：相邻两次更新间隔 ≥ coalesceMs、
+                     只在整数百分比变化时更新、进度单调不减。必须在**页内**读，
+                     所以把聚合状态与两个权威开关（配置 + 强制重置）一并暴露。
+                     ⚠️ preloadReset 是权威开关而不是"再调一次产品函数"——
+                        13-preload 的 items 是模块级 Map，在页内调 settle/report
+                        只会被后续真实事件覆盖（项目老教训：探针自己骗自己）。 */
+                  preloadState: () => ({
+                    ...preloadAggregate(), degraded: degradedList(),
+                    notice: slowNotice(), manifest: PRELOAD_MANIFEST,
+                    totalBytes: PRELOAD_TOTAL_BYTES, offlineUrl: OFFLINE_URL,
+                  }),
+                  setPreloadConfig, preloadConfig,
                   /* 上元灯会（计划书 Phase 3 第 7 项）：门禁要断言"河灯/灯串的实例数与落点、
                      真光源没被加多、避开桥/汀步/立峰"—— 显式暴露，不靠 traverse 猜。
                      tickFestival 暴露是为了门禁做**负例自检**（冻结 t ⇒ 河灯不动 ⇒ 漂移判据必须报红）。 */
