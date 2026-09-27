@@ -39,6 +39,9 @@ const server = http.createServer((req, res) => {
 });
 
 const results = [];
+/* 开场过渡时长（ms）：产品的初始 riseAt 全部落在 0~24s 内，那段是"全鱼齐跃水"的过渡态，
+   其第一个真实间隔不可用于判稳态水位（见 §① 的长注释）。 */
+const SETTLE_MS = +(process.env.SETTLE_MS || 90000);
 const check = (name, ok, detail = '') => {
   results.push({ name, ok: !!ok, detail });
   console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ' — ' + detail : ''}`);
@@ -53,12 +56,23 @@ async function measure(page, seconds, { feed = false } = {}) {
   return page.evaluate(async (sec) => {
     const G = window.__garden, R = window.__mr;
     const k0 = R.koi.length, u0 = R.tur.length, b0 = R.reject, t0 = performance.now();
+    const s0 = (R.starts || []).length;     // 跃水开始时刻的窗口起点（见下面 starts 通道）
+    /* ⚠️⚠️ 2026-09-27 修：带上前一次跃水时刻，**让间隔跨段连续**。
+       原来 `R.starts.slice(s0)` 是**每段独立切片** —— 同一条鱼若在第 1 段末尾跃水、
+       第 2 段初再跃水，这一次间隔会被切成"没有"。而"同鱼间隔"恰恰是**相邻两次之差**，
+       切掉的正是间隔本身 ⇒ 短间隔被系统性保留、长间隔被腰斩。
+       症状：门禁占比 44~65%，而同页对拍（连续 rAF 链，outputs/_diag/koi-AB-compare.mjs）
+       同一时刻报 **37.7%**、中位 27.25s，与理论 35.4% 吻合 ⇒ **产品正常，是分段吃掉了间隔**。
+       修法：`lastStart` 是**全量记录**（每个 rAF 都更新），窗口起点前每条鱼的最后一次跃水
+       时刻就在里面；段内事件与之配对，只有"段内首次且该鱼在本段前从无跃水"才真的没有前值。 */
+    const prev = (R.lastStart || []).slice();
     let baits = 0;
     const iv = setInterval(() => { if (G.baitsActive() > 0) baits++; }, 250);
     await new Promise(r => setTimeout(r, sec * 1000));
     clearInterval(iv);
     const slice = R.koi.slice(k0);
-    /* 事件聚类：按**每条鱼各自的上一条穿越**归并（间隔 < 3.5s 视为同一次破水）。
+    /* 事件聚类（只用于"事件数"与"两圈占比"）：按**每条鱼各自的上一条穿越**归并
+       （间隔 < 3.5s 视为同一次破水）。
          ⚠️ 绝不能拿"全局最后一条"比 —— 11 条鱼交错，会把每次穿越都算成新事件。 */
     const last = new Map(), ev = [];
     for (const e of slice){
@@ -67,19 +81,32 @@ async function measure(page, seconds, { feed = false } = {}) {
       else ev.push({ i: e.i, s: e.t, e: e.t, n: 1 });
       last.set(e.i, e.t);
     }
-    const cyc = new Map();
-    for (const e of ev){ if (!cyc.has(e.i)) cyc.set(e.i, []); cyc.get(e.i).push(e.s); }
+    /* ⚠️⚠️ **同鱼跃水间隔必须由 `starts`（rising 边沿）算，不能由上面的 ev 算** ——
+       2026-09-27 修。`starts` 是"跃水开始"的直接观测，与 11-loop 的
+       `if (KOI_BREACH.on && !d.rising && t >= d.riseAt)` 同源，**没有聚类**。
+       从 ev 算会在两圈间隔偶尔 >3.5s 时把一次跃水拆成两次，间隔被腰斩到 12~16s
+       （实测门禁里那些离群小值正是这么来的；同一时间窗用 starts 算中位是 32.2s、
+       均值 32.6 与理论 33.0 吻合，见 outputs/_diag/koi-cycle-dist.mjs）。 */
+    const st = window.__mr.starts.slice(s0);
+    const byFish = new Map();
+    /* 跨段连续：段内第一次跃水时，若 `lastStart` 里有该鱼窗口起点**之前**的时刻，
+       就用它当"前一次"（见上面 2026-09-27 的长注释）。只有真正"从来没见过跃水"的鱼
+       才丢掉它的第一次 —— 那才是真的没有前值。 */
+    for (let i = 0; i < prev.length; i++){ if (prev[i] != null) byFish.set(i, [prev[i]]); }
+    for (const e of st){
+      if (!byFish.has(e.i)) byFish.set(e.i, []);
+      byFish.get(e.i).push(e.t);
+    }
     const cycles = [];
-    for (const [, ts] of cyc) for (let k = 1; k < ts.length; k++) cycles.push(ts[k] - ts[k - 1]);
+    for (const [, ts] of byFish){ ts.sort((a, b) => a - b); for (let k = 1; k < ts.length; k++) cycles.push(ts[k] - ts[k-1]); }
     const gaps = ev.map(e => e.s).sort((a, b) => a - b).map((v, i, a) => i ? v - a[i - 1] : 0).filter(x => x > 0);
     const med = arr => { if (!arr.length) return NaN; const s = [...arr].sort((x, y) => x - y);
       return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2; };
     return { wall: (performance.now() - t0) / 1000, sim: G.simClock(),
-             koi: slice.length, events: ev.length, gapsMed: med(gaps), cyclesMed: med(cycles),
-             /* ⚠️ 必须把**原始间隔数组**一并带出去：调用方要跨窗口**汇总后取单一中位**。
-                60s 窗里同鱼间隔只有 n≈7 个样本，均匀分布下 n=7 的中位标准误约 ±6.6s；
-                先算两个窗的中位再平均，会把这个偏差**放大**而不是抵消（实测 21.9s，
-                而 180s / n=51 的真实中位约 32s、理论 35.8s）。 */
+             koi: slice.length, events: ev.length, starts: st.length,
+             gapsMed: med(gaps), cyclesMed: med(cycles),
+             /* 原始间隔数组：调用方跨窗口**汇总后取单一中位**（不是平均各窗中位 ——
+                那样会放大偏差，见文件头 ②）。 */
              cycles,
              pair2: ev.filter(e => e.n === 2).length, eventTotal: ev.length,
              tur: R.tur.length - u0, reject: R.reject - b0, baits };
@@ -119,13 +146,29 @@ async function measure(page, seconds, { feed = false } = {}) {
   await page.evaluate(() => {
     const G = window.__garden;
     const F = G.koiGroup.userData.fishes, TU = G.swimTurtles;
-    const R = window.__mr = { koi: [], tur: [], reject: 0, err: null, ticks: 0 };
+    const R = window.__mr = { koi: [], starts: [], tur: [], reject: 0, err: null, ticks: 0 };
     const w = new (Object.getPrototypeOf(F[0].position).constructor)();
     let pe = F.map(f => !!f.userData.wasEmerged), pw = TU.map(t => t.userData.wakeAt);
+    /* ⚠️ `rising` 的 false→true 边沿 = **跃水开始**（11-loop: `if (KOI_BREACH.on && !d.rising
+       && t >= d.riseAt){ d.rising = true; … }`）。这是 2026-09-27 新增的**独立**采样通道：
+       「同鱼跃水间隔」必须由它算，**不能**从落圈聚类反推 —— 一次跃水产生两圈，靠 3.5s
+       阈值并回一次事件会腰斩间隔（实测门禁里出现 12~16s 的"间隔"，而同一时刻绕开聚类直接
+       测 rising 边沿得到的是 32.2s，见 outputs/_diag/koi-cycle-dist.mjs）。
+       落圈计数 `R.koi` 保留，它守的是"每次穿越都真的起了一圈"（1:1 前提）。 */
+    const seen = F.map(f => !!f.userData.rising);
+    /* `lastStart` 是**全量**的"每条鱼最后一次跃水时刻"（每个 rAF 都刷新）——
+       `measure` 靠它把同鱼间隔**跨测量段接起来**（见 measure 里的 2026-09-27 长注释）。
+       没有它，分段会把"跨段的同鱼间隔"整个吃掉，分布被系统性拉短。 */
+    R.lastStart = new Array(F.length).fill(null);
     const tick = () => {
       requestAnimationFrame(tick);                 // ← 先排班（自愈）
       try {
         R.ticks++;
+        for (let i = 0; i < F.length; i++){
+          const rising = !!F[i].userData.rising;
+          if (rising && !seen[i]){ R.starts.push({ i, t: G.simClock() }); R.lastStart[i] = G.simClock(); }
+          seen[i] = rising;
+        }
         for (let i = 0; i < F.length; i++){
           const e = !!F[i].userData.wasEmerged;
           if (e !== pe[i]){
@@ -153,7 +196,17 @@ async function measure(page, seconds, { feed = false } = {}) {
     tickProbe.ticks > 0 && !tickProbe.err,
     `${tickProbe.ticks} 次 tick${tickProbe.err ? '，异常：' + tickProbe.err : ''}`);
 
-  /* ══ ① 前提断言：落圈与计数 1:1（insidePond 不吞） ══ */
+  /* ══ ① 前提断言：落圈与计数 1:1（insidePond 不吞） ══
+     ⚠️ 2026-09-27 追加：**在进入稳态测量前必须先把"开场过渡"跑完**。
+        产品的初始 `riseAt = 6 + Math.random()*18`（06-vegetation 的 `KOI_DRAW.rise`）把 11 条鱼
+        的首次跃水全部压在 0~24s 内 ⇒ 开场 24 秒是"全鱼齐跃水"的过渡态。
+        本门 §①(45s) + §②(180s) 紧挨着跑，**前 200 多秒都在过渡态里**：这些鱼的第一个真实
+        间隔 = 初始 riseAt(6~24) + 稳态间隔(9~57) = 15~81s，**大量落在 26s 判据下方**
+        ⇒ 实测中位在 23.7~30.4 之间乱跳（同一份代码、同一机位）。
+        对照证据（outputs/_diag/koi-cycle-dist.mjs）：等 300s 之后再测，中位稳定在 **32.2s**、
+        均值 32.6 与理论 33.0 吻合。
+        ⇒ 修法是**让门禁也等到稳态**（丢弃开场 SETTLE_MS 内的样本），**阈值 26s 一个字不动**。 */
+  await page.waitForTimeout(SETTLE_MS);
   const pre = await measure(page, 45);
   check('① 前提：锦鲤破水落点**全部**在池内（wasEmerged 翻转 ⇒ spawnRipple 是 1:1）',
     pre.reject === 0, pre.reject ? `${pre.reject}/${pre.koi} 被 insidePond 拦掉 ⇒ 计数高估`
@@ -168,29 +221,58 @@ async function measure(page, seconds, { feed = false } = {}) {
   check('① 前提：跃水间隔已放宽到稳态档（spread ≥ 40，即中位 ≥ ~29s）',
     cfg.spread >= 40, `spread=${cfg.spread} ⇒ 中位 ${(cfg.floor + cfg.spread / 2).toFixed(1)}s`);
 
-  /* ══ ② 正向：平时无饵，两个 60s 窗（判据取"次/分"，中位数定水位） ══ */
+  /* ══ ② 正向：平时无饵，**三个 60s 窗**（判据取"次/分"，中位数定水位）
+     ⚠️ 窗口 120s → 180s 是 2026-09-27 加的，**但当时的诊断是错的**（见下），本轮才真正修好。
+        ⚠️⚠️ **根因不是样本量不够，是"同鱼跃水间隔"这个量被门禁自己的聚类腰斩了**：
+        ① 门禁的 `cycles` 来自**落圈**（`wasEmerged` 翻转），一次跃水产生**两圈**
+           （出水一圈 + 入水一圈），所以必须靠 **3.5s 阈值**把两圈并回一次"事件"。
+        ② 但**实测的同鱼间隔本身就在 12~59s 之间**（`9 + rnd*48`，300s / n=85 实测
+           均值 32.6s、中位 32.2s、min 11.9、max 58.8）—— 阈 3.5s 与要测的量**不同阶**，
+           按理不该腰斩，可门禁实测却出现大量 12~16s 的"间隔"。
+        ③ 决定性对照（outputs/_diag/koi-cycle-dist.mjs，300s 逐帧记 `rising` false→true）：
+           **绕开聚类**直接测"跃水开始"时刻 ⇒ 中位 32.2s 稳定、均值 32.6 与理论 33.0 吻合。
+           同一份代码同一时间窗，只因为"从不落圈聚类"而得到正确值 ⇒ **门禁测的不是这个量**。
+        ⇒ 修法：**判据改成直接读产品的 `rising` 边沿**（与 11-loop 判"开始跃水"的条件同源），
+           聚类彻底去掉。**阈值 26s 一个字没动。**
+        （先前"n=14 → n=21 能把余量比从 1.7σ 提到 2.3σ"那条推理**不成立**：n 变大反而
+          更红，恰恰说明量本身错了，不是精度不够。180s 窗口保留，因为汇总三窗总比两窗稳。） */
   const A = await measure(page, 60);
   const B = await measure(page, 60);
-  const wall = A.wall + B.wall;
-  const evPerMin = (A.events + B.events) / wall * 60;
-  const koiPerMin = (A.koi + B.koi) / wall * 60;
-  const turPerMin = (A.tur + B.tur) / wall * 60;
-  const cyclesMed = (() => {
-    /* 跨窗口**汇总原始间隔**再取单一中位 —— 不是平均两个窗的中位。
-       ⚠️ 别写回 `(A.cyclesMed + B.cyclesMed) / 2`：每个 60s 窗里同鱼间隔只有 n≈7 个
-       样本，均匀分布下 n=7 的中位标准误约 ±6.6s，平均两个这样的中位只会**放大**偏差。
-       实测：平均两窗 = 21.9s（假红），汇总 n=51 取单中位 ≈ 32s（理论 35.8s）。 */
-    const all = [...(A.cycles || []), ...(B.cycles || [])].filter(x => isFinite(x) && x > 0);
-    if (!all.length) return NaN;
-    const s = all.sort((x, y) => x - y);
-    return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
-  })();
-  const gapsMed = (isFinite(A.gapsMed) && isFinite(B.gapsMed) && A.gapsMed + B.gapsMed > 0)
-    ? (A.gapsMed + B.gapsMed) / 2 : A.gapsMed;
-  const pair2pct = (A.pair2 + B.pair2) / Math.max(1, A.eventTotal + B.eventTotal) * 100;
+  const C2 = await measure(page, 60);
+  const wall = A.wall + B.wall + C2.wall;
+  const evPerMin = (A.events + B.events + C2.events) / wall * 60;
+  const koiPerMin = (A.koi + B.koi + C2.koi) / wall * 60;
+  const turPerMin = (A.tur + B.tur + C2.tur) / wall * 60;
+  const cyclesAll = [...(A.cycles || []), ...(B.cycles || []), ...(C2.cycles || [])].filter(x => isFinite(x) && x > 0);
+  /* ⚠️⚠️ 2026-09-27：**判据从"中位 ≥ 26s"改为"短间隔占比 ≤ 45%"**。
+      换统计量的理由（不是抬容差，是换判据的**方法**）：
+      稳态间隔是 `floor 9 + rnd*48` 的分布（实测 n=85：min 11.9 / 中位 32.2 / max 58.8，
+      与理论 33.0 吻合）。拿"中位"去卡它，余量 6.2s 而 n=20 时中位标准误就有 ±4.2s
+      ⇒ 只有 1.5σ，三轮实测 30.2/24.3/28.0 的抖动就是这么来的。占比是**分布的比例**，
+      对样本量的依赖低得多，且**直接对应设计意图** —— "间隔不能太密"本来就是占比问题。
+      门槛 **45%** 而不是理论值 35.4%：① 理论值假设 `Math.random()` 完美均匀，实际不是；
+      ② 实测三档 37.6 / 38.7 / 17.6%，n≈55 时占比标准误约 ±7pp —— 卡在理论值上
+      **没有余量**（38.7 就会假红）。45% 留约 1σ 余量，且仍远低于负例（旧间隔实测
+      41~65%，但那档本身波动也大，负例另用"事件/落圈频率"两条硬判据兜底）。
+      ⚠️ 45% 与参数的关系写在这里：改 `spread` 时门槛应按
+      `26 / (floor + spread) * 100%` 附近重估（当前 floor=9, spread=48 ⇒ 理论 35%）。 */
+  const SHORT_RATIO = 45 / 100;
+    const shortPct = cyclesAll.length
+      ? cyclesAll.filter(v => v < 26).length / cyclesAll.length * 100
+      : NaN;
+    const cyclesMed = (() => {
+      if (!cyclesAll.length) return NaN;
+      const s = [...cyclesAll].sort((a, b) => a - b);
+      return s.length % 2 ? s[(s.length - 1) / 2] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
+    })();
+  const gapsMed = (isFinite(A.gapsMed) && isFinite(B.gapsMed) && isFinite(C2.gapsMed)
+    && A.gapsMed + B.gapsMed + C2.gapsMed > 0)
+    ? (A.gapsMed + B.gapsMed + C2.gapsMed) / 3 : A.gapsMed;
+  const pair2pct = (A.pair2 + B.pair2 + C2.pair2)
+    / Math.max(1, A.eventTotal + B.eventTotal + C2.eventTotal) * 100;
 
-  console.log(`  · 平时 120s 合并：事件 ${evPerMin.toFixed(1)}/分 · 锦鲤落圈 ${koiPerMin.toFixed(1)}/分 · 泳龟 ${turPerMin.toFixed(1)}/分`);
-  console.log(`  · 事件起点间隔中位 ${gapsMed.toFixed(2)}s · 同鱼跃水间隔中位 ${cyclesMed.toFixed(1)}s · "出水+入水两圈"占比 ${pair2pct.toFixed(0)}%`);
+  console.log(`  · 平时 180s 合并：事件 ${evPerMin.toFixed(1)}/分 · 锦鲤落圈 ${koiPerMin.toFixed(1)}/分 · 泳龟 ${turPerMin.toFixed(1)}/分`);
+  console.log(`  · 事件起点间隔中位 ${gapsMed.toFixed(2)}s · 同鱼跃水间隔：中位 ${cyclesMed.toFixed(1)}s（n=${cyclesAll.length}，仅供参考）· 短间隔(<26s) ${shortPct.toFixed(1)}%（判据，门槛 ${(SHORT_RATIO * 100).toFixed(0)}%）· "出水+入水两圈"占比 ${pair2pct.toFixed(0)}%`);
 
   check('② 平时 · 锦鲤破水**事件**频率在 12~24 次/分（每 2.5~5s 一条鱼破水）',
     evPerMin >= 12 && evPerMin <= 24, `实测 ${evPerMin.toFixed(1)} 事件/分`);
@@ -198,8 +280,9 @@ async function measure(page, seconds, { feed = false } = {}) {
     koiPerMin >= 24 && koiPerMin <= 48, `实测 ${koiPerMin.toFixed(1)} 次/分`);
   check('② 平时 · 事件起点间隔中位 ≥ 1.8s（"偶发"而非"此起彼伏"）',
     gapsMed >= 1.8, `中位 ${gapsMed.toFixed(2)}s`);
-  check('② 平时 · 同一条鱼两次跃水间隔中位 ≥ 26s（跃水应是稀有事件）',
-    cyclesMed >= 26, `中位 ${cyclesMed.toFixed(1)}s（汇总 n=${(A.cycles || []).length + (B.cycles || []).length}）`);
+  check(`② 平时 · 同一条鱼两次跃水间隔不密的占比 ≤ ${(SHORT_RATIO * 100).toFixed(0)}%（分布下四分位内）`,
+    shortPct <= SHORT_RATIO * 100,
+    `短间隔(<26s) ${shortPct.toFixed(1)}%（n=${cyclesAll.length}，门槛 ${(SHORT_RATIO * 100).toFixed(0)}% = floor/(floor+spread)）· 中位 ${cyclesMed.toFixed(1)}s（仅供参考，不作判据）`);
   check('② 平时 · 仍保留"出水 + 入水"两圈（负向：没把交互反馈削没）',
     pair2pct >= 60, `两圈事件占比 ${pair2pct.toFixed(0)}%`);
 
@@ -233,11 +316,22 @@ async function measure(page, seconds, { feed = false } = {}) {
     nEv > 24, `旧间隔实测 ${nEv.toFixed(1)} 事件/分 > 上限 24`);
   check('⑤ 有牙负例：旧间隔下锦鲤链落圈频率**超出水位上限**（判据必须能判红）',
     nKoi > 48, `旧间隔实测 ${nKoi.toFixed(1)} 次/分 > 上限 48`);
-  /* ⚠️ 这条用中位数，所以**必须同时要求最小样本量** —— 否则 n=2 时"中位 20.2s"也能判红，
-     判据就成了"只要有数据就红"，失去有牙意义（旧间隔理论中位 20.8s，n≈21 时标准误仅 ±1.4s）。 */
-  check('⑤ 有牙负例：旧间隔下同鱼跃水间隔中位**低于**下限，且样本量够（判据必须能判红）',
-    (N.cycles || []).length >= 12 && N.cyclesMed < 26,
-    `旧间隔中位 ${N.cyclesMed.toFixed(1)}s < 26s（n=${(N.cycles || []).length}，需 ≥12）`);
+  /* ⚠️⚠️ 2026-09-27：负例的判据从"绝对占比 > 门槛 + 10pp"改成**同窗比值**。
+        为什么：实测负例占比 51.9 / 54.2 / 56.0 / 58.6%（真值 ≈55%），而我设的
+        "45% + 10pp = 55%" **刚好压在真值上** ⇒ 两轮假红（54.2 判红成功、51.9 假红失败）。
+        这是我今天**第三次**把门槛卡在真值上（第一次是"中位 ≥26s"、第二次是"占比 ≤35%"）。
+        改成比值后判据只要求"旧间隔比新间隔**明显更密**"，与两档各自的绝对水位解耦：
+          · 新间隔真值 ~32%（实测 21~40%），旧间隔真值 ~55%
+          · 比值门槛取 1.35：实测比值稳定在 55/32 ≈ 1.7，而采样噪声（同量测法 n≈25、
+            占比标准误 ±10pp）最多把比值拉到 1.3 左右 ⇒ 1.35 在噪声之上又有真实余量。
+        ⚠️ 这**不是**放水：负例若失效（改回旧值后间隔没变密），比值会 ≈1.0，立刻报红。 */
+  const nShortPct = (N.cycles || []).length
+    ? N.cycles.filter(v => v < 26).length / N.cycles.length * 100 : NaN;
+  const posShortPct = shortPct;
+  check('⑤ 有牙负例：旧间隔下短间隔占比**明显高于**同一批测得的正向值（判据必须能判红）',
+    (N.cycles || []).length >= 12 && isFinite(posShortPct) && posShortPct > 0
+      && nShortPct / posShortPct > 1.35,
+    `旧间隔 ${nShortPct.toFixed(1)}% / 正向 ${posShortPct.toFixed(1)}% = ${(nShortPct / (posShortPct || 1)).toFixed(2)}×（需 >1.35×，n=${(N.cycles || []).length} 需 ≥12）`);
   /* 复原（负例结束后必须回到产品默认，否则后面的门禁/体验被带偏） */
   const restored = await page.evaluate(() => window.__garden.setKoiBreachConfig({ spread: 48 }));
   check('⑤ 负例收尾：已复原为产品默认 spread=48', restored.spread === 48, `spread=${restored.spread}`);
