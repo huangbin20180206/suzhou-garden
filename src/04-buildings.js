@@ -1,7 +1,7 @@
 // 04-buildings: from index.html inline 491..936
 import { THREE } from '../vendor.js';
 import { makeWisteria } from './06-vegetation.js';
-import { mesh, box, makeQueTu, makeGuaLuo, makeLatticePanel, makeChangChuang, makeJiangnanWindow, makeChineseRoof, makeCeiling, instancedBoxes, DOUGONG_H, instancedGeo, makeDougongGeo, makeColumn, makeCorrugatedSlab } from './03-factory.js';
+import { mesh, box, makeQueTu, makeGuaLuo, makeLatticePanel, makeChangChuang, makeJiangnanWindow, makeChineseRoof, makeCeiling, instancedBoxes, instancedRoundRafters, DOUGONG_H, instancedGeo, makeDougongGeo, makeColumn, makeCorrugatedSlab } from './03-factory.js';
 import { MAT, makeInkWashTex, makePlaqueTex } from './01-materials.js';
 import { bootMark } from './00-config.js';
 import { POND_PTS, insidePond, POND_RADII, makePond, makeBankRocks, makeArchBridge, makeSteppingStones } from './05-water.js';
@@ -304,7 +304,13 @@ export function makeYuanxiangHall(){
       rafters.push({ x, y: roofBaseY + hAt(x, z) - 0.22, z });
     });
   }
-  const rAfter = instancedBoxes(rafters, MAT.woodDark, [0.18, 0.18, 1.3]);
+  /* ⚠️ 2026-09-27（高精化 D1）：原来这里是 `instancedBoxes(..., [0.18,0.18,1.3])` ——
+     截面是**纯方块**，一排贴在檐口读作"贴了排方块"。改为**圆截面 + 椽头斜削**
+     （真实江南飞椽的做法）。半径 0.09 = 与原方块半宽 0.09 同量级，视觉占位不变。
+     ⚠️ **只改远香堂这一处**：`instancedBoxes` 是共用函数（游廊/水榭的檐檩、吊坠也走它），
+        那些位置的方块是对的（垫块/短构件本就不该是圆），所以新写了
+        `instancedRoundRafters` 而没有改 `instancedBoxes`。 */
+  const rAfter = instancedRoundRafters(rafters, MAT.woodDark, 0.09, 1.3);
   if (rAfter) g.add(rAfter);
   /* 檐檩：压在檐椽下的横梁。
      ⚠️ 不能做成一根通长直料 —— 屋面沿面宽是**翘曲**的：

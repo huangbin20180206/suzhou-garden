@@ -39,6 +39,50 @@ export function instancedBoxes(list, mat, size = [0.26,0.26,0.34]){
   return inst;
 }
 
+/* 圆形椽（飞椽/檐椽）—— 2026-09-27 远香堂高精化 D1。
+   原来檐下椽子走 instancedBoxes，截面是 **0.18×0.18 的纯方块**（游廊/水榭也一样）。
+   真实江南的檐椽是**圆截面**，椽头还沿圆周**斜削**一刀（"飞椽头"那种斜面）——
+   方块椽在檐口一排读作"贴了排方块"，圆柱 + 斜削才读得出"一根根圆木顶出来"。
+   ⚠️ **新函数、不改 instancedBoxes**：后者被檐檩/吊坠等共用，改它会波及游廊与水榭，
+        而那些位置的方块是对的（垫块/短构件本来就不该是圆）。
+   ⚠️ 斜削用手工顶点位移（把 +z 端（外端）的上半截面按 y 削掉 45° 的一刀），
+      不用 Extrude/Shape —— 圆截面 + 一次斜切用 Lathe 不划算，而位移只有几个顶点。 */
+export function makeRoundRafterGeo(r = 0.09, len = 1.3, seg = 8){
+  const g = new THREE.CylinderGeometry(r, r, len, seg, 1, false);
+  /* 圆柱默认沿 y，转成沿 z（与方块椽的轴向一致，调用处的 ry 旋转语义不变）。 */
+  g.rotateX(Math.PI / 2);
+  /* 椽头斜削：外端（+z）朝上的那一侧切一刀。削掉的高度取半径的 55%，
+     斜面跨 45° 纵向长度 —— 读作"圆木被斜切了一刀"，正是飞椽头的做法。
+     ⚠️ 只动**外端那一圈**顶点（z > 0.55·len），内端与中段一字不改 ⇒ 椽身仍是完整圆柱。 */
+  const p = g.attributes.position, cutZ = len * 0.55, drop = r * 0.55;
+  for (let i = 0; i < p.count; i++){
+    const z = p.getZ(i);
+    if (z < cutZ) continue;
+    const y = p.getY(i);
+    if (y > 0) p.setY(i, y - drop * ((z - cutZ) / (len * 0.5 - cutZ) + 0.35));
+  }
+  p.needsUpdate = true;
+  g.computeVertexNormals();
+  return g;
+}
+/* 圆形椽的实例化摆位（与 instancedBoxes 同一套 list 语义：x/y/z/ry/sz） */
+export function instancedRoundRafters(list, mat, r = 0.09, len = 1.3, opt = {}){
+  if (!list.length) return null;
+  const inst = new THREE.InstancedMesh(makeRoundRafterGeo(r, len, opt.seg || 8), mat, list.length);
+  inst.castShadow = opt.cast !== false; inst.receiveShadow = true;
+  const m = new THREE.Matrix4(), q = new THREE.Quaternion(),
+        p = new THREE.Vector3(), s = new THREE.Vector3(1, 1, 1);
+  list.forEach((it, i)=>{
+    p.set(it.x, it.y, it.z);
+    q.setFromEuler(new THREE.Euler(0, it.ry || 0, 0));
+    s.set(1, 1, it.sz || 1);
+    m.compose(p, q, s); inst.setMatrixAt(i, m);
+  });
+  inst.instanceMatrix.needsUpdate = true;
+  registry.meshes++; registry.geos++;
+  return inst;
+}
+
 /* 通用实例化：任意几何 + 摆位列表（支持 rx/ry/rz 与三轴缩放） */
 export function instancedGeo(geo, list, mat, { cast = true, receive = true } = {}){
   if (!list.length) return null;
