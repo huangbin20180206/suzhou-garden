@@ -164,10 +164,25 @@ export function makeChineseRoof({ w, d, hRidge, ridgeLen, lift = 1.5,
     return mesh(g, mat, { name, cast:false });
   };
 
+  /* 瓦垄截面（2026-09-27 远香堂高精化第 2 件）。
+     原式 `Math.abs(Math.sin(x·π/tileW))` 是**对称**的：每个周期被 0 点均分、脊在 ±tileW/2。
+     真实筒瓦的截面**不对称** —— 一垄由「半圆筒瓦头（高）」+「两片板瓦搭接（缓坡）」构成，
+     读出来的感觉是"一侧圆凸、一侧平缓"，而不是"两边对称的波纹"。
+     这里把它改成不对称的周期函数（u∈[0,1) 为该垄内的相位）：
+       u ∈ [0, 0.5]  → 板瓦侧：从 0 平缓升到脊（smoothstep，避免折线感）
+       u ∈ [0.5, 1)  → 筒瓦侧：从脊快速落到谷底，并略微多落一点（筒瓦头压过板瓦）
+     峰值仍为 1 ⇒ 与 tileAmp 的量纲/观感不变，只是**波形**从对称变不对称。
+     谷底额外下压 8% 制造"板瓦侧微凹"，这是"读得出搭接"的关键那一笔。 */
+  const tileProfile = (u)=>{
+    u = u - Math.floor(u);                       // 归一到 [0,1)
+    if (u < 0.5){ const k = u / 0.5; return 0.92 * (k * k * (3 - 2 * k)); }
+    const k = (u - 0.5) / 0.5;
+    return 1.0 - 1.08 * (k * k * (3 - 2 * k));  // 谷底压到 -0.08（微凹）
+  };
   // 主坡：行=举折折点（正脊→檐口），列在各自的半宽内均分 —— 半宽随垂脊外扩，列均匀 ⇒ 瓦垄间距恒定
   const mainAt = (sgn)=> (t, j, nCols)=>{
     const xh = xHip(t), z = sgn * t * D, x = ((j / nCols) * 2 - 1) * xh;
-    const rip = tileAmp * Math.abs(Math.sin(x * Math.PI / tileW)) * hipFade(xh - Math.abs(x));
+    const rip = tileAmp * tileProfile(x / tileW) * hipFade(xh - Math.abs(x));
     return [x, profile(t) + lift * corner(x, z) + rip, z, x * 0.34, z * 0.34];
   };
   group.add(makePatch(tRows, segX, mainAt(1),  false, 'roofMainS'));
@@ -179,7 +194,9 @@ export function makeChineseRoof({ w, d, hRidge, ridgeLen, lift = 1.5,
   const endAt = (sgn)=> (t, k, nCols)=>{
     const x = sgn * (L + (W - L) * (t - TS) / (1 - TS));
     const z = -t * D + 2 * t * D * (k / nCols);
-    const rip = tileAmp * Math.abs(Math.sin(z * Math.PI / tileW)) * hipFade(t * D - Math.abs(z));
+    /* ⚠️ 撒头必须用**同一个** tileProfile：主坡换成不对称波形后，两坡若还用旧的
+       |sin|，垂脊两侧的瓦垄形状就会对不上 —— 那是屋顶上最刺眼的一类破绽。 */
+    const rip = tileAmp * tileProfile(z / tileW) * hipFade(t * D - Math.abs(z));
     return [x, profile(t) + lift * corner(x, z) + rip, z, x * 0.34, z * 0.34];
   };
   /* ⚠️ 撒头的绕序与主坡**相反**：撒头的行沿 +x、列沿 +z，用主坡那套绕序算出的法线朝下

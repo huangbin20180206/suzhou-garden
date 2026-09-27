@@ -31,8 +31,11 @@ export function makeYuanxiangHall(){
     g.add(st);
   }
 
-  /* ③ 柱网：檐柱 6 根（五开间）+ 金柱 */
+  /* ③ 柱网：檐柱 6 根（五开间）+ 金柱
+     beamYCap = 柱顶标高 = 台基面(1.24) + 柱高。额枋贴它下沿，柱头栌斗/皿板也占这段
+     （见 ④a）—— **额枋与屋顶的高度由这一个常量决定，柱身怎么调整都不会牵动屋面**。 */
   const colH = H - 2.35;
+  const beamYCap = 1.24 + colH;
   const zFront = D/2 - 0.3, zBack = -D/2 + 0.3;
   const xs = [];
   for (let i = 0; i <= bays; i++) xs.push(-W/2 + (W/bays)*i);
@@ -40,7 +43,9 @@ export function makeYuanxiangHall(){
   const frontCols = [], backCols = [];
   xs.forEach(x=>{ frontCols.push({x, y:0, z:zFront}); backCols.push({x, y:0, z:zBack}); });
   const allCols = [...frontCols, ...backCols];
-  // 金柱（内圈）
+  // 金柱（内圈）—— ⚠️ 必须在建 InstancedMesh **之前** push 完：
+  // 构造时的 count 就是实例缓冲的容量，之后再改 `count` 只会让 setMatrixAt 写到缓冲外，
+  // 未初始化槽位是 0/NaN ⇒ refreshCasterBox 的包围盒变 NaN ⇒ 阴影视体全 null（shadow-cover 红）。
   [-W/2 + W/bays, W/2 - W/bays].forEach(x=>{
     allCols.push({x, y:0, z: zFront - D*0.34});
     allCols.push({x, y:0, z: zBack + D*0.34});
@@ -58,6 +63,40 @@ export function makeYuanxiangHall(){
   allCols.forEach((c, i)=>{ cp.set(c.x, 1.24 + 0.11, c.z); cm.compose(cp, cq, cs); baseInst.setMatrixAt(i, cm); });
   baseInst.instanceMatrix.needsUpdate = true;
   g.add(baseInst);
+
+  /* ④a 柱头栌斗 + 皿板（2026-09-27 高精化第 3 件）
+     原来柱身直接顶到额枋下沿，中间**没有任何过渡构件** —— 远看只是一根柱子插进一根梁，
+     缺少"柱→枋"之间那层木头，读起来像积木而不是木构。
+     真实江南做法是三段：柱头出**栌斗**（方斗，承柱头）→ 上承**皿板**（圆板过渡，
+     斗与额枋之间那一层）→ 再托额枋。补上后近景能读出"柱头不是插进去的"。
+     尺寸按柱径推：柱顶半径 0.22 ⇒ 斗方 0.62（斗口略出柱头一线，正好"吃"住柱头）；
+     皿板 0.40/0.36 圆板、��� 0.10。两件都是实例化 ⇒ 16 根柱共 2 个对象。
+     ⚠️ **额枋与屋顶一寸没动**：斗高 0.26 + 板厚 0.10 = 0.36，柱身相应缩短 0.36，
+     栌斗顶与皿板顶仍落在原柱顶标高 `beamYCap` ⇒ 不牵动 shadow-cover / 阴影视锥。 */
+  const LU_DOU = 0.26, MIN_BAN = 0.10;
+  const lDouGeo = new THREE.BoxGeometry(0.62, LU_DOU, 0.62);
+  const lDouInst = new THREE.InstancedMesh(lDouGeo, MAT.woodRed, allCols.length);
+  /* ⚠️ **不投影**（2026-09-27）：栌斗/皿板紧贴柱头、投影贡献几乎为零，却会进
+     refreshCasterBox 的投射物集合把阴影盒撑大。同样的取舍见 08-assemble.js 末尾
+     （"小尺寸构件在阴影里的贡献几乎不可见，关闭其投影以压低 shadow pass 的 draw call"）。 */
+  lDouInst.castShadow = false; lDouInst.receiveShadow = true;
+  allCols.forEach((c, i)=>{ cp.set(c.x, beamYCap - LU_DOU / 2, c.z); cm.compose(cp, cq, cs); lDouInst.setMatrixAt(i, cm); });
+  lDouInst.instanceMatrix.needsUpdate = true;
+  g.add(lDouInst);
+  const minBanGeo = new THREE.CylinderGeometry(0.40, 0.36, MIN_BAN, 10);
+  const minBanInst = new THREE.InstancedMesh(minBanGeo, MAT.woodRed, allCols.length);
+  minBanInst.castShadow = false;            // 同栌斗：不进投射物集合
+  minBanInst.receiveShadow = true;
+  allCols.forEach((c, i)=>{ cp.set(c.x, beamYCap - LU_DOU + MIN_BAN / 2, c.z); cm.compose(cp, cq, cs); minBanInst.setMatrixAt(i, cm); });
+  minBanInst.instanceMatrix.needsUpdate = true;
+  g.add(minBanInst);
+  // 柱身相应缩短，让出斗+板的高度（柱底仍在 1.24，柱顶降到栌斗底）
+  /* ⚠️ **不 dispose 旧几何**：`makeYuanxiangHall` 返回的组会被 mergeStatics 读它的
+     instanceMatrix/geometry，旧几何若在此处 dispose，一旦别处还持有引用就会渲染成空。
+     直接换几何 + 让 GC 回收即可（一次性创建，无泄漏风险）。 */
+  colInst.geometry = new THREE.CylinderGeometry(0.22, 0.26, colH - LU_DOU - MIN_BAN, 10);
+  allCols.forEach((c, i)=>{ cp.set(c.x, 1.24 + (colH - LU_DOU - MIN_BAN) / 2, c.z); cm.compose(cp, cq, cs); colInst.setMatrixAt(i, cm); });
+  colInst.instanceMatrix.needsUpdate = true;
 
   /* ④ 额枋（横向联系） */
   const beamY = 1.24 + colH;
