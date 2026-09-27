@@ -958,7 +958,16 @@ export function applyEnv(p){
   const hLum = lumOf(p.skyHorizon);
   if (hLum < 0.30){
     const fLum = lumOf(scene.fog.color);
-    const fMax = Math.min(hLum * 0.90, 0.15);
+    /* ⚠️ 系数 0.90 → **0.86**（2026-09-27，修 night+mist 的既存红：山 64.07 vs 天 62.42）。
+       为什么 0.90 不够：这条钳制的**参照 `hLum` 本身就是被 mist 抬起来的**
+       （`ENV_WEATHER.mist` 的 fogGray=0.26 把 skyHorizon 往亮灰拉）⇒ 上限 `hLum*0.90`
+       水涨船高，钳制等于没做。实测越界幅度虽只有 0.15（容差 1.5 之上的边缘），
+       但方向是"剪影反白发亮"，一眼假，必须压下去。
+       0.86 仍**只在暗环境**触发（`hLum < 0.30`），白天天光恒远大于雾色 ⇒ 不影响日景；
+       且它同时压低了雾本身，夜+浓雾的"雾里看山"会更有层次（山更暗、雾仍淡）。
+       ⚠️ 别为了让它变绿去动 probe/mist-guard.mjs 的容差 —— 那条容差 1.5 有注释交代
+       （山体自带基础色 + 抗锯齿抖动），产品侧压暗才是正解。 */
+    const fMax = Math.min(hLum * 0.86, 0.15);
     if (fLum > fMax) scene.fog.color.multiplyScalar(fMax / fLum);
   }
   /* 环境贴图强度随天光走（见 ENV_BAKE_LUM 处的说明）：否则夜景里的石材/木材/水面
