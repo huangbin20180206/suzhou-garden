@@ -118,6 +118,22 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   /* ── ① 归属与形态 ── */
   await setEnv('night', 'winter', 'clear'); await settled(); await sleep(900);
   const S = await st();
+  /* ⚠️ 前提断言（2026-09-27 补）：本门测的一切都建立在"高档位真的挂上了光团"之上 ——
+     12-env 的 `const WITH_VOL = ACTIVE_QUALITY.volume` 只在 high 档为真，low/mid 档
+     5 盏灯**一盏都不挂**（属设计的降级，不是缺陷）。
+     而本机 ANGLE 常落在 **Intel Iris Xe = low 档** ⇒ 若 `?tier=high` 因任何原因失效
+     （query 被 SW 吞、模块在导航前求值、URL 拼错），下面所有判据都会在"光团根本不存在"
+     的前提下运行 ⇒ 报出一堆看似合理的红，把人引去改本来正确的产品。
+     实测过：`?tier=high` 生效时 volCount=5、不带 tier 时 volCount=0 —— 差别就是这样大。 */
+  const tierOK = await page.evaluate(() => {
+    const g = window.__garden;
+    const search = location.search;
+    const forced = /[?&]tier=(low|mid|high)/.exec(search)?.[1] || null;
+    return { search, forced, volCount: g.lampVolState().volCount };
+  });
+  check('前提：?tier=high 真的生效（否则光团压根不挂，后面全在错误前提下跑）',
+    tierOK.forced === 'high' && tierOK.volCount === LANTERNS,
+    `search="${tierOK.search}" forced=${tierOK.forced} volCount=${tierOK.volCount}（应为 high 与 ${LANTERNS}）`);
   check('灯笼支点数与设计一致（堂前 2 + 游廊 3）', S.volCount === LANTERNS, `lanternGroups=${S.volCount}`);
   check('光团球心数与灯数成对（5 个世界球心可回读）', (S.volPos || []).length === LANTERNS, `volPos=${(S.volPos || []).length}`);
   /* 认"堂前灯"必须用 **pivot 的局部坐标**（= lanternSpots 里的静态布点），
@@ -140,12 +156,23 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   /* 光团必须**套在灯体上**：它是 `grp`（灯体，含吊绳）的子级，而 lanternGroups 存的 pivot
      是挂点。若有人把光团改挂到 pivot 上 → 光团飘到吊绳顶端、灯身裹不住，画面看着"灯上方有团雾"，
      不报错、不影响任何状态断言，只有场景图结构能分辨。
-     ⚠️ 判据取自**同级的点光源**（`spot` 也挂在 grp 上、位于灯体中心 local y=−0.21），
-     而不是"离挂点多少米"—— 后者要从注释里的绳长去推，实测堂前 1.51m 会让拍脑袋写的 1.5 假红。 */
+     ⚠️ 判据取自**同级的真光源**，而不是"离挂点多少米"—— 后者要从注释里的绳长去推，
+     实测堂前 1.51m 会让拍脑袋写的 1.5 假红。
+     ⚠️⚠️ **认光源必须同时接受 PointLight 与 SpotLight**（2026-09-27 修）：
+        提交 `ebe99c8`「PMREM 四时段缓存 + 灯笼 SpotLight 投影」把灯笼从 PointLight
+        换成了 SpotLight（更贴灯笼向下照的物理，且阴影成本从 6 面降为 1 张），
+        但本判据仍写死 `o.isPointLight` ⇒ `spot` 恒为 null ⇒ 报
+        「图上缺件 vol=true spot=false」，**两条判据一起假红**。
+        实测：`?tier=high` 下 5 盏灯的 `lampVol` **全都在**（volCount=5），产品没缺件，
+        是判据没跟上那次改造。这类"判据滞后于产品"的假红最坑 —— 它会让人去改本来正确的产品。 */
   const tie = await page.evaluate((a) => a.idx.map(i => {
     const piv = window.__garden.lanternGroups[i];
     let vol = null, spot = null;
-    piv.traverse(o => { if (o.name === 'lampVol') vol = o; if (o.isPointLight) spot = o; });
+    piv.traverse(o => {
+      if (o.name === 'lampVol') vol = o;
+      /* 灯笼现役光源是 SpotLight；保留 isPointLight 是为了旧档/旧场景仍能认出来。 */
+      if (o.isPointLight || o.isSpotLight) spot = o;
+    });
     if (!vol || !spot) return { ok: false, why: `灯${i} 图上缺件 vol=${!!vol} spot=${!!spot}` };
     return { ok: true, same: vol.parent === spot.parent, d: +(vol.position.y - spot.position.y).toFixed(3) };
   }), { idx: hall });
