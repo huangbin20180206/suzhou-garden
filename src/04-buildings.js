@@ -24,6 +24,36 @@ export function makeYuanxiangHall(){
   const edge = mesh(box(W + 4.6, 0.1, D + 4.6), MAT.stoneDark);
   edge.position.y = 0.62; g.add(edge);
 
+  /* ①b 须弥座线脚（2026-09-27 高精化第 5 件·④ 的最后一件）
+     原来两级台基是**两个素面平板 + 一条压边**，近看光秃秃 —— 缺"这房子有等级"那道
+     直接信号。真实江南台基（须弥座）自下而上是**叠涩五段**：圭角 → 下枭 → 下枋 →
+     上枭 → 上枋，每段出挑递减、侧面带一道**凹进的束腰**。
+     这里按同样逻辑加四道线脚，**但整体高度一寸不动**（台面仍在 y=1.24，柱础/踏跺/
+     题名石全不受影响）—— 只在既有 1.24m 高度里"切"出线脚，不往上加。
+       · 圭角：下枭出挑最大、压住基座底
+       · 下枭 / 上枭：两段**凸出的圆角线脚**（叠涩的"枭"），出挑递减
+       · 束腰：在两枭之间**凹进**一段（深色，读作阴影缝）—— 这道"凹"是关键，
+         只凸不凹的话须弥座就只是一摞砖
+     尺寸按出挑递减：+0.30 / +0.18 / −0.10（束腰内收）/ +0.06，都在 W+4.4 的外轮廓之内，
+     不会把台基撑大。 */
+  const T1 = W + 4.4, T2 = W + 3.0;      // 下级 / 上级台基外廓
+  const moulding = (name, w, d, y, th, mat)=>{
+    const m = mesh(box(w, th, d), mat, { name, cast:false });
+    m.position.y = y; g.add(m); return m;
+  };
+  moulding('xumiGujiao0', T1 + 0.30, D + 4.4 + 0.30, 0.10, 0.20, MAT.stoneDark);  // 圭角（下枭，最大出挑）
+  moulding('xumiGujiao1', T1 + 0.18, D + 4.4 + 0.18, 0.26, 0.12, MAT.stone);      // 下枭
+  moulding('xumiShuyao',  T1 - 0.10, D + 4.4 - 0.10, 0.40, 0.16, MAT.stoneDark);   // 束腰（凹进）
+  moulding('xumiGujiao2', T2 + 0.16, D + 3.0 + 0.16, 0.66, 0.12, MAT.stone);       // 上枭
+  moulding('xumiShangfang', T2 + 0.06, D + 3.0 + 0.06, 0.78, 0.14, MAT.stone);     // 上枋（收在台面下）
+  /* 角部圭角收头：须弥座四角有下凹的角线（真实做法是"杀角"），这里用四块深色小体
+     暗示那道转折 —— 比纯方角更"有做工"，又不会在低机位露出破绽。 */
+  for (const [sx, sz] of [[-1,-1],[1,-1],[-1,1],[1,1]]){
+    const c = mesh(box(0.55, 0.22, 0.55), MAT.stoneDark, { name:'xumiCorner', cast:false });
+    c.position.set(sx * (T1 / 2 + 0.12), 0.13, sz * ((D + 4.4) / 2 + 0.12));
+    g.add(c);
+  }
+
   /* ② 踏跺（南侧两级） */
   for (let i = 0; i < 2; i++){
     const st = mesh(box(4.6, 0.31, 0.62), MAT.stone, { name:'step' });
