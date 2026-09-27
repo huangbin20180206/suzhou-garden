@@ -611,8 +611,17 @@ export function makeChangChuang(w, h, cols = 5, rows = 4){
   panel.position.set(0, yBot + hPanel / 2, 0.01); g.add(panel);          // 下段裙板
   const mid = mesh(box(iw, hMid, depth * 0.6), ww, { name:'ccMid' });
   mid.position.set(0, yBot + hPanel + hMid / 2, 0.01); g.add(mid);       // 中段夹堂板
-  // 上段芯仔：方格 + 每格中央一枚如意/海棠花心（清代江南隔扇做法，见 latticeSegs_qingStyle）
-  const segs = latticeSegs_qingStyle(iw, ih, 2, 3);
+  /* 上段芯仔：方格 + 每格中央一枚如意/海棠花心（清代江南隔扇做法，见 latticeSegs_qingStyle）
+     ⚠️ 格数 2×3 → **3×5**（2026-09-27 远香堂高精化第 4 件·槅扇纹样密化）。
+        原来每樘只有 6 格，芯仔高约 2.6m ⇒ 每格近 0.9m 见方，读作"六块大玻璃"，
+        不是"槅扇"。真实江南厅堂隔扇的芯仔格数远多于此（常见 3~4 列 × 5~8 行），
+        密格 + 逐格小花心才有"棂花"的层层退远感。
+        取 3×5 而不是更密：① 逐格花心是**实例化前的合并几何**，格数 ×每格 7 根棂
+        ⇒ 15 格 × 7 = 105 根/樂，仍是**一个 draw call**（buildLatticeMesh 全合并）；
+        ② 再密会让花心小于棂条粗细，"密"变成糊；③ 保持"通长横棂 + 通长竖棂"的
+        宫式骨架，不改成步步锦的短棂拼接（那会让骨架读不出来）。
+        代价：格心 0.29m 见方，贴脸看仍是方格——但那正是"宫式槅扇"该有的读法。 */
+  const segs = latticeSegs_qingStyle(iw, ih, 3, 5);
   const lat = buildLatticeMesh(segs, iw, ih, depth * 0.55, ww);
   if (lat){ lat.position.set(0, yCore, 0.02); g.add(lat); }
   const top = mesh(box(w, fr, depth), ww); top.position.y = h/2 - fr/2; g.add(top);
