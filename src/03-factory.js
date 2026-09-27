@@ -317,14 +317,22 @@ export function makeChineseRoof({ w, d, hRidge, ridgeLen, lift = 1.5,
       for (let i = 0; i < n; i++){
         const t = (i + 0.5) / n;
         const x = p0.x + dx * t, z = p0.z + dz * t;
-        list.push({ x, y: heightAt(x, z) - 0.07 + tileAmp * 0.55, z, ry });
+        list.push({ x, y: heightAt(x, z) - 0.035 + tileAmp * 0.75, z, ry });
       }
     };
     addRow({x:-W, z: D}, {x: W, z: D});
     addRow({x: W, z: D}, {x: W, z:-D});
     addRow({x: W, z:-D}, {x:-W, z:-D});
     addRow({x:-W, z:-D}, {x:-W, z: D});
-    const tg = new THREE.CylinderGeometry(0.078, 0.078, 0.1, 10);
+    /* ⚠️ 半径 0.078 → **0.105**（2026-09-27，远香堂高精化第一件）。
+       原值是按"嵌在封边里、只露一点弧顶"取的，量下来**瓦当 : 垄距 = 0.078 : 0.36 ≈ 1 : 4.6**，
+       而真实筒瓦的瓦当直径约 0.16~0.20m、垄距 0.30~0.36m ⇒ 真实比例约 **1 : 2**。
+       也就是说原来的瓦当小了将近一半，檐口特写机位下每个只有几个像素 ——
+       **"存在但看不见"等于没有**：功能（筒瓦端头）在，工艺读不出来。
+       0.105 ⇒ 比例 1 : 3.4，落在真实区间内且不过分；同一排 206 个实例，
+       三角面增量 = 206 × 10 段 × 2 面 ≈ 4k（全场景 3.0M 的 0.14%，可忽略）。
+       配套把落点从"檐口线下 0.07"提到"线下 0.035"（见上），让圆头真的露在封边之外。 */
+    const tg = new THREE.CylinderGeometry(0.105, 0.105, 0.1, 10);
     const inst = new THREE.InstancedMesh(tg, MAT.ridge, list.length);
     inst.castShadow = false;
     const qA = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1,0,0), Math.PI/2);
