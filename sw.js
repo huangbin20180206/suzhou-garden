@@ -12,7 +12,9 @@
      · 导航请求 → network-first，离线回退缓存的 index.html。
    ⚠️ **改了 src/*.js、vendor.js 或 SHELL 内容后必须 bump 版本号** —— 否则已装 SW 的浏览器
       仍走旧缓存。版本号升级即整体换缓存，旧缓存 activate 时整体删除。 */
-const CACHE = 'suzhou-garden-v4';
+/* 2026-09-28 活雾批次 bump v4→v5：本轮改了 SHELL 成员 index.html（天气按钮）与 src/*.js
+   （活雾/鱼平滑/雾团），按头部规矩升版，让已装 SW 的浏览器整体换新缓存。 */
+const CACHE = 'suzhou-garden-v5';
 const SHELL = [
   './',
   './index.html',
