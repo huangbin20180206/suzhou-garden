@@ -617,7 +617,10 @@ const ENV_TIME = {
     fogColor:0xDCE3E2, fogDensity:0.0052, exposure:1.00,
     bloomStrength:0.26, bloomRadius:0.50, bloomThreshold:1.02, gtaoBlend:0.85,
     grade:{ contrast:0.25, saturation:1.12, split:0.24, vignette:0.50, warm:0xFFF6E8, cool:0xE2EEFF },
-    starAmount:0.0, lamp:0.0, mistMul:0.82, bankHall:0.10, bankBamboo:0.08 },   // 午：雾散开
+    /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul
+       0.82→1.10（有效 1.98，晨 2.61 的 ~76%——比晨淡、但明显有雾）；雾团也留三成
+       而不是归零（bankHall 0.28 / bankBamboo 0.22）。 */
+    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22 },   // 午：淡一档但仍见雾
   dusk: { label:'暮',
     sunColor:0xFFA45C, sunIntensity:1.00, sunPos:[-56, 15, 30],
     ambColor:0x6E7B96, ambIntensity:0.44,

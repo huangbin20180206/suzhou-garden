@@ -258,7 +258,10 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     fog: window.__garden.scene.fog.density,
     btnEnabled: !document.querySelector('#env button[data-v="mist"]').disabled,
   }));
-  check('晨雾：雾密度抬升（fogMul 1.3，主建筑须可读）', mistState.fog > 0.0062 && mistState.fog < 0.0085, `density=${mistState.fog.toFixed(4)}`);
+  /* 2026-09-28 活雾批次：此处实际是**午+薄雾**（时辰停在上一节的正午），旧窗
+     (0.0062,0.0085) 按常数 fogMul 1.3 校准；活雾后午档 = 0.0052×1.8×1.10 = 0.0103
+     （老黄："中午不能没有雾，只是淡一点"），窗重定为 (0.008,0.013)。 */
+  check('薄雾：雾密度抬升（底 1.8×时辰档，主建筑须可读）', mistState.fog > 0.008 && mistState.fog < 0.013, `density=${mistState.fog.toFixed(4)}`);
   check('晨雾：标签联动且全季节可用', mistStats.ok && mistState.btnEnabled,
         `label="${statsLine(mistStats.txt)}" btnEnabled=${mistState.btnEnabled}`);
 
