@@ -149,7 +149,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const AXES = [
     { axis: 'time',    vals: ['morning', 'noon', 'dusk', 'night'],  key: 'time' },
     { axis: 'season',  vals: ['spring', 'summer', 'autumn', 'winter'], key: 'season' },
-    { axis: 'weather', vals: ['clear', 'storm', 'overcast', 'mist'], key: 'weather' },
+    { axis: 'weather', vals: ['clear', 'storm', 'mist'], key: 'weather' },   // overcast 2026-09-28 从菜单收起
   ];
   for (const { axis, vals, key } of AXES) {
     const before = pageErrors.length;
@@ -162,7 +162,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       const st = await envNow();
       if (st[key] !== v) hit.push(`${v}→实际${st[key]}`);
     }
-    check(`真实点击 ${axis} 全 4 档：状态落位`, hit.length === 0, hit.join(', ') || vals.join('/'));
+    check(`真实点击 ${axis} 全 ${vals.length} 档：状态落位`, hit.length === 0, hit.join(', ') || vals.join('/'));
     check(`真实点击 ${axis}：零 pageerror`, errsSince(before) === 0,
       errsSince(before) ? pageErrors.slice(before).map(e => `${e.at}: ${e.text}`).join(' | ') : '无异常');
   }

@@ -7,7 +7,7 @@ import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-material
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
-import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
+import { MIST, MIST_WHITE, FOG_BANKS, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
@@ -903,13 +903,22 @@ function animate(){
     /* 向白提足：雾本质是散射光，暮色的橙雾铺满水面会"脏"并拉出橙黑横条
        （2026-09-21 走查 F5），0.22→0.34 让雾读成暖灰而不是橘色缎带。 */
     MIST.uColor.value.lerp(MIST_WHITE, 0.34);
-    /* 浓度跟着 fogDensity 走（正午 0.0052 → 暮 0.010，薄雾天气再 ×1.3）：
+    /* 浓度跟着 fogDensity 走（正午 0.0052 → 暮 0.010；mist 底浓 1.8 × 时辰档
+       mistMul 0.72~1.45 随时辰呼吸，见 12-env 的 applyWeatherTo 活雾注释）：
        同一套 0.0045~0.011 的量表，因此晨昏天然更"雾"，正午只是淡淡一层。
        整体基数 0.17+0.33·mt → 0.10+0.22·mt：片数减了，单片浓度也要再收，
        否则 20 片叠透仍把远池盖白。 */
     const mt = Math.max(0, Math.min(1, (scene.fog.density - 0.0045) / 0.0065));
     /* 下雨时压掉：暴雨里"雨幕"已经是主角，再叠雾会糊成一片灰汤 */
     MIST.uOpacity.value = (0.10 + 0.22 * mt) * (1 - 0.45 * Math.min(1, rainNow));
+    /* 两团"半遮半掩"活雾（正堂 / 竹林）：淡入值随时辰由 ENV 参数驱动
+       （applyWeatherTo 已按天气归零、mistMul 密度档已乘进 scene.fog）；
+       漂移相位与雾色与雾絮场同源 —— 雾团与低层纱是一体的。 */
+    FOG_BANKS.hall.uTime.value = FOG_BANKS.bamboo.uTime.value = windClock;
+    FOG_BANKS.hall.uColor.value.copy(MIST.uColor.value);
+    FOG_BANKS.bamboo.uColor.value.copy(MIST.uColor.value);
+    FOG_BANKS.hall.uOpacity.value = ENV.cur.bankHall || 0;
+    FOG_BANKS.bamboo.uOpacity.value = ENV.cur.bankBamboo || 0;
   }
   // 云层缓慢漂移（天空球只有一张材质）
   /* ⚠️ B2 修复（2026-09-20）：云的 uTime 必须吃**累加仿真时钟** windClock，不能吃墙钟 t。

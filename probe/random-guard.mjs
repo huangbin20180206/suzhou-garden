@@ -36,7 +36,7 @@ const check = (label, ok, extra) => { results.push({ label, ok, extra }); consol
 const N = 600;                 // 样本量：比例类判据（夜间天气偏置）要压到 ~6σ，120 抽只够 ~2σ，会偶发假红
 const TIMES = ['morning', 'noon', 'dusk', 'night'];
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
-const WEATHERS = ['clear', 'storm', 'overcast', 'snow', 'mist'];
+const WEATHERS = ['clear', 'storm', 'snow', 'mist'];   // overcast 2026-09-28 从随机池收起
 
 (async () => {
   const port = await listenEphemeral(server);

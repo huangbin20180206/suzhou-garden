@@ -1795,6 +1795,110 @@ export function makeMistField(){
   return im;
 }
 
+/* ══ 雾团（2026-09-28 · "半遮半掩"活雾，老黄设计）════════════════════════
+   与雾絮场（上）互补：雾絮是全园均匀的低层纱；雾团是**定向遮挡** ——
+   晨起裹正堂、午后沉竹林，"哪个景被雾藏"随时辰换主角。
+   · 两团各一个 InstancedMesh（8~9 片软雾 billboard），共用雾絮贴图与漂移手法；
+   · 淡入值由 11-loop 从 ENV.cur.bankHall / bankBamboo 逐帧写入（applyWeatherTo 已按
+     天气归零 —— 非雾天恒 0）；时辰切换走 ENV 的 3s 缓动 ⇒ 雾团渐起渐收，不突兀；
+   · 单片 α 0.28~0.42，几片叠透封顶约 0.5~0.65 —— 露轮廓、藏细节，正是"半遮半掩"。 */
+export const FOG_BANKS = {
+  hall:   { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
+            uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
+  bamboo: { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
+            uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
+};
+function makeFogBank(u, cx, cy, cz, spreadX, n, seed, name){
+  /* 独立随机流（铁律：布局类随机绝不碰全局 rnd / Math.random） */
+  const br = mulberry32(seed);
+  const geo = new THREE.PlaneGeometry(1, 1);
+  const base = new Float32Array(n * 3), par = new Float32Array(n * 4);
+  for (let i = 0; i < n; i++){
+    const t = (i / (n - 1)) * 2 - 1;               // -1..1：沿一条横带均匀铺开
+    base[i*3+0] = cx + t * spreadX + (br() - 0.5) * 3.0;   // 带一点错落，不排成直线
+    base[i*3+1] = cy + (br() - 0.5) * 1.0;
+    base[i*3+2] = cz + (br() - 0.5) * 1.6;
+    par[i*4+0]  = 4.6 + br() * 3.4;                 // 半宽 4.6~8.0m：贴地大雾片
+    par[i*4+1]  = 1.6 + br() * 1.0;                 // 半高 1.6~2.6m
+    par[i*4+2]  = br() * TAU;                       // 漂移相位
+    par[i*4+3]  = 0.28 + br() * 0.14;               // 单片 α：叠透后到"半遮"，不到"盖死"
+  }
+  geo.setAttribute('aBase',  new THREE.InstancedBufferAttribute(base, 3));
+  geo.setAttribute('aParam', new THREE.InstancedBufferAttribute(par, 4));
+  /* shader 与雾絮场同一份（拷贝而非共享：两边的漂移幅度/淡入曲线以后可能分头调） */
+  const mat = new THREE.ShaderMaterial({
+    uniforms: u,
+    vertexShader: `
+      attribute vec3 aBase;
+      attribute vec4 aParam;
+      uniform float uTime;
+      uniform vec2  uWindVec;
+      uniform float uNear;
+      uniform float uNearEnd;
+      varying vec2  vUv;
+      varying float vAlpha;
+      void main(){
+        vUv = uv;
+        float ph = aParam.z;
+        vec3 c = aBase;
+        vec2 w   = uWindVec;
+        vec2 wvP = vec2(-w.y, w.x);
+        c.xz += w   * (sin(uTime * 0.085 + ph * 1.7) * 2.1);
+        c.xz += wvP * (sin(uTime * 0.061 + ph * 2.3) * 1.5);
+        c.y  += sin(uTime * 0.050 + ph * 0.9) * 0.22;
+        vec3 toCam = cameraPosition - c;
+        float dist = length(toCam);
+        vec3 dir   = toCam / max(dist, 1e-4);
+        vec3 cr    = cross(vec3(0.0, 1.0, 0.0), dir);
+        float lr   = length(cr);
+        vec3 right = lr > 1e-4 ? cr / lr : vec3(1.0, 0.0, 0.0);
+        vec3 upv   = normalize(cross(dir, right));
+        vec3 pos = c + right * (position.x * aParam.x * 2.0)
+                     + upv   * (position.y * aParam.y * 2.0);
+        vAlpha = aParam.w * smoothstep(uNear, uNearEnd, dist);
+        gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
+      }`,
+    fragmentShader: `
+      uniform sampler2D uMap;
+      uniform vec3  uColor;
+      uniform float uOpacity;
+      varying vec2  vUv;
+      varying float vAlpha;
+      void main(){
+        float a = texture2D(uMap, vUv).a * vAlpha * uOpacity;
+        if (a < 0.004) discard;
+        gl_FragColor = vec4(uColor, a);
+      }`,
+    transparent: true,
+    depthWrite:  false,      // 互相之间不遮挡、不写深度，否则排序穿帮
+    depthTest:   true,       // 被建筑/山石正常遮挡，才有"绕在树后面"的层次
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,  // 水面反射的镜像相机里三角面会翻向背面
+    fog: false,              // 它自己就是雾，别再被 scene.fog 吃一道
+  });
+  u.uMap.value = makeMistSpriteTex();
+  const im = new THREE.InstancedMesh(geo, mat, n);
+  const MI = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) im.setMatrixAt(i, MI);   // shader 不读 instanceMatrix，补上只为包围球不出现零矩阵
+  im.instanceMatrix.needsUpdate = true;
+  im.frustumCulled = false;                            // 实例位置在 shader 里算，CPU 侧包围球是错的
+  im.raycast = () => {};                               // 与雾絮场同因：别挡"视线是否被挡"类射线判定
+  im.castShadow = false; im.receiveShadow = false;
+  im.renderOrder = 6;
+  im.name = name;
+  return im;
+}
+export function makeFogBanks(){
+  const g = new THREE.Group();
+  /* 正堂（远香堂，堂在 (0,-12.8)）前：雾团压在台基/踏跺一带 —— 晨起最浓时
+     堂身没入雾里、只余脊线，正是"整个正堂雾蒙蒙"。 */
+  g.add(makeFogBank(FOG_BANKS.hall, 0, 2.0, -8.8, 11, 8, 20260928, 'fogBankHall'));
+  /* 竹林带：北墙根的竹丛（z=-20，x ±14~26 两丛；中段留给堂后留白）—— 午后渐浓时
+     竹林半没入雾、竹梢挑出雾面。 */
+  g.add(makeFogBank(FOG_BANKS.bamboo, 0, 2.6, -19.2, 23, 9, 20260929, 'fogBankBamboo'));
+  return g;
+}
+
 /* 点到线段距离 —— 挖洞管道（胶囊）的基元 */
 function segDist(px, py, pz, ax, ay, az, bx, by, bz){
   const abx = bx - ax, aby = by - ay, abz = bz - az;

@@ -439,7 +439,9 @@ const ENV_WEATHER = {
     cloudAmount:1.00, skyGray:0.55, fogGray:0.30, diskFade:0.85,
     rainAmount:1.0, snowAmount:0.0, snowCover:0.0, wetness:1.0,
     windMul:4.00, gustMul:0.30, moonVis:0.00, snowTint:0xF2F6FA },   // 暴雨/风雪：全天无月
-  overcast: { weatherLabel:'阴霾暗沉', blizzard:0,
+  /* 2026-09-28 老黄："阴霾暗沉和薄雾烟霭感官上太一致，保留薄雾" —— 从菜单/键盘/
+     随机池收起（hidden）；预设数据保留（mist-guard 仍直调 setEnv 测雾管线），恢复只需去掉 hidden。 */
+  overcast: { weatherLabel:'阴霾暗沉', blizzard:0, hidden: true,
     sunMul:0.55, ambMul:0.95, hemiMul:0.96, fogMul:1.55, satMul:0.72, expMul:0.98, shadowK:0.00,
     cloudAmount:1.00, skyGray:0.72, fogGray:0.62, diskFade:1.00,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.0,
@@ -455,9 +457,13 @@ const ENV_WEATHER = {
      ⚠️ 浓度调过四档：4.4 → 2.7 → 1.7 → 1.3。用户实测视角是**晨时**（晨的雾基数本来
      就是正午的 1.7 倍）：1.7 时主厅立面仍被洗成灰白（40m 处雾覆盖 30%）。
      量过关键段：1.3 时主厅段 ≈20%、60m ≈28%、远山 120m ≈50%、200m ≈75% ——
-     "近清远朦"的灰阶阶梯成立，雾只剩三个职责：吞远山、压低日轮、中景蒙纱。 */
+     "近清远朦"的灰阶阶梯成立，雾只剩三个职责：吞远山、压低日轮、中景蒙纱。
+     ── 2026-09-28 活雾批次：1.3 → 1.8（老黄："雾气再浓一些"）。1.8 只是**底**，
+     真正的浓淡由 ENV_TIME 的 mistMul 随时辰调制（晨 1.45 / 午 0.82 / 暮 1.30 /
+     夜 0.72）：晨有效 2.61 正是老黄要的"整个正堂雾蒙蒙"（正堂前另有雾团半遮半掩，
+     见 06 的 FOG_BANKS）；夜有效 1.8×0.72≈1.30 与旧版持平，night+mist 水位不动。 */
   mist: { weatherLabel:'薄雾烟霭', blizzard:0,
-    sunMul:0.85, ambMul:1.05, hemiMul:1.08, fogMul:1.30, satMul:0.96, expMul:1.02, shadowK:0.00,
+    sunMul:0.85, ambMul:1.05, hemiMul:1.08, fogMul:1.80, satMul:0.96, expMul:1.02, shadowK:0.00,
     cloudAmount:0.30, skyGray:0.22, fogGray:0.26, diskFade:0.70,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.25,
     windMul:1.00, gustMul:0.60, moonVis:0.30, snowTint:0xF2F6FA },   // 薄雾：月色被雾纱吃掉了七成
@@ -523,6 +529,19 @@ function applyWeatherTo(p, eff){
   /* 影子强度随天气（2026-09-28 用户："阴霾和薄雾不该有影子"，见表头 shadowK 注释）：
      直取天气预设值、缺键兜底 1。进了参数集 ⇒ mixInto 随天气切换逐帧缓动。 */
   p.shadowK = (w.shadowK === undefined ? 1 : w.shadowK);
+  /* ── 活雾（2026-09-28 老黄设计："半遮半掩"随辰换景）──
+     雾的"性格"跟一天时辰走：晨浓裹正堂、午间散开、午后复起遮竹林、夜里收平。
+     三个键来自 ENV_TIME 时段预设（paramsAtHour 沿时辰连续插值），**只在 mist 天气
+     生效**：mistMul 再乘雾密度（底 1.8 × 时辰档 0.72~1.45）；bankHall / bankBamboo
+     是两团"半遮半掩"雾团的淡入值（0=全无，两团在 06 的 FOG_BANKS）。非雾天一律
+     归 0 —— 晴/雨/雪的雾浓度不因 mistMul 变化。 */
+  if (ENV.weather === 'mist'){
+    p.fogDensity *= (p.mistMul === undefined ? 1 : p.mistMul);
+    p.bankHall   = (p.bankHall === undefined ? 0 : p.bankHall);
+    p.bankBamboo = (p.bankBamboo === undefined ? 0 : p.bankBamboo);
+  } else {
+    p.bankHall = 0; p.bankBamboo = 0;
+  }
   p.skyGray    = w.skyGray;    p.fogGray    = w.fogGray;  p.diskFade = w.diskFade;
   p.weatherLabel = weatherLabelOf(ENV.weather, ENV.season);
   p.blizzard = w.blizzard || 0;          // 供统计栏/调试判断"这是不是风雪"，不参与插值
@@ -570,7 +589,9 @@ const ENV_TIME = {
     fogColor:0xE6E0D4, fogDensity:0.0088, exposure:1.06,
     bloomStrength:0.36, bloomRadius:0.52, bloomThreshold:1.00, gtaoBlend:0.85,
     grade:{ contrast:0.13, saturation:1.02, split:0.30, vignette:0.50, warm:0xFFF2E0, cool:0xE6EEFF },
-    starAmount:0.0, lamp:0.0 },
+    /* 活雾三键（仅 mist 天气生效，见 applyWeatherTo）：晨 = 大雾裹正堂 ——
+       mistMul 再乘雾密度、正堂雾团最浓、竹林雾团只留一线。 */
+    starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12 },
   noon: { label:'午',
     /* F8 光照"晴感"再平衡（2026-09-21 · 三张正午样张一致指出"像阴天"）：
        原 sun1.12 / 环境 amb.50+hemi.35+fill.32=1.17 —— 直射仅占 49%，阴影被环境光
@@ -596,7 +617,7 @@ const ENV_TIME = {
     fogColor:0xDCE3E2, fogDensity:0.0052, exposure:1.00,
     bloomStrength:0.26, bloomRadius:0.50, bloomThreshold:1.02, gtaoBlend:0.85,
     grade:{ contrast:0.25, saturation:1.12, split:0.24, vignette:0.50, warm:0xFFF6E8, cool:0xE2EEFF },
-    starAmount:0.0, lamp:0.0 },
+    starAmount:0.0, lamp:0.0, mistMul:0.82, bankHall:0.10, bankBamboo:0.08 },   // 午：雾散开
   dusk: { label:'暮',
     sunColor:0xFFA45C, sunIntensity:1.00, sunPos:[-56, 15, 30],
     ambColor:0x6E7B96, ambIntensity:0.44,
@@ -620,7 +641,7 @@ const ENV_TIME = {
     /* saturation 1.04→0.97：暮色草地旧值下仍是高饱和翠绿，整体去艳半档，
        让暮色统一在灰暖调里。 */
     grade:{ contrast:0.20, saturation:0.97, split:0.42, vignette:0.56, warm:0xFFE4C0, cool:0xC8D8F0 },
-    starAmount:0.0, lamp:0.25 },
+    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55 },  // 暮：雾复起，这回沉在竹林
   night: { label:'夜',
     sunColor:0xA8BEE0, sunIntensity:0.38, sunPos:[-34, 52, -22],
     /* 幽而不黑（2026-09-21 方案 n1，两轮收敛）：
@@ -646,7 +667,9 @@ const ENV_TIME = {
     /* contrast 0.22→0.15：S 曲线对暗部的压黑逐轮退档（0.22→0.18→0.15），
        与 amb 提亮配套，暗部层次（墙裙/瓦当/石阶）不再糊死。 */
     grade:{ contrast:0.15, saturation:0.92, split:0.34, vignette:0.55, warm:0xE8D8C0, cool:0x9FB8E0 },
-    starAmount:1.0, lamp:1.0 },
+    /* 夜 mistMul 0.72 ⇒ 有效雾系数 1.8×0.72≈1.30，与旧版常数持平：night+mist 的画面
+       与 mist-guard 的水位完全不动（夜里不加浓，画面别变脏）。 */
+    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08 },
 };
 
 /* ── 季节预设 ──
@@ -2253,7 +2276,7 @@ export function advanceReel(dt){
    返回 {label, time, season, weather, hour} 供 toast / 门禁使用。 */
 const R_TIMES    = [['dusk',4],['night',4],['morning',2.5],['noon',1]];
 const R_SEASONS  = ['spring','summer','autumn','winter'];
-const R_W_BASE   = { clear:3, mist:2, overcast:1.4, storm:1.2, snow:1 };
+const R_W_BASE   = { clear:3, mist:2.4, storm:1.2, snow:1 };   // 阴霾暗沉 2026-09-28 收起，权重并入薄雾
 function rwPick(items){
   let total = 0;
   for (const [, w] of items) total += w;
@@ -2270,7 +2293,7 @@ export function randomScene(){
     season = R_SEASONS[(Math.random() * R_SEASONS.length) | 0];
     const nightish = time === 'night';
     const pool = Object.keys(ENV_WEATHER)
-      .filter(w => weatherMutexReason(w, season) === null)
+      .filter(w => !ENV_WEATHER[w].hidden && weatherMutexReason(w, season) === null)
       .map(w => [w, (R_W_BASE[w] || 1) * (nightish ? (w === 'clear' || w === 'mist' ? 1.6 : 0.6) : 1)]);
     weather = rwPick(pool);
   } while (time === ENV.time && season === ENV.season && weather === ENV.weather && ++tries < 12);
@@ -2325,7 +2348,9 @@ addEventListener('keydown', (e)=>{
   }
   const map  = { '1':'morning', '2':'noon', '3':'dusk', '4':'night' };
   const smap = { q:'spring', w:'summer', e:'autumn', r:'winter' };
-  const wmap = { a:'clear', s:'storm', d:'overcast', f:'snow', g:'mist' };
+  /* 2026-09-28：'阴霾暗沉'从菜单收起（老黄："和薄雾感官上太一致，保留薄雾"）——
+     d 键空出；预设数据保留（mist-guard 仍可直调 setEnv 测试雾管线），想恢复一条线的事。 */
+  const wmap = { a:'clear', s:'storm', f:'snow', g:'mist' };
   const hit = map[e.key] || smap[e.key.toLowerCase()] || wmap[e.key.toLowerCase()];
   if (!hit) return;
   seasonDemoUserTakeover();

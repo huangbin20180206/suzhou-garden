@@ -10,7 +10,7 @@ import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
    本模块两处用途：假山埋脚"75% 补石"（条件里还会抽 rr ⇒ 直接改全局流消费次数）与
    两位点景人物的呼吸相位 —— 都是**建场**性质，必须与加载时序无关。 */
 const jr = mulberry32(20260924);
-import { rippleInst, makeMistField, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints } from './06-vegetation.js';
+import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints } from './06-vegetation.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater } from './05-water.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
@@ -119,6 +119,8 @@ world.add(makePond());
    前后关系由深度测试决定； ownership only 1 draw call（单个 InstancedMesh）。 */
 const mistField = makeMistField();
 world.add(mistField);
+/* 半遮半掩雾团（正堂/竹林各一团，淡入随时辰走，见 06 的 FOG_BANKS 与 12-env 活雾注释） */
+world.add(makeFogBanks());
 world.add(makeBankRocks());
 world.add(makeWalls());
 bootMark('环境几何');
