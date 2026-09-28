@@ -53,8 +53,24 @@ export const QUALITY_PRESETS = Object.freeze({
 export const ACTIVE_QUALITY = QUALITY_PRESETS[GPU_TIER];
 export function pixelRatioForTier(tier = GPU_TIER, width = innerWidth, height = innerHeight){
   const q = QUALITY_PRESETS[tier] || ACTIVE_QUALITY;
+  /* ⚠️ 2026-09-28：下限从 **1** 改成 **0.5**。
+     原来写 `Math.max(1, …)`，意思是"永远不低于 1:1 原生像素 —— 宁可清楚也不降采样"。
+     那个取舍**在屏幕大于预算时会反过来咬人**：它让 pixelBudget 这条护栏**完全失效**。
+     实测（low 档、预算 1920×1080×1.10 ≈ 228 万像素）：
+        1080p 屏 → 1.05×（正常，护栏生效）
+        1440p 屏 → **1.62× 预算**
+        4K  屏 → **3.64× 预算**（840 万像素 vs 预算 228 万）
+     即"核显 + 外接大屏"会白白多算 3.6 倍像素 ⇒ 卡顿。而 `autoTier` 正好把 Intel Iris Xe
+     判成 low，外接 4K 显示器又很常见 ⇒ 这个组合是**可达的**，不是理论边界。
+     改成 0.5 就是现代游戏通行的 **resolution scaling（降内部分辨率 + 上采样）**：
+     预算说"这台机器只吃得起这么多像素"，那就按预算渲染、由浏览器放大呈现 —— 略软，
+     但不卡。0.5 是硬下限（最多 2× 上采样），避免极端屏（8K）糊到不可辨。
+     ⚠️ **1080p 及以下完全不受影响**：那里 sqrt(预算/屏面积) 本来就 > 1（low 1.05 /
+     mid 1.37 / high 2.05），地板根本轮不到 ⇒ 绝大多数用户的画面与行为**零变化**。
+     ⚠️ `11-loop.js` 的 AA `budgetCap()` 必须用**同一个**下限 —— 两处不一致会让 AA
+        把倍率抬回预算之上（base 已被压到 <1，再乘 1.36 就又能越界）。 */
   return Math.min(Math.max(devicePixelRatio, q.supersample),
-                 Math.max(1, Math.sqrt(q.pixelBudget / Math.max(1, width * height))));
+                 Math.max(0.5, Math.sqrt(q.pixelBudget / Math.max(1, width * height))));
 }
 
 /* 超采样抗锯齿（SSAA）：按高于画布的分辨率渲染，由浏览器呈现时降采样。

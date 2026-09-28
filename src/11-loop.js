@@ -644,10 +644,13 @@ const AA = (()=>{
      像素面积 1.94×预算（8.29M×1.945≈16.1M vs 预算 8.71M）—— AA 与像素预算这条护栏脱钩。
      写法取"先按预算算出上限，再对乘出来的值取 min"：AA 只能把倍率**抬到**预算，
      绝不能抬过预算；QOS 降档（pixelRatioScale<1）时这个 min 天然不生效，语义无副作用。
-     ⚠️ 上限用的是 `Math.max(1, …)`，与 02-scene 一致 —— 那个地板是 pixelRatioForTier 自带的
-     决策（预算实在兜不住时至少 1×，宁可越预算也不缩到亚像素），AA 不能比它更宽松。 */
+     ⚠️ 上限地板与 02-scene **必须一致**（2026-09-28 两处一起从 1 改成 0.5）。
+        原来那个 1 的意思是"宁可越预算也不缩到亚像素"，但它在屏幕大于预算时让 pixelBudget
+        这条护栏**完全失效**（low 档 4K 屏实测 3.64× 预算）—— 改成 0.5 走现代游戏的
+        resolution scaling（降内部分辨率 + 上采样），略软但不卡。详见 02-scene 的注释。
+        ⚠️ 两处若不一致：base 已被压到 <1，AA 若还认为上限是 1，就能乘 1.36 又越界。 */
   function budgetCap(width = innerWidth, height = innerHeight){
-    return Math.max(1, Math.sqrt(ACTIVE_QUALITY.pixelBudget / Math.max(1, width * height)));
+    return Math.max(0.5, Math.sqrt(ACTIVE_QUALITY.pixelBudget / Math.max(1, width * height)));
   }
   /* 环境免疫 —— 与 QOS **同一个判据**，不是新概念。
      02-scene.js 同时导出了 PROBE_DRIVEN 和 QOS_IMMUNE，但 QOS 自己用的判据是
