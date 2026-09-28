@@ -335,9 +335,14 @@ function makeWisteriaFloretGeo(){
    真实紫藤：花穗从茎上一簇簇垂下，每穗 16~26 朵**互生**小花沿穗轴排布、向梢端渐小，
    基部（近茎、先开）淡紫 #C9B3EC → 穗梢（下垂末端、未开苞）深紫 #6A3E96 逐朵渐变
    （不是整串一个色），穗间露茎。 */
-export function makeWisteria(count = 6, scale = 1){
+/* spanCap：主藤藤长上限（米），默认不设。2026-09-28 加 —— bigW1（连廊转角那丛，
+   心 (13.2,·,1.2)、scale 2.6 ⇒ 藤长撞到 10 的封顶）最西端探进了拱桥的栏杆带
+   （桥 (8.4,·,4.6)、栏杆带到 x≈9.85），花穗垂下来正搭在桥栏上（老黄截图
+   "紫藤长到桥上了"）。收短+东挪后悬挂花穗最西点（含 ±1.04m 摆幅）= 10.26m，
+   桥外余量 0.41m。只封主藤长度，穗长/花量/花色（跟 scale 走）一律不动。 */
+export function makeWisteria(count = 6, scale = 1, spanCap = Infinity){
   const g = new THREE.Group();
-  const span = Math.min(4.5 * scale, 10);
+  const span = Math.min(4.5 * scale, 10, spanCap);
   // 主藤（老藤，沿梁左右蜿蜒）
   const mainCurve = new THREE.CatmullRomCurve3([
     new THREE.Vector3(-span/2, 0.10, 0),
@@ -686,6 +691,23 @@ function installLilyCorridor(mat){
   mat.needsUpdate = true;
 }
 
+/* 2026-09-28 修"睡莲长到草皮上"（老黄截图：左岸漏窗墙前草坡上一株孤莲）：
+   makeAquatic 的散布只是个压扁的粗略椭圆、不贴池形 ⇒ 个别叶/花越过岸线。
+   落点在**抽完角度/半径之后**就地夹回 0.85×岸线内。
+   ⚠️ 绝不能"丢弃重抽"：重抽会多消耗全局随机流，其后全场抽样整体错位（铁律 1）。
+   夹回不消耗任何随机数，全局流的位置一位不动（改的只是落点值）。 */
+function clampAquaticToPond(gx, gz, px, pz){
+  const lx = gx + px, lz = gz + pz - 3.0;        // 世界 → 池局部（池心世界 z=+3）
+  const r = Math.hypot(lx, lz);
+  if (r < 1e-6) return { x: px, z: pz };
+  let a = Math.atan2(lz, lx); if (a < 0) a += TAU;
+  const ri = Math.min(POND_RADII.length - 1, Math.floor(a / TAU * POND_RADII.length));
+  const cap = POND_RADII[ri] * 0.85;             // 0.85×岸线：叶盘离岸留 ~15% 观感余量
+  if (r <= cap) return { x: px, z: pz };
+  const k = cap / r;
+  return { x: lx * k - gx, z: lz * k + 3.0 - gz };
+}
+
 export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
   const g = new THREE.Group();
   g.position.set(x, 0, z);
@@ -700,7 +722,10 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
   let placed = 0, guard = 0;
   while (placed < nPad && guard++ < nPad * 8){
     const a = rr(0, TAU), rad = Math.sqrt(rnd()) * radius;
-    const px = Math.cos(a)*rad, pz = Math.sin(a)*rad * 0.72;
+    let px = Math.cos(a)*rad, pz = Math.sin(a)*rad * 0.72;
+    /* 2026-09-28：先夹回池内（岸上的落点沿"池心→落点"方向拉回 0.85×岸线内，
+       随机数已抽完、不重抽），再走下面的汀步让位 —— 顺序对随机流的消耗无影响。 */
+    const cl = clampAquaticToPond(x, z, px, pz); px = cl.x; pz = cl.z;
     /* ⚠️ 汀步在 z≈5.6 的一条直线上（见 makeSteppingStones），叶盘压上去必然与石板穿模
        （用户实拍：石板从叶盘中间穿出来）。这里按**标称石位**让开 0.8m ——
        不去引用那块列表，是因为它的随机数消耗顺序不能动（一动整场景的随机布局都会变）。 */
@@ -730,7 +755,10 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
   const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
   for (let i = 0; i < nLotus; i++){
     const a = rr(0, TAU), rad = Math.sqrt(rnd()) * radius * 0.92;
-    const fx = Math.cos(a)*rad, fz = Math.sin(a)*rad*0.72;
+    let fx = Math.cos(a)*rad, fz = Math.sin(a)*rad*0.72;
+    /* 2026-09-28：与叶盘同款夹回池内（见 clampAquaticToPond 注释）—— 否则岸上的
+       落点会出现"草坡上一根孤零零的花梗"（老黄截图）。 */
+    const cf = clampAquaticToPond(x, z, fx, fz); fx = cf.x; fz = cf.z;
     /* ⚠️ 花梗高度必须**高过睡莲叶盘**：叶盘顶部在 0.21，原来最低 0.2 的花
        等于坐在叶子上，0.2m 的杆被 1.5m 宽的叶子完全挡住（用户："荷花几乎没有杆撑着"）。 */
     const fy = CFG.water + rr(0.48, 1.08);        // 花朵高低错落（下限抬到叶盘之上）

@@ -149,8 +149,12 @@ const corridor = makeCorridor([
 ], 3.0);
 world.add(corridor);
 // 紫藤主景：连廊转角处一大丛（扩大 2~3 倍，作为视觉焦点）
-const bigW1 = makeWisteria(16, 2.6);
-bigW1.position.set(13.2, 3.35, 1.2);
+// ⚠️ 2026-09-28 修"紫藤长到桥上"：spanCap 5 + 心东挪 13.2→13.8 —— 旧藤长 10m 的
+// 最西端（x 8.2，含花穗摆幅到 7.2）探进拱桥栏杆带（桥心 (8.4,·,4.6)，栏带到 x≈9.85），
+// 花穗垂在桥栏里。收短挪位后悬挂花穗最西点 = 13.8−2.5−1.04 = 10.26m，桥外余量 0.41m。
+// 穗长/花量不变（跟 scale 2.6 走），仍是"一大丛"，只是不再漫过桥面。
+const bigW1 = makeWisteria(16, 2.6, 5);
+bigW1.position.set(13.8, 3.35, 1.2);
 world.add(bigW1);
 const bigW2 = makeWisteria(12, 2.2);
 bigW2.position.set(13.2, 3.35, -4.6);

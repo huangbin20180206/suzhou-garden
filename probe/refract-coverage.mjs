@@ -199,6 +199,9 @@ const REQUIRED_BY_COLOR = [
     if (r.span > 100) return `跨度 ${r.span}m 的整景大网（天空球/远山/地形基底），不是池内物`;
     if (r.name === 'ground') return '地形网格：池底那一段被 pondBed 盖住，进层会挡住池底';
     if (r.name === 'mistField') return '低空云雾 billboard：浮在水面之上的雾，不是水下物';
+    if (r.name && r.name.startsWith('fogBank') && r.depth <= 0.6)
+      return `活雾团 billboard（${r.name}）：浮在水面之上的雾团，片心 y≥2.0、下探仅 ${r.depth}m；` +
+             '与 mistField 同类（2026-09-28 活雾批次新增，老黄"半遮半掩"）—— 若哪天它真扎进水里（下探>0.6m）此豁免自动失效';
     if (r.name === 'mergedStatic' && r.depth <= 0.25)
       return `静态合并大网：几何已按材质并网、无法单独拆层，且水下仅 ${r.depth}m（桥头踏跺 / 睡莲浮叶这一档）`;
     /* 汀步石（2026-09-22 补）：与上面"桥头踏跺"同类 —— 出水 12~20cm、水下 ≤0.25m 的
