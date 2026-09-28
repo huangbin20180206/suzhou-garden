@@ -960,7 +960,19 @@ function animate(){
        无行为时偏移恒为 0 ⇒ 逐字等价于原公式（koi-orbit / koi-feed 门禁不受影响）。 */
     if (KOI_BEHAVIOR.avoid || KOI_BEHAVIOR.startle || KOI_BEHAVIOR.cohesion){
       const bo = koiBehaviorOffset(bx, bz, t, koiPeers);
-      f.position.x += bo.dx; f.position.z += bo.dz;      // 字段是 dx/dz（已含池域夹紧）
+      /* ── 二轮（2026-09-28）：给"生效偏移"加每鱼平滑趋近（帧率无关指数缓动，τ=0.25s）──
+         互推的每帧振荡修掉后，避障层还剩一处天然不连续：汀步是 11 块相连的圆阵，
+         鱼贴墙横穿时每换一块"最近石头"，推力的横向分量就翻一次向（90s 长录实测
+         鱼#2 贴墙段 24 次单帧 0.1~0.26m 跳位 ＝ 用户看到的"中线鱼从右到左瞬移"）。
+         低通把任何目标突变都摊成 ~0.25s 的滑动：回避行为不变，只是不再瞬移。
+         ⚠️ 行为全关时走 else 清零平滑态 ⇒ 重新打开不会带着旧偏移跳一下。 */
+      if (d.avox === undefined){ d.avox = 0; d.avoz = 0; }
+      const kS = 1 - Math.exp(-dt / 0.25);
+      d.avox += (bo.dx - d.avox) * kS;
+      d.avoz += (bo.dz - d.avoz) * kS;
+      f.position.x += d.avox; f.position.z += d.avoz;    // 字段是 dx/dz（已含池域夹紧）
+    } else {
+      d.avox = 0; d.avoz = 0;    // 行为全关：生效偏移清零，"无行为=逐字原公式"保持成立
     }
     f.rotation.y = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
     f.rotation.z = Math.sin(t * 4 + d.phase) * 0.1;

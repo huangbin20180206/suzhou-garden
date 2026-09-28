@@ -412,11 +412,16 @@ const ENV_COLOR_KEYS = ['sunColor','ambColor','hemiSky','hemiGround','fillColor'
    与季节同样的契约：只写「与时段无关」的那部分 ——
    光强 / 雾 / 曝光 / 饱和的乘性或加性修正，加上天气专属通道。
    天气专属通道：cloudAmount / rainAmount / snowAmount / snowCover / wetness /
-                windMul / gustMul / skyGray / fogGray / diskFade / snowTint
-   ⚠️ 每个预设必须写全这些键，否则 mixInto 会在 undefined 上做算术。 */
+                windMul / gustMul / skyGray / fogGray / diskFade / snowTint / shadowK
+   ⚠️ 每个预设必须写全这些键，否则 mixInto 会在 undefined 上做算术。
+   ⚠️ shadowK = 物体影子的强度（2026-09-28 用户反馈："阴霾和薄雾场景不要建筑/
+      植物/石头的影子，与现实不符"—— 阴天雾天是漫射光，投不出边界清晰的硬影）。
+      1=照常、0=全无；applyEnv 写进 sun.shadow.intensity，切天气时随 mixInto
+      逐键缓动 ⇒ 影子在过渡里渐隐渐现，不会"啪"一下消失。暴雨/雪暂维持 1（用户
+      只点名这两种；暴雨 sunMul 0.14 本就几乎读不出影感）。 */
 const ENV_WEATHER = {
   clear: { weatherLabel:'风和日丽', blizzard:0,
-    sunMul:1.00, ambMul:1.00, hemiMul:1.00, fogMul:1.00, satMul:1.00, expMul:1.00,
+    sunMul:1.00, ambMul:1.00, hemiMul:1.00, fogMul:1.00, satMul:1.00, expMul:1.00, shadowK:1.00,
     cloudAmount:null, skyGray:0.00, fogGray:0.00, diskFade:0.00,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.0,
     /* 月亮可见度（2026-09-19）：晴夜满月照常；阴/雨/雪按云量打折到 0~0.3。
@@ -430,17 +435,17 @@ const ENV_WEATHER = {
        （旧阴影视体比园子还小），边界处影子被硬切出一条亮缝。
        真正的暴雨里直射项本就该≈0，画面靠 ambMul/hemiMul 撑（0.85/0.90 已够）。
        0.14 保留一丝方向感让体块读得出来，但不足以在地面/墙面结成亮带。 */
-    sunMul:0.14, ambMul:0.85, hemiMul:0.90, fogMul:2.40, satMul:0.84, expMul:0.95,
+    sunMul:0.14, ambMul:0.85, hemiMul:0.90, fogMul:2.40, satMul:0.84, expMul:0.95, shadowK:1.00,
     cloudAmount:1.00, skyGray:0.55, fogGray:0.30, diskFade:0.85,
     rainAmount:1.0, snowAmount:0.0, snowCover:0.0, wetness:1.0,
     windMul:4.00, gustMul:0.30, moonVis:0.00, snowTint:0xF2F6FA },   // 暴雨/风雪：全天无月
   overcast: { weatherLabel:'阴霾暗沉', blizzard:0,
-    sunMul:0.55, ambMul:0.95, hemiMul:0.96, fogMul:1.55, satMul:0.72, expMul:0.98,
+    sunMul:0.55, ambMul:0.95, hemiMul:0.96, fogMul:1.55, satMul:0.72, expMul:0.98, shadowK:0.00,
     cloudAmount:1.00, skyGray:0.72, fogGray:0.62, diskFade:1.00,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.0,
     windMul:1.15, gustMul:1.00, moonVis:0.00, snowTint:0xF2F6FA },   // 阴霾：云底满天，看不见月
   snow: { weatherLabel:'银装素裹', blizzard:0,
-    sunMul:0.62, ambMul:1.10, hemiMul:1.12, fogMul:1.30, satMul:0.80, expMul:1.00,
+    sunMul:0.62, ambMul:1.10, hemiMul:1.12, fogMul:1.30, satMul:0.80, expMul:1.00, shadowK:1.00,
     cloudAmount:0.94, skyGray:0.60, fogGray:0.55, diskFade:0.90,
     rainAmount:0.0, snowAmount:1.0, snowCover:1.0, wetness:0.0,
     windMul:1.35, gustMul:1.00, moonVis:0.12, snowTint:0xF4F8FF },   // 雪霁：云缝里透一点月色
@@ -452,7 +457,7 @@ const ENV_WEATHER = {
      量过关键段：1.3 时主厅段 ≈20%、60m ≈28%、远山 120m ≈50%、200m ≈75% ——
      "近清远朦"的灰阶阶梯成立，雾只剩三个职责：吞远山、压低日轮、中景蒙纱。 */
   mist: { weatherLabel:'薄雾烟霭', blizzard:0,
-    sunMul:0.85, ambMul:1.05, hemiMul:1.08, fogMul:1.30, satMul:0.96, expMul:1.02,
+    sunMul:0.85, ambMul:1.05, hemiMul:1.08, fogMul:1.30, satMul:0.96, expMul:1.02, shadowK:0.00,
     cloudAmount:0.30, skyGray:0.22, fogGray:0.26, diskFade:0.70,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.25,
     windMul:1.00, gustMul:0.60, moonVis:0.30, snowTint:0xF2F6FA },   // 薄雾：月色被雾纱吃掉了七成
@@ -515,6 +520,9 @@ function applyWeatherTo(p, eff){
      ⚠️ 两侧都要兜底：resolveEnv 在 ENV.hour 未定义时会走 makeParams(ENV_TIME[...])
      那条路，那份对象里没有 moonVis —— 不兜底就是 undefined → NaN 传进 uniform。 */
   p.moonVis = (p.moonVis === undefined ? 1 : p.moonVis) * (w.moonVis === undefined ? 1 : w.moonVis);
+  /* 影子强度随天气（2026-09-28 用户："阴霾和薄雾不该有影子"，见表头 shadowK 注释）：
+     直取天气预设值、缺键兜底 1。进了参数集 ⇒ mixInto 随天气切换逐帧缓动。 */
+  p.shadowK = (w.shadowK === undefined ? 1 : w.shadowK);
   p.skyGray    = w.skyGray;    p.fogGray    = w.fogGray;  p.diskFade = w.diskFade;
   p.weatherLabel = weatherLabelOf(ENV.weather, ENV.season);
   p.blizzard = w.blizzard || 0;          // 供统计栏/调试判断"这是不是风雪"，不参与插值
@@ -930,6 +938,12 @@ export function applyEnv(p){
       sun.intensity = p.sunIntensity * (1 + 0.95 * mw);
     }
   }
+  /* ── 物体影子强度随天气（2026-09-28 用户："阴霾和薄雾不该有影子"）──
+     sun.shadow.intensity 是 three r155+ 的公开通道（shader 端 mix(1.0, shadow, k)）：
+     阴影深度图照常渲，只调"影子的存在感"⇒ 阴/雾切换零额外渲染成本。
+     阴霾/薄雾 → 0（漫射光投不出边界清晰的硬影）；晴/暴雨/雪 → 1。缺键兜底 1
+     （探针重放旧参数集、或未过天气层的路径都不会误关影子）。 */
+  sun.shadow.intensity = (p.shadowK === undefined ? 1 : p.shadowK);
   /* 阴影视体自适应（2026-09-18 重写，见 fitShadowCamera 处的长注释）：
      旧写法是「固定 ±28/±24，再按 1/仰角 放大」—— 那个旋钮的理由是错的
      （ortho 视体的 XY 只需要罩住投射物**轮廓**，影长由 near/far 承担），
