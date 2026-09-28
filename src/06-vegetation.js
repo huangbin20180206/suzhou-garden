@@ -9,6 +9,7 @@ import { world, scene, ACTIVE_QUALITY, renderer } from './02-scene.js';
    而它 import 08；本模块一旦 import 12-env，12-env 就会把 08 提前拽进来 → 同一个 TDZ。
    它只在 loadAssetOnce 的**回调**里调用（那时一切就绪），故走 00-config 的 HOOKS 延迟绑定。 */
 import { TAU, rnd, rr, CFG, mulberry32, bootMark, HOOKS } from './00-config.js';
+import { onAssetFailed } from './13-preload.js';
 
 /* ── 布局专用抖动流（2026-09-23 · T0）────────────────────────────────────
    为什么必须独立：`Math.random` 是**全局共享流**，被时序类代码在**异步/按帧**时刻消费
@@ -1321,7 +1322,14 @@ export function makeKoiGroup(n = 11){
     /* 锦鲤是异步挂载的：layer 不被子节点继承，必须等 holder 们都进了组再统一打一遍
        折射层标记 —— 漏了就是「水面折射里一条鱼都没有」，而且不报错。 */
     markUnderwater(g);
-  }, undefined, e=>console.warn('koi.glb 加载失败', e));
+    HOOKS.settleAsset?.('assets/koi.glb', true);      // 预载清单：到位（13-preload 经 HOOKS 延迟绑定）
+  }, e=>{                                             // ← 第三槽：原为 `undefined`，现接 onProgress
+    HOOKS.reportAssetProgress?.('assets/koi.glb', e.loaded, e.total);
+  }, e=>{
+    /* 失败也必须报给预载清单，否则 required:false 的项走不进替身流程 */
+    HOOKS.settleAsset?.('assets/koi.glb', false, e);
+    console.warn('koi.glb 加载失败', e);
+  });
   return g;
 }
 
@@ -1371,8 +1379,20 @@ export function loadAssetOnce(url, targetSize, cb, overrideMat){
   if (!rawCache.has(url)){
     rawCache.set(url, new Promise((resolve, reject)=>{
       const loader = createGLTFLoaderWithDecoders();
-      loader.load(url, (gltf)=> resolve(gltf.scene),
-        undefined, (e)=>{ rawCache.delete(url); assetFailures++; console.warn('模型加载失败：', url, e); reject(e); });
+      loader.load(url, (gltf)=>{ HOOKS.settleAsset?.(url, true); resolve(gltf.scene); },
+        /* ← 第三槽：原为 `undefined`，现接 onProgress（13-preload 的预载清单）
+           ⚠️ **SW cache-first 下这里会直接 0→100 跳变，这是预期**：
+           首次访问走网络时 loaded/total 是真进度；SW 装好后 .glb 命中缓存直接
+           return，不产生数据流事件，直到 onLoad 那一刻 settle 一次性补满。
+           装成 PWA 后那段时间里根本没有网络发生，没有进度可言。 */
+        (e)=>{ HOOKS.reportAssetProgress?.(url, e.loaded, e.total); },
+        (e)=>{
+          rawCache.delete(url); assetFailures++;
+          /* 失败报给预载清单：required:false 的项据此进入程序化替身流程
+             （芭蕉叶片不来就会留一根 3.6m 高的光杆，比没有芭蕉更难看）。 */
+          HOOKS.settleAsset?.(url, false, e);
+          console.warn('模型加载失败：', url, e); reject(e);
+        });
     }));
   }
   rawCache.get(url).then(raw=>{
@@ -3435,6 +3455,90 @@ function makeBananaFruit(x, y, z){
 }
 
 /* 芭蕉：高假茎（叶鞘包裹）+ 顶部叶片（GLB 模型）+ 可选蕉果 */
+/* ══ 芭蕉叶片·程序化替身（2026-09-27 · 用户拍板：替身必须"像那棵树"）══════════
+   触发条件：`assets/BananaPlant.glb` 下载/解码失败。它在预载清单里是 **required:false**，
+   所以失败不会阻断开园 —— 但**什么都不做的话会留下一根 3.6m 高的光杆**（假茎在，
+   冠层空），比"没有芭蕉"更难看：用户看到的是一排电线杆。
+   所以这里补一棵**真的叶片**。
+   ── 为什么要单独写，而不是复用 makeReedBladeGeo ──────────────────────────────
+   芦苇叶是**窄、直、挺**的（半宽 0.045m，7 段），芭蕉叶是**宽、垂、有主脉**的
+   （半宽 ~0.42m）。直接拿芦苇叶当替身会得到"一根 3.6m 的细草"，形态完全不对 ——
+   替身的第一要求是**远看认得出那是什么**，不是"有个绿色的东西"。
+   ── 形态 ──────────────────────────────────────────────────────────────────
+   芭蕉叶是**掌状**：一片大叶从假茎顶端伸出，叶柄直立一小段，然后叶面**向外下垂**。
+   这里按 3~4 片扇形排开，每片：叶柄（细圆柱，略带倾角）+ 叶身（自定义 BufferGeometry，
+   沿叶长 8 段，宽度按 sin 形起落 → 中段最宽、叶尖收成点、叶基收成柄）。
+   叶身分两半（左右各带一点下垂）用**沿脊的 V 折**近似主脉：这是让平片叶子
+   在侧光下"读得出叶脉"的关键，纯平面看起来像塑料布。
+   ⚠️ 走 CFG.rnd（00-config 的全局唯一实例），绝不用共享 Math.random（铁律 1）。 */
+function makeBananaLeafGeo(len = 2.1, wid = 0.82, seg = 8, droop = 0.55){
+  const verts = [], idx = [], uvs = [];
+  for (let i = 0; i <= seg; i++){
+    const t = i / seg;                       // 0 = 叶基(接柄) → 1 = 叶尖
+    /* 宽度包络：叶基 ~0.18 宽 → 中段最宽 → 叶尖收成 0。用 sin^0.7 让"最宽处"略偏叶基，
+       符合芭蕉叶的实际轮廓（基部窄、中前段最宽、尾端急收）。 */
+    const env = Math.pow(Math.sin(Math.pow(t, 0.72) * Math.PI), 0.7);
+    const w = wid * 0.5 * (0.18 + 0.82 * env);
+    /* 沿叶长的下垂：前 25% 还是直的（叶柄段），之后按 (t-0.25)^1.6 加速往下弯。
+       指数 >1 是关键：线性下垂会像挂面条，指数下垂才像被自重压弯的阔叶。 */
+    const bend = t < 0.25 ? 0 : Math.pow((t - 0.25) / 0.75, 1.6) * droop * len;
+    const y = len * t - bend;
+    /* V 折主脉：中心比两侧高一点（沿叶长逐渐加强），侧光下才有叶脉的明暗。 */
+    const keel = 0.055 * wid * Math.sin(t * Math.PI);
+    verts.push(-w, y, -keel,  0, y + keel, 0,  w, y, -keel);
+    uvs.push(0, t, 0.5, t, 1, t);
+  }
+  for (let i = 0; i < seg; i++){
+    const a = i * 3, b = a + 3;
+    idx.push(a, b, a + 1,  a + 1, b, b + 1);      // 左半
+    idx.push(a + 1, b + 1, a + 2,  a + 2, b + 1, b + 2);  // 右半
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(verts, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  g.setIndex(idx);
+  g.computeVertexNormals();
+  return g;
+}
+
+/* 冠层替身：假茎顶端扇形排 3~4 片大叶。锚点 y=0（贴在 holder 上）。
+   ⚠️ 与 GLB 路径的差别：GLB 走 loadAssetOnce 的"底部对齐"再由外层 holder 上移，
+   替身**直接就是底部对齐**，所以调用方给的 holder.position.y 就是叶基高度。
+   ⚠️⚠️ **随机源必须独立**（铁律 1 + 布局指纹铁律）：这里**绝不能**吃共享 `rnd()`。
+   芭蕉替身只在"资产失败"时触发 —— 也就是它的调用次数**取决于网络**。
+   吃共享流的话，失败一次就把整园后续所有 rr()/rnd() 抽样整体后移，
+   layout-fingerprint 基线当场漂移（正是 L564 那条禁令治的病）。
+   改用 `mulberry32(BANANA_SEED + 株高)` 派生的独立流：同样可复现，且与布局流正交。 */
+const BANANA_SEED = 0x5A1A6A;
+export function makeBananaLeafCrown(leafScale = 1.0, trunkH = 2.8){
+  const crown = new THREE.Group();
+  const brnd = mulberry32(BANANA_SEED + Math.round(trunkH * 1000));
+  const n = 3 + Math.floor(brnd() * 2);        // 3 或 4 片
+  for (let i = 0; i < n; i++){
+    const len = (1.75 + brnd() * 0.75) * leafScale;
+    const wid = (0.70 + brnd() * 0.30) * leafScale;
+    const leaf = new THREE.Mesh(
+      makeBananaLeafGeo(len, wid, 8, 0.5 + brnd() * 0.2),
+      MAT.banana);                                 // 假茎/叶片同材质 → 顺带被假茎的风场带着走
+    /* 扇形排布：绕 Y 均匀铺开，pitch 越大越水平（芭蕉老叶接近水平外伸），
+       第 0 片稍微立一点当"新叶"（用户常识：芭蕉心叶是竖着卷起来的）。 */
+    const yaw = i / n * TAU + brnd() * 0.28;
+    const pitch = (i === 0 ? -0.42 : 0.16 + brnd() * 0.34);
+    leaf.rotation.set(pitch, yaw, (brnd() - 0.5) * 0.22, 'YXZ');
+    leaf.castShadow = true; leaf.receiveShadow = true;
+    leaf.userData.noMerge = true;                  // 异步挂载 ⇒ 不参与几何合并
+    crown.add(leaf);
+  }
+  /* 替身也标一下，方便探针/门禁区分"GLB 来的"与"程序化来的" */
+  crown.userData.substitute = 'banana-leaf';
+  return crown;
+}
+
+/* 芭蕉叶片 URL 常量：预载清单与替身钩子都要用它 —— 写成字面量会出现两处不同拼写，
+   而替身钩子靠**字符串相等**匹配，错一个字符 ⇒ 替身永远不触发（静默失效，
+   正好是这一段要治的病）。 */
+const BANANA_URL = 'assets/BananaPlant.glb';
+
 export function makeBananaPlant(x, z, trunkH = 2.8, leafScale = 1.0, withFruit = false, ry = 0){
   const g = new THREE.Group();
   g.position.set(x, 0, z);
@@ -3468,11 +3572,26 @@ export function makeBananaPlant(x, z, trunkH = 2.8, leafScale = 1.0, withFruit =
   const crown = new THREE.Group();
   g.add(crown);
   // 顶部叶片（GLB，随假茎高度上移）
-  loadAssetOnce('assets/BananaPlant.glb', 3.8 * leafScale, (src)=>{
-    /* ⚠️ 同 placeAssets：摆放要放外层 holder。直接写 c.position.y 会**覆盖**
-       loadAssetOnce 写的"底部对齐"偏移（B08 的同一处病，只是换了个调用点）。 */
+  /* ⚠️ **失败必须补替身**（2026-09-27）：BananaPlant.glb 在预载清单里是 required:false，
+     失败不阻断开园 —— 但冠层空着就只剩一根 trunkH 高的**光杆**（默认 2.8m，
+     高配档 3.6m），一排"电线杆"比没有芭蕉更难看。
+     判据必须**先断言前提**再分支（铁律 4）：这里断的是
+       ① 替身确实是"叶片"而不是空 group（crown.children.length > 0）；
+       ② 替身叶片数量与 GLB 冠层同一量级（3~4 片），不是 1 片充数；
+       ③ 替身挂在 crown 上（跟着季节缩放/隐藏），不是散落在 g 上。
+     挂在 crown 而不是 g：applyGLBSeason 靠 userData.crown 找冠层，
+     挂错地方 ⇒ 冬季整株被缩到 12%，把多年生当一年生（第九轮的老教训）。 */
+  const attachLeaf = (obj) => {
     const holder = new THREE.Group();
     holder.position.y = trunkH - 0.25;
+    holder.add(obj);
+    crown.add(holder);
+    HOOKS.onAssetAttached?.();
+  };
+  let bananaLeafOk = false;
+  loadAssetOnce('assets/BananaPlant.glb', 3.8 * leafScale, (src)=>{
+    bananaLeafOk = true;    /* ⚠️ 同 placeAssets：摆放要放外层 holder。直接写 c.position.y 会**覆盖**
+       loadAssetOnce 写的"底部对齐"偏移（B08 的同一处病，只是换了个调用点）。 */
     const leaf = src.clone(true);
     /* ── 叶片进风场（2026-09-17 用户："芭蕉树应该是叶子晃动，现在的晃动有问题"）──
        GLB 叶片是**异步**挂载：它在 mergeStatics 之后才进场景，因此逃过了几何合并，
@@ -3493,10 +3612,26 @@ export function makeBananaPlant(x, z, trunkH = 2.8, leafScale = 1.0, withFruit =
       o.material = o.material.clone();
       addWind(o.material, 0.05, 1.05, 'tip', trunkH - 0.25, 0.22);
     });
-    holder.add(leaf);
-    crown.add(holder);
-    HOOKS.onAssetAttached?.();
+    attachLeaf(leaf);
   });
+  /* ⚠️ **不能**用 `loadAssetOnce(...).catch()`：它 fire-and-forget，**没有返回值**
+     （实测 L1414 那个 .catch 属于 rawCache 的那条链，不在 loadAssetOnce 的返回上）。
+     正确做法是挂 `HOOKS.settleAssetFail` —— 13-preload 在 settleAsset(url,false) 时
+     调它，那才是"这个 URL 确实失败了"的唯一权威信号（铁律 4：判据先取权威源）。
+     守卫：bananaLeafOk 为真说明已经挂上 GLB 了（缓存命中的同步路径会立刻置真），
+     此时若再补替身会出现"两副叶子" ⇒ 必须先断言前提再动手。 */
+  const offFail = onAssetFailed(BANANA_URL, () => {
+    if (bananaLeafOk) return;
+    const sub = makeBananaLeafCrown(leafScale, trunkH);
+    sub.traverse(o => {
+      if (!o.isMesh) return;
+      /* 替身叶片也要进风场，基准高度与 GLB 路径同一锚点（叶基）⇒ 风和真叶一致。 */
+      o.material = o.material.clone();
+      addWind(o.material, 0.05, 1.05, 'tip', trunkH - 0.25, 0.22);
+    });
+    attachLeaf(sub);
+  });
+  if (offFail) g.userData.__bananaOffFail = offFail;
   // 蕉果：挂在假茎顶端偏一侧
   if (withFruit){
     const fr = makeBananaFruit(0, trunkH - 0.15, 0.26);

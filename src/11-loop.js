@@ -12,7 +12,7 @@ import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurt
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
-import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL } from './13-preload.js';
+import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL, enterBasic as preloadEnterBasic } from './13-preload.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    11 · 循环与自适应
@@ -635,8 +635,32 @@ const AA = (()=>{
   const STEPS = [1.00, 1.18, 1.36];
   const RISE_FRAMES = 45;          // 静止多少帧后升一档（约 0.75s，太快会"看着在抖"）
   const MOVE_POS = 0.02, MOVE_ROT = 0.004;
-  const st = { step:0, hold:0, lastPr:-1 };
+  const st = { step:0, hold:0, lastPr:-1, enabled:true };
   let prev = null;
+  /* 像素预算上限（复刻 02-scene 的 pixelRatioForTier 内部那个式子的**后半**）。
+     为什么必须在这里再 clamp 一次：pixelRatioForTier 算出来的 base 本身已经把
+     `min(…, max(1, sqrt(pixelBudget/(w*h))))` 里的预算封顶算进去了，但 base**只是起点**——
+     再乘 STEPS[s]（顶档 1.36）就又越过去了。实测 4K 屏 high 档：base=1.0247，×1.36=1.3943，
+     像素面积 1.94×预算（8.29M×1.945≈16.1M vs 预算 8.71M）—— AA 与像素预算这条护栏脱钩。
+     写法取"先按预算算出上限，再对乘出来的值取 min"：AA 只能把倍率**抬到**预算，
+     绝不能抬过预算；QOS 降档（pixelRatioScale<1）时这个 min 天然不生效，语义无副作用。
+     ⚠️ 上限用的是 `Math.max(1, …)`，与 02-scene 一致 —— 那个地板是 pixelRatioForTier 自带的
+     决策（预算实在兜不住时至少 1×，宁可越预算也不缩到亚像素），AA 不能比它更宽松。 */
+  function budgetCap(width = innerWidth, height = innerHeight){
+    return Math.max(1, Math.sqrt(ACTIVE_QUALITY.pixelBudget / Math.max(1, width * height)));
+  }
+  /* 环境免疫 —— 与 QOS **同一个判据**，不是新概念。
+     02-scene.js 同时导出了 PROBE_DRIVEN 和 QOS_IMMUNE，但 QOS 自己用的判据是
+     `QOS_IMMUNE`（st.active = !QOS_IMMUNE，L532 / setMode L573），所以这里也用它：
+     QOS_IMMUNE = SOFTWARE_GL || PROBE_DRIVEN，只用 PROBE_DRIVEN 会漏掉软渲染那一半。
+     为什么 AA 也归它管：QOS 与 AA 是**同一个像素预算上的两个调节器**。QOS 在 QOS_IMMUNE 下
+     把自己钉在 L0（st.active=false，sample() 直接 return），而 AA 此前没有任何免疫判据，
+     于是探针里出现"QOS 不动、AA 自由升到 1.36"的自相矛盾局面（提交 4b3ec48 引入）。
+     叠加的恶果不只是"探针里不好看"：AA 抬倍率会改 renderer/composer 的 pixelRatio，
+     正是回归断言最怕的"自己会动的量"，和 02-scene 注释里钉死 QOS 免疫的理由同一条。
+     ⚠️ 判据拆成**两个合取项**（作者开关 st.enabled ∧ 环境免疫），不揉进一个变量：
+        这样 setEnabled(true) 也**无法**绕过环境免疫（否则免疫就是被一个开关随时关掉的假免疫）。 */
+  function adaptiveAllowed(){ return st.enabled && !QOS_IMMUNE; }
   function cameraStill(){
     const p = camera.position, q = camera.quaternion;
     if (!prev) { prev = [p.x,p.y,p.z,q.x,q.y,q.z,q.w]; return false; }
@@ -648,6 +672,14 @@ const AA = (()=>{
     return still;
   }
   function tick(){
+    /* 环境免疫（QOS_IMMUNE）与作者开关 st.enabled 任一为假 ⇒ 视同停用：
+       立即归零、hold 清零、**不采样相机**（连 cameraStill() 都不调，免得白花算力、
+       更重要的是别让 prev 快照在停用期间老化，一恢复就误判成"刚动过"）。 */
+    if (!adaptiveAllowed()){
+      if (st.step !== 0) setStep(0);
+      st.hold = 0;
+      return;
+    }
     /* 画质锁定在"性能"（最低档）时不参与：那里本就是为了帧率牺牲一切。 */
     const q = QOS.state();
     if (q.mode === 'performance'){ if (st.step !== 0) setStep(0); st.hold = 0; return; }
@@ -661,7 +693,7 @@ const AA = (()=>{
     const s = Math.max(0, Math.min(STEPS.length - 1, step));
     st.step = s;
     st.hold = 0;
-    const pr = pixelRatioForTier(GPU_TIER) * QOS.state().pixelRatioScale * STEPS[s];
+    const pr = Math.min(pixelRatioForTier(GPU_TIER) * QOS.state().pixelRatioScale * STEPS[s], budgetCap());
     if (Math.abs(pr - st.lastPr) < 1e-4) return;
     st.lastPr = pr;
     renderer.setPixelRatio(pr); renderer.setSize(innerWidth, innerHeight);
@@ -670,9 +702,27 @@ const AA = (()=>{
   function state(){
     return { step:st.step, scale:STEPS[st.step], maxScale:STEPS[STEPS.length-1],
              baseScale:pixelRatioForTier(GPU_TIER), pixelRatio:renderer.getPixelRatio(),
-             mode:QOS.state().mode, qosLevel:QOS.state().level };
+             mode:QOS.state().mode, qosLevel:QOS.state().level,
+             /* 判据自身也要可读：门禁得能断言"探针里 AA 停用是因为 QOS_IMMUNE，
+                而不是因为作者把开关关了" —— 否则 enabled=false 这个假免疫测不出来。 */
+             enabled:st.enabled, allowed:adaptiveAllowed(), immune:QOS_IMMUNE,
+             probeDriven:PROBE_DRIVEN, software:SOFTWARE_GL,
+             /* budgetCap + qosScale 一起给，门禁才能**自己**复原"应有倍率"并断言
+                pixelRatio === min(baseScale*qosScale*scale, budgetCap)（升档不得突破预算），
+                而不是像旧断言那样无条件写死 pr === baseScale*scale（4K 上那条已经不成立）。 */
+             qosScale:QOS.state().pixelRatioScale,
+             budgetCap:budgetCap(), pixelBudget:ACTIVE_QUALITY.pixelBudget };
   }
-  return { tick, setStep, state, STEPS };
+  /* 作者/门禁侧开关。⚠️ 语义必须诚实：setEnabled(true) 在 QOS_IMMUNE 环境里**不会**
+     重新让 AA 升档（那是环境免疫，不是作者能买回的），返回值给出实际是否生效。
+     门禁要用它测 AA 的**三条真机约束**（静止升档 / 一动回落 / 与 QOS 联动）时，
+     只能在 PROBE_DRIVEN=false 的环境里调 —— 这就是 aa-progressive-guard 的处境（见交付）。 */
+  function setEnabled(v){
+    st.enabled = !!v;
+    if (!adaptiveAllowed()){ if (st.step !== 0) setStep(0); st.hold = 0; }
+    return state();
+  }
+  return { tick, setStep, setEnabled, state, STEPS };
 })();
 AA_HOOK = AA;
 
@@ -1237,8 +1287,11 @@ const _ldProg = () => document.querySelector('#loading .ld-prog');
 const _ldNote = () => document.querySelector('#loading .ld-note');
 
 /* 下载段：把 13-preload 的聚合进度画成 0→45%。
-   采样合并由 preloadPhase 保证（≥250ms + 整数百分比去重），这里只负责渲染。 */
+   采样合并由 preloadPhase 保证（≥250ms + 整数百分比去重），这里只负责渲染。
+   ⚠️ silent（零等待分支）：不碰 DOM 任何一样 —— 让暖编译段从 45% 自己的第一桶起铺，
+      避免"0 → 45 跳一下 → 45 → 51…"这种无信息量的抖动。 */
 function setPreloadUI(a){
+  if (a && a.silent) return;
   const prog = _ldProg();
   const pct = Math.min(PRELOAD_SHARE, Math.round(a.pct * PRELOAD_SHARE));
   if (prog) prog.style.width = pct + '%';
@@ -1268,14 +1321,82 @@ function setWarmUI(done, total){
   }
 }
 
+/* == 静默"先用基础版进入"（2026-09-27 · 用户拍板②）============================
+   慢网/大资产时用户要等很久，唯一的出口就是"先看程序化替身"。
+   刻意**不在进度条上放显眼按钮**（用户明确要求）：那会诱人跳过，
+   精心做的"营造中"就白做了。所以规则是：
+     · 只在用户**第一次主动动手**（pointerdown / wheel）之后才淡入 ——
+       被动移动鼠标不算（那是"用户在读页面"，不是"用户不耐烦了"）；
+     · 给 2.5s 可交互窗口，之后自己消失；
+     · 记 localStorage 标记，之后**完全不再打扰**（连出现都不出现）。
+   -- 点了之后跑的是**完整场景**，不是空场景 ---------------------------------
+   这是本条最容易被做错的地方：若只是提前 `loading.classList.add('done')` 收层，
+   用户会看到"一个能转但没内容的园子"—— 那不是"基础版"，那是"坏了"。
+   正确做法是**让预载段不再等**：把还在飞的资产立刻结算掉（替身随即上场），
+   然后照常走完整个 warmBoot -> 首帧流程。这样点完之后用户拿到的仍是
+   满配程序化场景（柳/竹/立峰/远香堂/荷池…全在），只少了 4 个高模 GLB。 */
+const QWINDOW = 2500;                 // 淡入后可交互窗口
+const QKEY = 'sg.basicEntered';        // localStorage 标记
+const basicEntered = () => { try { return localStorage.getItem(QKEY) === '1'; } catch (e){ return false; } };
+const markBasicEntered = () => { try { localStorage.setItem(QKEY, '1'); } catch (e){ /* 隐私模式 */ } };
+
+let quickArmed = false, quickTimer = 0;
+/* 武装：监听**第一次主动交互**。capture + passive 挂在 window 上，
+   指针落在 loading 层任何子元素上都能收到。 */
+function armQuickEntry(){
+  if (quickArmed || basicEntered()) return;
+  quickArmed = true;
+  const fire = () => { showQuickEntry(); cleanup(); };
+  const cleanup = () => {
+    window.removeEventListener('pointerdown', fire, true);
+    window.removeEventListener('wheel', fire, { capture: true, passive: true });
+  };
+  window.addEventListener('pointerdown', fire, true);
+  window.addEventListener('wheel', fire, { capture: true, passive: true });
+}
+
+function showQuickEntry(){
+  const btn = document.getElementById('ld-quick');
+  /* 前提断言（铁律 4）：DOM 不在 / 已用过 / 已开园 => 什么都不做。
+     尤其"已开园"：开园后再弹这个按钮是纯 bug（用户已拿到完整场景）。 */
+  if (!btn || basicEntered()) return;
+  if (document.getElementById('loading')?.classList.contains('done')) return;
+  btn.hidden = false;
+  void btn.offsetWidth;                       // 强制回流，保证 hidden->display 也吃到 transition
+  btn.classList.add('show');
+  clearTimeout(quickTimer);
+  quickTimer = setTimeout(() => {
+    btn.classList.remove('show');
+    setTimeout(() => { btn.hidden = true; }, 400);
+  }, QWINDOW);
+  btn.addEventListener('click', () => {
+    btn.classList.remove('show');
+    btn.hidden = true;
+    enterBasic();
+  }, { once: true });
+}
+
+/* 提前开园：让还在飞的资产**立刻结算成失败** -> 替身上场 -> 照常走完 warmBoot。
+   **不跳步**：这里只结束**下载**的等待，暖编译 10 桶一个不少地跑完。
+   少跑暖编译 => 首帧整批重编（实测 37->87 program，比不暖机更慢），
+   也就是说"跳过下载"绝不能变成"跳过编译"，那会让页面更卡而不是更快。 */
+function enterBasic(){
+  markBasicEntered();
+  preloadEnterBasic?.();
+}
+
 async function warmBoot(){
   /* ── 阶段 0：资产预载（2026-09-27 · 高精资产批次）────────────────────────
      4 个 GLB 在**模块求值期**就发起了（08-assemble/06 的 loadAssetOnce），本函数
      是在它们之后才被调用的 —— 所以这里不是"开始下载"，而是**等它们到位**，
      并把等待如实播报成 0→45% 的进度（1.1 MB 实测余量 9456/3220ms，本来就被
      暖编译窗口完全掩盖；10 MB 目标下不再能掩盖，这才必需）。
-     ⚠️ preloadPhase 永不 reject：预载失败不是启动失败，降级继续开园才是正解。 */
-  await preloadPhase(setPreloadUI);
+     ⚠️ preloadPhase 永不 reject：预载失败不是启动失败，降级继续开园才是正解。
+     ⚠️ **零等待分支（用户拍板①）**：GLB 全部到位时 preloadPhase 同步返回（连一帧都不让），
+        于是 collectWarmBuckets 的拍快照时刻与"加预载段之前"逐帧一致 ⇒ 本地/SW 预缓存档
+        零行为变化。实测这把预载段代价从 +4.0% 压到 ~0（见 outputs/_diag/）。 */
+  armQuickEntry();                                 // 静默入口：先武装，等用户第一次主动动手
+  await preloadPhase(setPreloadUI).promise;
 
   const buckets = collectWarmBuckets();
   const saved = [];
@@ -1427,8 +1548,11 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 涟漪容量：门禁要断言"暴雨+密集点击+鱼跃"不抢不到槽（2026-09-25 由 20 提到 64） */
                   rippleCapacity,
                   /* 渐进超采样（2026-09-26）：门禁要断言"静止升档/一动回落/性能档不上探/
-                     QOS 降档后停手"，这些都不能靠像素差看出来，只能读状态。 */
+                     QOS 降档后停手"，这些都不能靠像素差看出来，只能读状态。
+                     ⚠️ aaSetEnabled 是**作者/环境开关**，不是"解除免疫"：QOS_IMMUNE 下调
+                     setEnabled(true) 依然不升档（见 AA.setEnabled 注释）。 */
                   aaState: () => AA.state(), aaSetStep: (s) => AA.setStep(s),
+                  aaSetEnabled: (v) => AA.setEnabled(v), aaEnabled: () => AA.state().allowed,
                   /* PMREM 四时段缓存：门禁要断言"切时段时反射色变了但只烘一次" */
                   envBakeState,
                   probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,

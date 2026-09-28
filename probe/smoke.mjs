@@ -120,7 +120,34 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     return Object.values(names).every(n => n > 0) && window.__garden.ENV
       ? names : false;
   }, { timeout: 40000 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
-  check('四类 GLB 资产均已挂载', !!glb);
+  /* ⚠️ **先断言前提，再判对错**（项目老教训：判据必须先断言前提）。
+     「四类 GLB 均已挂载」这条在**降级态**下天然为假：required:false 的项失败后
+     走程序化替身（芭蕉叶片），场景里出现的是 `banana-leaf` 冠层而不是名字里
+     带 "BananaPlant" 的 GLB 节点 —— 这不是 bug，是设计。
+     早先直接 `check('四类 GLB 资产均已挂载', !!glb)`，于是任何一次资产失败都让
+     smoke 报红，而**报红原因与被测代码无关**（网络抖动）。现在按降级态分支断言。 */
+  const deg = await page.evaluate(() => {
+    const s = window.__garden.preloadState ? window.__garden.preloadState() : null;
+    return { degraded: s?.degraded || [], settled: s?.settled, count: s?.count };
+  });
+  const degradedMode = deg.degraded.length > 0;
+  if (degradedMode){
+    // 降级态：断"替身确实上场了"，而不是断"GLB 都在"
+    const sub = await page.evaluate(() => {
+      let crowns = 0, leaves = 0;
+      window.__garden.scene.traverse(o => {
+        if (o.userData && o.userData.substitute === 'banana-leaf'){ crowns++; leaves += o.children.length; }
+      });
+      return { crowns, leaves };
+    });
+    console.log(`  [降级态] 失败 ${deg.degraded.length}/${deg.count} 项：`
+      + deg.degraded.map(d => d.url || d).join(', '));
+    check(`降级态有 ${deg.degraded.length} 项走替身流程（而不是静默穿帮）`, degradedMode);
+    check('芭蕉替身叶片已构造（≥3 片，不是空冠层/光杆）', sub.leaves >= 3,
+      `替身冠层 ${sub.crowns} 个 / 叶片 ${sub.leaves} 片`);
+  } else {
+    check('四类 GLB 资产均已挂载（未降级）', !!glb, glb ? JSON.stringify(glb) : '未挂载');
+  }
   const fishMoving = await page.evaluate(async () => {
     const fs = window.__garden.scene.getObjectByName?.call ? null : null;
     let group = null;

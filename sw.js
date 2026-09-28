@@ -12,7 +12,7 @@
      · 导航请求 → network-first，离线回退缓存的 index.html。
    ⚠️ **改了 src/*.js、vendor.js 或 SHELL 内容后必须 bump 版本号** —— 否则已装 SW 的浏览器
       仍走旧缓存。版本号升级即整体换缓存，旧缓存 activate 时整体删除。 */
-const CACHE = 'suzhou-garden-v3';
+const CACHE = 'suzhou-garden-v4';
 const SHELL = [
   './',
   './index.html',
@@ -27,6 +27,15 @@ const GLBS = [
   './assets/LotusPlant.glb',
   './assets/Turtle.glb',
 ];
+/* ⚠️ 2026-09-27 · 高精资产批次：上面这份 GLBS 与 src/13-preload.js 的
+   PRELOAD_MANIFEST 是**同一批资产的两个投影**，加高精包时**两处都要改**。
+   不一致的后果是分方向的：
+     · 只加 sw.js 不加 13 → SW 装好后仍走网络，重复下载一遍；
+     · 只加 13 不加 sw.js → 用户装成 PWA 后首次开园**仍在下载 10MB**，
+       违背 PWA 的"装了就该能离线打开"，而且 13 的进度条会一直走网络
+       （本项目里"进度条有真进度"恰恰等价于"没装 PWA"）。
+   分流逻辑本身**不需要动**（.glb 仍是 cache-first = 版本内不变；
+   代码类仍 network-first = 改了即所见）。 ⚠️ 加完必须 bump 上面的 CACHE 版本号。 */
 
 self.addEventListener('install', (e) => {
   e.waitUntil(

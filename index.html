@@ -317,6 +317,40 @@
   #loading .ld-text{margin-top:14px;font-size:12px;letter-spacing:.34em;text-indent:.34em;
     color:rgba(243,239,229,.72);text-shadow:0 1px 6px rgba(0,0,0,.5);
     animation:ldRise .9s ease .85s both}
+  /* 慢网提示（2026-09-27 · 高精资产预载）：常驻小字行，默认 **完全不出现在布局里**
+     （position:absolute + opacity 0 ⇒ 既不撑高也不改 .ld-text 的位置）——
+     加载页是居中 flex 布局，多一个 in-flow 元素会把标题/进度条整体顶偏半行。
+     只在 11-loop 的 setPreloadUI 判定"下载段实测速率 < 200KB/s"时加 .on。 */
+  #loading .ld-note{position:absolute;left:0;right:0;bottom:16%;
+    font-size:11px;letter-spacing:.06em;line-height:1.6;
+    color:rgba(243,239,229,.66);text-shadow:0 1px 6px rgba(0,0,0,.5);
+    text-align:center;padding:0 22px;word-break:break-all;
+    opacity:0;visibility:hidden;transition:opacity .4s;
+    animation:ldRise .9s ease 1s both}
+  #loading .ld-note.on{opacity:1;visibility:visible}
+  /* ── 静默"先用基础版进入"（2026-09-27）─────────────────────────────────────
+     三个刻意的取舍，都是为了"不诱人跳过"：
+       ① 绝对定位在**右下角**、绝对定位 ⇒ position:absolute 让它**不占布局**，
+          既不撑高 .ld-inner（那会把标题/进度条顶偏半行，同 .ld-note 的病），
+          也不会进入 loading-guard 的结构检查视线。
+       ② 视觉权重压到最低：小字号、低透明度、无边框、无底色 —— 读起来像
+          "一行小字提示"，不像"一个按钮"。加了 focus 态才给描边（键盘可达性）。
+       ③ 淡入 0.45s、淡出 0.35s ⇒ 出现时不"啪"地跳出来抢注意力。 */
+  #loading #ld-quick{position:absolute;right:18px;bottom:16px;
+    font:inherit;font-size:11px;letter-spacing:.08em;line-height:1;
+    color:rgba(243,239,229,.55);background:none;border:1px solid transparent;
+    padding:6px 9px;border-radius:2px;cursor:pointer;
+    opacity:0;transform:translateY(6px);
+    transition:opacity .45s ease,transform .45s ease,color .2s,border-color .2s}
+  /* hidden 是**属性**不是样式，靠 opacity 显隐会漏；这里两条都留，双保险。 */
+  #loading #ld-quick[hidden]{display:none}
+  #loading #ld-quick.show{opacity:1;transform:none}
+  #loading #ld-quick:hover,#loading #ld-quick:focus-visible{
+    color:rgba(243,239,229,.95);border-color:rgba(243,239,229,.38);opacity:1}
+  @media (prefers-reduced-motion:reduce){
+    #loading .ld-note{animation:none}
+    #loading #ld-quick{transition:none}
+  }
   @keyframes ldBgIn{from{opacity:0}to{opacity:1}}
   @keyframes ldKen{from{transform:scale(1.08) translateY(.8%)}to{transform:scale(1) translateY(0)}}
   @keyframes ldRise{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
@@ -428,6 +462,23 @@
     <div class="ld-rule"></div>
     <div class="ld-bar"><b class="ld-prog"></b><i></i></div>
     <div class="ld-text">营 造 中 …</div>
+    <!-- 慢网提示（2026-09-27 · 高精资产预载）：常驻小字，**不**占 .ld-text。
+         刻意与进度条文案分开：loading-guard 用 MutationObserver 记 .ld-text 的
+         textContent 变更序列，提示混进去会污染"收尾文案"判定。
+         默认隐藏（不占位、不抢焦点）；只有下载段实测速率 < 200KB/s 才亮。
+         ⚠️ PWA 场景下这行**永不出现** —— SW 预缓存后 .glb 不走网络，
+            "网络差"在本项目里的定义就是"这次要花时间从网上取东西"。 -->
+    <div class="ld-note" aria-live="polite"></div>
+    <!-- 静默"先用基础版进入"入口（2026-09-27 · 用户拍板②）—————————————
+         ⚠️ **刻意放在角落、且默认不可见**，不是进度条上的按钮。
+         理由（用户明确要求）：进度条上放显眼跳过按钮会**诱人跳过** ——
+         精心做的"营造中"过程就白做了，而且大部分人是被"还有多久"吸引才去点的。
+         所以它只在用户**自己动手**（第一次 pointerdown / wheel，不是被动移动）之后
+         才淡入一个小字入口，给 2~3 秒可交互窗口，然后自动消失不再打扰。
+         ⚠️ 不给 aria-live（它是可选操作，不是状态播报）；
+         ⚠️ 标签用"基础版"而不是"跳过加载"—— 后者暗示"你在放弃什么"，
+            前者暗示"还有更好的版本在后面"，用户心理负担小得多。 -->
+    <button id="ld-quick" type="button" hidden>先用基础版进入</button>
   </div>
 </div>
 <div id="caption" aria-live="polite"><b></b><span></span></div>
