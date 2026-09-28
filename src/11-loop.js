@@ -739,7 +739,11 @@ AA_HOOK = AA;
       块级作用域里，直接 ReferenceError ⇒ 整个场景起不来（且报错点离病因很远）。
 
    ⚠️ 只影响**跃水节奏**，不碰落圈判据，也不碰投喂 / 点击 / 雨滴 / 泳龟任何一条链。 */
-const KOI_BREACH = { floor: 9, spread: 48, on: true };
+/* 2026-09-28 用户拍板"涟漪压到每 2 秒一圈"：floor 9→14、spread 48→78（中位 53s
+   ⇒ 11 条 ≈ 12.5 次跃水/分），与泳龟链（~17.5 次/分）合计 ≈ 30 次/分 ＝ 每 2.0s 一圈
+   （此前 48 次/分 ＝ 每 1.25s 一圈）。koi-ripple-guard 的水位区间随本值同步
+   （事件 8~18 / 落圈 16~36，短间隔占比门槛按 26/(floor+spread)≈15% 重估为 25%）。 */
+const KOI_BREACH = { floor: 14, spread: 78, on: true };
 /** 产品侧权威开关：{floor, spread, on}。on=false ⇒ 锦鲤完全不再跃水（因而不落圈）。 */
 function setKoiBreachConfig(v){
   if (v && typeof v === 'object'){
@@ -751,6 +755,13 @@ function setKoiBreachConfig(v){
 }
 const koiBreachConfig = () => ({ ...KOI_BREACH });
 
+/* ══ 巡游速度整体系数（2026-09-28 用户拍板"放慢两成"）══════════════════════
+   只作用于平时的轨道推进（乘在 d.speed 上）；不碰惊鱼加成（koiE 项仍在其上）、
+   跃水节奏（riseAt 走仿真时钟，与巡游速度无关）与投喂吸引（按位置插值）。
+   修好"互相躲每帧猛推"（见下面鱼段"两遍走"注释）之后，鱼群表观速度本来就
+   回归巡游本身，再放慢两成 ⇒ 悠闲感。 */
+const KOI_CRUISE_MUL = 0.8;
+
 /* ══ 泳龟尾迹间隔（2026-09-27 · D2，与 KOI_BREACH 同套路）══════════════════════
    上一笔把锦鲤跃水节流（546344c）之后实测：**锦鲤链已降到 36 次/分，但龟链仍是 57.5 次/分**
    —— 龟只有 2 只，却贡献了水面 62% 的涟漪，合计 92.5 次/分（≈每 0.65s 一圈），
@@ -761,7 +772,9 @@ const koiBreachConfig = () => ({ ...KOI_BREACH });
       太密反而像机关水车；上界 5.4s 也不该更长，否则龟几乎不拖尾迹、又退回"滑行"。
    ⚠️ 只改**间隔**，不动尾迹的形态（仍是 spawnRipple(..., 2) 两圈）—— 这条链的"活物感"
       靠的是尾迹拖在龟身后，不是靠频率。 */
-const TURTLE_WAKE = { floor: 3, spread: 2.4, on: true };
+/* 2026-09-28 同上批（水面合计 ≈ 30 次/分）：floor 3→4.8、spread 2.4→4.1
+   （中位 6.85s × 2 只 ≈ 17.5 次/分）。turtle-wake-guard 水位区间同步为 12~24 次/分。 */
+const TURTLE_WAKE = { floor: 4.8, spread: 4.1, on: true };
 /** 产品侧权威开关：{floor, spread, on}。探针做负例自检必须走它（铁律 3）。 */
 function setTurtleWake(v){
   if (v && typeof v === 'object'){
@@ -906,17 +919,23 @@ function animate(){
 
   // 锦鲤沿椭圆轨道游动（轨道经核算落在池内）
   const fishes = koiGroup.userData.fishes;
-  /* 行为层（避障 / 惊鱼 / 聚集）的"同组邻居"必须用**同一帧的快照**：
-     若就地读 f.position，循环里前面的鱼已是本帧位置、后面的还是上帧位置，
-     同一条轨道上会出现半帧错位 ⇒ 聚散力不对称，鱼群会整体偏向一侧。
-     这里先拍一份按 orbit 分组的浅拷贝（11 条 × 每帧一次，可忽略）。 */
-  const koiPeers = KOI_BEHAVIOR.cohesion ? fishes.map(f => ({ x:f.position.x, z:f.position.z })) : null;
+  /* ══ 两遍走（2026-09-28 修"抽搐/瞬间移位"，用户反馈第 4 轮）══════════════
+     第一遍只推进轨道、算出全部**基准点** (bx,bz)；第二遍才算行为偏移并落位。
+     为什么必须两遍：cohesion（防叠互推）原来拿**同伴上一帧的最终位置**（含同伴
+     自己的行为偏移）当输入，而自己的基准点不含偏移 ⇒ 自激振荡：推开 → 渲染距离
+     变大 → 下一帧判"不挤了" → 推力瞬间消失 → 弹回 → 再推……**每帧翻一次**。
+     实测（outputs/_diag/fish-twitch-rec.mjs，12s 仿真）：最挤一对的两鱼距离在
+     0.65↔1.5m 之间每帧跳，11 条鱼合计 5178 次单帧跳位（最大 ~1m/帧）＝用户看到
+     的"抽搐/瞬间提速移位"；只关 cohesion 后跳位归 0，avoid/startle 无辜
+     （只关它们：7917 / 5214，与基线同级）。改用"同伴 = 同帧**基准点**"后，
+     推不推只由平滑推进的轨道位置决定、与偏移自身无关 ⇒ 回路断开，不抖。 */
+  const bases = [];
   for (const f of fishes){
     const d = f.userData;
     /* 惊鱼加速：读取本鱼当前惊扰能量（0 起，上限约 1.6），乘进推进速度。
        只改"走得快一点"，不改轨道形状 ⇒ 惊散后仍回到原轨道，不会迷路。 */
     const koiE = koiStartleEnergy(f.position.x, f.position.z, t);
-    d.t += dt * d.speed * (ENV.cur.koiSpeed || 1) * (1 + koiE * 0.5);   // 季节：冬季迟缓
+    d.t += dt * d.speed * (ENV.cur.koiSpeed || 1) * KOI_CRUISE_MUL * (1 + koiE * 0.5);   // 季节：冬季迟缓
     const o = KOI_ORBITS[d.orbit];
     const j = d.jitter + Math.sin(t * 0.35 + d.phase) * 0.06;
     /* ⚠️ 锦鲤越岸穿模（2026-09-17 修）：holder 是 **koiGroup 的子节点**，
@@ -926,8 +945,13 @@ function animate(){
        z_local≈5.54 越过 4.1 的腰，鱼就骑到草皮上了。
        轨道参数 cx/cz 本来就是**池局部坐标**，直接写即可；世界坐标由父组给。
        （泳龟是 world 的直接子节点，没有父组偏移，所以下面那段必须保留 —— 别照抄删掉。） */
-    const bx = o.cx + Math.cos(d.t) * o.a * j;
-    const bz = o.cz + Math.sin(d.t) * o.b * j;
+    bases.push({ f, d, o,
+      bx: o.cx + Math.cos(d.t) * o.a * j,
+      bz: o.cz + Math.sin(d.t) * o.b * j });
+  }
+  /* cohesion 的"同伴位置"＝同帧**基准点**（不含任何行为偏移）—— 见上"两遍走"注释。 */
+  const koiPeers = KOI_BEHAVIOR.cohesion ? bases.map(b => ({ x: b.bx, z: b.bz })) : null;
+  for (const { f, d, o, bx, bz } of bases){
     f.position.x = bx; f.position.z = bz;
     /* ── 行为偏移（避障 + 惊鱼 + 聚散）叠加在轨道点之上 ──
        ⚠️ 三条纪律：① 叠加在**基准轨道点**上，不是叠加在 f.position 上（否则逐帧累积漂移）；

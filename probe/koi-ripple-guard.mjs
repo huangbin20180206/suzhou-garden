@@ -18,6 +18,11 @@
 //
 // 负例自检：把间隔改回**旧值**（spread=18，即改动前的中位 18s），
 //   同一批判据必须**全部报红** —— 否则"水位判据"是假的。
+//
+// 2026-09-28 用户拍板"涟漪压到每 2 秒一圈"：产品 KOI_BREACH floor 9→14 / spread 48→78
+// （中位 53s ⇒ 11 条 ≈ 12.5 次/分），与泳龟链（~17.5）合计 ≈ 30 次/分 = 每 2.0s 一圈。
+// 本门水位区间随之同步：事件 8~18、落圈 16~36 次/分；短间隔占比门槛按
+// 26/(floor+spread) = 26/92 ≈ 15.4% 重估为 25%（余量 ~10pp，与旧 45%↔35.4% 同比例）。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -256,7 +261,9 @@ async function measure(page, seconds, { feed = false } = {}) {
       41~65%，但那档本身波动也大，负例另用"事件/落圈频率"两条硬判据兜底）。
       ⚠️ 45% 与参数的关系写在这里：改 `spread` 时门槛应按
       `26 / (floor + spread) * 100%` 附近重估（当前 floor=9, spread=48 ⇒ 理论 35%）。 */
-  const SHORT_RATIO = 45 / 100;
+  /* 2026-09-28：floor 14 + spread 78 ⇒ 理论 P(<26s) = 26/92 ≈ 15.4%，门槛取 25%
+     （余量 ~10pp，与旧 45%↔理论 35.4% 的余量同比例）。 */
+  const SHORT_RATIO = 25 / 100;
     const shortPct = cyclesAll.length
       ? cyclesAll.filter(v => v < 26).length / cyclesAll.length * 100
       : NaN;
@@ -274,10 +281,10 @@ async function measure(page, seconds, { feed = false } = {}) {
   console.log(`  · 平时 180s 合并：事件 ${evPerMin.toFixed(1)}/分 · 锦鲤落圈 ${koiPerMin.toFixed(1)}/分 · 泳龟 ${turPerMin.toFixed(1)}/分`);
   console.log(`  · 事件起点间隔中位 ${gapsMed.toFixed(2)}s · 同鱼跃水间隔：中位 ${cyclesMed.toFixed(1)}s（n=${cyclesAll.length}，仅供参考）· 短间隔(<26s) ${shortPct.toFixed(1)}%（判据，门槛 ${(SHORT_RATIO * 100).toFixed(0)}%）· "出水+入水两圈"占比 ${pair2pct.toFixed(0)}%`);
 
-  check('② 平时 · 锦鲤破水**事件**频率在 12~24 次/分（每 2.5~5s 一条鱼破水）',
-    evPerMin >= 12 && evPerMin <= 24, `实测 ${evPerMin.toFixed(1)} 事件/分`);
-  check('② 平时 · 锦鲤链落圈频率在 24~48 次/分（事件的两圈，不该翻倍失控）',
-    koiPerMin >= 24 && koiPerMin <= 48, `实测 ${koiPerMin.toFixed(1)} 次/分`);
+  check('② 平时 · 锦鲤破水**事件**频率在 8~18 次/分（每 3.3~7.5s 一条鱼破水）',
+    evPerMin >= 8 && evPerMin <= 18, `实测 ${evPerMin.toFixed(1)} 事件/分`);
+  check('② 平时 · 锦鲤链落圈频率在 16~36 次/分（事件的两圈，不该翻倍失控）',
+    koiPerMin >= 16 && koiPerMin <= 36, `实测 ${koiPerMin.toFixed(1)} 次/分`);
   check('② 平时 · 事件起点间隔中位 ≥ 1.8s（"偶发"而非"此起彼伏"）',
     gapsMed >= 1.8, `中位 ${gapsMed.toFixed(2)}s`);
   check(`② 平时 · 同一条鱼两次跃水间隔不密的占比 ≤ ${(SHORT_RATIO * 100).toFixed(0)}%（分布下四分位内）`,
@@ -289,10 +296,10 @@ async function measure(page, seconds, { feed = false } = {}) {
   /* ══ ③ 投喂时：频率不得因聚拢而暴增（第一段已证"投喂只改 x/z 不改 y"） ══ */
   const C = await measure(page, 60, { feed: true });
   const cEv = C.events / C.wall * 60, cKoi = C.koi / C.wall * 60;
-  check('③ 投喂时 · 破水事件频率仍在 12~24 次/分（聚拢不放大跃水）',
-    cEv >= 12 && cEv <= 24, `实测 ${cEv.toFixed(1)} 事件/分（平时 ${evPerMin.toFixed(1)}）`);
-  check('③ 投喂时 · 锦鲤链落圈频率仍在 24~48 次/分',
-    cKoi >= 24 && cKoi <= 48, `实测 ${cKoi.toFixed(1)} 次/分`);
+  check('③ 投喂时 · 破水事件频率仍在 8~18 次/分（聚拢不放大跃水）',
+    cEv >= 8 && cEv <= 18, `实测 ${cEv.toFixed(1)} 事件/分（平时 ${evPerMin.toFixed(1)}）`);
+  check('③ 投喂时 · 锦鲤链落圈频率仍在 16~36 次/分',
+    cKoi >= 16 && cKoi <= 36, `实测 ${cKoi.toFixed(1)} 次/分`);
 
   /* ══ ④ 池面总压力：锦鲤链压下去后，池子不该再"永远有活涟漪" ══ */
   const occ = await page.evaluate(async () => {
@@ -310,12 +317,17 @@ async function measure(page, seconds, { feed = false } = {}) {
   const negCfg = await page.evaluate(() => window.__garden.setKoiBreachConfig({ spread: 18 }));
   check('⑤ 负例前置：权威开关真的把间隔改回了旧值 spread=18',
     negCfg.spread === 18, `读回 spread=${negCfg.spread}（floor=${negCfg.floor}）`);
+  /* 2026-09-28：setKoiBreachConfig 只影响**未来的**排程 —— 每条鱼要完成当前这次跃水
+     才会按新间隔重排 riseAt；负例紧贴 ④ 跑时鱼还带着 spread=78 的旧时刻表，
+     实测事件率被过渡态拉低（21.0/分 vs 稳态理论 28.7/分），顶不到水位上限。
+     等 90s 让 11 条鱼各自完成 1~2 次跃水、全部换上新时刻表再量。 */
+  await page.waitForTimeout(90000);
   const N = await measure(page, 60);
   const nEv = N.events / N.wall * 60, nKoi = N.koi / N.wall * 60;
   check('⑤ 有牙负例：旧间隔下破水事件频率**超出水位上限**（判据必须能判红）',
-    nEv > 24, `旧间隔实测 ${nEv.toFixed(1)} 事件/分 > 上限 24`);
+    nEv > 18, `旧间隔实测 ${nEv.toFixed(1)} 事件/分 > 上限 18`);
   check('⑤ 有牙负例：旧间隔下锦鲤链落圈频率**超出水位上限**（判据必须能判红）',
-    nKoi > 48, `旧间隔实测 ${nKoi.toFixed(1)} 次/分 > 上限 48`);
+    nKoi > 36, `旧间隔实测 ${nKoi.toFixed(1)} 次/分 > 上限 36`);
   /* ⚠️⚠️ 2026-09-27：负例的判据从"绝对占比 > 门槛 + 10pp"改成**同窗比值**。
         为什么：实测负例占比 51.9 / 54.2 / 56.0 / 58.6%（真值 ≈55%），而我设的
         "45% + 10pp = 55%" **刚好压在真值上** ⇒ 两轮假红（54.2 判红成功、51.9 假红失败）。
@@ -333,8 +345,8 @@ async function measure(page, seconds, { feed = false } = {}) {
       && nShortPct / posShortPct > 1.35,
     `旧间隔 ${nShortPct.toFixed(1)}% / 正向 ${posShortPct.toFixed(1)}% = ${(nShortPct / (posShortPct || 1)).toFixed(2)}×（需 >1.35×，n=${(N.cycles || []).length} 需 ≥12）`);
   /* 复原（负例结束后必须回到产品默认，否则后面的门禁/体验被带偏） */
-  const restored = await page.evaluate(() => window.__garden.setKoiBreachConfig({ spread: 48 }));
-  check('⑤ 负例收尾：已复原为产品默认 spread=48', restored.spread === 48, `spread=${restored.spread}`);
+  const restored = await page.evaluate(() => window.__garden.setKoiBreachConfig({ spread: 78 }));
+  check('⑤ 负例收尾：已复原为产品默认 spread=78', restored.spread === 78, `spread=${restored.spread}`);
 
   /* ══ ⑥ 权威开关的"完全关闭"必须让落圈归零（有牙：证明 ② 的计数确由该路径产生） ══ */
   const offCfg = await page.evaluate(() => window.__garden.setKoiBreachConfig({ on: false }));

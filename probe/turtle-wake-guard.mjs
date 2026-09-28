@@ -21,6 +21,10 @@
 //
 // 负例自检：把间隔改回**旧值**（floor=1.5, spread=1.2，即改动前的中位 2.1s），
 //   同一批判据必须**全部报红** —— 否则"水位判据"是假的（项目里栽过好几次这种空门）。
+//
+// 2026-09-28 用户拍板"涟漪每 2 秒一圈"（与锦鲤链合计 ≈ 30 次/分）：
+// 产品 TURTLE_WAKE floor 3→4.8 / spread 2.4→4.1（中位 6.85s × 2 只 ≈ 17.5 次/分），
+// 本门水位区间随之同步为 12~24 次/分。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -135,8 +139,8 @@ async function measure(page, seconds) {
   const wall = A.wall + B.wall;
   const perMin = (A.tur + B.tur) / wall * 60;
   console.log(`  · 平时 120s 合并：龟链落圈 ${perMin.toFixed(1)}/分（2 只龟）`);
-  check('② 平时 · 龟链尾迹频率落在 18~42 次/分（水面合计回到合理水位）',
-    perMin >= 18 && perMin <= 42, `实测 ${perMin.toFixed(1)} 次/分`);
+  check('② 平时 · 龟链尾迹频率落在 12~24 次/分（水面合计回到合理水位）',
+    perMin >= 12 && perMin <= 24, `实测 ${perMin.toFixed(1)} 次/分`);
   check('② 平时 · 观察窗足够长（≥100s，避免 n 太小让中位数/频率抖）',
     wall >= 100, `${wall.toFixed(0)}s`);
 
@@ -164,10 +168,10 @@ async function measure(page, seconds) {
   const N = await measure(page, 60);
   const nPerMin = N.tur / N.wall * 60;
   check('④ 有牙负例：旧间隔下龟链频率**超出水位上限**（判据必须能判红）',
-    nPerMin > 42, `旧间隔实测 ${nPerMin.toFixed(1)} 次/分 > 上限 42`);
-  const restored = await page.evaluate(() => window.__garden.setTurtleWake({ floor: 3, spread: 2.4 }));
-  check('④ 负例收尾：已复原为产品默认 floor=3 spread=2.4',
-    restored.floor === 3 && restored.spread === 2.4, `floor=${restored.floor} spread=${restored.spread}`);
+    nPerMin > 24, `旧间隔实测 ${nPerMin.toFixed(1)} 次/分 > 上限 24（② 的水位上限）`);
+  const restored = await page.evaluate(() => window.__garden.setTurtleWake({ floor: 4.8, spread: 4.1 }));
+  check('④ 负例收尾：已复原为产品默认 floor=4.8 spread=4.1',
+    restored.floor === 4.8 && restored.spread === 4.1, `floor=${restored.floor} spread=${restored.spread}`);
 
   /* ══ ⑤ 权威开关的"完全关闭"必须让落圈归零 ══ */
   const offCfg = await page.evaluate(() => window.__garden.setTurtleWake({ on: false }));
