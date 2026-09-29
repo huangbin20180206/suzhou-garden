@@ -919,6 +919,12 @@ function animate(){
     FOG_BANKS.bamboo.uColor.value.copy(MIST.uColor.value);
     FOG_BANKS.hall.uOpacity.value = ENV.cur.bankHall || 0;
     FOG_BANKS.bamboo.uOpacity.value = ENV.cur.bankBamboo || 0;
+    /* 2026-09-29 增两团：桥洞烟雨 / 假山晨雾（同上套路，随时辰淡入） */
+    FOG_BANKS.bridge.uTime.value = FOG_BANKS.rockery.uTime.value = windClock;
+    FOG_BANKS.bridge.uColor.value.copy(MIST.uColor.value);
+    FOG_BANKS.rockery.uColor.value.copy(MIST.uColor.value);
+    FOG_BANKS.bridge.uOpacity.value = ENV.cur.bankBridge || 0;
+    FOG_BANKS.rockery.uOpacity.value = ENV.cur.bankRockery || 0;
   }
   // 云层缓慢漂移（天空球只有一张材质）
   /* ⚠️ B2 修复（2026-09-20）：云的 uTime 必须吃**累加仿真时钟** windClock，不能吃墙钟 t。

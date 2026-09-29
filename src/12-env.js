@@ -539,8 +539,10 @@ function applyWeatherTo(p, eff){
     p.fogDensity *= (p.mistMul === undefined ? 1 : p.mistMul);
     p.bankHall   = (p.bankHall === undefined ? 0 : p.bankHall);
     p.bankBamboo = (p.bankBamboo === undefined ? 0 : p.bankBamboo);
+    p.bankBridge = (p.bankBridge === undefined ? 0 : p.bankBridge);
+    p.bankRockery= (p.bankRockery === undefined ? 0 : p.bankRockery);
   } else {
-    p.bankHall = 0; p.bankBamboo = 0;
+    p.bankHall = 0; p.bankBamboo = 0; p.bankBridge = 0; p.bankRockery = 0;
   }
   p.skyGray    = w.skyGray;    p.fogGray    = w.fogGray;  p.diskFade = w.diskFade;
   p.weatherLabel = weatherLabelOf(ENV.weather, ENV.season);
@@ -591,7 +593,7 @@ const ENV_TIME = {
     grade:{ contrast:0.13, saturation:1.02, split:0.30, vignette:0.50, warm:0xFFF2E0, cool:0xE6EEFF },
     /* 活雾三键（仅 mist 天气生效，见 applyWeatherTo）：晨 = 大雾裹正堂 ——
        mistMul 再乘雾密度、正堂雾团最浓、竹林雾团只留一线。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12 },
+    starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12, bankBridge:0.25, bankRockery:0.50 },
   noon: { label:'午',
     /* F8 光照"晴感"再平衡（2026-09-21 · 三张正午样张一致指出"像阴天"）：
        原 sun1.12 / 环境 amb.50+hemi.35+fill.32=1.17 —— 直射仅占 49%，阴影被环境光
@@ -620,7 +622,7 @@ const ENV_TIME = {
     /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul
        0.82→1.10（有效 1.98，晨 2.61 的 ~76%——比晨淡、但明显有雾）；雾团也留三成
        而不是归零（bankHall 0.28 / bankBamboo 0.22）。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22 },   // 午：淡一档但仍见雾
+    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20 },   // 午：淡一档但仍见雾
   dusk: { label:'暮',
     sunColor:0xFFA45C, sunIntensity:1.00, sunPos:[-56, 15, 30],
     ambColor:0x6E7B96, ambIntensity:0.44,
@@ -644,7 +646,7 @@ const ENV_TIME = {
     /* saturation 1.04→0.97：暮色草地旧值下仍是高饱和翠绿，整体去艳半档，
        让暮色统一在灰暖调里。 */
     grade:{ contrast:0.20, saturation:0.97, split:0.42, vignette:0.56, warm:0xFFE4C0, cool:0xC8D8F0 },
-    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55 },  // 暮：雾复起，这回沉在竹林
+    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55, bankBridge:0.50, bankRockery:0.30 },  // 暮：雾复起，这回沉在竹林
   night: { label:'夜',
     sunColor:0xA8BEE0, sunIntensity:0.38, sunPos:[-34, 52, -22],
     /* 幽而不黑（2026-09-21 方案 n1，两轮收敛）：
@@ -672,7 +674,7 @@ const ENV_TIME = {
     grade:{ contrast:0.15, saturation:0.92, split:0.34, vignette:0.55, warm:0xE8D8C0, cool:0x9FB8E0 },
     /* 夜 mistMul 0.72 ⇒ 有效雾系数 1.8×0.72≈1.30，与旧版常数持平：night+mist 的画面
        与 mist-guard 的水位完全不动（夜里不加浓，画面别变脏）。 */
-    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08 },
+    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08, bankBridge:0.30, bankRockery:0.08 },
 };
 
 /* ── 季节预设 ──

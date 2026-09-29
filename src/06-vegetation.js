@@ -1831,12 +1831,18 @@ export function makeMistField(){
      天气归零 —— 非雾天恒 0）；时辰切换走 ENV 的 3s 缓动 ⇒ 雾团渐起渐收，不突兀；
    · 单片 α 0.28~0.42，几片叠透封顶约 0.5~0.65 —— 露轮廓、藏细节，正是"半遮半掩"。 */
 export const FOG_BANKS = {
-  hall:   { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
-            uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
-  bamboo: { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
-            uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
+  hall:    { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
+             uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
+  bamboo:  { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
+             uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
+  /* 2026-09-29 增两团（老黄拍板"都要"）：桥洞烟雨（贴水低雾压在拱桥桥洞一带）+
+     假山晨雾（南岸峰群半没入雾、只露峰尖）。 */
+  bridge:  { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
+             uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
+  rockery: { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
+             uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
 };
-function makeFogBank(u, cx, cy, cz, spreadX, n, seed, name){
+function makeFogBank(u, cx, cy, cz, spreadX, spreadZ, n, seed, name, flat = false){
   /* 独立随机流（铁律：布局类随机绝不碰全局 rnd / Math.random） */
   const br = mulberry32(seed);
   const geo = new THREE.PlaneGeometry(1, 1);
@@ -1844,10 +1850,10 @@ function makeFogBank(u, cx, cy, cz, spreadX, n, seed, name){
   for (let i = 0; i < n; i++){
     const t = (i / (n - 1)) * 2 - 1;               // -1..1：沿一条横带均匀铺开
     base[i*3+0] = cx + t * spreadX + (br() - 0.5) * 3.0;   // 带一点错落，不排成直线
-    base[i*3+1] = cy + (br() - 0.5) * 1.0;
-    base[i*3+2] = cz + (br() - 0.5) * 1.6;
-    par[i*4+0]  = 4.6 + br() * 3.4;                 // 半宽 4.6~8.0m：贴地大雾片
-    par[i*4+1]  = 1.6 + br() * 1.0;                 // 半高 1.6~2.6m
+    base[i*3+1] = cy + (br() - 0.5) * (flat ? 0.5 : 1.0);
+    base[i*3+2] = cz + t * spreadZ + (br() - 0.5) * 1.6;
+    par[i*4+0]  = flat ? 2.8 + br() * 1.8 : 4.6 + br() * 3.4;   // 半宽：贴水矮片 / 贴地大雾片
+    par[i*4+1]  = flat ? 0.8 + br() * 0.5 : 1.6 + br() * 1.0;   // 半高
     par[i*4+2]  = br() * TAU;                       // 漂移相位
     par[i*4+3]  = 0.28 + br() * 0.14;               // 单片 α：叠透后到"半遮"，不到"盖死"
   }
@@ -1920,10 +1926,17 @@ export function makeFogBanks(){
   const g = new THREE.Group();
   /* 正堂（远香堂，堂在 (0,-12.8)）前：雾团压在台基/踏跺一带 —— 晨起最浓时
      堂身没入雾里、只余脊线，正是"整个正堂雾蒙蒙"。 */
-  g.add(makeFogBank(FOG_BANKS.hall, 0, 2.0, -8.8, 11, 8, 20260928, 'fogBankHall'));
+  g.add(makeFogBank(FOG_BANKS.hall, 0, 2.0, -8.8, 11, 0.8, 8, 20260928, 'fogBankHall', false));
   /* 竹林带：北墙根的竹丛（z=-20，x ±14~26 两丛；中段留给堂后留白）—— 午后渐浓时
      竹林半没入雾、竹梢挑出雾面。 */
-  g.add(makeFogBank(FOG_BANKS.bamboo, 0, 2.6, -19.2, 23, 9, 20260929, 'fogBankBamboo'));
+  g.add(makeFogBank(FOG_BANKS.bamboo, 0, 2.6, -19.2, 23, 0.8, 9, 20260929, 'fogBankBamboo', false));
+  /* 2026-09-29 增：桥洞烟雨 —— 贴水低雾沿拱桥桥洞一带（桥 (8.4,·,4.6) 跨 z），
+     暮/夜配灯笼最出片。flat 贴水矮片，CPU 包围盒下探 ≈0.5m（refract-coverage
+     的 fogBank 豁免线 ≤0.6m 内）。 */
+  g.add(makeFogBank(FOG_BANKS.bridge, 8.4, 0.9, 4.6, 1.4, 2.2, 6, 20260930, 'fogBankBridge', true));
+  /* 2026-09-29 增：假山晨雾 —— 南岸峰群（x -6.5 / 9.5 两座，z≈14~16）半没入雾、
+     只露峰尖，晨最浓。 */
+  g.add(makeFogBank(FOG_BANKS.rockery, 1.5, 2.2, 14.5, 9.5, 0.8, 8, 20260931, 'fogBankRockery', false));
   return g;
 }
 
