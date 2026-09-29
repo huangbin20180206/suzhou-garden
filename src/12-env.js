@@ -439,7 +439,11 @@ const ENV_WEATHER = {
        （旧阴影视体比园子还小），边界处影子被硬切出一条亮缝。
        真正的暴雨里直射项本就该≈0，画面靠 ambMul/hemiMul 撑（0.85/0.90 已够）。
        0.14 保留一丝方向感让体块读得出来，但不足以在地面/墙面结成亮带。 */
-    sunMul:0.14, ambMul:0.85, hemiMul:0.90, fogMul:2.40, satMul:0.84, expMul:0.95, shadowK:1.00,
+    /* 2026-09-29 二轮（老黄："秋+暴雨整个颜色基调太难看"）：四层灰叠加（雾2.40×秋1.18、
+       环境0.85、饱和0.84、曝光0.95）把画面压成"脏灰老照片"。整体去闷：
+       雾 2.40→1.70（雨幕该有、灰汤不该有）、环境/天光抬回接近满档（阴雨天靠天光照亮）、
+       饱和 0.92、曝光回 1.00；sunMul 保持 0.14（无直射阳光的设定不变）。 */
+    sunMul:0.14, ambMul:0.95, hemiMul:1.00, fogMul:1.70, satMul:0.92, expMul:1.00, shadowK:1.00,
     cloudAmount:1.00, skyGray:0.55, fogGray:0.30, diskFade:0.85,
     rainAmount:1.0, snowAmount:0.0, snowCover:0.0, wetness:1.0,
     windMul:4.00, gustMul:0.30, moonVis:0.00, snowTint:0xF2F6FA },   // 暴雨/风雪：全天无月
