@@ -2185,6 +2185,10 @@ function syncEnvUI(){
     hs.value = ENV.hour;
     document.getElementById('hourReadout').textContent = fmtHour(ENV.hour);
   }
+  /* 2026-09-29 合并时段条：读数气泡 = 拖动提示，钉在滑块正上方跟随移动
+     （老黄："拖动的时候具体时间要跟随进度条，提示用户拖到的时间点"） */
+  const tip = document.getElementById('hourReadout');
+  if (tip) tip.style.left = (Math.max(0, Math.min(24, ENV.hour)) / 24 * 100).toFixed(2) + '%';
 }
 envEl.addEventListener('click', (e)=>{
   const b = e.target.closest('button');

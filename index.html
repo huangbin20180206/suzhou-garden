@@ -210,10 +210,29 @@
     transform: scale(1.1);
   }
 
+  /* ── 时段合并条（2026-09-29 · 老黄："时段更精准，合并时辰；拖动时跟随显示具体时间"）──
+     一根长拖动条 = 一天 0~24 时；晨/午/暮/夜 四个锚点以可点标签落在条上对应位置
+     （7.5 / 12.5 / 17.5 / 21.5 时），点标签 = 跳到该时段锚点；拖动时 #hourReadout
+     气泡跟随滑块实时显示具体时间（HH:MM）。 */
+  .time-track{ position: relative; flex: 1 1 auto; min-width: 210px; height: 38px;
+    display: flex; align-items: center; }
+  .time-track input[type="range"]{ width: 100%; }
+  .time-marks{ position: absolute; inset: -8px 0; pointer-events: none; }
+  .time-marks button{
+    position: absolute; top: 50%; transform: translate(-50%, -50%);
+    pointer-events: auto; padding: 9px 11px; min-height: 0; line-height: 1;
+    background: rgba(240,228,200,.12); border-color: transparent; border-radius: 6px;
+  }
+  .time-marks button.on{
+    background: var(--江南-木褐); color: #F0E4C8;
+    border-color: var(--江南-木褐);
+  }
   #env .hint#hourReadout {
-    min-width: 3.2em;
-    font-variant-numeric: tabular-nums;
-    font-family: inherit;
+    position: absolute; bottom: calc(100% - 2px); transform: translateX(-50%);
+    min-width: 3.2em; text-align: center; pointer-events: none;
+    background: var(--江南-墨黑); color: #F0E4C8; padding: 2px 7px;
+    border-radius: 5px; white-space: nowrap;
+    font-variant-numeric: tabular-nums; font-family: inherit;
   }
 
   /* ── 首次引导（P2-7）──
@@ -272,6 +291,7 @@
     #env .hint {
       display: none;
     }
+    /* 窄屏：读数气泡仍然显示（它已兼作拖动提示，见 .time-track 样式） */
     #env .hint#hourReadout {
       display: inline-block;
       min-width: 3.2em;
@@ -394,11 +414,19 @@
   <div class="drawer-content">
     <div class="row">
       <span class="lbl">时段</span>
-      <button data-axis="time" data-v="morning">晨</button>
-      <button data-axis="time" data-v="noon">午</button>
-      <button data-axis="time" data-v="dusk">暮</button>
-      <button data-axis="time" data-v="night">夜</button>
-      <span class="hint">1 2 3 4</span>
+      <div class="time-track" id="timeTrack">
+        <input id="hourSlider" type="range" min="0" max="24" step="0.1" value="12.5" aria-label="时段拖动条：一天 0~24 时">
+        <div class="time-marks">
+          <button data-axis="time" data-v="morning" style="left:31.25%">晨</button>
+          <button data-axis="time" data-v="noon" style="left:52.08%">午</button>
+          <button data-axis="time" data-v="dusk" style="left:72.92%">暮</button>
+          <button data-axis="time" data-v="night" style="left:89.58%">夜</button>
+        </div>
+        <span class="hint" id="hourReadout">12:30</span>
+      </div>
+      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
+      <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得✦</button>
+      <button data-act="festival" aria-label="上元灯会" title="上元灯会：夜 + 河灯 + 灯串（一键开/关）">灯会🏮</button>
     </div>
     <div class="row">
       <span class="lbl">季节</span>
@@ -422,14 +450,6 @@
       <button data-quality="high" aria-label="锁定高画质">高</button>
       <button data-quality="balanced" aria-label="锁定均衡画质">均衡</button>
       <button data-quality="performance" aria-label="锁定性能画质">性能</button>
-    </div>
-    <div class="row">
-      <span class="lbl">时辰</span>
-      <input id="hourSlider" type="range" min="0" max="24" step="0.1" value="12.5" aria-label="连续时辰">
-      <span class="hint" id="hourReadout">12:30</span>
-      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
-      <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得✦</button>
-      <button data-act="festival" aria-label="上元灯会" title="上元灯会：夜 + 河灯 + 灯串（一键开/关）">灯会🏮</button>
     </div>
     <div class="row">
       <span class="lbl">导览</span>

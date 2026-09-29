@@ -14,7 +14,8 @@
       仍走旧缓存。版本号升级即整体换缓存，旧缓存 activate 时整体删除。 */
 /* 2026-09-28 活雾批次 bump v4→v5：本轮改了 SHELL 成员 index.html（天气按钮）与 src/*.js
    （活雾/鱼平滑/雾团），按头部规矩升版，让已装 SW 的浏览器整体换新缓存。 */
-const CACHE = 'suzhou-garden-v5';
+/* 2026-09-29 合并时段条批次 bump v5→v6：又改了 SHELL 成员 index.html（时段/时辰合并）。 */
+const CACHE = 'suzhou-garden-v6';
 const SHELL = [
   './',
   './index.html',
