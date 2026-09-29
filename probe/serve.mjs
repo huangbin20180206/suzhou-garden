@@ -12,7 +12,8 @@ const MIME = {
   '.js':   'text/javascript',
   '.mjs':  'text/javascript',
   '.glb':  'model/gltf-binary',
-  '.png':  'image/png',
+  '.mp3':  'audio/mpeg',        // 雷鸣素材（2026-09-30 电闪雷鸣）——decodeAudioData 其实不看 Content-Type，
+  '.png':  'image/png',         // 但按真类型发更稳（也免得将来加 <audio> 直连播放时踩坑）
   '.json': 'application/json',
   '.webmanifest': 'application/manifest+json',
   '.svg':  'image/svg+xml',
