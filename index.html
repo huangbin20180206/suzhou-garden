@@ -217,7 +217,9 @@
      不再压到下一行。 */
   .time-track{ position: relative; flex: 1 1 auto; min-width: 210px; height: 40px;
     display: flex; align-items: center; --r: 0.52; }
-  .time-track input[type="range"]{ width: 100%; }
+  /* ⚠️ 必须 #env 前缀：否则输给下面的 #env input[type="range"]{width:150px}，
+     滑杆缩在左边 150px，与跨全条的标签/气泡坐标脱节（老黄截图"气泡不对准圆球"根因） */
+  #env .time-track input[type="range"]{ width: 100%; }
   .time-marks{ position: absolute; inset: 0; pointer-events: none; }
   .time-marks button{
     position: absolute; top: 50%; transform: translate(-50%, -50%);
@@ -420,10 +422,10 @@
       <div class="time-track" id="timeTrack">
         <input id="hourSlider" type="range" min="0" max="24" step="0.1" value="12.5" aria-label="时段拖动条：一天 0~24 时">
         <div class="time-marks">
-          <button data-axis="time" data-v="morning" style="left:31.25%">晨</button>
-          <button data-axis="time" data-v="noon" style="left:52.08%">午</button>
-          <button data-axis="time" data-v="dusk" style="left:72.92%">暮</button>
-          <button data-axis="time" data-v="night" style="left:89.58%">夜</button>
+          <button data-axis="time" data-v="morning" style="left:calc((100% - 18px) * 0.3125 + 9px)">晨</button>
+          <button data-axis="time" data-v="noon" style="left:calc((100% - 18px) * 0.5208 + 9px)">午</button>
+          <button data-axis="time" data-v="dusk" style="left:calc((100% - 18px) * 0.7292 + 9px)">暮</button>
+          <button data-axis="time" data-v="night" style="left:calc((100% - 18px) * 0.8958 + 9px)">夜</button>
         </div>
         <span class="hint" id="hourReadout">12:30</span>
       </div>
