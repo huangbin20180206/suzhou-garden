@@ -967,6 +967,7 @@ function animate(){
   /* cohesion 的"同伴位置"＝同帧**基准点**（不含任何行为偏移）—— 见上"两遍走"注释。 */
   const koiPeers = KOI_BEHAVIOR.cohesion ? bases.map(b => ({ x: b.bx, z: b.bz })) : null;
   for (const { f, d, o, bx, bz } of bases){
+    const fx0 = f.position.x, fz0 = f.position.z;      // 本帧起点 = 上一帧末位置
     f.position.x = bx; f.position.z = bz;
     /* ── 行为偏移（避障 + 惊鱼 + 聚散）叠加在轨道点之上 ──
        ⚠️ 三条纪律：① 叠加在**基准轨道点**上，不是叠加在 f.position 上（否则逐帧累积漂移）；
@@ -1013,13 +1014,9 @@ function animate(){
       const cx = bait.lx + Math.cos(ca) * cr, cz = bait.lz + Math.sin(ca) * cr;
       f.position.x += (cx - f.position.x) * d.aw;
       f.position.z += (cz - f.position.z) * d.aw;
-      /* 朝向：轨道切向 与 "指向簇位" 按 aw 混合（atan2 的实参口径与原公式一致：
-         原式 = atan2(-vz, vx)，其中 vx = -a·sin(t)、vz = b·cos(t)） */
-      let vx = -o.a * Math.sin(d.t), vz = o.b * Math.cos(d.t);
-      const ax = cx - f.position.x, az = cz - f.position.z, al = Math.hypot(ax, az);
-      if (al > 0.02){ vx = vx * (1 - d.aw) + (ax / al) * d.aw;
-                      vz = vz * (1 - d.aw) + (az / al) * d.aw; }
-      f.rotation.y = Math.atan2(-vz, vx);
+      /* 朝向不在这里定 —— 2026-09-29 起，鱼头统一由"本帧实际位移方向"决定
+         （fx0/fz0 已在循环顶捕获，见循环末尾的朝向兜底块）：鱼食在身后时鱼会
+         先调头、再朝前游到饵点，不再倒退着/侧滑着漂过去（老黄截图反馈）。 */
     }
     /* 半径夹紧：防"轨道点 → 饵点"的直线插值在葫芦形**收腰**处切出池外。
        阈值 0.95×POND_RADII（≈0.87× 岸线）远大于轨道半径 ⇒ 无饵时不触发（不扰动门禁）。 */
@@ -1069,6 +1066,21 @@ function animate(){
          koiGroup.position，这里却忘了加，两个口径不一致。统一取世界坐标。 */
       f.getWorldPosition(_swimmerWorld);
       spawnRipple(_swimmerWorld.x, _swimmerWorld.z, t, 3);   // 出水一圈、入水再一圈
+    }
+
+    /* ── 朝向兜底（2026-09-29 修"鱼食撒在身后 → 鱼倒着/侧着游到饵点"）──
+       上面的切向公式只是"沿轨道时的默认朝向"；一旦有别的力让鱼改道（投喂吸引、
+       避障让位、惊鱼推离），实际位移方向就偏离切向 —— 鱼头若仍钉在切向上，
+       就会出现"位置朝饵走、头朝别处"的倒游/侧游（老黄截图实锤；实测修复前
+       鱼#0 趋饵全程中位夹角 174° = 完全倒着）。这里用本帧真实位移（帧起点→帧末）
+       校正：位移足够大时鱼头缓动到游动方向（0.22s 最短角缓动，快速调头不瞬跳）；
+       位移太小（贴着饵近乎悬停）保持现朝向。切向公式保留作默认/兜底。 */
+    const mdx = f.position.x - fx0, mdz = f.position.z - fz0;
+    if (mdx*mdx + mdz*mdz > 9e-6){
+      let dy = Math.atan2(-mdz, mdx) - f.rotation.y;
+      while (dy >  Math.PI) dy -= 2*Math.PI;
+      while (dy < -Math.PI) dy += 2*Math.PI;
+      f.rotation.y += dy * (1 - Math.exp(-dt / 0.22));
     }
   }
   updateRipples(t);
