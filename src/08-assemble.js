@@ -10,7 +10,7 @@ import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
    本模块两处用途：假山埋脚"75% 补石"（条件里还会抽 rr ⇒ 直接改全局流消费次数）与
    两位点景人物的呼吸相位 —— 都是**建场**性质，必须与加载时序无关。 */
 const jr = mulberry32(20260924);
-import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints } from './06-vegetation.js';
+import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makeBigLotusPatch } from './06-vegetation.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater } from './05-water.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
@@ -811,29 +811,28 @@ for (let i = 0; i < 12; i++){
     ry: lrr(0, TAU),
   });
 }
-placeAssets('assets/LotusPlant.glb', 2.0, lotusSpots);
-/* GLB 荷花丛补花梗（2026-09-17 用户："这个角度荷花没有杆"）：
-   LotusPlant.glb 是**单 mesh + 一张贴图**（实测 1600 tri、native 高 1.918m），
-   花与叶全烘进几何，花梗由不得代码。低视角看花像浮在叶丛上。
-   ⚠️ 杆高必须**按实测的花位**定，不能拍脑袋（2026-09-17 用户："部分荷花依旧悬空，
-   是不是杆的高度不对，没有和荷花接上"）。用 probe/glb-profile.mjs 量顶点高度剖面：
-     · native y<0 → 叶片区（水平半径 0.2~1.0m，是摊开的叶盘）
-     · native y=0.70~0.94 → **花瓣簇**（顶点数 400、水平半径仅 0.11m，典型的杯状花）
-   归一化（×1.0428，底部对齐 y=0）后：花底 = (0.70+0.976)×1.0428 ≈ **1.748m**，
-   而旧值 0.72×2.0 = 1.44m —— **短了 31cm**，花当然悬空。
-   现在杆高取 1.78×s（超过花底 3cm、插进花心），下粗上细随真荷；
-   抖动幅度压在 ±3% 以内，保证每根都落在花瓣簇里而不是又露出来。
-   MAT.lily 与程序化荷杆同材质，冬季随 lilyShow 一起落。 */
+/* 2026-09-30 换掉 GLB 荷花（老黄近看三连：花瓣尖锐几何 / 杆花歪斜拼接 / 暴雨里杆旋转变粗）：
+   LotusPlant.glb 是 AI 生成的**单网格 + 单贴图**（实测 1600 tri、native 高 1.918m），
+   花与叶全烘进几何、放大到 2.0 后近看必穿帮；补的花梗又是按"实测花位"硬插进花簇的，
+   对不齐就显歪。改用程序化大荷花（06 的 makeBigLotusPatch）：曲面花瓣、花萼盖住交接、
+   花心/花萼与杆顶**同源定位**（topYs 从下面的杆循环里现取）；材质 MAT.lotus/MAT.lily
+   ⇒ 季节显隐与风摆自动继承。
+   ⚠️ 删除 placeAssets('assets/LotusPlant.glb') 后，预载清单（13-preload）与 SW 的
+      GLBS 同步移除了这一项（省 267KB），并按 sw.js 头部规矩 bump 缓存版本。 */
 /* 杆高系数独立成常量：杆在 mergeStatics 里被合并后**名字就丢了**，
-   wind-audit.mjs 无法再从场景反查杆的顶点高度 —— 只能断言这个设计常量。
-   改它之前请先用 probe/glb-profile.mjs 重新量一遍花位。 */
+   wind-audit.mjs 无法再从场景反查杆的顶点高度 —— 只能断言这个设计常量。 */
 export const GLB_LOTUS_STEM_H = 1.78;
+const lotusTopYs = [];
 lotusSpots.forEach(s=>{
   const stemH = GLB_LOTUS_STEM_H * s.s * rr(0.98, 1.03);
-  const stem = mesh(new THREE.CylinderGeometry(0.018, 0.034, stemH, 6), MAT.lily, { name:'glbLotusStem' });
+  /* 6 → 12 棱（2026-09-30）：低棱柱被风摆时棱面轮流朝前，近看像"杆在旋转、忽粗忽细"
+     （老黄暴雨近看反馈）；12 棱剪影平滑，风摆的 5cm 位移上限不变。 */
+  const stem = mesh(new THREE.CylinderGeometry(0.018, 0.034, stemH, 12), MAT.lily, { name:'glbLotusStem' });
   stem.position.set(s.x, stemH / 2, s.z);
   world.add(stem);
+  lotusTopYs.push(stemH);
 });
+world.add(makeBigLotusPatch(lotusSpots, lotusTopYs));
 
 // 芭蕉（台基两侧，成丛）—— 高假茎 + 顶部叶片
 [

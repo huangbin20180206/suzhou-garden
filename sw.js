@@ -15,7 +15,8 @@
 /* 2026-09-28 活雾批次 bump v4→v5：本轮改了 SHELL 成员 index.html（天气按钮）与 src/*.js
    （活雾/鱼平滑/雾团），按头部规矩升版，让已装 SW 的浏览器整体换新缓存。 */
 /* 2026-09-29 合并时段条批次 bump v5→v6：又改了 SHELL 成员 index.html（时段/时辰合并）。 */
-const CACHE = 'suzhou-garden-v6';
+/* 2026-09-30 bump v6→v7：GLBS 预缓存清单移除 LotusPlant.glb（池边荷花改程序化）。 */
+const CACHE = 'suzhou-garden-v7';
 const SHELL = [
   './',
   './index.html',
@@ -25,9 +26,9 @@ const SHELL = [
   './docs/cover.jpg',       // 水墨封面：loading 层要离线可见，归入应用壳
 ];
 const GLBS = [
+  /* 2026-09-30：LotusPlant.glb 下线（池边荷花改程序化），此处与 13-preload 同步移除。 */
   './assets/BananaPlant.glb',
   './assets/koi.glb',
-  './assets/LotusPlant.glb',
   './assets/Turtle.glb',
 ];
 /* ⚠️ 2026-09-27 · 高精资产批次：上面这份 GLBS 与 src/13-preload.js 的

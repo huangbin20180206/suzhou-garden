@@ -96,17 +96,38 @@ function makeBambooLeafGeo(){
    整朵花开到 0.6~0.8m —— 比荷叶还大（用户实拍）。真实荷花直径 15~25cm。
    现在几何做成单位长度约 0.92（宽 0.68、圆头、内凹），实例缩放改用 0.092~0.116，
    花朵直径落在 0.22~0.28m，与真实荷花、也与池中 GLB 荷花同一量级。 */
-function makeLotusPetalGeo(){
-  const s = new THREE.Shape();
-  s.moveTo(0, 0);
-  s.bezierCurveTo(0.30, 0.10, 0.34, 0.62, 0, 0.92);
-  s.bezierCurveTo(-0.34, 0.62, -0.30, 0.10, 0, 0);
-  const g = new THREE.ShapeGeometry(s, 10);
-  const p = g.attributes.position;
-  for (let i = 0; i < p.count; i++){
-    const x = p.getX(i), y = p.getY(i);
-    p.setZ(i, Math.abs(x) * 0.42 - Math.pow(y / 0.92, 2) * 0.16);
+export function makeLotusPetalGeo(){
+  /* 2026-09-29 重构（老黄近看反馈"花瓣全是尖锐几何图形，特别刺眼"）：旧版
+     ShapeGeometry 只有**轮廓**是曲线，内部三角化稀疏 ⇒ 瓣面是一大片、大三角
+     硬棱折纸（近看特写全是直边棱线）。改为参数化曲面网格：长 12 段 × 宽 8 段，
+     宽向浅杯（u² 抬边）+ 纵向瓣尖内扣，法线由 computeVertexNormals 平滑连 conjugate。 */
+  const L = 0.92, W = 0.32;                    // 瓣长 / 最大半宽（2026-09-30：0.36 偏宽近看糊成绒球、
+                                               // 0.28 又窄成星芒刷子 —— 取中间值）
+  const segL = 12, segW = 8;
+  const pos = [], uv = [], idx = [];
+  for (let i = 0; i <= segL; i++){
+    const t = i / segL;                        // 0=瓣根 1=瓣尖
+    const halfW = W * Math.sin(Math.PI * Math.min(1, t * 1.06)) * (1 - t * 0.25);
+    const y = t * L;
+    for (let j = 0; j <= segW; j++){
+      const u = (j / segW) * 2 - 1;            // -1..1（宽向）
+      const x = u * halfW;
+      /* 横向浅杯（|u|² 抬边）+ 纵向瓣尖内扣（t^2.4 向花心回弯） */
+      const z = (u * u) * halfW * 0.55 - Math.pow(t, 2.4) * 0.10;
+      pos.push(x, y, z);
+      uv.push(j / segW, t);
+    }
   }
+  for (let i = 0; i < segL; i++){
+    for (let j = 0; j < segW; j++){
+      const a = i * (segW + 1) + j, b = a + segW + 1;
+      idx.push(a, b, a + 1,  a + 1, b, b + 1);
+    }
+  }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
   g.computeVertexNormals();
   return g;
 }
@@ -134,6 +155,80 @@ function makeLilyPadGeo(){
     p.setY(i, Math.pow(d, 2.2) * 0.1);      // 边缘上翘成浅碟
   }
   g.computeVertexNormals();
+  return g;
+}
+
+/* ══ 池边大荷花（2026-09-30 · 替换 GLB LotusPlant）═════════════════════════
+   老黄近看反馈三连："花瓣全是尖锐几何图形""杆花歪斜像劣质拼接""暴雨里杆旋转
+   变粗不规则"。查下来那个 GLB 是 AI 生成的**单网格 + 单贴图**（实测 1600 tri、
+   native 高 1.918m、放大 2.0），花与叶全烘进几何，近看必穿帮；补的花梗又是按
+   "实测花位"硬插进花簇的，对不齐就显歪。改用程序化大荷花：曲面花瓣（与池心
+   小荷花同一套 makeLotusPetalGeo，按尺度放大到花径 ~0.4m）、花萼盖住杆顶交接、
+   花心/花萼与杆顶**同源定位**（topYs 由调用方在杆循环里给出，不再各算各的）。
+   材质走 MAT.lotus / MAT.lily ⇒ 季节显隐（lotusShow/lilyShow）与风摆自动继承。
+   spots: [{x, z, s, ry}]（沿用 GLB 荷花原落点/尺度）；topYs: 各株杆顶世界高度。 */
+export function makeBigLotusPatch(spots, topYs){
+  const g = new THREE.Group();
+  const petalGeo = makeLotusPetalGeo();
+  const padGeo   = makeLilyPadGeo();
+  const coreGeo  = new THREE.CylinderGeometry(0.052, 0.062, 0.10, 10);
+  const calyxGeo = new THREE.CylinderGeometry(0.030, 0.088, 0.24, 12);   // 花萼：要能从侧下方"看见"
+                                                                          // （0.062/0.15 被瓣丛吃掉，近看像没萼）
+  const n = spots.length, OUT = 10, MID = 8, IN = 6, PER = OUT + MID + IN, padsPer = 3;
+  const petals  = new THREE.InstancedMesh(petalGeo, MAT.lotus, n * PER);
+  const cores   = new THREE.InstancedMesh(coreGeo,  MAT.lily,  n);
+  const calyxes = new THREE.InstancedMesh(calyxGeo, MAT.lily,  n);
+  const pads    = new THREE.InstancedMesh(padGeo,   MAT.lily,  n * padsPer);
+  petals.castShadow = cores.castShadow = calyxes.castShadow = false;
+  pads.castShadow = false; pads.receiveShadow = true;
+  const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(),
+        s = new THREE.Vector3(), off = new THREE.Vector3();
+  const qF = new THREE.Quaternion(), qT = new THREE.Quaternion(), qS = new THREE.Quaternion();
+  const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
+  const jr = mulberry32(20260930);              // 独立流（铁律 1：不吃全局 rnd）
+  let padSlot = 0;
+  for (let i = 0; i < n; i++){
+    const sp = spots[i];
+    const sc = 0.20 * sp.s;                     // 花径 ≈ 0.40m × 尺度（与 GLB 荷花同量级）
+    const fy = topYs[i] + 0.075;                // 花心在杆顶之上一点（花萼盖住交接）
+    qF.setFromAxisAngle(AY, sp.ry + jr() * 0.5);
+    qF.multiply(qT.setFromAxisAngle(AX, (jr() - 0.5) * 0.20));   // 花头微倾（真荷花不铅垂）
+    let slot = i * PER;
+    const ring = (cnt, tilt, radiusOut, phase)=>{
+      for (let k = 0; k < cnt; k++){
+        const pa = (k / cnt) * TAU + phase;
+        qS.setFromAxisAngle(AY, pa);
+        qT.setFromAxisAngle(AX, -tilt);
+        q.copy(qF).multiply(qS).multiply(qT);
+        off.set(Math.cos(pa) * radiusOut * sc, 0, Math.sin(pa) * radiusOut * sc).applyQuaternion(qF);
+        p.set(sp.x + off.x, fy + off.y, sp.z + off.z);
+        s.setScalar(sc * (0.92 + jr() * 0.16));  // 瓣长微差，避免一刀切
+        m.compose(p, q, s);
+        petals.setMatrixAt(slot++, m);
+      }
+    };
+    ring(OUT, 1.05, 0.52, 0);                    // 外圈：外翻
+    ring(MID, 0.72, 0.40, 0.16);                 // 中圈
+    ring(IN,  0.34, 0.28, 0.34);                 // 内圈：收拢成杯
+    p.set(sp.x, fy + 0.06, sp.z); q.identity(); s.setScalar(sc * 1.2);
+    m.compose(p, q, s); cores.setMatrixAt(i, m);
+    p.set(sp.x, topYs[i] - 0.02, sp.z); q.identity(); s.setScalar(1);
+    m.compose(p, q, s); calyxes.setMatrixAt(i, m);
+    /* 叶盘：每株 3 片（补回 GLB 荷花自带的岸线大叶） */
+    for (let k = 0; k < padsPer; k++){
+      const a = jr() * TAU, rad = 0.45 + jr() * 1.15;
+      p.set(sp.x + Math.cos(a) * rad, CFG.water + 0.075 + jr() * 0.02, sp.z + Math.sin(a) * rad * 0.85);
+      q.setFromAxisAngle(AY, jr() * TAU);
+      s.setScalar((0.9 + jr() * 0.7) * sp.s);
+      m.compose(p, q, s);
+      pads.setMatrixAt(padSlot++, m);
+    }
+  }
+  for (const im of [petals, cores, calyxes, pads]){
+    im.instanceMatrix.needsUpdate = true;
+    im.frustumCulled = false;                    // 实例位置由矩阵给出、由 shader 风摆，CPU 包围球不可靠
+  }
+  g.add(petals, cores, calyxes, pads);
   return g;
 }
 
@@ -763,11 +858,17 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
        等于坐在叶子上，0.2m 的杆被 1.5m 宽的叶子完全挡住（用户："荷花几乎没有杆撑着"）。 */
     const fy = CFG.water + rr(0.48, 1.08);        // 花朵高低错落（下限抬到叶盘之上）
     const sc = rr(0.092, 0.116);      // 花朵直径 0.22~0.28m（真实荷花 15~25cm）
-    // 花梗
+    // 花梗（2026-09-29：棱数 5→12 —— 低棱柱被风摆时棱面轮流朝前，看起来像"杆在
+    // 旋转、忽粗忽细"（老黄暴雨近看反馈）；12 棱剪影平滑）
     const stemH = fy - CFG.water + 0.06;
-    const stemM = mesh(new THREE.CylinderGeometry(0.026, 0.040, stemH, 5), MAT.lily, { name:'lotusStem' });
+    const stemM = mesh(new THREE.CylinderGeometry(0.026, 0.040, stemH, 12), MAT.lily, { name:'lotusStem' });
     stemM.position.set(fx, CFG.water + stemH/2, fz);
     g.add(stemM);
+    // 花萼/花托（2026-09-29 修"花与杆硬接显歪"）：小绿萼盖住杆顶与花的交接缝，
+    // 顺带把"花瓣外圈外翻造成的视觉偏斜"读成自然倒垂
+    const calyx = mesh(new THREE.CylinderGeometry(0.018, 0.052, 0.075, 10), MAT.lily, { name:'lotusCalyx' });
+    calyx.position.set(fx, fy - 0.028, fz);
+    g.add(calyx);
     let slot = 0;
     const ring = (n, tilt, radiusOut, phase) => {
       for (let k = 0; k < n; k++){

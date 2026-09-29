@@ -64,7 +64,8 @@ const PRELOAD_TIMEOUT_MS = 180000;
             **下载段绝不能出现 `%`**，否则会被 loading-guard 的
             /营 造 中 · (\S+) (\d+)%/ 误捕获成一个非法阶段名而报红。 */
 export const PRELOAD_MANIFEST = [
-  { url: 'assets/LotusPlant.glb', bytes: 267300, stage: '取', label: '荷花', required: true  },
+  /* 2026-09-30：LotusPlant.glb 已下线（池边荷花改程序化大荷花，见 08 的说明）⇒ 预载清单与
+     sw.js 的 GLBS 同步移除该项（省 267KB）。 */
   { url: 'assets/koi.glb',         bytes: 208000, stage: '取', label: '锦鲤', required: true  },
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },

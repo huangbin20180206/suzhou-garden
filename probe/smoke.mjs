@@ -112,8 +112,10 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   check('几何/纹理数量健康', info.geos < 800 && info.tex < 300, `geos=${info.geos} tex=${info.tex}`);
 
   // ── 4. GLB 资产到齐且动起来 ──
+  /* 2026-09-30：LotusPlant.glb 已下线（池边荷花改程序化大荷花，见 08 的说明）——
+     这里同步从名单移除，否则这条断言永远为假（与本条注释里"判据滞后于产品"是同一类）。 */
   const glb = await page.waitForFunction(() => {
-    const names = { KoiFish: 0, Turtle: 0, BananaPlant: 0, LotusPlant: 0 };
+    const names = { KoiFish: 0, Turtle: 0, BananaPlant: 0 };
     window.__garden.scene.traverse(o => {
       for (const k of Object.keys(names)) if (o.name && o.name.includes(k)) names[k]++;
     });
@@ -146,7 +148,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     check('芭蕉替身叶片已构造（≥3 片，不是空冠层/光杆）', sub.leaves >= 3,
       `替身冠层 ${sub.crowns} 个 / 叶片 ${sub.leaves} 片`);
   } else {
-    check('四类 GLB 资产均已挂载（未降级）', !!glb, glb ? JSON.stringify(glb) : '未挂载');
+    check('三类 GLB 资产均已挂载（未降级）', !!glb, glb ? JSON.stringify(glb) : '未挂载');
   }
   const fishMoving = await page.evaluate(async () => {
     const fs = window.__garden.scene.getObjectByName?.call ? null : null;
