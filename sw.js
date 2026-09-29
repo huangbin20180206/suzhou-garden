@@ -16,7 +16,8 @@
    （活雾/鱼平滑/雾团），按头部规矩升版，让已装 SW 的浏览器整体换新缓存。 */
 /* 2026-09-29 合并时段条批次 bump v5→v6：又改了 SHELL 成员 index.html（时段/时辰合并）。 */
 /* 2026-09-30 bump v6→v7：GLBS 预缓存清单移除 LotusPlant.glb（池边荷花改程序化）。 */
-const CACHE = 'suzhou-garden-v7';
+/* 2026-09-30 电闪雷鸣批次 bump v7→v8：又改了 SHELL 成员 index.html（新增"电闪雷鸣"天气按钮）。 */
+const CACHE = 'suzhou-garden-v8';
 const SHELL = [
   './',
   './index.html',

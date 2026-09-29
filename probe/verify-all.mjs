@@ -95,7 +95,7 @@
 //    pageerror-guard 69s / reel-guard 19s / lamp-guard 21s / mist-guard 185~390s /
 //    postcard-guard 19s / sound-guard 57s / guide-guard 20s / refract-guard 21s /
 //    refract-coverage 12s / weather-coverage 16s / **intro-guard 22s / loading-guard 10s /
-//    warmboot-guard 26s / random-guard 10s / lampvol-guard 44s**。
+//    warmboot-guard 26s / random-guard 10s / lampvol-guard 44s / thunder-guard 64s**。
 // ⚠️ 跑链期间别做观感/帧率测试：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。
 // 用法: node probe/verify-all.mjs   （或 npm run verify）
 import { spawnSync } from 'node:child_process';
@@ -289,6 +289,18 @@ const SUITES = [
      真光源恒为 5、draw calls < 800。两条负例自检：把挂灯 count 改 0 ⇒ 显形判据报红；
      关灯会 ⇒ 零提交判据报红。 */
   ['灯会挂灯 festival-lanterns-guard', 'probe/festival-lanterns-guard.mjs'],
+  /* ── 2026-09-30 · 电闪雷鸣（用户："增加一个'电闪雷鸣'的场景，需要把整个光线全部暗下来，
+     达到或者接近暮色的光影效果…闪电时…不仅仅有亮光划过和照亮整体的效果，还可以还原空中电闪
+     的效果（注意一定是闪电后才有照亮场景的效果），紧接着就是密集的雷鸣，声音要做得真实"）──
+     ⚠️ 加这道门的**直接原因**：初版把闪电网格按**仰角**（地平线以上 9°~38°）摆在世界空间，
+        而默认机位是俯视的（pitch −19.3°、fov 46 ⇒ 可见天空只有画面上端约 4°）⇒ 闪电整条投到
+        ndc.y 1.8~6.8、亮痕 1.9~2.4，**全在画面之上**，"可见↔隐藏"的像素差是 **0**：
+        "空中电闪 / 亮光划过"一个像素都没画出来，而断言只查了 mesh.visible ⇒ 全绿通过。
+        ⇒ 本门量**投影 + 像素**，并且量"照亮整体"是量**画面下半部**（地面/建筑），不是天空。
+     自带三条负例：两臂都定格"无闪"⇒ 画面必须≈不动（判据不是量的场景漂移）；
+        定格峰值帧用 `setLightningHold`（产品侧权威开关，页内重调 tick 无效）；
+        "非 thunder 零闪电 / 离开后零残留 / 随机池永不抽中"三条隔离判据。 */
+  ['电闪雷鸣 thunder-guard', 'probe/thunder-guard.mjs'],
 ];
 
 /* ── T7.1（2026-09-23）三条改进 + T7.4（2026-09-24）④ ────────────────────

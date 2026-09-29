@@ -9,6 +9,9 @@ import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.j
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, FOG_BANKS, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
+/* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
+   ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
+import { tickLightning, LIGHTNING, lightningStrikeNow } from './12-env.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
@@ -257,8 +260,45 @@ const Snd = (()=>{
     master.gain.setTargetAtTime(on ? vol : 0, ctx.currentTime, 0.25);
     return on;
   }
+  /* ── 雷鸣（2026-09-30 电闪雷鸣）──────────────────────────────────────────
+     素材是**真实录音**（assets/thunder.mp3，10s / 155KB）：懒加载 + 解码一次；
+     一次闪电按"距离"给延迟（0.9~3.6s，闪电在前、雷声在后）、音量随距离衰减、
+     低通把远雷压闷、1~3 层错峰叠放 = "紧接着的密集雷鸣"。
+     ⚠️ 素材未解码完成时本次直接跳过（不排空枪），下次闪电再试。 */
+  let thunderBuf = null, thunderLoading = false, thunderPlays = 0;
+  function loadThunder(){
+    if (thunderBuf || thunderLoading || !ctx) return;
+    thunderLoading = true;
+    fetch('assets/thunder.mp3')
+      .then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error('http ' + r.status)))
+      .then(a => ctx.decodeAudioData(a))
+      .then(b => { thunderBuf = b; })
+      .catch(() => { thunderLoading = false; });
+  }
+  function thunder(){ return { loaded: !!thunderBuf, plays: thunderPlays }; }
+  function playThunder(ev){
+    if (!on || !ctx) return 0;
+    loadThunder();
+    if (!thunderBuf) return 0;
+    const t0 = ctx.currentTime + Math.max(0, (ev && ev.delay != null) ? ev.delay : 1.2);
+    const n = Math.max(1, Math.min(3, (ev && ev.layers) || 1));
+    for (let i = 0; i < n; i++){
+      const src = ctx.createBufferSource();
+      src.buffer = thunderBuf;
+      src.playbackRate.value = ((ev && ev.rate) || 1) * (1 + (i - (n - 1) / 2) * 0.11);
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+      lp.frequency.value = ((ev && ev.lp) || 1800) * (i === 0 ? 1 : 0.62);
+      const g = ctx.createGain();
+      g.gain.value = Math.min(0.9, ((ev && ev.gain) || 0.4) * (i === 0 ? 1 : 0.5));
+      src.connect(lp); lp.connect(g); g.connect(master);
+      src.start(t0 + i * (0.3 + Math.random() * 0.55));
+      try { src.stop(t0 + 12); } catch (e) { /* 忽略 */ }
+    }
+    thunderPlays++;
+    return n;
+  }
   return {
-    toggle, tick, plan, setVolume,
+    toggle, tick, plan, setVolume, thunder, playThunder,
     get on(){ return on; },
     get volume(){ return vol; },
     /* 门禁读真实节点电平用（判"接上了"，不判音色） */
@@ -298,6 +338,7 @@ export function queuePostcard(){ takePostcard(); }
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.sound = toggleSound;
+HOOKS.thunder = (ev) => Snd.playThunder(ev);   // 电闪雷鸣：闪电事件 → 排队雷鸣（12-env 调）
 /* 反射按需更新：把"水面是否活跃"的判断放在这里（本模块已经 import 了 ENV / REEL / 涟漪状态），
    05-water 经 HOOKS 读 —— 它不能 import 06-vegetation / 12-env（会成环，见 05 的注释）。
    活跃 = 下雨 / 时光流转（时间快进）/（可选）刚刚起过涟漪。
@@ -883,6 +924,9 @@ function animate(){
     applyEnv(ENV.cur);
     renderer.shadowMap.needsUpdate = true;   // 过渡中 sunPos/存在性逐帧在动，阴影跟渲
   }
+  /* 电闪雷鸣（2026-09-30）：必须在 ENV 过渡块**之后**推进 —— 过渡里的 applyEnv 会覆写
+     sun/amb/hemi/曝光，顺序反了闪光会被压掉。只在 weather==='thunder' 时真正触发。 */
+  tickLightning(dt, simTime);
   const rainNow = ENV.cur.rainAmount || 0;
   WIND.uRain.value = rainNow;                 // 雨打枝叶：与风无关的那部分抖动
   waterNormalTex.offset.x += dt * (0.014 + 0.22 * rainNow);
@@ -1578,6 +1622,21 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   figures, FIG_PALETTE, FIG_HAIR,
                   GLB_LOTUS_STEM_H,
                   koiGroup, swimTurtles, KOI_ORBITS, insidePond, POND_RADII, POND_PTS,
+                  /* 电闪雷鸣（2026-09-30）：门禁要断言"闪电网格先出现、照亮随之"的时序、
+                     flash 归零、非 thunder 天气零触发 —— 显式暴露（本项目范式：不靠 traverse 猜）。
+                     lightningStrikeNow() = 下一次 tick 立刻打一条闪电（探针定时用）。 */
+                  lightning: () => ({ on: LIGHTNING.on, flash: LIGHTNING.flash, strikes: LIGHTNING.strikes,
+                                      boltT: LIGHTNING.boltT, lastThunder: LIGHTNING.lastThunder,
+                                      next: LIGHTNING.next, active: ENV.weather === 'thunder',
+                                      boltVisible: !!(LIGHTNING._group && LIGHTNING._group.visible
+                                                      && LIGHTNING._bolt && LIGHTNING._bolt.visible),
+                                      skyFlash: skyMesh.material.uniforms.uFlash.value }),
+                  setLightning: (v) => { LIGHTNING.on = !!v; },
+                  /* 把闪电事件时钟按住在某个 tau 秒（null = 放行）：探针定格峰值帧用。
+                     见 12-env 的 LIGHTNING.hold —— 必须是产品侧开关，页内重调 tick 无效。 */
+                  setLightningHold: (t) => { LIGHTNING.hold = (t === null || t === undefined) ? null : +t; },
+                  lightningStrikeNow,
+                  thunderState: () => Snd.thunder(),
                   perchingDragonflies, perchingAnchors, updatePerchingDragonflies,
                   perchShow: () => perchShowOK, PERCH_LIFT,
                   camFly: () => CAM_FLY.on,

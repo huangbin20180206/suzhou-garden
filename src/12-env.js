@@ -475,6 +475,33 @@ const ENV_WEATHER = {
     cloudAmount:0.30, skyGray:0.22, fogGray:0.26, diskFade:0.70,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.25,
     windMul:1.00, gustMul:0.60, moonVis:0.30, snowTint:0xF2F6FA },   // 薄雾：月色被雾纱吃掉了七成
+  /* ══ 电闪雷鸣（2026-09-30 · 老黄需求）════════════════════════════════════
+     "把整个光线全部暗下来，达到或者接近暮色的光影效果" —— 本预设只负责**暗**：
+     直射几乎全关（sunMul 0.05）、环境/天光压到一半（0.47/0.50）、曝光压到 0.68、
+     天空往深灰拉（skyGray 0.86 ⇒ 乌云压顶）、雨量满、地面全湿、风大。
+     闪电（分叉雷电 + 亮痕 + 全场照亮 + 天幕泛白）与雷鸣由 tickLightning 叠加，
+     不写在这里 —— 它们是把光照**乘**一个瞬时系数，天气表管不了"阵发"。
+     ⚠️ moonVis 0（乌云压顶看不见月）、shadowK 0（没有直射就没有影子）。
+
+     ── 曝光 0.86 → 0.76 → 0.68（2026-09-30，实测定的，不是估的）──
+     `probe/thunder-guard.mjs` 同机位（夏·正午）冻结帧量平均亮度：
+       晴 142.1 / 暴雨 133.7 / **电闪雷鸣** / **暮色(晴)** —— 三档实测：
+       0.86 ⇒ 雷电 111.1 vs 暮色 97.6（亮 14%，多模态读成"大白天阴雨"）；
+       0.76 ⇒ 雷电 103.0 vs 暮色 97.2（亮 6%，**判据贴边**，只剩 1.8 余量）；
+       0.68 ⇒ 回到暮色之下（判据留 9 余量）。
+     结论：只靠 skyGray 压不暗 —— grayMix 的靶色是固定的中灰
+     （SKY_GRAY 0x8E949C / FOG_GRAY 0x9AA0A6），0.86 已接近它的极限；
+     真正能"把整个光线全部暗下来"的是曝光。
+     ⚠️ 判据那条（thunder 平均亮度 ≤ 暮色 + 4）**不许为了让门变绿而放宽** ——
+     它是老黄那句"接近暮色"的可测形式；要动就动预设。
+     ⚠️ hidden:true 只是**不进随机池**（randomScene 的 !hidden 过滤；R_W_BASE 里也没有它），
+     按钮与键盘 H 照常 —— 老黄要的是"一个可选的场景"。随机撞进雷雨时音景多半没开
+     （音频必须由用户手势才能起），会变成"闪电没雷声"的半成品。 */
+  thunder: { weatherLabel:'电闪雷鸣', blizzard:0, hidden: true,
+    sunMul:0.05, ambMul:0.47, hemiMul:0.50, fogMul:1.80, satMul:0.82, expMul:0.68, shadowK:0.00,
+    cloudAmount:1.00, skyGray:0.86, fogGray:0.42, diskFade:1.00,
+    rainAmount:1.0, snowAmount:0.0, snowCover:0.0, wetness:1.0,
+    windMul:3.60, gustMul:0.30, moonVis:0.00, snowTint:0xF2F6FA },
 };
 /* 互斥矩阵 —— 唯一权威在这里。
    · 银装素裹仅冬季（其余季节按钮置灰，悬停给出原因）
@@ -2225,6 +2252,9 @@ envEl.addEventListener('click', (e)=>{
   if (TOUR.on && (b.dataset.view || b.dataset.axis)) tourStop();
   if (REEL.on && b.dataset.axis === 'time') toggleReel();   // 手动选时段 = 接管，停时光流转
   if (b.dataset.view){ gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return; }
+  /* 选"电闪雷鸣"自动开启音景 —— 这个场景的核心之一就是雷鸣，没有声音等于没做。
+     浏览器要求音频必须由用户手势创建，这次点击正好就是手势。 */
+  if (b.dataset.axis === 'weather' && b.dataset.v === 'thunder' && !HOOKS.sound?.()) HOOKS.sound();
   setEnv(b.dataset.axis, b.dataset.v);
   if (enforceWeather()) syncEnvUI();
 });
@@ -2376,13 +2406,16 @@ addEventListener('keydown', (e)=>{
   const smap = { q:'spring', w:'summer', e:'autumn', r:'winter' };
   /* 2026-09-28：'阴霾暗沉'从菜单收起（老黄："和薄雾感官上太一致，保留薄雾"）——
      d 键空出；预设数据保留（mist-guard 仍可直调 setEnv 测试雾管线），想恢复一条线的事。 */
-  const wmap = { a:'clear', s:'storm', f:'snow', g:'mist' };
+  const wmap = { a:'clear', s:'storm', h:'thunder', f:'snow', g:'mist' };
   const hit = map[e.key] || smap[e.key.toLowerCase()] || wmap[e.key.toLowerCase()];
   if (!hit) return;
   seasonDemoUserTakeover();
   if (map[e.key])  setEnv('time', hit);
   else if (smap[e.key.toLowerCase()]) setEnv('season', hit);
-  else if (weatherAllowed(hit)) setEnv('weather', hit);      // 非法组合不走键盘这条捷径
+  else if (weatherAllowed(hit)){
+    if (hit === 'thunder' && !HOOKS.sound?.()) HOOKS.sound();   // 同点击：选电闪雷鸣自动开音景
+    setEnv('weather', hit);
+  }                                          // 非法组合不走键盘这条捷径
   if (enforceWeather()) syncEnvUI();
 });
 
@@ -2395,6 +2428,258 @@ addEventListener('keydown', (e)=>{
                      SNOW_BOOST 赋值块的先后无所谓）
    ⚠️ 相对顺序与本文件原顶层完全一致（灯笼 → UI → applyEnv → installSnow），只是整体推后到
    world 就绪之后。由 08 的 body 末尾调用。 */
+/* ══ 电闪雷鸣（2026-09-30 · 老黄需求）══════════════════════════════════════
+   天气预设 thunder 只负责"暗"（压到接近暮色）；闪电是叠在上面的**事件**：
+   · 随机间隔触发（4.5~11s，约 1/4 概率带一次连击 = 密集）；
+   · 单次事件三件套：
+     ① 空中电闪：程序化分叉雷电（折线宽带 ribbon，加性发光，叠 bloom）出现在
+        **相机看得到的方位**（按当前视线方位角 ±66° 内选），同时写天空 uFlash
+        让云层与天幕泛白（着色器里"云响应最强"）；
+     ② 亮光划过：一条长亮痕沿同一天区横扫而过（0.3s，边走边淡）；
+     ③ 照亮整体：把 sun/amb/hemi/曝光按闪光包络**乘**一个瞬时系数，
+        2~4 次脉冲（真实闪电的多闪节奏）后归零；
+   · 闪电瞬间通过 `HOOKS.thunder` 通知音景排队雷鸣（延迟按"距离"算，1~3 层叠放）。
+   ⚠️ 三条纪律：
+   ① 只在 ENV.weather==='thunder' 且未关时推进；离开该天气立刻把叠加量写回基准
+      （写完 flash=0 ⇒ 各项 = 基准 × 1，零残留）。
+   ② **不新增灯**（灯数一变全场材质重编译）—— 闪光是把既有 sun/amb/hemi/曝光乘系数，
+      基准取 ENV.cur（applyEnv 的产物），每帧重算 ⇒ 与过渡系统天然自愈。
+   ③ tickLightning 必须在 animate 的 ENV 过渡块**之后**调用（transition 里的 applyEnv
+      会覆写光照；顺序反了闪光会被压掉）。
+   ④ 顺序：闪电网格与照亮**同帧起**，且绝不出现"只有照亮没有闪电"的帧（老黄明确要求
+      "一定是闪电后才有照亮场景的效果"）。 */
+export const LIGHTNING = {
+  on: true,             // 事件总开关（探针负例用）
+  /* 定格：非 null 时把事件时钟**按住**在该 tau（秒），只按它重放包络 ——
+     探针要可复现的峰值帧、截图/明信片要拍到闪电，都靠它。
+     ⚠️ 为什么必须是产品侧开关：探针在页内"再调一次 tick"是无效的 ——
+     渲染循环每帧都会用真实时钟再算一遍，两次互相覆盖（项目 2026-09-24 灯会那次
+     就是栽在这上面，冻了 0 位移仍有 0.062m）。同 setFestivalFreeze 的做法。 */
+  hold: null,
+  next: 4.0,            // 下一次闪电的时刻（仿真秒）
+  t0: -99,              // 本次事件起刻
+  flash: 0,             // 当前闪光强度 0..1（探针读数）
+  boltT: -99,           // 最近一次"闪电网格出现"的时刻
+  strikes: 0,           // 累计闪电次数
+  lastThunder: null,    // 最近一次雷鸣参数（探针/诊断）
+  _pulses: null, _streakA: null, _streakB: null, _streakQ: null, _streakLen: 0,
+  _group: null, _bolt: null, _boltMat: null, _streak: null, _streakMat: null,
+};
+const LN_RNG = mulberry32(20260930);        // 专用随机流（运行期效果也绝不吃全局 rnd）
+const lnR = (a, b)=> a + LN_RNG() * (b - a);
+const LN_R = 388;                            // 天球半径 420 ⇒ 闪电放在穹内 388
+const _lnNd = new THREE.Vector3();            // 复用的 NDC 反投影暂存
+/* NDC（归一化设备坐标，x/y ∈ [-1,1]）→ 天球上的世界点。
+   ── 为什么按**画面坐标**摆闪电，而不是按"地平线以上多少度"（2026-09-30 实测修正）──
+   garden 的机位是**俯视**的：默认机位实测 pitch −19.3°、相机 fov 46（垂直半角 23°）
+   ⇒ 画面上缘只到仰角 +3.7°，可见天空是画面上端一条**只有约 4° 高**的窄带。
+   旧写法按仰角 9°~38° 摆，实测闪电网格投到 ndc.y 1.8~6.8（整条在画面之上），
+   亮痕 1.9~2.4 一样在画外 —— "冻结帧可见↔隐藏"的像素差是 **0**，
+   也就是"空中电闪 / 亮光划过"这两个效果**从头到尾一个像素都没画出来**（探针
+   outputs/_diag/thunder-bolt-vis.mjs 定案）。按画面坐标摆 ⇒ 相机怎么俯仰都在天上。
+   落在天球内的做法：从相机沿该方向走，取与半径 r 天球的**远交点**（相机在球内）。 */
+function skyAt(ndcx, ndcy, r){
+  const dir = _lnNd.set(ndcx, ndcy, 0.5).unproject(camera).sub(camera.position).normalize();
+  const o = camera.position;
+  const b = o.dot(dir), c = o.lengthSq() - r * r;
+  const disc = b * b - c;
+  const t = disc > 0 ? (-b + Math.sqrt(disc)) : r;
+  return new THREE.Vector3().copy(o).addScaledVector(dir, Math.max(1, t));
+}
+/* 折线 → 面向相机的宽带 ribbon（宽 2 边各一顶点，段间出两三角） */
+function boltRibbon(pts, widthDir, w0, w1, pos, idx){
+  const n = pts.length, base = pos.length / 3;
+  for (let i = 0; i < n; i++){
+    const t = i / Math.max(1, n - 1);
+    const w = (w0 + (w1 - w0) * t) * 0.5;
+    const p = pts[i];
+    pos.push(p.x + widthDir.x * w, p.y + widthDir.y * w, p.z + widthDir.z * w,
+             p.x - widthDir.x * w, p.y - widthDir.y * w, p.z - widthDir.z * w);
+    if (i > 0){ const a = base + (i - 1) * 2; idx.push(a, a + 1, a + 2,  a + 1, a + 3, a + 2); }
+  }
+}
+function buildLightning(){
+  const g = new THREE.Group();
+  g.visible = false;
+  const boltMat = new THREE.MeshBasicMaterial({ color: 0xE8F0FF, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  const bolt = new THREE.Mesh(new THREE.BufferGeometry(), boltMat);
+  bolt.frustumCulled = false; bolt.renderOrder = 7;
+  const streakMat = new THREE.MeshBasicMaterial({ color: 0xD8E4FF, transparent: true, opacity: 0,
+    blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide, fog: false });
+  const streak = new THREE.Mesh(new THREE.PlaneGeometry(170, 6), streakMat);
+  streak.frustumCulled = false; streak.renderOrder = 7;
+  g.add(bolt, streak);
+  scene.add(g);
+  LIGHTNING._group = g; LIGHTNING._bolt = bolt; LIGHTNING._boltMat = boltMat;
+  LIGHTNING._streak = streak; LIGHTNING._streakMat = streakMat;
+}
+/* 闪光包络：一串"起得快、落得稍慢"的脉冲（真实闪电的多闪节奏） */
+function lnFlashAt(pulses, tau){
+  let v = 0;
+  for (const p of pulses){
+    if (tau < p.t) break;
+    const d = tau - p.t;
+    if (d < p.up) v = Math.max(v, p.v * (d / p.up));
+    else if (d < p.up + p.down) v = Math.max(v, p.v * (1 - (d - p.up) / p.down));
+  }
+  return Math.min(1, v);
+}
+function lnStrike(tNow){
+  const L = LIGHTNING;
+  if (!L._group) buildLightning();
+  camera.updateMatrixWorld();
+  /* ── 主干：在**画面空间**里画之字（见 skyAt 的注释：默认机位的可见天空只有约 4° 高）──
+     起点放在画面上缘**之外**（byTop > 1）⇒ 读起来是"从云里劈进来"；
+     终点落到地平线之下，那截会被园子/远山的深度挡掉，只留天空里那一段可见。 */
+  const bx0 = lnR(-0.34, 0.34);
+  const byTop = lnR(1.10, 1.26);
+  const byBot = lnR(0.50, 0.66);
+  const driftX = lnR(-0.34, 0.34);
+  const nx = [], ny = [];
+  for (let i = 0; i < 11; i++){
+    const t = i / 10;
+    nx.push(bx0 + driftX * t + lnR(-0.032, 0.032));
+    ny.push(byTop + (byBot - byTop) * t + lnR(-0.016, 0.016));
+  }
+  const mid = skyAt((nx[0] + nx[10]) * 0.5, (ny[0] + ny[10]) * 0.5, LN_R);
+  const facing = mid.clone().normalize();
+  const widthDir = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), facing).normalize();
+  /* 主干 + 2~4 条分叉，全部塞进同一个几何（一次 draw call） */
+  const trunk = [];
+  for (let i = 0; i < 11; i++) trunk.push(skyAt(nx[i], ny[i], LN_R));
+  const pos = [], idx = [];
+  /* 线宽：4.8m @ 388m ≈ 0.0124 rad，在 46° 垂直视角下约 9 像素 —— 要"夸张点"
+     就得先看得见；旧值 2.8m 只有 5 像素，且整条在画外（等于没画）。 */
+  boltRibbon(trunk, widthDir, 4.8, 1.6, pos, idx);
+  const nBr = 2 + ((LN_RNG() * 3) | 0);
+  for (let b = 0; b < nBr; b++){
+    const i0 = 2 + ((LN_RNG() * 6) | 0);
+    const dirA = LN_RNG() < 0.5 ? -1 : 1;
+    const pts = [trunk[i0].clone()];
+    let bxp = nx[i0], byp = ny[i0];
+    const len = 3 + ((LN_RNG() * 4) | 0);
+    for (let k = 0; k < len; k++){
+      bxp += dirA * lnR(0.020, 0.062);
+      byp += lnR(-0.034, 0.022);
+      pts.push(skyAt(bxp, byp, LN_R));
+    }
+    boltRibbon(pts, widthDir, 2.6, 0.6, pos, idx);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setIndex(idx);
+  L._bolt.geometry.dispose();
+  L._bolt.geometry = geo;
+  /* 亮痕（亮光划过）：两端也按画面坐标定，然后**冻结在世界里** ——
+     横扫不做"跟着镜头跑"（那会读成贴在屏幕上的假东西），改成
+     "长度从 0 擦到全长"（见 tickLightning），所以端点与朝向只需在这里算一次。 */
+  {
+    /* 两端都要落在**画面内**（x 别超出 ±1）：横扫是"从 A 端擦出去"，
+       若 A 在画外，最亮的那一段（sT 小、不透明度高）正好在画外 ⇒ 亮痕等于没画。
+       实测第一版 A 取 -1.30~-0.95，投影回来 x = -1.25~-1.1 全在画左之外，贡献 0。 */
+    const sy = lnR(0.66, 0.90);
+    const A = skyAt(lnR(-0.92, -0.55), sy + lnR(-0.05, 0.05), LN_R * 0.97);
+    const B = skyAt(lnR(0.55, 0.92), sy + lnR(-0.05, 0.05), LN_R * 0.97);
+    const xAx = B.clone().sub(A);
+    L._streakLen = xAx.length();
+    xAx.normalize();
+    const zAx = A.clone().normalize();                          // 朝外（背向圆心 ≈ 背向相机）
+    const yAx = new THREE.Vector3().crossVectors(zAx, xAx).normalize();
+    const zAx2 = new THREE.Vector3().crossVectors(xAx, yAx).normalize();
+    L._streakA = A; L._streakB = B;
+    L._streakQ = new THREE.Quaternion().setFromRotationMatrix(new THREE.Matrix4().makeBasis(xAx, yAx, zAx2));
+  }
+  /* 脉冲序列：2~4 闪 */
+  const pulses = [];
+  let tt = 0;
+  const nP = 2 + ((LN_RNG() * 3) | 0);
+  for (let i = 0; i < nP; i++){
+    /* ⚠️ 起跳 0.028s（不是 0.012）：60fps 一帧 16.7ms，太陡的起跳**采样不到峰值**
+       （探针实测峰值只被采到 0.76）；0.028 让每个脉冲都至少有一帧落在顶上。 */
+    pulses.push({ t: tt, v: i === 0 ? 1 : lnR(0.32, 0.85), up: 0.028, down: i === 0 ? 0.11 : 0.15 });
+    tt += (i === 0 ? 0.10 : lnR(0.15, 0.25));
+  }
+  pulses.push({ t: tt + 0.3, v: 0, up: 0.01, down: 0.01 });
+  L._pulses = pulses;
+  L._boltT = tNow;
+  L._group.visible = true;
+  L._streak.visible = true;
+  /* 雷鸣：闪电在前、雷声在后 —— 延迟按"距离"给，1~3 层叠放 = 密集雷鸣 */
+  const delay = lnR(0.9, 3.6);
+  const ev = { delay: +delay.toFixed(2),
+               layers: 1 + ((LN_RNG() * 2) | 0) + (delay > 2.2 ? 1 : 0),
+               gain: +Math.max(0.18, 0.62 * (1 - delay / 6)).toFixed(3),
+               lp: Math.round(Math.max(420, 2200 - delay * 420)),
+               rate: +lnR(0.92, 1.05).toFixed(3), at: tNow };
+  L.lastThunder = ev;
+  HOOKS.thunder?.(ev);
+}
+/* 每帧推进（animate 的 ENV 过渡块之后调用） */
+export function tickLightning(dt, tNow){
+  const L = LIGHTNING;
+  if (ENV.weather !== 'thunder' || !L.on){
+    if (L.flash > 0 || (L._group && L._group.visible)){
+      L.flash = 0;
+      if (L._group){ L._group.visible = false; L._boltMat.opacity = 0; L._streakMat.opacity = 0; }
+      skyMesh.material.uniforms.uFlash.value = 0;
+      /* 写回基准（零残留） */
+      sun.intensity = ENV.cur.sunIntensity; amb.intensity = ENV.cur.ambIntensity;
+      hemiLight.intensity = ENV.cur.hemiIntensity;
+      renderer.toneMappingExposure = ENV.cur.exposure;
+    }
+    return;
+  }
+  /* 定格模式（见 LIGHTNING.hold 的注释）：按指定 tau 重放包络，不排新事件、不动 t0 */
+  if (L.hold !== null){ lnApply(L.hold); return; }
+  if (tNow >= L.next){
+    lnStrike(tNow);
+    L.strikes++;
+    L.t0 = tNow;
+    L.next = tNow + (LN_RNG() < 0.26 ? lnR(0.55, 1.5) : lnR(4.5, 11));   // 约 1/4 概率连击
+  }
+  lnApply(tNow - L.t0);
+}
+/* 把"某一次事件在 tau 秒时刻的样子"写到网格 / 天空 / 光照上。
+   抽出来是为了给"定格"复用（探针要可复现的峰值帧，截图要拍到闪电）。 */
+function lnApply(tau){
+  const L = LIGHTNING;
+  const fRaw = lnFlashAt(L._pulses, tau);
+  /* ⚠️ "先闪电、后照亮"是**硬约束**（老黄原话："一定是闪电后才有照亮场景的效果"）：
+     把照亮**铆在闪电网格的可见期上** —— 网格不可见的帧一律不许有闪光量。
+     这样"只有提亮没有闪电"在构造上就不可能发生（探针实测修前有 3 帧只提亮）。 */
+  const boltOn = tau >= 0 && tau < 1.2 && fRaw > 0.02;
+  const f = boltOn ? fRaw : 0;
+  L.flash = f;
+  /* ① 闪电网格 */
+  L._bolt.visible = boltOn;
+  L._boltMat.opacity = boltOn ? Math.min(1, 0.35 + fRaw * 1.15) : 0;
+  /* ② 亮痕横扫（0.3s）—— "长度从 0 擦到全长"，端点/朝向在 lnStrike 时按画面坐标定好、
+     冻结在世界里（跟着镜头跑的"亮痕"会读成贴在屏幕上的假东西）。 */
+  const sT = tau / 0.3;
+  const streakOn = tau >= 0 && sT < 1 && !!L._streakA;
+  L._streak.visible = streakOn;
+  if (streakOn){
+    const s = Math.max(0.001, Math.min(1, sT));
+    const A = L._streakA, B = L._streakB;
+    L._streak.position.set(A.x + (B.x - A.x) * s * 0.5,
+                           A.y + (B.y - A.y) * s * 0.5,
+                           A.z + (B.z - A.z) * s * 0.5);
+    L._streak.quaternion.copy(L._streakQ);
+    L._streak.scale.set(Math.max(0.001, (L._streakLen * s) / 170), 1, 1);   // 几何宽 170
+    L._streakMat.opacity = 0.85 * (1 - sT);
+  } else L._streakMat.opacity = 0;
+  /* ③ 天幕/云层泛白（空中电闪） */
+  skyMesh.material.uniforms.uFlash.value = f;
+  /* ④ 照亮整体：乘系数（基准取 ENV.cur，零残留） */
+  sun.intensity = ENV.cur.sunIntensity * (1 + f * 12);
+  amb.intensity = ENV.cur.ambIntensity * (1 + f * 6);
+  hemiLight.intensity = ENV.cur.hemiIntensity * (1 + f * 5);
+  renderer.toneMappingExposure = ENV.cur.exposure * (1 + f * 0.5);
+}
+/* 探针用：下一次 tick 立刻打一条闪电 */
+export function lightningStrikeNow(){ LIGHTNING.next = -1e9; }
+
 export function initEnvScene(){
   makeLanterns();
   makeFestivalLights();               // 河灯/烛焰/灯串（须在 collectSeasonCaches 前；桃树挂灯由延迟批后置显隐）

@@ -36,7 +36,11 @@ const check = (label, ok, extra) => { results.push({ label, ok, extra }); consol
 const N = 600;                 // 样本量：比例类判据（夜间天气偏置）要压到 ~6σ，120 抽只够 ~2σ，会偶发假红
 const TIMES = ['morning', 'noon', 'dusk', 'night'];
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
-const WEATHERS = ['clear', 'storm', 'snow', 'mist'];   // overcast 2026-09-28 从随机池收起
+/* 随机池里的合法值清单（与 ENV_WEATHER 里"没有 hidden:true"的键一一对应）：
+   · overcast 2026-09-28 收起（老黄："和薄雾感官太一致"）
+   · thunder  2026-09-30 不进随机池（ENV_WEATHER.thunder.hidden=true）——
+     随机撞进雷雨时音景多半没开（音频要用户手势），会变成"闪电没雷声"的半成品 */
+const WEATHERS = ['clear', 'storm', 'snow', 'mist'];
 
 (async () => {
   const port = await listenEphemeral(server);

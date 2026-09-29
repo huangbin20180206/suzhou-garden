@@ -160,6 +160,9 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
       uMoonAmount:{value:0.0},
       uMoonColor:{value:new THREE.Color(0xF4F7FF)},
       uMoonPhase:{value:1.0},
+      /* 电闪（2026-09-30 电闪雷鸣）：0=无闪；由 12-env 的 tickLightning 每帧写。
+         云层响应最强（空中电闪读得出来）、整片天幕同时泛白。 */
+      uFlash:{value:0.0},
     },
     vertexShader:`varying vec3 vDir;
       void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
@@ -170,6 +173,7 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
       uniform float uCloudAmount, uStarAmount, uDiskFade, uStarRot;
       uniform vec3  uMoonDir, uMoonColor;
       uniform float uMoonAmount, uMoonPhase;
+      uniform float uFlash;
 
       // 便宜的 value-noise FBM —— 给天空一层有体积感的云，
       // 原来的天空是均匀平色，占了画面 30~40% 面积却毫无信息。
@@ -217,6 +221,16 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
           cloudCover = cloud * uCloudAmount;
           col = mix(col, uCloudTint, cloudCover);
         }
+
+        /* 电闪（2026-09-30 电闪雷鸣）：云层最先被照亮（uFlash × cloudCover 的强项），
+           天幕整体也跟着泛白 —— 这就是"空中电闪"在天上读出来的那一层。
+           ⚠️ 放在云之后、星之前：闪的是云与天，不是星星。
+           ⚠️ 常数项 0.30 → 0.62（2026-09-30 实测修正）：默认机位是俯视的，
+           可见天空只有画面上端约 4°（d.y ≲ 0.065），而云层被
+           smoothstep(0.015, 0.28, d.y) 压到 ≈0 ⇒ 旧式里"云响应最强"这一项
+           **在看得见的那条天带上一点也没参与**，闪电读不出"天幕泛白"。
+           常数项抬到 0.62 让低仰角也吃得到，云权重留给仰视/巡游时的天空。 */
+        col += vec3(0.80, 0.88, 1.00) * uFlash * (0.62 + 0.95 * cloudCover);
 
         // 星：夜间才有。方向量化后取伪随机亮点，加一点闪烁。
         if (uStarAmount > 0.001 && d.y > 0.0){
