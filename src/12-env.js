@@ -241,7 +241,11 @@ export function makeLanterns(){
      加性圆斑：径向高斯衰减 + 一点点噪声柔化边缘 + 时间微闪烁 + 雨夜更亮。
      uLamp=0 白天全透明，同挂高档位。 */
   const groundSplashMat = new THREE.ShaderMaterial({
-    transparent: true, depthWrite: false, depthTest: false,   // 光池是“贴地发光”，不参与深度遮挡
+    /* 2026-09-29 修"连廊灯光透过屋顶可见"（老黄截图）：光斑原来 depthTest:false
+       （当年只有堂前两盏、头顶无屋顶，关深度无碍）；游廊挂灯后，光斑从廊屋顶面
+       "透"了出来（高处看屋顶上浮着橙黄光晕、檐下反而暗）。改回参与深度遮挡：
+       光斑贴地 +0.06m 不会与地面 z-fighting，而屋顶/廊身会正常把它挡住。 */
+    transparent: true, depthWrite: false, depthTest: true,    // 光池贴地发光，但**必须被屋顶等遮挡**
     blending: THREE.AdditiveBlending,
     uniforms: { uLamp: { value: 0 }, uRain: { value: 0 }, uTime: { value: 0 }, uTint: { value: new THREE.Color(0xFFB45A) } },
     vertexShader: `
