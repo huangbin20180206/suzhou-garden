@@ -212,24 +212,27 @@
 
   /* ── 时段合并条（2026-09-29 · 老黄："时段更精准，合并时辰；拖动时跟随显示具体时间"）──
      一根长拖动条 = 一天 0~24 时；晨/午/暮/夜 四个锚点以可点标签落在条上对应位置
-     （7.5 / 12.5 / 17.5 / 21.5 时），点标签 = 跳到该时段锚点；拖动时 #hourReadout
-     气泡跟随滑块实时显示具体时间（HH:MM）。 */
-  .time-track{ position: relative; flex: 1 1 auto; min-width: 210px; height: 38px;
-    display: flex; align-items: center; }
+     （7.5 / 12.5 / 17.5 / 21.5 时），点标签 = 跳到该时段锚点；读数气泡钉在滑块
+     圆球正上方，随拖动实时显示具体时间（HH:MM）——标签收进条内紧凑排列，
+     不再压到下一行。 */
+  .time-track{ position: relative; flex: 1 1 auto; min-width: 210px; height: 40px;
+    display: flex; align-items: center; --r: 0.52; }
   .time-track input[type="range"]{ width: 100%; }
-  .time-marks{ position: absolute; inset: -8px 0; pointer-events: none; }
+  .time-marks{ position: absolute; inset: 0; pointer-events: none; }
   .time-marks button{
     position: absolute; top: 50%; transform: translate(-50%, -50%);
-    pointer-events: auto; padding: 9px 11px; min-height: 0; line-height: 1;
-    background: rgba(240,228,200,.12); border-color: transparent; border-radius: 6px;
+    pointer-events: auto; padding: 5px 10px; min-height: 0; line-height: 1;
+    font-size: 12px; background: rgba(240,228,200,.10);
+    border-color: transparent; border-radius: 6px;
   }
   .time-marks button.on{
     background: var(--江南-木褐); color: #F0E4C8;
     border-color: var(--江南-木褐);
   }
   #env .hint#hourReadout {
-    position: absolute; bottom: calc(100% - 2px); transform: translateX(-50%);
-    min-width: 3.2em; text-align: center; pointer-events: none;
+    position: absolute; bottom: calc(100% + 2px);
+    left: calc((100% - 18px) * var(--r, 0.52) + 9px);   /* 18px = 滑块圆球直径：圆球正上方 */
+    transform: translateX(-50%); text-align: center; pointer-events: none;
     background: var(--江南-墨黑); color: #F0E4C8; padding: 2px 7px;
     border-radius: 5px; white-space: nowrap;
     font-variant-numeric: tabular-nums; font-family: inherit;

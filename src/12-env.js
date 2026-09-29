@@ -2148,6 +2148,15 @@ envEl.addEventListener('click', (e) => {
   const b = e.target.closest('button');
   if (b && b.dataset.act !== 'season-demo') seasonDemoUserTakeover();
 }, true);
+/* 合并时段条的读数气泡：钉在滑块圆球正上方（--r = hour/24，CSS 端 calc 定位） */
+function placeHourTip(hour){
+  const tip = document.getElementById('hourReadout');
+  const track = document.getElementById('timeTrack');
+  if (!tip || !track) return;
+  const r = Math.max(0, Math.min(24, hour)) / 24;
+  track.style.setProperty('--r', r.toFixed(4));
+  tip.textContent = fmtHour(hour);
+}
 function syncEnvUI(){
   envEl.querySelectorAll('button').forEach(b=>{
     /* 动作按钮（明信片/音景/巡游/时光流转）无 data-axis：不参与环境轴状态同步 ——
@@ -2187,7 +2196,7 @@ function syncEnvUI(){
   const hs = document.getElementById('hourSlider');
   if (hs && Math.abs(parseFloat(hs.value) - ENV.hour) > 0.05){
     hs.value = ENV.hour;
-    document.getElementById('hourReadout').textContent = fmtHour(ENV.hour);
+    placeHourTip(ENV.hour);
   }
   /* 2026-09-29 合并时段条：读数气泡 = 拖动提示，钉在滑块正上方跟随移动
      （老黄："拖动的时候具体时间要跟随进度条，提示用户拖到的时间点"） */
@@ -2225,7 +2234,7 @@ hourSlider.addEventListener('input', ()=>{
   tourUserTakeover();   // P2-2：拖时辰 = 接管，停巡游
   seasonDemoUserTakeover();
   if (REEL.on) toggleReel();   // 手动拖时辰 = 接管，停时光流转
-  document.getElementById('hourReadout').textContent = fmtHour(ENV.hour);
+  placeHourTip(ENV.hour);
   ENV.from = cloneParams(ENV.cur);
   ENV.to   = composeEnv(paramsAtHour(ENV.hour));
   ENV.t = 0; ENV.dur = 0.45;
@@ -2275,7 +2284,7 @@ export function advanceReel(dt){
     const hs = document.getElementById('hourSlider');
     if (hs) hs.value = ENV.hour;
     const ro = document.getElementById('hourReadout');
-    if (ro) ro.textContent = fmtHour(ENV.hour);
+    if (ro) placeHourTip(ENV.hour);
   }
 }
 
@@ -2324,7 +2333,7 @@ export function randomScene(){
   const hs = document.getElementById('hourSlider');
   if (hs) hs.value = ENV.hour;
   const ro = document.getElementById('hourReadout');
-  if (ro) ro.textContent = fmtHour(ENV.hour);
+  if (ro) placeHourTip(ENV.hour);
   return {
     time, season, weather: ENV.weather, hour: ENV.hour,
     label: `${ENV_SEASON[season].label} · ${ENV_TIME[time].label} · ${ENV.to.weatherLabel}`,
