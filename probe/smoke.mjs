@@ -483,6 +483,66 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
         hid.before === false && hid.during === true && hid.after === false,
         `${hid.before}→${hid.during}→${hid.after}`);
 
+  /* ── 檐口两排圆头的几何关系（2026-09-30，老黄两轮指认"红褐椽头顶进灰蓝瓦当"）──
+     三条判据，牙齿在②③：
+       ① 三维上不相交（最近实例中心距 ≥ 两半径和 0.195，实测 0.495）—— 这条是**安全不变量**，
+          注意它**抓不到本缺陷**（旧值 0.22 时两排中心距仍有 0.60，因为 0.6m 的进深差占了大头：
+          当时"看着穿模"是仰视透视重叠，不是互穿）。留着它只为防"真的互穿"这类回归。
+       ② **进深错位**（椽头外端退在瓦当排之后 ≥0.10m，实测 0.15）—— 这才是让檐口读得开的那条，
+          旧值 -0.05（外端还挑出瓦当 0.05）⇒ 必然报红。三轮 A/B 定案：只加大下压量修不好
+          （只下压 0.10 → 咬合照旧；只里收 0.20 → 沿坡度抬高、咬合反增到五六成）。
+       ③ 两侧檐口飞椽头"斜削端朝外"（北檐靠 ry=π）。低角度看不到斜面本身，所以用
+          局部 +z 变换后的世界朝向做**确定性**判定；旧值南檐对、北檐反（34/34）。 */
+  const eave = await page.evaluate(() => {
+    const G = window.__garden, T = G.THREE;
+    const tiles = [], raft = [];
+    G.scene.traverse(o => {
+      if (!o.isInstancedMesh || !o.geometry || !o.geometry.parameters) return;
+      const pr = o.geometry.parameters;
+      if (Math.abs((pr.radiusTop || 0) - 0.105) < 1e-6) tiles.push(o);
+      if (Math.abs((pr.radiusTop || 0) - 0.09) < 1e-6 && Math.abs((pr.height || 0) - 1.3) < 1e-6) raft.push(o);
+    });
+    if (!tiles.length || !raft.length) return { err: '没找到瓦当/椽头实例网格' };
+    const dump = (im) => { const out = [], m = new T.Matrix4(), v = new T.Vector3();
+      for (let i = 0; i < im.count; i++){ im.getMatrixAt(i, m); v.setFromMatrixPosition(m).applyMatrix4(im.matrixWorld);
+        out.push([v.x, v.y, v.z]); } return out; };
+    const C = tiles.flatMap(dump), R = raft.flatMap(dump);
+    const d3 = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
+    let minPair = 1e9;
+    for (const r of R){ let best = 1e9; for (const c of C){ const d = d3(r, c); if (d < best) best = d; } if (best < minPair) minPair = best; }
+    /* ⚠️ 必须**只取正堂那套瓦当**：全场 324 个瓦当里混着水榭/游廊的，
+       拿全集取 max(z) 会拿到别家屋顶（实测 12）⇒ 判据变成假绿（退 18.65m 也照样通过）。
+       筛法：正堂屋面 x∈±12.3、z∈-12.8±6.3 ⇒ 按包围盒圈出正堂那一套。 */
+    const hallC = C.filter(p => Math.abs(p[0]) <= 13 && Math.abs(p[2] + 12.8) <= 7);
+    const hallR = R.filter(p => Math.abs(p[0]) <= 13 && Math.abs(p[2] + 12.8) <= 7);
+    if (!hallC.length || !hallR.length) return { err: '没圈出正堂那套瓦当/椽头' };
+    /* 南檐（z 最大的一条）：瓦当排 z 与椽头外端 z（外端 = 中心 + 0.65，朝外） */
+    const capZ = Math.max(...hallC.map(p => p[2]));
+    const rafZSouth = Math.max(...hallR.map(p => p[2]));
+    const rafTipZ = rafZSouth + 0.65;
+    /* 斜削朝向：局部 +z 经实例矩阵变换后的世界 z 分量，应与"该椽相对中心的方向"同号 */
+    const centerZ = -12.8;
+    let bevelOut = 0, bevelIn = 0;
+    const im = raft[0], m = new T.Matrix4(), pos = new T.Vector3(), dir = new T.Vector3();
+    for (let i = 0; i < im.count; i++){
+      im.getMatrixAt(i, m);
+      pos.setFromMatrixPosition(m).applyMatrix4(im.matrixWorld);
+      dir.set(0, 0, 1).transformDirection(new T.Matrix4().multiplyMatrices(im.matrixWorld, m));
+      if (Math.sign(dir.z) === Math.sign(pos.z - centerZ)) bevelOut++; else bevelIn++;
+    }
+    return { capN: C.length, rafN: R.length, hallCapN: hallC.length, minPair: +minPair.toFixed(3),
+             capZ: +capZ.toFixed(3), rafTipZ: +rafTipZ.toFixed(3), bevelOut, bevelIn };
+  });
+  check('檐口：瓦当排与椽头排三维不相交（最近中心距 ≥ 两半径和 0.195）',
+        !eave.err && eave.minPair >= 0.195,
+        eave.err || `最近 ${eave.minPair}（瓦当 ${eave.capN} / 椽头 ${eave.rafN}）`);
+  check('檐口：椽头外端退在瓦当排之后 ≥0.10m（进深错位才是读得开的原因）',
+        !eave.err && (eave.capZ - eave.rafTipZ) >= 0.10,
+        eave.err || `正堂瓦当 ${eave.hallCapN} 个，南檐瓦当 z=${eave.capZ} ｜ 椽头外端 z=${eave.rafTipZ}（退 ${(eave.capZ - eave.rafTipZ).toFixed(3)}m）`);
+  check('檐口：两侧檐口飞椽头的斜削端都朝外（形制一致）',
+        !eave.err && eave.bevelIn === 0 && eave.bevelOut === eave.rafN,
+        eave.err || `朝外 ${eave.bevelOut} / 朝内 ${eave.bevelIn}`);
+
   // ── 汇总 ──
   finish();
 
