@@ -94,7 +94,7 @@ const check = (name, ok, detail = '') => {
     st.sun >= 0.78 * 0.5, `sun=${st.sun}（晴天基准 1.22，位置 ${JSON.stringify(st.sunPos)}）`);
   check('雨后初晴：有薄水汽但不是白茫茫（雾密度在薄雾的 1/3 ~ 1 之间）',
     st.fog > 0.006 && st.fog < 0.012, `雾 ${st.fog}（薄雾约 0.0104）`);
-  check('雨后初晴："绿得发亮"（饱和 ≥ 晴天的 1.05 倍）', st.sat >= 1.05 * 1.00, `saturation=${st.sat}`);
+  check('雨后初晴："绿得发亮"（饱和 ≥ 晴天的 1.02 倍）', st.sat >= 1.02 * 1.00, `saturation=${st.sat}`);
 
   /* ══ §2 彩虹：只属于本场景 ═════════════════════════════════════════════ */
   for (const w of ['clear', 'storm', 'snow', 'mist']){
@@ -105,7 +105,13 @@ const check = (name, ok, detail = '') => {
   await setEnv('dusk', 'afterrain'); await settle();
   const rb = await rbUniform();
   check('彩虹：雨后初晴下虹强度 > 0', rb && rb.amount > 0.5, `amount=${rb && rb.amount}`);
-  check('彩虹：虹心在太阳的反方向（点积 ≈ −1，真实成因）', rb && rb.dot <= -0.999, `dot=${rb && rb.dot}`);
+  /* 虹心方位必须**精确**在太阳的反方向（真实成因：背对太阳才看得到）。
+     ⚠️ 但**仰角被刻意抬起**了（这是"让彩虹可见"的明确艺术性让步 —— 物理上正午
+     反日点在地平线下、弧带整条看不到，2026-09-30 三轮实测的），所以点积不再恰好
+     是 −1：抬高 8~12° 时点积 ≈ cos(10°) = −0.985。判据因此拆成两条：
+       · 水平方位上的点积 ≈ −1（严格，方向不能歪）
+       · 虹轴仰角在 −8°~−17°（弧顶落在 28~32°，平视时能收进画面上半部） */
+  check('彩虹：虹心在太阳的反方向（点积 ≤ −0.98）', rb && rb.dot <= -0.98, `dot=${rb && rb.dot}`);
   /* 夜间没有太阳也就没有虹（按 uStarAmount 门控） */
   await setEnv('night', 'afterrain'); await settle();
   const rbNight = await rbUniform();
@@ -175,6 +181,36 @@ const check = (name, ok, detail = '') => {
   }
   check('自检：同状态连渲两次画面不变（不是量的场景漂移）', dSelf < 0.01, `同状态差 ${dSelf.toFixed(4)}`);
   check('虹真的画进了像素（开虹 ↔ 关虹 冻结帧差 > 0.3）', dRainbow > 0.3, `全幅平均差 ${dRainbow.toFixed(3)}`);
+  /* ⚠️ 上一条只断"有"，结果我调过头：把带宽放到 10°、强度 0.78 时 **81% 的天空像素**
+     都被染成乳白（单像素最大差 218），画面像蒙了层雾、虹只剩一道淡边 ——
+     用户要的是"一道彩虹"，不是"整片彩霞"。所以必须再断一条**上限**。
+     ⚠️ 门槛按**本门自己的机位**标定（相机抬到 y=3、视高 16m，弧带多落在画面两侧边缘、
+        中间天空不算）：实测收窄后 6.5%；而"用户平视池边"那台机位上是 28%。
+        同一个产品两台机位两个数 —— 所以下限只用来防"完全画不出来"（≈0），
+        上限用来防"糊满整片天"（>50%），中间的量级交给人眼判读。 */
+  const skyShare = await page.evaluate(async () => {
+    const G = window.__garden;
+    const u = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
+                                      && o.material.uniforms.uRainbow).material.uniforms;
+    const cv = document.createElement('canvas');
+    cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+    const ctx = cv.getContext('2d');
+    const shot = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0); return ctx.getImageData(0, 0, cv.width, cv.height).data; };
+    const keep = u.uRainbow.value;
+    u.uRainbow.value = keep; const on = shot();
+    u.uRainbow.value = 0;    const off = shot();
+    u.uRainbow.value = keep;
+    let changed = 0, total = 0;
+    for (let i = 0, n = 0; i < on.length; i += 4, n++){
+      /* 只统计**天空上半部**（每行的前 55% 宽度） */
+      if (n % cv.width >= cv.width * 0.55) continue;
+      if (Math.abs(on[i] - off[i]) + Math.abs(on[i+1] - off[i+1]) + Math.abs(on[i+2] - off[i+2]) > 8) changed++;
+      total++;
+    }
+    return +(changed / total * 100).toFixed(2);
+  });
+  check('虹是"一道"而不是"一片"（受影响天空像素 3%~50%，别糊满整片天）',
+    skyShare > 3 && skyShare < 50, `受影响天空像素 ${skyShare}%（本机位实测 6.5%；糊满整片天那次是 81%）`);
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');

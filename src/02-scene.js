@@ -338,9 +338,13 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
         if (uRainbow > 0.001){
           vec3 rd2 = normalize(uRainbowDir);
           float a = acos(clamp(dot(d, rd2), -1.0, 1.0));      // 与虹轴的夹角
-          /* 42° 为虹的主半径，取 0.70~0.79 rad（40.1°~45.2°）做带宽 */
-          const float A0 = 0.700, A1 = 0.790;
-          float band = smoothstep(A0 - 0.020, A0 + 0.030, a) * (1.0 - smoothstep(A1 - 0.045, A1 + 0.010, a));
+          /* 42° 为虹的主半径。带宽是三轮调出来的：
+             v1 0.700~0.790（5°）→ 弧太窄，多数机位拍不到；
+             v2 0.620~0.800（10°）+ 强度 0.78 → **81% 的天空被染成乳白**，
+                虹只剩一道淡边、整片天像蒙了层雾（天空本来就亮，加色直接过曝到白）；
+             v3 0.655~0.785（7.4°）+ 强度 0.46 —— 读成"一道虹"，颜色不被冲淡。 */
+          const float A0 = 0.655, A1 = 0.785;
+          float band = smoothstep(A0 - 0.022, A0 + 0.038, a) * (1.0 - smoothstep(A1 - 0.048, A1 + 0.012, a));
           if (band > 0.001){
             float t = clamp((a - A0) / (A1 - A0), 0.0, 1.0);   // 0=内缘(紫) 1=外缘(红)
             /* 七色（内→外：紫 靛 蓝 绿 黄 橙 红），每色占 1/7 略作重叠 */
@@ -356,7 +360,10 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
             float fade = smoothstep(0.05, 0.55, anti);
             float ground = smoothstep(-0.02, 0.16, d.y);       // 见②
             float breathe = 0.88 + 0.12 * sin(uTime * 0.157);   // 见③（周期≈40s）
-            col += sp * band * fade * ground * uRainbow * breathe * 0.55;
+            /* 强度 0.46：天空本身已经很亮（雨后初晴 luma≈143），加色到 0.78 会整片过曝成白。
+               这里取 0.46，并用 sp 的饱和度提上来一点，让七色不被背景冲淡。 */
+            vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.35);   // 提饱和
+            col += spSat * band * fade * ground * uRainbow * breathe * 0.46;
           }
         }
 

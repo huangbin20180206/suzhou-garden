@@ -454,26 +454,30 @@ const ENV_WEATHER = {
        · rainAmount 0     —— 雨已经停了。这是"雨后"与"雨中"的唯一硬区别。
        · wetness 0.85      —— 地面/瓦/石/叶全是湿的 ⇒ 出现反光，亮得起来。
                               （这是"亮得反光"的来源，比调曝光物理。）
-       · fogMul 1.35 + fogGray 0.10 —— **薄**水汽：要"薄"不能给高灰度，
-                              高 fogGray 会把画面拉成薄雾那种白茫茫（已实测
-                              过：薄雾 0.26 就已经偏白）。0.10 只把雾**提亮**、
-                              几乎不去色，保留"空气湿"的通透感。
+       · fogMul 1.08 + fogGray 0.05 —— **薄**水汽（2026-09-30 二轮实测后大幅调低）：
+                              第一版给了 fogMul 1.35 / fogGray 0.10，画面亮度是够的
+                              （实测 147 比晴天 141 还亮），但**老黄反馈"没有阳光"** ——
+                              真因是这层雾把**方向感**洗掉了：整园蒙一层均匀亮雾
+                              ⇒ 读作"阴天/薄雾"而不是"雨后太阳出来了"。
+                              水汽要"薄"就得几乎不遮，现在只留一点点湿润感。
        · cloudAmount 0.42  —— 雨后的典型天：还有残余的云（彩虹要靠云作背景才读得出来），
                               但已是碎云，太阳大部分露在外面。
-       · sunMul 0.78       —— 太阳出来了。直射比晴天(1.0)低一档，因为刚下过雨、
-                              地面反光强，直射给满会把湿地曝成一片死白。
-       · diskFade 0.15     —— 日轮清晰可见（薄雾那种 0.70 会把它抹成一团白）。
-       · satMul 1.08 / expMul 1.06 —— "草和树绿得发亮"：饱和与曝光都抬一点，
+       · sunMul 0.95       —— 太阳出来了（2026-09-30 二轮 0.78 → 0.95）：直射接近晴天，
+                              阴影方向明确，地面才有"被太阳照亮"的感觉。
+                              不给满 1.0 是因为刚下过雨、地面反光强，直射过满会曝成死白。
+       · diskFade 0.02     —— **日轮清晰可见**（2026-09-30 二轮 0.15 → 0.02）：
+                              0.15 等于把太阳抹掉 85%，天上根本没有太阳，"没有阳光"。
+       · satMul 1.06 / expMul 1.02 —— "草和树绿得发亮"：饱和与曝光都抬一点，
                               配合 wetness 的反光 = 洗过的绿。
        · shadowK 1.00      —— 有太阳就有影子（阴霾/雾是 0；这里必须 1，
                               否则"太阳出来了"在画面上读不出来）。
        · windMul 0.75      —— 雨后风小（暴雨 4.00）；只留一点微风让叶还在动。
-       · rainbow:1.0       —— 本预设独有：七色彩虹（见 skyMesh 着色器）。
+       · rainbow:1.0       —— 本预设独有：七色彩虹（见 skyMesh 着色器与 applyEnv）。
      ⚠️ 预设必须写全所有键：mixInto 在 undefined 上做算术，缺键会算出 NaN
         （见本表上方的说明）。 */
   afterrain: { weatherLabel:'雨后初晴', blizzard:0, rainbow:1.0,
-    sunMul:0.78, ambMul:1.06, hemiMul:1.10, fogMul:1.35, satMul:1.08, expMul:1.06, shadowK:1.00,
-    cloudAmount:0.42, skyGray:0.10, fogGray:0.10, diskFade:0.15,
+    sunMul:0.95, ambMul:1.00, hemiMul:1.04, fogMul:1.08, satMul:1.06, expMul:1.02, shadowK:1.00,
+    cloudAmount:0.42, skyGray:0.06, fogGray:0.05, diskFade:0.02,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.85,
     windMul:0.75, gustMul:0.55, moonVis:0.00, snowTint:0xF2F6FA },
   /* 2026-09-28 老黄："阴霾暗沉和薄雾烟霭感官上太一致，保留薄雾" —— 从菜单/键盘/
@@ -1123,11 +1127,30 @@ export function applyEnv(p){
   su.uDiskFade.value = p.diskFade !== undefined ? p.diskFade : 0;
   // 星空也要被云遮掉：云量越大，星越少
   su.uStarAmount.value = p.starAmount * Math.max(0, 1 - (p.cloudAmount || 0) * 0.85);
-  /* 七色彩虹（2026-09-30 雨后初晴）：虹心在**太阳的反方向**（-uSunDir）——
-     真实成因如此 ⇒ 任何机位、任何时辰都物理正确，不用为某个机位去"摆"方向。
-     夜里没有太阳也就没有虹：按 uStarAmount（同一条"是否夜里"的信号）门控一次。 */
-  su.uRainbowDir.value.copy(su.uSunDir.value).multiplyScalar(-1);
-  su.uRainbow.value = (p.rainbow || 0) * (1 - Math.min(1, su.uStarAmount.value / 0.35));
+  /* 七色彩虹（2026-09-30 雨后初晴 · 二轮）：虹心方向。
+     ⚠️ **方位严格取太阳的反方向**（真实成因：背对太阳才看得到彩虹），但**仰角被抬起**
+        到虹弧能落在天上 —— 因为物理上：正午（太阳仰角约 48°）反日点在地平线下同样角度，
+        虹弧整体落到地平线以下 ⇒ **看不到**；而面板默认时段正是正午 ⇒ 用户一选这个场景
+        永远看不到彩虹（实测反日点仰角恒为 −24°）。这是**明确的艺术性让步**：
+        保方位（背对太阳）、抬仰角（保证可看）。targetElev = 0.62 − 太阳仰角×0.55
+        （钳在 −0.25~0.45 rad ≈ −14°~26°），虹弧（42° 半径）便落在天上 20~60°。
+     ⚠️ 太阳没升起来就没有虹（夜里/日出前）；夜里另按 uStarAmount 门控。
+     ⚠️ **虹轴仰角定在 −8°~−12°**（2026-09-30 三轮实测）：这是"弧顶落在 28~32°"的位置 ——
+        用户站着平视时（视线仰角约 0~10°、竖直视场约 ±27°）正好能把整条弧收进画面上半部。
+        第一版按物理取 target=0.62−太阳仰角×0.55，正午算出 9° ⇒ 弧顶 49° ⇒ **整条弧在
+        画面外**（像素实测只有左上角露出一小段，11.99% 但位置极偏）。 */
+  {
+    const sd = su.uSunDir.value;
+    const sunElev = Math.asin(Math.max(-1, Math.min(1, sd.y)));
+    let ax = sd.x, az2 = sd.z;
+    const hl = Math.hypot(ax, az2);
+    if (hl < 1e-5){ ax = 0; az2 = 1; } else { ax /= hl; az2 /= hl; }
+    const target = Math.max(-0.30, Math.min(0.10, -0.12 - sunElev * 0.10));
+    const ce = Math.cos(target), se = Math.sin(target);
+    su.uRainbowDir.value.set(-ax * ce, se, -az2 * ce);
+    const dayK = Math.max(0, Math.min(1, (sunElev - 0.02) / 0.12));
+    su.uRainbow.value = (p.rainbow || 0) * dayK * (1 - Math.min(1, su.uStarAmount.value / 0.35));
+  }
 
   renderer.toneMappingExposure = p.exposure;
   bloom.strength = p.bloomStrength;
