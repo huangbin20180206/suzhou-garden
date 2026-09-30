@@ -10,7 +10,7 @@ import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
    本模块两处用途：假山埋脚"75% 补石"（条件里还会抽 rr ⇒ 直接改全局流消费次数）与
    两位点景人物的呼吸相位 —— 都是**建场**性质，必须与加载时序无关。 */
 const jr = mulberry32(20260924);
-import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makeBigLotusPatch } from './06-vegetation.js';
+import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makePondPads } from './06-vegetation.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater } from './05-water.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
@@ -811,28 +811,24 @@ for (let i = 0; i < 12; i++){
     ry: lrr(0, TAU),
   });
 }
-/* 2026-09-30 换掉 GLB 荷花（老黄近看三连：花瓣尖锐几何 / 杆花歪斜拼接 / 暴雨里杆旋转变粗）：
-   LotusPlant.glb 是 AI 生成的**单网格 + 单贴图**（实测 1600 tri、native 高 1.918m），
-   花与叶全烘进几何、放大到 2.0 后近看必穿帮；补的花梗又是按"实测花位"硬插进花簇的，
-   对不齐就显歪。改用程序化大荷花（06 的 makeBigLotusPatch）：曲面花瓣、花萼盖住交接、
-   花心/花萼与杆顶**同源定位**（topYs 从下面的杆循环里现取）；材质 MAT.lotus/MAT.lily
-   ⇒ 季节显隐与风摆自动继承。
-   ⚠️ 删除 placeAssets('assets/LotusPlant.glb') 后，预载清单（13-preload）与 SW 的
-      GLBS 同步移除了这一项（省 267KB），并按 sw.js 头部规矩 bump 缓存版本。 */
-/* 杆高系数独立成常量：杆在 mergeStatics 里被合并后**名字就丢了**，
-   wind-audit.mjs 无法再从场景反查杆的顶点高度 —— 只能断言这个设计常量。 */
-export const GLB_LOTUS_STEM_H = 1.78;
-const lotusTopYs = [];
-lotusSpots.forEach(s=>{
-  const stemH = GLB_LOTUS_STEM_H * s.s * rr(0.98, 1.03);
-  /* 6 → 12 棱（2026-09-30）：低棱柱被风摆时棱面轮流朝前，近看像"杆在旋转、忽粗忽细"
-     （老黄暴雨近看反馈）；12 棱剪影平滑，风摆的 5cm 位移上限不变。 */
-  const stem = mesh(new THREE.CylinderGeometry(0.018, 0.034, stemH, 12), MAT.lily, { name:'glbLotusStem' });
-  stem.position.set(s.x, stemH / 2, s.z);
-  world.add(stem);
-  lotusTopYs.push(stemH);
-});
-world.add(makeBigLotusPatch(lotusSpots, lotusTopYs));
+/* ── 池边荷花的三轮沿革（谁再看这段代码先读这里）──
+   ① 最初：AI 生成的 LotusPlant.glb ×12 株 —— 老黄近看三连："花瓣尖锐几何 /
+      杆花歪斜拼接 / 暴雨里杆旋转变粗"。根因：GLB 是单网格+单贴图（1600 tri、
+      native 高 1.918m、放大 2.0），花与叶全烘进几何，近看必穿帮。
+   ② 2026-09-30 一轮：换成程序化大荷花（花瓣/花萼/杆）—— 老黄实测更糟四连：
+      "荷花完全不像荷花""各种悬空、不认识的植物结构""睡莲又到草皮上"
+      "居然没有荷叶了"（红框取证 + 隐藏实验定案，详见 06 的 makePondPads 注释）。
+   ③ 2026-09-30 二轮（现行）：花/杆/萼**整体撤下**，只留叶盘并夹回池内。
+   ⚠️ LotusPlant.glb 已从预载清单（13-preload）与 SW 的 GLBS 移除（省 267KB）；
+      想再上"池边大荷花"，别再走程序化拼瓣 —— 用 AI 生成管线出整株模型
+      （项目记忆：复杂精细外观优先 AI 生成，脚本拼积木做不出真形）。 */
+/* 2026-09-30 二轮：池边"大荷花"整体撤下（花/杆/萼），只留叶盘（06 的 makePondPads，
+   已夹回池内）。两轮（GLB → 程序化）都没做到不穿帮，不再修补 —— 撤的完整理由与
+   取证见 06 的 makePondPads 长注释（尖刺低模花 + "悬空绿锥" + 5 片叶盘在岸上）。
+   ⚠️ 随机流守恒（铁律 1）：原"杆高"每株烧一次 rr(0.98,1.03)，撤杆**不撤燃烧** ——
+      12 次原顺序原参数消耗后弃用，全局流的位置一位不动（layout-fingerprint 不漂）。 */
+lotusSpots.forEach(s=>{ void rr(0.98, 1.03); });   // 等量燃烧（原"杆高"表达式里的那次抽数）
+world.add(makePondPads(lotusSpots));
 
 // 芭蕉（台基两侧，成丛）—— 高假茎 + 顶部叶片
 [

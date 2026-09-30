@@ -56,13 +56,14 @@ const check = (name, ok, detail = '') => {
      上一版固定等 8 秒正好卡在临界点上，同一份代码两次跑一次看得到一次看不到，
      误报"GLB 资产没进风场"。改为轮询到齐。 */
   const ready = await page.waitForFunction(() => {
-    let lotus = 0, banana = 0;
+    let banana = 0;
     window.__garden.scene.traverse(o => {
       if (!o.isMesh) return;
-      if (o.name === 'LotusPlant') lotus++;
-      else if (o.name === 'BananaPlant') banana++;
+      if (o.name === 'BananaPlant') banana++;
     });
-    return lotus >= 12 && banana >= 8 ? { lotus, banana } : false;
+    /* 2026-09-30：LotusPlant.glb 已删（a08bde0）、池边大荷花整体撤下 ——
+       这里只剩芭蕉要等；原来"lotus >= 12"的条件会永远超时白等 120 秒。 */
+    return banana >= 8 ? { banana } : false;
   }, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   console.log(`\n[wind-audit] GLB 到齐：${ready ? JSON.stringify(ready) : '超时未齐（下面结果可能不完整）'}`);
 
@@ -120,8 +121,10 @@ const check = (name, ok, detail = '') => {
   /* GLB 荷花丛与芭蕉叶都是**带贴图**的材质（GLB 自带 map），程序化植被一律无贴图 ——
      所以"有 map + tip"就是这两类资产的指纹。 */
   const tipMapped = mats.filter(m => m.hasMap && m.mode === 'tip');
-  check('风场：GLB 资产（荷花丛/芭蕉叶，带贴图）已注入且走 tip 模式',
-        tipMapped.length >= 2, tipMapped.map(m => `amp=${m.amp}`).join(' ') || '无');
+  /* 2026-09-30：LotusPlant.glb 已删（a08bde0）——带贴图的 tip 材质只剩芭蕉叶一种，
+     旧判据"≥2"自那笔提交起就是必然红。 */
+  check('风场：GLB 资产（芭蕉叶，带贴图）已注入且走 tip 模式',
+        tipMapped.length >= 1, tipMapped.map(m => `amp=${m.amp}`).join(' ') || '无');
   /* 芭蕉叶幅度二轮定标（2026-09-17 用户："夸张到极致了"）：0.13→0.05。
      amp 0.13 时叶尖 ampEff ≈ 0.45m（12% 株高）= 抽搐；0.05 → ≈0.17m（4.5% 株高）。 */
   check('风场：芭蕉叶幅度 0.04~0.08（叶尖被风掀起量级，非抽搐）',
@@ -140,8 +143,11 @@ const check = (name, ok, detail = '') => {
   const capped  = mats.filter(m => m.inj && m.mode === 'tip' && m.maxDisp > 0);
   const aquatic = capped.filter(m => m.maxDisp <= 0.06);
   const bigLeaf = capped.filter(m => m.maxDisp > 0.06);
+  /* 2026-09-30：≥3 → ≥2 —— 第三个是 LotusPlant.glb 自带材质，a08bde0 删 GLB 时就没了
+     （那笔提交没跑本门，红潜伏到今天才被跑出来）。现行合法的两个：
+     #f2c7d4 荷花瓣（MAT.lotus）+ #3e7a34 睡莲叶/杆（MAT.lily）。 */
   check('风场：水生植物（tip 模式）位移有硬上限且 ≤6cm',
-        aquatic.length >= 3 && aquatic.every(m => m.maxDisp <= 0.06),
+        aquatic.length >= 2 && aquatic.every(m => m.maxDisp <= 0.06),
         aquatic.map(m => `${m.amp}/上限${m.maxDisp}`).join(' '));
   check('风场：芭蕉大叶位移硬上限 ≤22cm',
         bigLeaf.length >= 1 && bigLeaf.every(m => m.maxDisp <= 0.22),
@@ -227,38 +233,29 @@ const check = (name, ok, detail = '') => {
         swung.every(s => s.botShift > 0.01 && s.lampShift > s.botShift),
         swung.map(s => `${s.topShift}<${s.botShift}<${s.lampShift}`).join(' '));
 
-  /* ── 4 · 荷花杆高与 GLB 花位是否对上 ──
-     杆在 mergeStatics 里被合并、名字丢失，无法从场景反查几何高度；
-     这里断言的是**设计常量**（GLB_LOTUS_STEM_H）与探针实测到的 GLB 花位下限的关系，
-     另外把 GLB 丛的实际包围盒一并记下来供人对照（花位 = 丛顶 × 0.874，见 glb-profile）。 */
-  /* ⚠️ 不能用"traverse 抓到的第一株 LotusPlant"：12 株是**异步挂载**的，
-     装载回调的先后每跑一次都可能不同，抓到的那株缩放 s.s ∈ [0.84, 1.03] 也不一样
-     —— 实测同一份代码一次 2.024m、一次 1.86m（1.86 就是某株 s.s=0.919），
-     读起来像"丛顶变矮了"，其实是换了株。取**最高株**才是不变量。 */
-  const lotus = await page.evaluate(() => {
+  /* ── 4 · 池面叶盘（2026-09-30 重写）──
+     原本这两条断言的是"程序化杆高常量 vs GLB 花位下限""GLB 丛顶 ≈2.0m" ——
+     GLB 在 a08bde0 已删、池边大荷花在 2026-09-30 二轮整体撤下（只剩叶盘），
+     两条都成了必然红的死判据。换成守**现行不变量**：池面叶盘全部落在池内
+     （旧版大荷花叶盘没走夹回，实测 5 片在岸上 —— 老黄："睡莲又到草皮上了"）。 */
+  const padsInPond = await page.evaluate(() => {
     const g = window.__garden, THREE = g.THREE;
-    const tops = [];
+    const pads = [];
     g.scene.traverse(o => {
-      if (o.isMesh && o.name === 'LotusPlant') tops.push(+new THREE.Box3().setFromObject(o).max.y.toFixed(3));
+      if (!o.isInstancedMesh || !o.geometry || o.geometry.type !== 'ShapeGeometry') return;
+      const m = new THREE.Matrix4(), v = new THREE.Vector3();
+      for (let i = 0; i < o.count; i++){
+        o.getMatrixAt(i, m); v.setFromMatrixPosition(m).applyMatrix4(o.matrixWorld);
+        pads.push([+v.x.toFixed(2), +v.z.toFixed(2)]);
+      }
     });
-    return {
-      stemHConst: g.GLB_LOTUS_STEM_H,
-      n: tops.length,
-      glbTop: tops.length ? Math.max.apply(null, tops) : null,
-      glbTopMin: tops.length ? Math.min.apply(null, tops) : null,
-    };
+    const inPond = pads.filter(p => g.insidePond(p[0], p[1] - 3.0));   // insidePond 吃池局部坐标（池心世界 z=+3）
+    return { n: pads.length, inPond: inPond.length, onLand: pads.length - inPond.length,
+             ex: pads.filter(p => !g.insidePond(p[0], p[1])).slice(0, 3) };
   });
-  /* glb-profile 实测：native 花底 0.70 / 总高 1.918 = 0.365 归一化基准；
-     GLB 归一化到 2.0m 并乘实例缩放后，花底 ≈ 1.748 × s.s（s.s 最小 0.84 → 1.47m） */
-  const flowerBottomMin = 1.748 * 0.84;
-  console.log('\n[荷花杆] ' + JSON.stringify(lotus) +
-              `  花位下限(实测推算)=${flowerBottomMin.toFixed(3)}m`);
-  check('荷花：杆高常量已覆盖 GLB 花位下限（1.78×0.84 ≈ 1.50m ≥ 1.47m）',
-        lotus.stemHConst * 0.84 >= flowerBottomMin - 0.02,
-        `常量 ${lotus.stemHConst} → 最低株杆顶 ${(lotus.stemHConst * 0.84).toFixed(3)}m，花底 ${flowerBottomMin.toFixed(3)}m`);
-  check('荷花：GLB 丛顶高度与剖面一致（≈2.0m×缩放，最高株应 ≥1.9m）',
-        lotus.glbTop !== null && lotus.glbTop > 1.9,
-        `${lotus.n} 株：最高 ${lotus.glbTop}m / 最矮 ${lotus.glbTopMin}m`);
+  check('池面叶盘：全部落在池内（睡莲不上岸）', padsInPond.onLand === 0,
+        `叶盘 ${padsInPond.n} 片：池内 ${padsInPond.inPond} / 岸上 ${padsInPond.onLand}` +
+        (padsInPond.ex.length ? `，例 ${JSON.stringify(padsInPond.ex)}` : ''));
 
   /* ── 5 · 风的三层调度：L1 风向 16 档 / L2 风力四档 ──
      ⚠️ 必须**手动步进**状态机，不能靠墙钟等：软渲染下一帧 8.4 秒、模拟时间只走真实 1/20，

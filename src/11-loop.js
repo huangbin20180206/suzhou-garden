@@ -8,7 +8,7 @@ import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, FOG_BANKS, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
 import { tickLightning, LIGHTNING, lightningStrikeNow } from './12-env.js';
@@ -1620,7 +1620,6 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 人物（2026-09-18）：门禁要读各角色服色与步态。**必须显式暴露**——
                      靠 traverse 猜对象会漏（灯笼那次就踩过"引用没暴露 → found:false"）。 */
                   figures, FIG_PALETTE, FIG_HAIR,
-                  GLB_LOTUS_STEM_H,
                   koiGroup, swimTurtles, KOI_ORBITS, insidePond, POND_RADII, POND_PTS,
                   /* 电闪雷鸣（2026-09-30）：门禁要断言"闪电网格先出现、照亮随之"的时序、
                      flash 归零、非 thunder 天气零触发 —— 显式暴露（本项目范式：不靠 traverse 猜）。

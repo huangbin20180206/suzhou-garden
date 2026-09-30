@@ -158,77 +158,47 @@ function makeLilyPadGeo(){
   return g;
 }
 
-/* ══ 池边大荷花（2026-09-30 · 替换 GLB LotusPlant）═════════════════════════
-   老黄近看反馈三连："花瓣全是尖锐几何图形""杆花歪斜像劣质拼接""暴雨里杆旋转
-   变粗不规则"。查下来那个 GLB 是 AI 生成的**单网格 + 单贴图**（实测 1600 tri、
-   native 高 1.918m、放大 2.0），花与叶全烘进几何，近看必穿帮；补的花梗又是按
-   "实测花位"硬插进花簇的，对不齐就显歪。改用程序化大荷花：曲面花瓣（与池心
-   小荷花同一套 makeLotusPetalGeo，按尺度放大到花径 ~0.4m）、花萼盖住杆顶交接、
-   花心/花萼与杆顶**同源定位**（topYs 由调用方在杆循环里给出，不再各算各的）。
-   材质走 MAT.lotus / MAT.lily ⇒ 季节显隐（lotusShow/lilyShow）与风摆自动继承。
-   spots: [{x, z, s, ry}]（沿用 GLB 荷花原落点/尺度）；topYs: 各株杆顶世界高度。 */
-export function makeBigLotusPatch(spots, topYs){
+/* ══ 池面补叶（2026-09-30 二轮：池边"大荷花"整体撤下，只保留它的叶盘）═════════
+   老黄实测反馈四连（截图 + 红框逐格放大判读）："荷花完全不像荷花""各种悬空、
+   不认识的植物结构""睡莲又到草皮上""居然没有荷叶了"。两轮（GLB → 程序化）
+   都没能把"池边大荷花"做到不穿帮，这轮**不再修补，撤**：
+     · 花：24 片长窄尖瓣三圈拼出来，近看是"炸开的尖刺"（红框 1/2 判读原话），
+       远看读不出层次 ⇒ 撤；
+     · 杆+萼：1.5~1.9m 的细杆顶一个 0.24m 高的绿萼 —— 20m 外细杆不可见、花太小
+       读不出，只剩一个**绿色萼锥剪影浮在半空**，背景恰好是正堂的白台基 ⇒
+       用户看到"插在台阶/铺地上的光秃绿锥"（隐藏实验：藏该合并件 ROI 亮度 +80；
+       射线+顶点簇：命中点其实都在池里，是屏幕投影叠到了台基上）⇒ 撤；
+     · 叶盘：留下（36 片是"没有荷叶"那条的唯一补偿），但**必须夹回池内** ——
+       旧版没走 clampAquaticToPond，实测 5 片落在岸上（老黄："睡莲又到草皮上了"）。
+   ⚠️ 叶盘落点用独立 jr 流，不吃全局 rnd —— 撤花撤杆不影响全局随机流的位置
+      （08 那边对 rr 的等量燃烧另有注释）。材质 MAT.lily ⇒ 季节显隐与风摆自动继承。 */
+export function makePondPads(spots){
   const g = new THREE.Group();
-  const petalGeo = makeLotusPetalGeo();
-  const padGeo   = makeLilyPadGeo();
-  const coreGeo  = new THREE.CylinderGeometry(0.052, 0.062, 0.10, 10);
-  const calyxGeo = new THREE.CylinderGeometry(0.030, 0.088, 0.24, 12);   // 花萼：要能从侧下方"看见"
-                                                                          // （0.062/0.15 被瓣丛吃掉，近看像没萼）
-  const n = spots.length, OUT = 10, MID = 8, IN = 6, PER = OUT + MID + IN, padsPer = 3;
-  const petals  = new THREE.InstancedMesh(petalGeo, MAT.lotus, n * PER);
-  const cores   = new THREE.InstancedMesh(coreGeo,  MAT.lily,  n);
-  const calyxes = new THREE.InstancedMesh(calyxGeo, MAT.lily,  n);
-  const pads    = new THREE.InstancedMesh(padGeo,   MAT.lily,  n * padsPer);
-  petals.castShadow = cores.castShadow = calyxes.castShadow = false;
+  const padGeo = makeLilyPadGeo();
+  const padsPer = 3;
+  const pads = new THREE.InstancedMesh(padGeo, MAT.lily, spots.length * padsPer);
   pads.castShadow = false; pads.receiveShadow = true;
-  const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(),
-        s = new THREE.Vector3(), off = new THREE.Vector3();
-  const qF = new THREE.Quaternion(), qT = new THREE.Quaternion(), qS = new THREE.Quaternion();
-  const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
-  const jr = mulberry32(20260930);              // 独立流（铁律 1：不吃全局 rnd）
-  let padSlot = 0;
-  for (let i = 0; i < n; i++){
-    const sp = spots[i];
-    const sc = 0.20 * sp.s;                     // 花径 ≈ 0.40m × 尺度（与 GLB 荷花同量级）
-    const fy = topYs[i] + 0.075;                // 花心在杆顶之上一点（花萼盖住交接）
-    qF.setFromAxisAngle(AY, sp.ry + jr() * 0.5);
-    qF.multiply(qT.setFromAxisAngle(AX, (jr() - 0.5) * 0.20));   // 花头微倾（真荷花不铅垂）
-    let slot = i * PER;
-    const ring = (cnt, tilt, radiusOut, phase)=>{
-      for (let k = 0; k < cnt; k++){
-        const pa = (k / cnt) * TAU + phase;
-        qS.setFromAxisAngle(AY, pa);
-        qT.setFromAxisAngle(AX, -tilt);
-        q.copy(qF).multiply(qS).multiply(qT);
-        off.set(Math.cos(pa) * radiusOut * sc, 0, Math.sin(pa) * radiusOut * sc).applyQuaternion(qF);
-        p.set(sp.x + off.x, fy + off.y, sp.z + off.z);
-        s.setScalar(sc * (0.92 + jr() * 0.16));  // 瓣长微差，避免一刀切
-        m.compose(p, q, s);
-        petals.setMatrixAt(slot++, m);
-      }
-    };
-    ring(OUT, 1.05, 0.52, 0);                    // 外圈：外翻
-    ring(MID, 0.72, 0.40, 0.16);                 // 中圈
-    ring(IN,  0.34, 0.28, 0.34);                 // 内圈：收拢成杯
-    p.set(sp.x, fy + 0.06, sp.z); q.identity(); s.setScalar(sc * 1.2);
-    m.compose(p, q, s); cores.setMatrixAt(i, m);
-    p.set(sp.x, topYs[i] - 0.02, sp.z); q.identity(); s.setScalar(1);
-    m.compose(p, q, s); calyxes.setMatrixAt(i, m);
-    /* 叶盘：每株 3 片（补回 GLB 荷花自带的岸线大叶） */
+  const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), s = new THREE.Vector3();
+  const AY = new THREE.Vector3(0, 1, 0);
+  const jr = mulberry32(20260931);              // 独立流（铁律 1：不吃全局 rnd）
+  let slot = 0;
+  for (const sp of spots){
     for (let k = 0; k < padsPer; k++){
       const a = jr() * TAU, rad = 0.45 + jr() * 1.15;
-      p.set(sp.x + Math.cos(a) * rad, CFG.water + 0.075 + jr() * 0.02, sp.z + Math.sin(a) * rad * 0.85);
+      let wx = sp.x + Math.cos(a) * rad, wz = sp.z + Math.sin(a) * rad * 0.85;
+      /* 落点抽完再夹回 0.85×岸线内（不重抽 —— 同 makeAquatic 的做法与理由） */
+      const cl = clampAquaticToPond(0, 0, wx, wz);
+      wx = cl.x; wz = cl.z;
+      p.set(wx, CFG.water + 0.075 + jr() * 0.02, wz);
       q.setFromAxisAngle(AY, jr() * TAU);
       s.setScalar((0.9 + jr() * 0.7) * sp.s);
       m.compose(p, q, s);
-      pads.setMatrixAt(padSlot++, m);
+      pads.setMatrixAt(slot++, m);
     }
   }
-  for (const im of [petals, cores, calyxes, pads]){
-    im.instanceMatrix.needsUpdate = true;
-    im.frustumCulled = false;                    // 实例位置由矩阵给出、由 shader 风摆，CPU 包围球不可靠
-  }
-  g.add(petals, cores, calyxes, pads);
+  pads.instanceMatrix.needsUpdate = true;
+  pads.frustumCulled = false;                    // 实例位置由矩阵给出、由 shader 风摆，CPU 包围球不可靠
+  g.add(pads);
   return g;
 }
 
@@ -830,7 +800,10 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
     q.setFromEuler(new THREE.Euler(0, rr(0, TAU), 0));
     s.setScalar(rr(0.62, 1.25));
     m.compose(p, q, s); pads.setMatrixAt(placed, m);
-    pads.setColorAt(placed, new THREE.Color().setHSL(0.27, rr(0.28, 0.5), rr(0.26, 0.42)));
+    /* 2026-09-30 提亮一档（老黄："正常荷花池该有的鲜绿大圆盘"，旧版读作"灰绿破盘子"）：
+       亮度 0.26~0.42 → 0.40~0.60、饱和 0.28~0.5 → 0.34~0.54。
+       ⚠️ 只改区间、rr() 次数与顺序一个不动 —— 全局随机流不漂（铁律 1）。 */
+    pads.setColorAt(placed, new THREE.Color().setHSL(0.27, rr(0.34, 0.54), rr(0.40, 0.60)));
     addPerchingAnchor('leaf', pads, placed);
     placed++;
   }

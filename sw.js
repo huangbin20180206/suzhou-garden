@@ -17,7 +17,10 @@
 /* 2026-09-29 合并时段条批次 bump v5→v6：又改了 SHELL 成员 index.html（时段/时辰合并）。 */
 /* 2026-09-30 bump v6→v7：GLBS 预缓存清单移除 LotusPlant.glb（池边荷花改程序化）。 */
 /* 2026-09-30 电闪雷鸣批次 bump v7→v8：又改了 SHELL 成员 index.html（新增"电闪雷鸣"天气按钮）。 */
-const CACHE = 'suzhou-garden-v8';
+/* 2026-09-30 撤池边大荷花批次 bump v8→v9：改了 SHELL 成员 index.html —— 内联主模块的
+   import 清单里删掉已不存在的 GLB_LOTUS_STEM_H（漏改会 ESM 链接报错、页面停在加载页，
+   实测正是这么炸的：check 只查语法、不查模块链接）。 */
+const CACHE = 'suzhou-garden-v9';
 const SHELL = [
   './',
   './index.html',
