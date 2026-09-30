@@ -319,4 +319,110 @@ export function makeDragonfly(){
   return g;
 }
 
+/* ══ 大雁（2026-09-30 · 老黄："春天和秋天增加大雁迁徙的场景"）══════════════════
+   远景空中的小型涉禽：**低模**（体+颈+头+喙合成 1 个网格，两翅各留一个 pivot），
+   与蜻蜓同一套"会动的东西"的做法（合并刚性体 / 翅膀留 pivot / noMerge）。
+   ⚠️ 尺寸刻意小（体长约 0.30m、翅展 0.62m）：真实雁群在高空远观就是这个量级，
+      放大了会变成"低空扑腾的大鸟"抢主体。
+   ⚠️ 体/颈/头/喙**刚性同体**，只在 g 局部空间静止，靠 d.position/d.rotation 整体搬运
+      ⇒ 烘成一个网格（与 makeDragonfly 同理：13 只 × 5 件 = 65 个网格会白烧 draw call）。 */
+function makeGooseBodyGeo(){
+  const L = 0.155, W = 0.062, H = 0.058;          // 体：长 / 半宽 / 半高
+  const parts = [];
+  const body = new THREE.SphereGeometry(1, 10, 7);
+  body.scale(W * 1.55, H, L);
+  parts.push(body);
+  /* 尾：收成短楔（远看就是个尖） */
+  const tail = new THREE.ConeGeometry(W * 0.72, L * 0.62, 6);
+  tail.rotateX(Math.PI / 2);
+  tail.translate(0, H * 0.18, -L * 1.62);
+  parts.push(tail);
+  /* 颈：前伸上翘一小段（雁颈是识别特征，不能省） */
+  const neck = new THREE.CylinderGeometry(W * 0.30, W * 0.40, L * 0.62, 6);
+  neck.rotateX(-0.85);
+  neck.translate(0, H * 0.72, L * 0.86);
+  parts.push(neck);
+  const head = new THREE.SphereGeometry(W * 0.34, 8, 6);
+  head.scale(0.9, 0.9, 1.25);
+  head.translate(0, H * 1.16, L * 1.18);
+  parts.push(head);
+  const beak = new THREE.ConeGeometry(W * 0.17, L * 0.30, 5);
+  beak.rotateX(Math.PI / 2);
+  beak.translate(0, H * 1.10, L * 1.46);
+  parts.push(beak);
+  const g = mergeGeometries(parts.map(p => p.toNonIndexed()), false);
+  parts.forEach(p => p.dispose());
+  return g;
+}
+/* 单翅：以肩为原点、沿 +x 展开的薄三角面（远景只需要"翼面"这个剪影） */
+function makeGooseWingGeo(){
+  const s = new THREE.Shape();
+  s.moveTo(0, 0);
+  s.quadraticCurveTo(0.16, 0.10, 0.31, 0.015);
+  s.quadraticCurveTo(0.20, -0.055, 0, -0.028);
+  const g = new THREE.ShapeGeometry(s, 8);
+  g.rotateX(-Math.PI / 2);                 // 躺平，成水平翼面
+  return g;
+}
+export function makeGoose(){
+  const g = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color:0x6E6A62, roughness:0.86, metalness:0.0, envMapIntensity:0.7, flatShading:true });
+  const tipMat  = new THREE.MeshStandardMaterial({ color:0x3A342E, roughness:0.9,  metalness:0.0, envMapIntensity:0.6 });  // 翼尖/尾羽偏深
+  const wingMat = new THREE.MeshStandardMaterial({ color:0xB8B2A6, roughness:0.88, metalness:0.0, envMapIntensity:0.7, side:THREE.DoubleSide });
+  const body = new THREE.Mesh(makeGooseBodyGeo(), bodyMat);
+  g.add(body);
+  /* 两翅：各挂一个 pivot，updateGooseFlock 每帧写 pivot.rotation.z（正反相扇动） */
+  const wGeo = makeGooseWingGeo();
+  const wings = [];
+  for (const sx of [-1, 1]){
+    const pivot = new THREE.Group();
+    pivot.position.set(sx * 0.045, 0.012, -0.01);
+    const w = new THREE.Mesh(wGeo, wingMat);
+    w.scale.x = sx;                          // 镜像
+    pivot.add(w);
+    pivot.userData = { sx };
+    g.add(pivot); wings.push(pivot);
+  }
+  g.userData.wings = wings;
+  g.userData.mats = { body: bodyMat, tip: tipMat, wing: wingMat };
+  g.traverse(o=>{ if (o.isMesh) o.userData.noMerge = true; });
+  return g;
+}
+
+/* ══ 鲜艳小鸟（2026-09-30 · "假山石和草皮中随机增加颜色鲜艳的小鸟"）══════════
+   两种行为共用一套几何：**体+头+喙+尾+翅**合成 1 个网格（不做单件动画 ⇒ 可以整体合并），
+   颜色用 instanceColor 逐只不同（绣眼的黄绿 / 黄鹂的亮黄 / 朱雀的朱红 / 蓝鹊的青蓝）。
+   ⚠️ 尺寸：体长约 0.115m —— 真实小鸟就这个量级；园子里"点景人物"是 1.6m 的剪影，
+      小鸟要比它小一个数量级才对得起尺度。 */
+export function makeSmallBirdGeo(){
+  const L = 0.062, R = 0.030;
+  const parts = [];
+  const body = new THREE.SphereGeometry(1, 9, 7);
+  body.scale(R, R * 0.92, L);                 // 胖一点的纺锤（ Sparrow 体型）
+  parts.push(body);
+  const head = new THREE.SphereGeometry(R * 0.74, 8, 6);
+  head.translate(0, R * 0.52, L * 0.78);
+  parts.push(head);
+  const beak = new THREE.ConeGeometry(R * 0.22, L * 0.36, 4);
+  beak.rotateX(Math.PI / 2);
+  beak.translate(0, R * 0.50, L * 1.06);
+  parts.push(beak);
+  const tail = new THREE.ConeGeometry(R * 0.62, L * 0.72, 4);
+  tail.rotateX(-Math.PI / 2);
+  tail.scale(1, 0.34, 1);                    // 压扁成尾羽片
+  tail.translate(0, R * 0.12, -L * 1.05);
+  parts.push(tail);
+  /* 折起的小翅：贴体两侧一片，远看是"身体有厚度"而不是光球 */
+  for (const sx of [-1, 1]){
+    const w = new THREE.SphereGeometry(1, 7, 5);
+    w.scale(R * 0.30, R * 0.62, L * 0.62);
+    w.translate(sx * R * 0.86, R * 0.06, -L * 0.06);
+    parts.push(w);
+  }
+  const g = mergeGeometries(parts.map(p => p.toNonIndexed()), false);
+  parts.forEach(p => p.dispose());
+  return g;
+}
+
+
 bootMark('§7 地面围墙');

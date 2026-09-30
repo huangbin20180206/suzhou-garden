@@ -8,7 +8,7 @@ import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, FOG_BANKS, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, geese, smallBirds, smallBirdMeshRef, GOOSE } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
 import { tickLightning, LIGHTNING, lightningStrikeNow } from './12-env.js';
@@ -1171,6 +1171,11 @@ function animate(){
      ⚠️ 必须在这里调 —— 子代理留下了 updatePerchingDragonflies 却从未调用，
      两只蜻蜓 visible 恒为 false，等于没做。 */
   updatePerchingDragonflies(dt, windClock, perchShowOK);
+  /* 大雁迁徙 + 鲜艳小鸟（2026-09-30）：与蜻蜓同类、同样每帧推进。
+     ⚠️ 大雁的可见性由 12-env 的季节通道（gooseShow）写，这里只管飞行动画；
+        小鸟全季节都在，不需要季节门控。 */
+  updateGooseFlock(dt, t);
+  updateSmallBirds(dt, t);
 
   // 乌龟缓游（同轨道，速度更慢）
   for (const tw of swimTurtles){
@@ -1654,6 +1659,9 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   lightningStrikeNow,
                   thunderState: () => Snd.thunder(),
                   perchingDragonflies, perchingAnchors, updatePerchingDragonflies,
+                  /* 大雁/小鸟（2026-09-30）：门禁要按季节数雁、按行为看小鸟，必须**显式暴露**
+                     —— 靠 traverse 猜不到（体/翅都是无名的 Group）。 */
+                  geese, GOOSE, smallBirds, smallBirdMeshRef,
                   perchShow: () => perchShowOK, PERCH_LIFT,
                   camFly: () => CAM_FLY.on,
                   camFlyState: () => ({ on: CAM_FLY.on, owner: CAM_FLY.owner, t: CAM_FLY.t, dur: CAM_FLY.dur }),

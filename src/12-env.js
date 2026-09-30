@@ -9,7 +9,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT, waterSurface, DISTANT_MATS, SEASON_TINT_REGISTRY, addWind, wetUniform, WET_MATS, SNOW_COVER_MATS, SNOW_HOOK } from './01-materials.js';
 import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart,
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
-         cancelCamFly, CAM_FLY, introActive, introCancel } from './08-assemble.js';
+         cancelCamFly, CAM_FLY, introActive, introCancel, geese } from './08-assemble.js';
 import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
 import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
@@ -766,7 +766,7 @@ export const ENV_SEASON = {
        系数×基数（12~21 片/枝）＝绝对量。夏 1.0 ≈ 4.2 万片（茂密）；
        春 0.28 ≈ 1.2 万片（初春抽竿后刚长叶，绝对量与旧版春一致）；
        秋 0.43 ≈ 1.8 万片（微落）；冬 0.33 ≈ 1.4 万片（常绿稍疏） */
-    bambooLeaf:0.28, koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0,
+    bambooLeaf:0.28, koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 春：大雁北迁过境
     /* 春：先花后叶。花满树、叶始萌（15% 刚抽的嫩芽），落花初落 —— 桃是先花后叶树种 */
     peachShow:0.15, peachBlossomShow:1, peachFruitShow:0, peachPetalShow:0.3 },
   summer: { label:'夏',
@@ -776,7 +776,7 @@ export const ENV_SEASON = {
     tinBanana:0x4F9440, tinTrunk:0x3B2A1E, tintMix:0.0,
     lilyShow:1.0, lotusShow:1.0, wisteriaShow:1.0, bananaShow:1.0, reedShow:1.0, willowLeaf:1.0,
     bambooLeaf:1.0,
-    koiSpeed:1.0, dragonflyShow:1.0, turtleShow:1.0,
+    koiSpeed:1.0, dragonflyShow:1.0, turtleShow:1.0, gooseShow:0.0,   // 夏：无雁（盛夏非迁徙季）
     /* 夏：花落尽、桃结果（叶茂果生，落花也快被扫净只余淡痕） */
     peachShow:1, peachBlossomShow:0, peachFruitShow:1, peachPetalShow:0.45 },  autumn: { label:'秋',
     sunMul:0.97, ambMul:0.95, hemiMul:0.96, fogMul:1.18, satMul:1.06,
@@ -791,7 +791,7 @@ export const ENV_SEASON = {
     tinBanana:0xA89E54, tinTrunk:0x3B2A1E, tintMix:0.76,
     lilyShow:0.55, lotusShow:0.42, wisteriaShow:0.35, bananaShow:0.7, reedShow:1.0, willowLeaf:0.72,
     bambooLeaf:0.43,
-    koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0,
+    koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 秋：大雁南迁过境
     /* 秋：桃叶转黄（tinLeaf）、果渐疏（快被摘/落尽），花/落花早没了 */
     peachShow:1, peachBlossomShow:0, peachFruitShow:0.7, peachPetalShow:0 },
   winter: { label:'冬',
@@ -812,7 +812,7 @@ export const ENV_SEASON = {
        柳叶**掉光**（垂柳是落叶乔木，裸枝过冬——2026-09-19 老黄科学反馈；
        0.02 是旧"变稀"思路残留，164 片残叶肉眼仍读作"挂着"）。 */
     bambooLeaf:0.33,   // 冬：竹常绿但疏（不落叶，只是密度回落）
-    koiSpeed:0.42, dragonflyShow:0.0, turtleShow:0.0,
+    koiSpeed:0.42, dragonflyShow:0.0, turtleShow:0.0, gooseShow:0.0,   // 冬：无雁（越冬地不在此）
     /* 冬：桃树落叶，裸枝过冬（同冬柳）——叶落尽、无花无果无落花 */
     peachShow:0, peachBlossomShow:0, peachFruitShow:0, peachPetalShow:0 },
 };
@@ -1215,6 +1215,10 @@ export function applyEnv(p){
     /* 停栖蜻蜓同口径：冬（dragonflyShow=0）与暴雨/风雪都藏起来。
        这里只写开关，位置在渲染循环里逐帧算（隐藏期间不更新，重现时从停栖态重算）。 */
     setPerchShowOK(!grounded && p.dragonflyShow > 0.03);
+    /* 大雁（2026-09-30）：只跟**季节**（春/秋迁徙），不跟天气 ——
+       雁在雨天照样飞（真雁阵雨天常见）。夏/冬 gooseShow=0 ⇒ 整队隐藏。 */
+    const gooseOn = p.gooseShow > 0.03;
+    for (const g of geese) g.visible = gooseOn;
   }
   for (const tw of swimTurtles) tw.visible = p.turtleShow > 0.03;
 
