@@ -202,9 +202,12 @@ const W = 960, H = 600;
     const wait2 = () => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     const out = {};
     G.setLightningHold(tau); await wait2(); out.peak = shot();
-    G.setLightningHold(5.0); await wait2(); out.base = shot();
+    /* ⚠️ 自检那两帧必须**同一任务内连拍**（中间不 await）：跨了 rAF 就会推进
+       仿真（锦鲤/雨丝/涟漪都在动）⇒ 量到的 4.37 是**场景漂移**不是噪声底。
+       合并暴雨后 thunder 也自己打闪，这一条更要按"同任务"来量（项目老教训）。 */
+    G.setLightningHold(5.0); await wait2();
+    out.base = shot(); out.base2 = shot();
     G.setLightningHold(tau); await wait2(); out.peak2 = shot();
-    G.setLightningHold(5.0); await wait2(); out.base2 = shot();
     /* 左右对照图（无闪 | 闪电峰值）—— 留给人眼验收"照亮整体"，也给多模态做并排判断 */
     const imgs = [out.base, out.peak].map(u => { const i = new Image(); i.src = u; return i; });
     await Promise.all(imgs.map(i => new Promise(r => { i.onload = r; })));
@@ -323,23 +326,38 @@ const W = 960, H = 600;
   const plays2 = await page.evaluate(() => window.__garden.thunderState().plays);
   check('音景开启时：闪电 → 雷鸣播放计数递增', plays2 > plays1, `${plays1} → ${plays2}`);
 
-  /* ══ §6 隔离 ══════════════════════════════════════════════════════════ */
+  /* ══ §6 隔离 ══════════════════════════════════════════════════════════
+     ⚠️ 2026-09-30 合并后改了口径：老黄"狂风暴雨和电闪雷鸣合并，空出一个格子"
+        ⇒ **暴雨自己也会打闪电**（LN_ALLOWED = {storm, thunder}）。
+        所以"零闪电"的天气是晴/雪/雾/雨后初晴，**不再是"除 thunder 以外"**。 */
   const s0 = await page.evaluate(() => window.__garden.lightning().strikes);
   await page.evaluate(() => window.__garden.setEnv('weather', 'clear'));
   await page.waitForTimeout(12000);
   const s1 = await page.evaluate(() => window.__garden.lightning().strikes);
   const l0 = await page.evaluate(() => window.__garden.lightning());
-  check('非 thunder 天气：12 秒零闪电', s1 === s0, `${s0} → ${s1}`);
-  check('离开 thunder 后闪光量归零（无残留提亮）', l0.flash === 0 && l0.skyFlash === 0, `flash=${l0.flash} skyFlash=${l0.skyFlash}`);
-  /* 随机池隔离：thunder.hidden=true ⇒ randomScene 永不抽中（老黄要的是"可选的场景"；
-     随机撞进雷雨时音景多半没开，会变成"闪电没雷声"的半成品） */
+  check('非雷雨天气（晴）：12 秒零闪电', s1 === s0, `${s0} → ${s1}`);
+  check('离开雷雨后闪光量归零（无残留提亮）', l0.flash === 0 && l0.skyFlash === 0, `flash=${l0.flash} skyFlash=${l0.skyFlash}`);
+
+  /* 合并生效的核心判据：暴雨也会自己打闪电（不需切到 thunder） */
+  await page.evaluate(() => window.__garden.setEnv('weather', 'storm'));
+  await page.waitForTimeout(4500);
+  const b0 = await page.evaluate(() => window.__garden.lightning().strikes);
+  await page.evaluate(() => window.__garden.lightningStrikeNow());
+  await page.waitForTimeout(1400);
+  const b1 = await page.evaluate(() => window.__garden.lightning().strikes);
+  check('合并生效：「狂风暴雨」自己会打闪电', b1 > b0, `暴雨下计数 ${b0} → ${b1}`);
+  await page.evaluate(() => window.__garden.setEnv('weather', 'clear'));
+  await page.waitForTimeout(800);
+
+  /* 随机池隔离：thunder.hidden=true ⇒ randomScene 永不抽中（它已并入暴雨） */
   const pool = await page.evaluate(() => {
     const G = window.__garden;
     const got = {};
     for (let i = 0; i < 400; i++) { const r = G.randomScene(); got[r.weather] = (got[r.weather] || 0) + 1; }
     return got;
   });
-  check('随机场景从不抽到 thunder（不在随机池）', !pool.thunder, JSON.stringify(pool));
+  check('随机场景从不抽到 thunder（已并入暴雨，不在随机池）', !pool.thunder, JSON.stringify(pool));
+  check('随机池能抽到新场景「雨后初晴」', !!pool.afterrain, JSON.stringify(pool));
 
   check('全程零 pageerror', pageErrors.length === 0, pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');
 

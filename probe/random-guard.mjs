@@ -37,10 +37,10 @@ const N = 600;                 // 样本量：比例类判据（夜间天气偏�
 const TIMES = ['morning', 'noon', 'dusk', 'night'];
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
 /* 随机池里的合法值清单（与 ENV_WEATHER 里"没有 hidden:true"的键一一对应）：
-   · overcast 2026-09-28 收起（老黄："和薄雾感官太一致"）
-   · thunder  2026-09-30 不进随机池（ENV_WEATHER.thunder.hidden=true）——
-     随机撞进雷雨时音景多半没开（音频要用户手势），会变成"闪电没雷声"的半成品 */
-const WEATHERS = ['clear', 'storm', 'snow', 'mist'];
+   · overcast  2026-09-28 收起（老黄："和薄雾感官太一致"）
+   · thunder   2026-09-30 并入 storm（老黄："这两个场景可以合并，空出一个格子"）
+   · afterrain 2026-09-30 新增（雨后初晴，随机池权重 1.6） */
+const WEATHERS = ['clear', 'storm', 'snow', 'mist', 'afterrain'];
 
 (async () => {
   const port = await listenEphemeral(server);

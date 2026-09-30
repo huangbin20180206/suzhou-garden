@@ -447,6 +447,35 @@ const ENV_WEATHER = {
     cloudAmount:1.00, skyGray:0.55, fogGray:0.30, diskFade:0.85,
     rainAmount:1.0, snowAmount:0.0, snowCover:0.0, wetness:1.0,
     windMul:4.00, gustMul:0.30, moonVis:0.00, snowTint:0xF2F6FA },   // 暴雨/风雪：全天无月
+  /* ══ 雨后初晴（2026-09-30 · 老黄选的第 6 个场景）══════════════════════════
+     "雨刚停，瓦片/石板/树叶还在滴水，太阳出来了；地面和池塘亮得反光，
+      空气里飘着一层薄薄的水汽，草和树绿得发亮" + 加一道七色彩虹。
+     取值逻辑（每一条都对应"雨刚停"的某个可感知的物理事实）：
+       · rainAmount 0     —— 雨已经停了。这是"雨后"与"雨中"的唯一硬区别。
+       · wetness 0.85      —— 地面/瓦/石/叶全是湿的 ⇒ 出现反光，亮得起来。
+                              （这是"亮得反光"的来源，比调曝光物理。）
+       · fogMul 1.35 + fogGray 0.10 —— **薄**水汽：要"薄"不能给高灰度，
+                              高 fogGray 会把画面拉成薄雾那种白茫茫（已实测
+                              过：薄雾 0.26 就已经偏白）。0.10 只把雾**提亮**、
+                              几乎不去色，保留"空气湿"的通透感。
+       · cloudAmount 0.42  —— 雨后的典型天：还有残余的云（彩虹要靠云作背景才读得出来），
+                              但已是碎云，太阳大部分露在外面。
+       · sunMul 0.78       —— 太阳出来了。直射比晴天(1.0)低一档，因为刚下过雨、
+                              地面反光强，直射给满会把湿地曝成一片死白。
+       · diskFade 0.15     —— 日轮清晰可见（薄雾那种 0.70 会把它抹成一团白）。
+       · satMul 1.08 / expMul 1.06 —— "草和树绿得发亮"：饱和与曝光都抬一点，
+                              配合 wetness 的反光 = 洗过的绿。
+       · shadowK 1.00      —— 有太阳就有影子（阴霾/雾是 0；这里必须 1，
+                              否则"太阳出来了"在画面上读不出来）。
+       · windMul 0.75      —— 雨后风小（暴雨 4.00）；只留一点微风让叶还在动。
+       · rainbow:1.0       —— 本预设独有：七色彩虹（见 skyMesh 着色器）。
+     ⚠️ 预设必须写全所有键：mixInto 在 undefined 上做算术，缺键会算出 NaN
+        （见本表上方的说明）。 */
+  afterrain: { weatherLabel:'雨后初晴', blizzard:0, rainbow:1.0,
+    sunMul:0.78, ambMul:1.06, hemiMul:1.10, fogMul:1.35, satMul:1.08, expMul:1.06, shadowK:1.00,
+    cloudAmount:0.42, skyGray:0.10, fogGray:0.10, diskFade:0.15,
+    rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.85,
+    windMul:0.75, gustMul:0.55, moonVis:0.00, snowTint:0xF2F6FA },
   /* 2026-09-28 老黄："阴霾暗沉和薄雾烟霭感官上太一致，保留薄雾" —— 从菜单/键盘/
      随机池收起（hidden）；预设数据保留（mist-guard 仍直调 setEnv 测雾管线），恢复只需去掉 hidden。 */
   overcast: { weatherLabel:'阴霾暗沉', blizzard:0, hidden: true,
@@ -476,7 +505,13 @@ const ENV_WEATHER = {
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.25,
     windMul:1.00, gustMul:0.60, moonVis:0.30, snowTint:0xF2F6FA },   // 薄雾：月色被雾纱吃掉了七成
   /* ══ 电闪雷鸣（2026-09-30 · 老黄需求）════════════════════════════════════
-     "把整个光线全部暗下来，达到或者接近暮色的光影效果" —— 本预设只负责**暗**：
+     ⚠️ 2026-09-30 当晚合并进「狂风暴雨」：老黄"这两个场景可以合并，空出一个格子"。
+        这个预设的观感（压到暮色之下）**原样保留在表里、标 hidden**：菜单/键盘/
+        随机池都不再出现，但直接 setEnv('weather','thunder') 仍可用（thunder-guard
+        门禁就靠这条路径复测闪电机制；LN_ALLOWED 里也还留着 'thunder'）。
+        暴雨自己也会打闪电 ⇒ 机制两条路径都能验。
+     下面这段注释描述的是它当初的取���逻辑（改暴雨时一并参考）：
+     "把整个光线全部暗下来，达到或者接近暮色的光影效果" —— 只负责**暗**：
      直射几乎全关（sunMul 0.05）、环境/天光压到一半（0.47/0.50）、曝光压到 0.68、
      天空往深灰拉（skyGray 0.86 ⇒ 乌云压顶）、雨量满、地面全湿、风大。
      闪电（分叉雷电 + 亮痕 + 全场照亮 + 天幕泛白）与雷鸣由 tickLightning 叠加，
@@ -564,6 +599,10 @@ function applyWeatherTo(p, eff){
   /* 影子强度随天气（2026-09-28 用户："阴霾和薄雾不该有影子"，见表头 shadowK 注释）：
      直取天气预设值、缺键兜底 1。进了参数集 ⇒ mixInto 随天气切换逐帧缓动。 */
   p.shadowK = (w.shadowK === undefined ? 1 : w.shadowK);
+  /* 七色彩虹（2026-09-30 雨后初晴）：只有该预设给 1，其余全部 0（缺键兜底 0，
+     不能兜底成 1 —— 否则每个天气都会挂一道虹）。同样进参数集 ⇒ 切天气时
+     随 mixInto 淡入淡出，不"啪"一下出现。 */
+  p.rainbow = (w.rainbow === undefined ? 0 : w.rainbow);
   /* ── 活雾（2026-09-28 老黄设计："半遮半掩"随辰换景）──
      雾的"性格"跟一天时辰走：晨浓裹正堂、午间散开、午后复起遮竹林、夜里收平。
      三个键来自 ENV_TIME 时段预设（paramsAtHour 沿时辰连续插值），**只在 mist 天气
@@ -1084,6 +1123,11 @@ export function applyEnv(p){
   su.uDiskFade.value = p.diskFade !== undefined ? p.diskFade : 0;
   // 星空也要被云遮掉：云量越大，星越少
   su.uStarAmount.value = p.starAmount * Math.max(0, 1 - (p.cloudAmount || 0) * 0.85);
+  /* 七色彩虹（2026-09-30 雨后初晴）：虹心在**太阳的反方向**（-uSunDir）——
+     真实成因如此 ⇒ 任何机位、任何时辰都物理正确，不用为某个机位去"摆"方向。
+     夜里没有太阳也就没有虹：按 uStarAmount（同一条"是否夜里"的信号）门控一次。 */
+  su.uRainbowDir.value.copy(su.uSunDir.value).multiplyScalar(-1);
+  su.uRainbow.value = (p.rainbow || 0) * (1 - Math.min(1, su.uStarAmount.value / 0.35));
 
   renderer.toneMappingExposure = p.exposure;
   bloom.strength = p.bloomStrength;
@@ -2252,9 +2296,10 @@ envEl.addEventListener('click', (e)=>{
   if (TOUR.on && (b.dataset.view || b.dataset.axis)) tourStop();
   if (REEL.on && b.dataset.axis === 'time') toggleReel();   // 手动选时段 = 接管，停时光流转
   if (b.dataset.view){ gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return; }
-  /* 选"电闪雷鸣"自动开启音景 —— 这个场景的核心之一就是雷鸣，没有声音等于没做。
-     浏览器要求音频必须由用户手势创建，这次点击正好就是手势。 */
-  if (b.dataset.axis === 'weather' && b.dataset.v === 'thunder' && !HOOKS.sound?.()) HOOKS.sound();
+  /* 选"狂风暴雨"自动开启音景 —— 合并后暴雨带闪电，而闪电的核心观感之一就是雷鸣，
+     没有声音等于没做一半。浏览器要求音频必须由用户手势创建，这次点击正好是手势。
+     （雨后初晴不需要：它的彩虹是视觉，不需要开音景。） */
+  if (b.dataset.axis === 'weather' && b.dataset.v === 'storm' && !HOOKS.sound?.()) HOOKS.sound();
   setEnv(b.dataset.axis, b.dataset.v);
   if (enforceWeather()) syncEnvUI();
 });
@@ -2332,7 +2377,10 @@ export function advanceReel(dt){
    返回 {label, time, season, weather, hour} 供 toast / 门禁使用。 */
 const R_TIMES    = [['dusk',4],['night',4],['morning',2.5],['noon',1]];
 const R_SEASONS  = ['spring','summer','autumn','winter'];
-const R_W_BASE   = { clear:3, mist:2.4, storm:1.2, snow:1 };   // 阴霾暗沉 2026-09-28 收起，权重并入薄雾
+const R_W_BASE   = { clear:3, mist:2.4, storm:1.2, snow:1, afterrain:1.6 };
+// 阴霾暗沉 2026-09-28 收起（权重并入薄雾）；电闪雷鸣 2026-09-30 并入狂风暴雨（hidden）。
+// 雨后初晴 1.6：比暴雨高一档 —— 合并后暴雨变成"带雷电的雨"，随机池里若雨太多、
+// 难得抽到一次"雨停了太阳出来"的画面。
 function rwPick(items){
   let total = 0;
   for (const [, w] of items) total += w;
@@ -2406,14 +2454,16 @@ addEventListener('keydown', (e)=>{
   const smap = { q:'spring', w:'summer', e:'autumn', r:'winter' };
   /* 2026-09-28：'阴霾暗沉'从菜单收起（老黄："和薄雾感官上太一致，保留薄雾"）——
      d 键空出；预设数据保留（mist-guard 仍可直调 setEnv 测试雾管线），想恢复一条线的事。 */
-  const wmap = { a:'clear', s:'storm', h:'thunder', f:'snow', g:'mist' };
+  /* 2026-09-30：'电闪雷鸣'并入'狂风暴雨'（老黄："这两个场景可以合并，空出一个格子"）
+     ⇒ h 键空出，'j' 改为新场景「雨后初晴」。 */
+  const wmap = { a:'clear', s:'storm', j:'afterrain', f:'snow', g:'mist' };
   const hit = map[e.key] || smap[e.key.toLowerCase()] || wmap[e.key.toLowerCase()];
   if (!hit) return;
   seasonDemoUserTakeover();
   if (map[e.key])  setEnv('time', hit);
   else if (smap[e.key.toLowerCase()]) setEnv('season', hit);
   else if (weatherAllowed(hit)){
-    if (hit === 'thunder' && !HOOKS.sound?.()) HOOKS.sound();   // 同点击：选电闪雷鸣自动开音景
+    if (hit === 'storm' && !HOOKS.sound?.()) HOOKS.sound();   // 同点击：选暴雨自动开音景（它带雷声）
     setEnv('weather', hit);
   }                                          // 非法组合不走键盘这条捷径
   if (enforceWeather()) syncEnvUI();
@@ -2615,10 +2665,15 @@ function lnStrike(tNow){
   L.lastThunder = ev;
   HOOKS.thunder?.(ev);
 }
+/* ⚡ 哪些天气会打闪电（2026-09-30 老黄："狂风暴雨和电闪雷鸣合并，空出一格"）——
+   合并后**暴雨默认带闪电**：大雨 + 狂风 + 雷电本来就是同一场天气。
+   ⚠️ 用 Set 而不是散落的字符串比较：以后再加"带闪电的天气"只改这一处。
+   ⚠️ 不要在这里判"雨量"——雨后初晴的 rainAmount=0，但绝不能因此放晴天的虹进来。 */
+const LN_ALLOWED = new Set(['storm', 'thunder']);
 /* 每帧推进（animate 的 ENV 过渡块之后调用） */
 export function tickLightning(dt, tNow){
   const L = LIGHTNING;
-  if (ENV.weather !== 'thunder' || !L.on){
+  if (!LN_ALLOWED.has(ENV.weather) || !L.on){
     if (L.flash > 0 || (L._group && L._group.visible)){
       L.flash = 0;
       if (L._group){ L._group.visible = false; L._boltMat.opacity = 0; L._streakMat.opacity = 0; }

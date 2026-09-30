@@ -163,6 +163,12 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
       /* 电闪（2026-09-30 电闪雷鸣）：0=无闪；由 12-env 的 tickLightning 每帧写。
          云层响应最强（空中电闪读得出来）、整片天幕同时泛白。 */
       uFlash:{value:0.0},
+      /* 七色彩虹（2026-09-30 雨后初晴）：uRainbow=0 关（非该天气恒 0）。
+         uRainbowDir = 虹心方向（**太阳的反方向** = -uSunDir），由 applyEnv 写。
+         画法：以 uRainbowDir 为虹心轴，量"视线与虹轴的夹角"，落在 [R0, R1] 的窄带里
+         按七色取值 —— 真实虹对角半径约 42°、宽 1~2°，这里取略宽的观感值。 */
+      uRainbow:{value:0.0},
+      uRainbowDir:{value:new THREE.Vector3(0,1,0)},
     },
     vertexShader:`varying vec3 vDir;
       void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
@@ -174,6 +180,8 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
       uniform vec3  uMoonDir, uMoonColor;
       uniform float uMoonAmount, uMoonPhase;
       uniform float uFlash;
+      uniform float uRainbow;
+      uniform vec3  uRainbowDir;
 
       // 便宜的 value-noise FBM —— 给天空一层有体积感的云，
       // 原来的天空是均匀平色，占了画面 30~40% 面积却毫无信息。
@@ -314,6 +322,42 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
              半衰角 0.85°），外晕几乎归零 —— 月周天空不再洗白。 */
           float glow = pow(max(ca, 0.0), 900.0) * 0.16 + pow(max(ca, 0.0), 350.0) * 0.010;
           col += uMoonColor * glow * mvis * 0.38;
+        }
+
+        /* ── 七色彩虹（2026-09-30 雨后初晴）──
+           真实成因：阳光在雨滴内折射 + 内部反射，虹心在**太阳的反方向**，
+           视半径约 42°、带宽 1~2°，外缘是红、内缘是紫（七色顺序由外往里）。
+           画法：以 uRainbowDir（= -uSunDir）为虹心轴，量"视线与虹轴的夹角" a，
+           落在 [A0, A1] 窄带内按角度插七色；带外为 0（完全不加光，不污染别处）。
+           三个让它"像真的"而不是像贴纸的细节：
+             ① **越靠太阳一侧越淡**（真实虹：反日点方向最浓，接近太阳侧几乎看不见）——
+                用"视线与太阳方向的夹角"做衰减，dot(d, uSunDir) 越大（越靠近太阳）越淡。
+             ② **只在地平线以上成形**：d.y 低时淡出，否则虹会"长到水里/地里"。
+             ③ 极缓慢的整体呼吸（周期约 40s、幅度 ±12%）——真实虹在云来云去里时隐时现，
+                但绝不能闪；这里只做很慢的强弱变化，避免像贴图一样死板。 */
+        if (uRainbow > 0.001){
+          vec3 rd2 = normalize(uRainbowDir);
+          float a = acos(clamp(dot(d, rd2), -1.0, 1.0));      // 与虹轴的夹角
+          /* 42° 为虹的主半径，取 0.70~0.79 rad（40.1°~45.2°）做带宽 */
+          const float A0 = 0.700, A1 = 0.790;
+          float band = smoothstep(A0 - 0.020, A0 + 0.030, a) * (1.0 - smoothstep(A1 - 0.045, A1 + 0.010, a));
+          if (band > 0.001){
+            float t = clamp((a - A0) / (A1 - A0), 0.0, 1.0);   // 0=内缘(紫) 1=外缘(红)
+            /* 七色（内→外：紫 靛 蓝 绿 黄 橙 红），每色占 1/7 略作重叠 */
+            vec3 sp = vec3(0.42, 0.24, 0.72);                  // 紫
+            sp = mix(sp, vec3(0.16, 0.24, 0.70), smoothstep(0.00, 0.16, t));   // 靛
+            sp = mix(sp, vec3(0.13, 0.42, 0.82), smoothstep(0.14, 0.31, t));   // 蓝
+            sp = mix(sp, vec3(0.20, 0.66, 0.40), smoothstep(0.29, 0.46, t));   // 绿
+            sp = mix(sp, vec3(0.93, 0.88, 0.28), smoothstep(0.43, 0.60, t));   // 黄
+            sp = mix(sp, vec3(0.95, 0.58, 0.16), smoothstep(0.57, 0.74, t));   // 橙
+            sp = mix(sp, vec3(0.93, 0.22, 0.16), smoothstep(0.71, 0.90, t));   // 红
+            /* 越近太阳侧越淡（见①）：uSunDir 方向的反面最浓 */
+            float anti = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
+            float fade = smoothstep(0.05, 0.55, anti);
+            float ground = smoothstep(-0.02, 0.16, d.y);       // 见②
+            float breathe = 0.88 + 0.12 * sin(uTime * 0.157);   // 见③（周期≈40s）
+            col += sp * band * fade * ground * uRainbow * breathe * 0.55;
+          }
         }
 
         gl_FragColor = vec4(col, 1.0);
