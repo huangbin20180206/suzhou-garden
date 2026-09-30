@@ -160,17 +160,47 @@ const check = (name, ok, detail = '') => {
     `涟漪 @${click.rippleAt}ms，clickRipple={hit:${click.last && click.last.hit}, bait:${click.last && click.last.bait}}`);
 
   /* ── ② 3 秒内 ≥3 条鱼转向饵点（并全程不出池）── */
+  /* ⚠️ 2026-09-30：这里同时量"鱼头 vs 实际位移"——**倒游**是这块被投诉过两轮的老毛病
+     （老黄原话"鱼食撒在鱼的身后，鱼会倒着/侧着游到鱼食点" / "投食时，鱼还是会倒游"），
+     而本门此前**完全没有朝向判据**，只查了撒饵/转向/出池/归队 ⇒ 这类投诉必然反复漏过。
+     量的三个量：① 中位夹角（稳态跟不跟得上）② 倒游帧数 ③ **最长连续倒游时长**
+     ——单帧翻转肉眼看不出来，1.8s 的连续倒游就是"倒着游了一小段"。
+     抖动（单帧转向 >20° 的占比）也一并量：直接对齐朝向的修法必须证明没有逐帧乱抖。 */
   const conv = await page.evaluate(async () => {
     const G = window.__garden;
+    const F = G.koiGroup.userData.fishes;
     const t0 = performance.now();
     let turned = 0, outOfPond = 0, samples = 0, worstOut = null;
     const start = window.__kf.sample();
+    /* 朝向采样：逐帧对比"帧起点→帧末"的位移与鱼头方向 */
+    const yaw = F.map(() => ({ angs: [], back: 0, run: 0, maxRun: 0, dYaw: [] }));
+    let prev = F.map(f => ({ x: f.position.x, z: f.position.z, yaw: f.rotation.y }));
+    let last = performance.now();
     while (performance.now() - t0 < 3000){
       await new Promise(r => requestAnimationFrame(r));
       const s = window.__kf.sample();
       samples++;
       turned = Math.max(turned, s.filter(f => f.aw > 0.3).length);
       for (const f of s) if (!f.inside){ outOfPond++; if (!worstOut) worstOut = f; }
+      const now = performance.now(), dt = Math.max(1e-4, (now - last) / 1000); last = now;
+      for (let i = 0; i < F.length; i++){
+        const f = F[i];
+        const dx = f.position.x - prev[i].x, dz = f.position.z - prev[i].z;
+        const dl = Math.hypot(dx, dz);
+        if (dl / dt > 0.08 && dl > 1e-5){
+          const fxv = Math.cos(f.rotation.y), fzv = -Math.sin(f.rotation.y);   // 模型正面 = +z
+          const dot = fxv * (dx / dl) + fzv * (dz / dl);
+          const ang = Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI;
+          yaw[i].angs.push(ang);
+          if (ang > 120){ yaw[i].back++; yaw[i].run += dt; if (yaw[i].run > yaw[i].maxRun) yaw[i].maxRun = yaw[i].run; }
+          else yaw[i].run = 0;
+        }
+        let d = f.rotation.y - prev[i].yaw;
+        while (d >  Math.PI) d -= 2*Math.PI;
+        while (d < -Math.PI) d += 2*Math.PI;
+        yaw[i].dYaw.push(Math.abs(d) * 180 / Math.PI);
+        prev[i] = { x: f.position.x, z: f.position.z, yaw: f.rotation.y };
+      }
     }
     const now = window.__kf.sample();
     /* "转向"还要看距离真的在缩短：统计初始有饵、且距饵变近的鱼数 */
@@ -178,13 +208,32 @@ const check = (name, ok, detail = '') => {
     for (let i = 0; i < now.length; i++){
       if (start[i].dToBait !== null && now[i].dToBait !== null && now[i].dToBait < start[i].dToBait) closing++;
     }
-    return { turned, closing, outOfPond, samples, worstOut, now };
+    const med = a => { if (!a.length) return null; a = a.slice().sort((x, y) => x - y); return +a[(a.length / 2) | 0].toFixed(0); };
+    return { turned, closing, outOfPond, samples, worstOut, now,
+             yaw: yaw.map(y => ({ n: y.angs.length, med: med(y.angs), back: y.back, maxRun: +y.maxRun.toFixed(2),
+                                  jit: y.dYaw.length ? +(y.dYaw.filter(a => a > 20).length / y.dYaw.length * 100).toFixed(1) : 0 })) };
   });
   check('② 3 秒内 ≥3 条鱼转向饵点', conv.turned >= 3 && conv.closing >= 3,
     `aw>0.3 的最多 ${conv.turned} 条；距饵缩短的 ${conv.closing} 条`);
   check('⑤ 吸引全程**没有鱼出池**（"鱼游到草皮上"是踩过的真 bug）',
     conv.outOfPond === 0, conv.outOfPond ? `${conv.outOfPond} 次越界，例 ${JSON.stringify(conv.worstOut)}`
                                         : `${conv.samples} 帧 × 11 条全在池内`);
+
+  /* ── 倒游（老黄投诉过两轮的老毛病，2026-09-30 补判据）──
+     阈值按实测定的：修复前"最长连续倒游 1.87s"（肉眼可见的倒着游一小段），
+     修后 0 帧/0.00s。留 0.35s 门限 = 掉头瞬间的物理必然（鱼体先减速）之外不许有。 */
+  const yawRows = conv.yaw.filter(y => y.n > 0);
+  const medAll = yawRows.map(y => y.med).sort((a, b) => a - b);
+  const medOf = medAll.length ? medAll[(medAll.length / 2) | 0] : 999;
+  const totBack = conv.yaw.reduce((s, y) => s + y.back, 0);
+  const maxRun = conv.yaw.reduce((s, y) => Math.max(s, y.maxRun), 0);
+  const maxJit = conv.yaw.reduce((s, y) => Math.max(s, y.jit), 0);
+  check('⑥ 投喂时鱼头跟着实际游动方向（中位夹角 ≤20°，不许倒着滑）',
+    medOf <= 20, `11 条中位夹角的中位数 ${medOf}°（各条 ${medAll.join('/')}）`);
+  check('⑥ 投喂时没有连续倒游（最长连续倒游 ≤0.35s）',
+    maxRun <= 0.35, `倒游帧 ${totBack}，最长连续倒游 ${maxRun.toFixed(2)}s`);
+  check('⑥ 朝向没有逐帧乱抖（单帧转向 >20° 的占比 ≤10%）',
+    maxJit <= 10, `各鱼最大抖动占比 ${maxJit}%（掉头那一帧的大角度是合理的，量的是占比）`);
 
   /* ── ④ 饵散开后恢复原轨道、无"迷路鱼" ── */
   const back = await page.evaluate(async () => {

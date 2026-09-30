@@ -1112,19 +1112,35 @@ function animate(){
       spawnRipple(_swimmerWorld.x, _swimmerWorld.z, t, 3);   // 出水一圈、入水再一圈
     }
 
-    /* ── 朝向兜底（2026-09-29 修"鱼食撒在身后 → 鱼倒着/侧着游到饵点"）──
+    /* ── 朝向兜底（2026-09-29 首修"鱼食撒在身后 → 鱼倒着/侧着游到饵点"）──
        上面的切向公式只是"沿轨道时的默认朝向"；一旦有别的力让鱼改道（投喂吸引、
        避障让位、惊鱼推离），实际位移方向就偏离切向 —— 鱼头若仍钉在切向上，
        就会出现"位置朝饵走、头朝别处"的倒游/侧游（老黄截图实锤；实测修复前
        鱼#0 趋饵全程中位夹角 174° = 完全倒着）。这里用本帧真实位移（帧起点→帧末）
-       校正：位移足够大时鱼头缓动到游动方向（0.22s 最短角缓动，快速调头不瞬跳）；
-       位移太小（贴着饵近乎悬停）保持现朝向。切向公式保留作默认/兜底。 */
+       校正。切向公式保留作"位移进死区时"的默认朝向。
+       ── 2026-09-30 三轮（老黄再报"投食时鱼还是会倒游"）：把"缓动"整个去掉 ──
+       二轮只把死区从 3mm 收到 0.5mm、趋饵 τ 从 0.22 收到 0.10s，量化后仍然有
+       **1.87s 连续倒游**（鱼#3）—— 根因是缓动的**稳态滞后**：鱼头朝一个每帧都在
+       变的目标以 τ 缓动，位置先走、头后追，掉头时滞后最大。位置是物理算出来的、
+       鱼头跟着已算出的位移走 ⇒ 二者天然同步 ⇒ **直接对齐**（最短角，无缓动），
+       掉头时"甩尾感"由模型本身的柔性解决，不需要靠朝向滞后伪装。
+       位移进死区（每帧 <0.5mm、几乎悬停）时保持现朝向，但趋饵时直接朝饵 ——
+       围着饵低速打转至少是对着食物的，不会看着像"丢了方向"。 */
     const mdx = f.position.x - fx0, mdz = f.position.z - fz0;
-    if (mdx*mdx + mdz*mdz > 9e-6){
+    const md2 = mdx*mdx + mdz*mdz;
+    if (md2 > 2.5e-7){
       let dy = Math.atan2(-mdz, mdx) - f.rotation.y;
       while (dy >  Math.PI) dy -= 2*Math.PI;
       while (dy < -Math.PI) dy += 2*Math.PI;
-      f.rotation.y += dy * (1 - Math.exp(-dt / 0.22));
+      f.rotation.y += dy;                       // 直接对齐（见上方三轮注释）
+    } else if (d.aw > 0.12 && bait){
+      const ax = bait.lx - f.position.x, az = bait.lz - f.position.z;
+      if (ax*ax + az*az > 1e-4){               // 位置与饵重合 → 方向退化，保持现朝向
+        let dy = Math.atan2(-az, ax) - f.rotation.y;
+        while (dy >  Math.PI) dy -= 2*Math.PI;
+        while (dy < -Math.PI) dy += 2*Math.PI;
+        f.rotation.y += dy;
+      }
     }
   }
   updateRipples(t);
