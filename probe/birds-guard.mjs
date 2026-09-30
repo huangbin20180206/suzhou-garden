@@ -72,6 +72,48 @@ const check = (name, ok, detail = '') => {
   check('大雁：春/秋可见（迁徙季）', sp.vis === sp.n && au.vis === au.n,
     `春 ${sp.vis}/${sp.n}、秋 ${au.vis}/${au.n}`);
   check('大雁：夏/冬完全不见（非迁徙季）', su.vis === 0 && wi.vis === 0, `夏 ${su.vis}、冬 ${wi.vis}`);
+
+  /* ⚠️ **全组合扫描**（2026-10-01 新增）：老黄报"大雁一年四季都在，任何天气任何时段都在"。
+     上面那两条只测了**单一天气 + 单一时段**，覆盖面太窄 ⇒ 这类"某个组合漏了"的
+     缺陷正好从缝里漏过去。改成把 4 季节 × 4 天气 × 4 时段 = **64 个组合全扫一遍**，
+     任何一个夏/冬组合出现 >0 只就报红，并打印是哪个组合。
+     （实测产品侧 64/64 全部正确：春/秋 各 13 只，夏/冬 各 0 只 —— 所以本门是
+      "锁住正确行为"，不是"修一个已复现的缺陷"。老黄看到的若是真实现象，
+      最可能是浏览器吃旧缓存，见文件末尾的排查提示。） */
+  {
+    const SE = ['spring', 'summer', 'autumn', 'winter'];
+    const WE = ['clear', 'mist', 'storm', 'afterrain'];
+    const TI = ['morning', 'noon', 'dusk', 'night'];
+    const bad = [], nSeen = new Set();
+    for (const ss of SE){
+      for (const ww of WE){
+        for (const tt of TI){
+          await page.evaluate(([a, b, c]) => {
+            const G = window.__garden;
+            G.setEnv('season', a); G.setEnv('weather', b); G.setEnv('time', c);
+          }, [ss, ww, tt]);
+          await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
+          await page.waitForTimeout(150);
+          const vis = await page.evaluate(() => window.__garden.geese.filter(g => g.visible).length);
+          const mig = (ss === 'spring' || ss === 'autumn');
+          if (vis > 0) nSeen.add(ss);
+          if (mig !== (vis > 0)) bad.push(`${ss}/${ww}/${tt}=${vis}只`);
+        }
+      }
+    }
+    check(`大雁：64 个组合（4 季 × 4 天气 × 4 时段）季节显隐全部正确`,
+      bad.length === 0,
+      bad.length ? `异常 ${bad.length} 个：${bad.slice(0, 8).join('，')}` : '春/秋全 13、夏/冬全 0');
+    /* ⚠️ 扫描完必须**把环境复位**，否则后面的判据会继承扫描的最后一个组合
+       （winter/afterrain/night ⇒ 大雁全隐藏 ⇒ "抬头能看到"必然全红）。
+       我第一版漏了这条，症状是"64 组合那条绿、紧接着的可见性那条全红"，很像新 bug。 */
+    await page.evaluate(() => {
+      const G = window.__garden;
+      G.setEnv('season', 'spring'); G.setEnv('weather', 'clear'); G.setEnv('time', 'noon');
+    });
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
+    await page.waitForTimeout(400);
+  }
   /* ⚠️ 高度区间 2026-09-30 从 20~35m 改成 12~18m —— 起因是**用户实拍**：
      第一版 24~31m 时，40m 外每只只有 4~5 像素（翅展 16~20px），远看就是
      "棕色小圆球"（老黄："这个就是你做的大雁？"），队形还整体落在画面外。
@@ -139,38 +181,46 @@ const check = (name, ok, detail = '') => {
     { n: '朝南', tgt: [0, 4.0, 30] },  { n: '朝西', tgt: [-30, 4.0, 3] },
   ];
   const CAM_POS = [0, 1.7, 16];
-  const visRows = [];
-  for (const c of CAMS){
-    await page.evaluate(({ pos, tgt }) => {
+  /* ⚠️ **四个朝向必须交错采样、共用一整圈时间轴**（2026-10-01 修）。
+     原来每个朝向各测 20 秒，而雁群绕园一圈只要 ~50 秒 ⇒ 20 秒窗口只覆盖 40% 的轨道，
+     判读完全取决于**开测那一刻 GOOSE.t 恰好在轨道哪一段** ⇒ 时绿时红。
+     实测：同一份代码一次"朝北19/东12/南2/西0"、另一次"朝北0/东0/南2/西12"。
+     现在改成 240 次循环、每次 200ms、循环内轮换朝向 ⇒ 每个朝向拿到 60 个样本、
+     **各自覆盖完整一整圈**，既覆盖整圈又只花 48 秒（原来四个朝向串行要 80 秒）。 */
+  const visAccum = CAMS.map(() => 0);
+  {
+    await page.evaluate(({ pos }) => {
       const G = window.__garden;
       G.camera.fov = 52; G.camera.updateProjectionMatrix();
-      G.camera.position.set(...pos); G.controls.target.set(...tgt); G.controls.update();
-    }, { pos: CAM_POS, tgt: c.tgt });
-    await page.waitForTimeout(400);
-    const s = await page.evaluate(async () => {
-      const G = window.__garden;
-      let ge1 = 0;
-      for (let k = 0; k < 20; k++){
-        let on = 0;
+      G.camera.position.set(...pos); G.controls.enabled = false;
+    }, { pos: CAM_POS });
+    for (let k = 0; k < 240; k++){
+      const ci = k % 4;
+      const on = await page.evaluate(({ tgt }) => {
+        const G = window.__garden;
+        G.controls.target.set(...tgt); G.controls.update(); G.camera.updateMatrixWorld(true);
+        let n = 0;
         for (const g of G.geese){
           if (!g.visible) continue;
-          const n = g.position.clone().project(G.camera);
-          if (Math.abs(n.x) <= 1 && Math.abs(n.y) <= 1 && n.z <= 1) on++;
+          const p = g.position.clone().project(G.camera);
+          if (Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 && p.z <= 1) n++;
         }
-        if (on >= 1) ge1++;
-        await new Promise(r => setTimeout(r, 1000));
-      }
-      return { ge1 };
-    });
-    visRows.push({ n: c.n, ge1: s.ge1 });
+        return n;
+      }, { tgt: CAMS[ci].tgt });
+      if (on >= 1) visAccum[ci]++;
+      await page.waitForTimeout(200);
+    }
   }
-  /* 门槛按实测定的：四朝向实测 3/10/5/7（第一版是 0/0/0/0）。
-     每朝向 ≥2/20 秒、且**至少两个朝向** ≥4/20 秒 —— 后者防"又钉死在某个方向"。 */
-  const okPer = visRows.filter(v => v.ge1 >= 2).length;
-  const goodDirs = visRows.filter(v => v.ge1 >= 4).length;
-  check('大雁：池边抬头能看到（每朝向 20 秒内 ≥2 秒有雁入画）', okPer >= 3,
-    visRows.map(v => `${v.n} ${v.ge1}/20秒`).join('、'));
-  check('大雁：航线不只对一个朝向有效（≥2 个朝向 20 秒里 ≥4 秒能看到）', goodDirs >= 2,
+  /* 60 个样本里"有 ≥1 只入画"的次数（等价于秒数，采样间隔 200ms） */
+  const visRows = CAMS.map((c, i) => ({ n: c.n, ge1: visAccum[i] }));
+  /* 门槛：每朝向 ≥4/60、且**至少两个朝向** ≥8/60（各自都覆盖完整一圈）——
+     后者防"航线又钉死在某个方向"。⚠️ 2026-10-01 从"20 秒窗口"改成"整圈交错采样"，
+     原口径下同一份代码两次跑出"19/12/2/0"与"0/0/2/12"，是采样相位问题不是产品问题。 */
+  const okPer = visRows.filter(v => v.ge1 >= 4).length;
+  const goodDirs = visRows.filter(v => v.ge1 >= 8).length;
+  check('大雁：池边抬头能看到（每朝向整圈内 ≥4/60 次采样有雁入画）', okPer >= 3,
+    visRows.map(v => `${v.n} ${v.ge1}/60`).join('、'));
+  check('大雁：航线不只对一个朝向有效（≥2 个朝向整圈内 ≥8/60）', goodDirs >= 2,
     `达标朝向 ${goodDirs}/4（${visRows.map(v => `${v.n}:${v.ge1}`).join(' ')}）`);
 
   /* ══ ③ 小鸟：落点贴面 + 行为 + 颜色 ═════════════════════════════════ */
