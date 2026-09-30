@@ -187,7 +187,12 @@ const check = (name, ok, detail = '') => {
      ⚠️ 门槛按**本门自己的机位**标定（相机抬到 y=3、视高 16m，弧带多落在画面两侧边缘、
         中间天空不算）：实测收窄后 6.5%；而"用户平视池边"那台机位上是 28%。
         同一个产品两台机位两个数 —— 所以下限只用来防"完全画不出来"（≈0），
-        上限用来防"糊满整片天"（>50%），中间的量级交给人眼判读。 */
+        上限用来防"糊满整片天"（>50%），中间的量级交给人眼判读。
+     ⚠️ **下限 3% → 0.8%**（2026-10-01）：彩虹从"整圈"改成"一段弧"（老黄："做得小一些，
+        不是所有彩虹都很大"），本机位实测覆盖率随之从 6.5% 降到 1.79%。
+        下限继续按旧值报红就是在**罚用户明确要的效果** —— 与 09-28 那条
+        "判据只断下限/上限要与产品形态同步"是同一条。0.8% 仍远高于"画不出来"（≈0），
+        上限 50% 不动（那道才是防"糊满整片天"的）。 */
   const skyShare = await page.evaluate(async () => {
     const G = window.__garden;
     const u = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
@@ -209,8 +214,8 @@ const check = (name, ok, detail = '') => {
     }
     return +(changed / total * 100).toFixed(2);
   });
-  check('虹是"一道"而不是"一片"（受影响天空像素 3%~50%，别糊满整片天）',
-    skyShare > 3 && skyShare < 50, `受影响天空像素 ${skyShare}%（本机位实测 6.5%；糊满整片天那次是 81%）`);
+  check('虹是"一道"而不是"一片"（受影响天空像素 0.8%~50%，别糊满整片天）',
+    skyShare > 0.8 && skyShare < 50, `受影响天空像素 ${skyShare}%（本机位实测 1.79%；改前整圈那次 6.5%；糊满整片天那次 81%）`);
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');

@@ -335,6 +335,16 @@ const SUITES = [
      ⚠️ 已装牙（实测）：在缺陷态代码上跑本门报红 5 条（层内明暗/层间色阶×2/脊线/自检③），
         见 outputs/_diag/hill-guard-TEETH2.log。 */
   ['远山观感 hill-guard', 'probe/hill-guard.mjs'],
+  /* ── 2026-10-01 · GLSL 编译失败 ⇒ **整个天空纯黑**，而症状与真因毫无关系 ──
+     给天空加次虹时把 breathe 声明在主虹的 if 块里、次虹那个块看不见 ⇒ three 报
+     "'breathe' : undeclared identifier" ⇒ 天空球整个不画。而当时看到的画面只是
+     "彩虹不见了"，连着三轮都在调方位角 —— 真因是一行作用域错误，与角度毫无关系。
+     之所以没有门禁拦住：编译失败时**页面照常显示、不抛异常、不进 pageerror**，
+     npm run check 也只做 JS 语法、不编译 GLSL，只有 three 打到 console 一行 error。
+     本门直接问 WebGL：遍历场景里所有渲染过的 ShaderMaterial 查 LINK_STATUS，
+     外加一条"天空区域不是黑的"（断症状，不断内部状态 —— 读天空材质的 currentProgram
+     不可靠，它同时被主渲染与 PMREM 烘焙用过，指向哪个变体取决于最后一次谁在渲染）。 */
+  ['着色器编译 shader-guard', 'probe/shader-guard.mjs'],
 ];
 
 /* ── T7.1（2026-09-23）三条改进 + T7.4（2026-09-24）④ ────────────────────

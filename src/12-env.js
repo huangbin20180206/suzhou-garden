@@ -1135,21 +1135,58 @@ export function applyEnv(p){
         保方位（背对太阳）、抬仰角（保证可看）。targetElev = 0.62 − 太阳仰角×0.55
         （钳在 −0.25~0.45 rad ≈ −14°~26°），虹弧（42° 半径）便落在天上 20~60°。
      ⚠️ 太阳没升起来就没有虹（夜里/日出前）；夜里另按 uStarAmount 门控。
-     ⚠️ **虹轴仰角定在 −8°~−12°**（2026-09-30 三轮实测）：这是"弧顶落在 28~32°"的位置 ——
-        用户站着平视时（视线仰角约 0~10°、竖直视场约 ±27°）正好能把整条弧收进画面上半部。
-        第一版按物理取 target=0.62−太阳仰角×0.55，正午算出 9° ⇒ 弧顶 49° ⇒ **整条弧在
-        画面外**（像素实测只有左上角露出一小段，11.99% 但位置极偏）。 */
+     ⚠️ **虹轴仰角定在 −15°~−24°**（2026-10-01 二次实测）：弧顶仰角 = 虹轴仰角 + 42°，
+        所以 −15° ⇒ 弧顶 27°、−24° ⇒ 弧顶 18°。这是"虹落在园墙上方、不顶到画框
+        上沿"的位置（改前是 −8°~−12° ⇒ 弧顶 30°~34° ⇒ 纵向 0%，虹顶压在画面顶端，
+        老黄反馈"又高又远"）。
+        真实成因是虹心恒与太阳反向、仰角 = −太阳仰角；正午太阳 47° 时虹心在地平线下
+        47°、整条虹**物理上不可见** —— 抬到 −15°~−24° 是明确的艺术性让步
+        （让彩虹在园林里看得见），别"修正"回物理值。
+        第一版曾按物理取 target=0.62−太阳仰角×0.55，正午算出 9° ⇒ 弧顶 49°
+        ⇒ **整条弧在画面外**。 */
   {
     const sd = su.uSunDir.value;
     const sunElev = Math.asin(Math.max(-1, Math.min(1, sd.y)));
     let ax = sd.x, az2 = sd.z;
     const hl = Math.hypot(ax, az2);
     if (hl < 1e-5){ ax = 0; az2 = 1; } else { ax /= hl; az2 /= hl; }
-    const target = Math.max(-0.30, Math.min(0.10, -0.12 - sunElev * 0.10));
+    const target = Math.max(-0.42, Math.min(0.02, -0.26 - sunElev * 0.10));
     const ce = Math.cos(target), se = Math.sin(target);
     su.uRainbowDir.value.set(-ax * ce, se, -az2 * ce);
     const dayK = Math.max(0, Math.min(1, (sunElev - 0.02) / 0.12));
     su.uRainbow.value = (p.rainbow || 0) * dayK * (1 - Math.min(1, su.uStarAmount.value / 0.35));
+    /* ── 弧段的方位角窗口（2026-10-01）──
+       基准系见 02-scene：ringAtan 90° = 弧顶，uArcAzOff = **相对弧顶的偏移（角度）**，
+       uArcHalf = 半宽（角度）。所以这里的任务只是"算出该往哪边偏、偏多少"。
+       虹心方位 = 太阳方位 + 180°（不可改，真实成因）。实测三时段：
+         晨 虹心方位 −156°  午 −145°  暮 −28°；虹心仰角各约 −8°~−12°
+         园内地标方位：拱桥 29°、东假山 59°、西假山 115°、荷风亭 28°、正堂 −90°
+       晨/午 虹与园内地标差 173°~215°（虹在园子正对面）⇒ 那个方位上没有园子；
+       **暮 虹心 −28°，拱桥 29° 差 57°、东假山 59° 差 87°** —— 最接近。
+       几何：虹轴倾角很小（|仰角| ≈ 8°~12°），故"绕虹轴的周圈角"与"世界方位角"在
+       弧的两只脚附近近似相等、在弧顶附近被压向 90°。既然窗口中心锁在弧顶（90°），
+       我们真正要控制的是**虹脚落在哪** —— 偏移取 0 就意味着弧对称地罩在虹心正上方，
+       两只脚自然落在虹心方位两侧 ±(42°−|仰角|) 度处。所以：
+         · 若"最近地标"离虹心方位 < 90°（虹朝着园子那侧）⇒ 往那边偏，把弧脚推向它；
+         · 否则（虹在园子正对面）⇒ 偏移取 0，退回"弧顶居中"，至少虹是从园子外侧升起的。
+       偏移量取"地标方位差 × 45%"并夹在 ±uArcHalf 内。 */
+    const rbAz = Math.atan2(-az2, -ax);            // 虹心的水平方位（= 太阳方位 + π）
+    const MARKS_AZ = [29, 59, 115, 28, -90];       // 拱桥/东假山/西假山/荷风亭/正堂
+    const ARC_HALF = 35.0;
+    let bestAz = null, bestD = 1e9;
+    for (const azDeg of MARKS_AZ){
+      let d = azDeg * Math.PI / 180 - rbAz;
+      while (d > Math.PI) d -= Math.PI * 2;
+      while (d < -Math.PI) d += Math.PI * 2;
+      if (Math.abs(d) < bestD){ bestD = Math.abs(d); bestAz = d; }
+    }
+    su.uArcHalf.value = ARC_HALF;
+    /* ⚠️ uArcAzOff 与 uArcHalf 都是**角度**（着色器里 degrees(atan(...)) 与它同尺度），
+       这里算出来的 bestAz 是弧度 ⇒ 必须转角度，否则 0.61rad 被当成 0.61°，
+       偏移几乎为 0、窗口仍锁在弧顶（实测一度写出 1448.5° 这种值）。 */
+    su.uArcAzOff.value = (bestAz !== null && bestD < Math.PI * 0.5)
+      ? Math.max(-ARC_HALF, Math.min(ARC_HALF, bestAz * 180 / Math.PI * 0.45))
+      : 0;
   }
 
   renderer.toneMappingExposure = p.exposure;
