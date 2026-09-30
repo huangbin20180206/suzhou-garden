@@ -706,26 +706,42 @@ export { BOOT, bootMark };
 export const SEASON_TINT_REGISTRY = [];
 export function registerSeasonTint(mat, key){ SEASON_TINT_REGISTRY.push([mat, key]); return mat; }
 
-/* ── 远山专用材质（2026-09-21 走查 F6 二轮）──────────────────────────────
-   第一轮修复把锯齿折线换成了高斯峰轮廓，但平涂色块与天空之间仍是一条硬切线，
-   暮色里读成"剪纸"。这层让每张山脊卡片从山麓到脊线**垂直地溶进当时的雾色**
-   （uTopFade：越远的层溶得越多），脊线对比自然软掉；距离雾（fog chunk）照旧叠加。
+/* ── 远山专用材质（2026-09-21 走查 F6 二轮；2026-09-30 三轮重做）──────────────
+   F6 一轮把锯齿折线换成高斯峰轮廓，但平涂色块与天空之间仍是一条硬切线，
+   于是加了"山脊溶进雾色"的垂直渐变。**2026-09-30 实测发现那一版的渐变方向反了**：
+   旧式 `mix(uColor, fogColor, uTopFade * h)` 而 h 随高度增大 ⇒ 越到峰顶越白。
+   可现实里近地气厚水汽多、峰顶出雾颜色最实 —— 方向反了正好把最该有对比的
+   脊线化掉。正午抬头实测：山 198.7 / 紧邻天空 218.2，**只差 19.5**，
+   四层又被距离雾洗掉 15%~57%、不透明度只有 0.45~0.72 ⇒ 相邻层亮度差
+   0.56~4.14、层内标准差 2.5~8.2。四张近乎同色的剪纸 + 一片素色天 = "没画完的背景板"。
+
+   三轮修法（三件事都做，缺一件都还是剪纸）：
+     ① **谷底沉雾、脊线留实**（uHaze，方向纠正）：山脚按近地气厚溶进雾色，
+        往上在 0~0.62 高度内线性收回，峰顶拿到 100% 山色 ⇒ 脊线自己就咬得住天。
+        代价：山脚比峰顶白。这正是真实远山的样子，也是江南景最标志性的那层"山腰云带"。
+     ② **层内明暗**（uRelief + 绕园一周连续的噪声）：竖向拉长的 value noise
+        读作阳坡/阴坡的沟壑，不再是平涂。坐标用 (cosθ, sinθ) 而不是 atan 本身 ——
+        直接对 atan 取噪声会在正南/正北留一条竖直接缝，绕园时会看见。
+     ③ **层间拉开**：靠不透明度与底色（见 MAT 里的四行），不靠"溶进雾色"。
+
    接口刻意伪装成 BasicMaterial：暴露可写的 .color 与 userData.baseColor，
-   applyEnv 那段「山色跟天光压暗」的代码零改动。脊线渐变直接用 three 每帧
+   applyEnv 那段「山色跟天光压暗」的代码零改动。渐变直接用 three 每帧
    刷新的 fogColor uniform（雾色随时段自动变：夜里深蓝、暮色暖灰）。
    ⚠️ ShaderMaterial 开 fog:true 时，uniforms 里**必须自带 fogColor/fogDensity**：
    refreshFogUniforms 会直接 uniforms.fogColor.value.copy(...)，缺了就在暖机
    首帧抛 undefined.value（2026-09-21 实测暖机回退）。 */
-export function makeDistantMat(hex, opacity, topFade, opts = {}){
+export function makeDistantMat(hex, opacity, haze, relief, freqPerM, opts = {}){
   /* opts.map（2026-09-22 加，为当时的"柱状树林"做的可裁剪剪影）：可选的 alpha 裁形贴图。
      传了就在 fragment 里按 alpha<0.5 裁形。
      ⚠️ 2026-09-23："柱状树林"整层已删除，**现在没有任何调用点传 opts** ——
-        四层远山脊不传 opts → `${opts.map ? … : ''}` 展开为空串，shader 源码与旧版逐字一致。
+        四层远山脊不传 opts → `${opts.map ? … : ''}` 展开为空串，那段分支是死代码。
         这个能力本身留着（通用、零成本），但别误以为还有谁在用。 */
   const uniforms = {
     uColor:     { value: new THREE.Color(hex) },
     uOpacity:   { value: opacity },
-    uTopFade:   { value: topFade },
+    uHaze:      { value: haze },
+    uRelief:    { value: relief },
+    uFreqPerM:  { value: freqPerM },
     fogColor:   { value: new THREE.Color(CFG.fog.color) },
     fogDensity: { value: CFG.fog.density },
     ...(opts.map ? { uMap: { value: opts.map } } : {}),
@@ -734,9 +750,13 @@ export function makeDistantMat(hex, opacity, topFade, opts = {}){
     uniforms, transparent:true, depthWrite:false, fog:true,
     vertexShader:`
       varying vec2 vHillUv;
+      varying vec3 vWPos;
       #include <fog_pars_vertex>
       void main(){
         vHillUv = uv;
+        /* 卡片已被 mergeStatics 烘成世界坐标（modelMatrix 是单位阵），
+           但仍走 modelMatrix 正规写法：将来若给远山组加个整体位移也不会错。 */
+        vWPos = (modelMatrix * vec4(position, 1.0)).xyz;
         vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
         gl_Position = projectionMatrix * mvPosition;
         #include <fog_vertex>
@@ -744,14 +764,49 @@ export function makeDistantMat(hex, opacity, topFade, opts = {}){
     fragmentShader:`
       uniform vec3 uColor;
       uniform float uOpacity;
-      uniform float uTopFade;
+      uniform float uHaze;
+      uniform float uRelief;
+      uniform float uFreqPerM;
       ${opts.map ? 'uniform sampler2D uMap;' : ''}
       varying vec2 vHillUv;
+      varying vec3 vWPos;
       #include <fog_pars_fragment>
+
+      float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }
+      float vn(vec2 p){
+        vec2 i = floor(p), f = fract(p);
+        vec2 u = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h21(i), h21(i + vec2(1.0, 0.0)), u.x),
+                   mix(h21(i + vec2(0.0, 1.0)), h21(i + vec2(1.0, 1.0)), u.x), u.y);
+      }
+
       void main(){
         ${opts.map ? 'if (texture2D(uMap, vHillUv).a < 0.5) discard;' : ''}
-        float h = smoothstep(0.10, 1.0, vHillUv.y);
-        vec3 col = mix(uColor, fogColor, uTopFade * h);
+        /* ① 谷底沉雾、脊线留实（方向纠正，见文件头）。0.62 是实测定的：
+           低于它山脚溶雾、往上收回；再高脊线又开始发白，>0.80 时山几乎溶进背景。 */
+        float hz = uHaze * (1.0 - smoothstep(0.0, 0.62, vHillUv.y));
+        vec3 col = mix(uColor, fogColor, hz);
+
+        /* ② 层内明暗：三倍频噪声读作沟壑；山脚权重低（那里本来就白），山腰权重高
+           —— 正好是真实远山"谷白腰暗脊实"的分布。
+
+           ⚠️ **噪声坐标必须按"角分辨率"给，不能用固定的世界尺度**（第二轮实测踩到）：
+           四层卡片半径 78/104/138/176m，而卡片自身宽度 w 是 26~54m 的**绝对米数**，
+           与半径无关 ⇒ 远层的卡片在**角度上**只跨了近层的 1/2~1/3。
+           第一版把 (cosθ,sinθ) 乘固定系数 8.0，等于"每弧度 8 个噪声周期"，
+           远层卡片横跨的周期数就少 2~3 倍 ⇒ 一张卡片里噪声几乎是常数
+           （决定性证据：把 uRelief 从 0.62 拉到 **3.0**，远层标准差只从 3.11 动到 2.62，
+           近层却从 23.5 动到 26.6 —— 远层对 relief 几乎无响应 = 噪声没在变）。
+           修法：噪声频率正比于半径（uFreqPerM = k / r），让每层卡片横跨**同样多的
+           噪声周期** ⇒ 屏幕上的"每像素明暗变化量"四层一致，层内明暗才拉得平。 */
+        float ang = atan(vWPos.z, vWPos.x);
+        float r = max(length(vWPos.xz), 1.0);
+        /* 沿卡片自身的水平方向取弧长（w 由 UV.x 归一化 ⇒ 乘 w 才是米），
+           竖向用世界高度。两者都换算成"每米多少个噪声周期"。 */
+        vec2 q = vec2(cos(ang), sin(ang)) * (r * uFreqPerM) + vec2(0.0, vWPos.y * uFreqPerM * 0.28);
+        float n = vn(q) * 0.60 + vn(q * 2.7 + 11.3) * 0.27 + vn(q * 6.1 + 41.7) * 0.13;
+        col *= 1.0 + (n - 0.5) * uRelief * (0.40 + 0.60 * smoothstep(0.0, 0.45, vHillUv.y));
+
         gl_FragColor = vec4(col, uOpacity);
         #include <fog_fragment>
       }`,
@@ -891,16 +946,35 @@ export const MAT = {
   latticeBack: new THREE.MeshStandardMaterial({ color:0xE6DFCC, roughness:0.92, metalness:0.0, envMapIntensity:0.25 }),
   bark:     new THREE.MeshStandardMaterial({ color:0x4A3628, roughness:0.95, metalness:0.0, envMapIntensity:0.25, flatShading:true }),
   gold:     new THREE.MeshStandardMaterial({ color:0xC9A227, roughness:0.34, metalness:0.86, emissive:0x2A1E00, envMapIntensity:1.2 }),
-  // 远山：三层递远递淡。fog:true 让它们按距离融进雾色（=天光色），
-  // 这才是真正的空气透视；原先 fog:false + 自定颜色，导致远山像贴上去的灰剪纸
-  /* uTopFade 二轮（对拍实测）：旧值 0.30/0.38/0.46/0.56 与距离雾叠加，
-     浓雾天气（暴雨 fogMul 2.4 / 冬暮 1.28）脊顶被垂直渐变 + Exp2 雾双重推到
-     纯雾色，最远层成了"白纸片"。各档收约 1/3，脊线始终留住山色对比，
-     "远"的空气透视仍完全交给距离雾负责。 */
-  distantNear: makeDistantMat(0x76817F, 0.72, 0.20),
-  distantDeep: makeDistantMat(0x8D9899, 0.62, 0.26),
-  distant:     makeDistantMat(0xA6AFAF, 0.55, 0.32),
-  distantFar:  makeDistantMat(0xBCC3C2, 0.45, 0.40),
+  // 远山：四层递远递淡。fog:true 让它们按距离融进雾色（=天光色），
+  // 这才是真正的空气透视；原先 fog:false + 自定颜色，导致远山像贴上去的灰剪纸。
+  /* 2026-09-30 三轮重做（正午抬头实测：相邻层亮度差只有 0.56~4.14、层内标准差
+     2.5~8.2、脊线与天只差 19.5 ⇒ 四张同色剪纸）。五处一起改，缺一处都还是剪纸：
+       · 底色拉开成一条真正的明度坡（近深远浅，但**每层都明确低于天空**）。
+         旧值 0x76817F/0x8D9899/0xA6AFAF/0xBCC3C2 相邻只差 18~22 明度，而远层
+         又被 Exp2 雾吃掉 40%(r138)~57%(r176) ⇒ 三、四层直接并进天空，实测
+         层2/层3 只差 0.37 lum、山比天只暗 2.3 —— 那就是"白纸片"。
+       · 不透明度抬高（0.72/0.62/0.55/0.45 → 0.95/0.90/0.84/0.76）。旧值让每层
+         都掺进 5%~28% 的天空，层间对比被天空吃掉；抬到接近不透明后，"远"全部
+         交给距离雾负责，近层才是真的近层。
+       · uHaze 是**谷底**沉雾量（不是旧版那种从脚到顶的溶雾），越远越多：近层谷底
+         0.30 只虚化山脚、峰顶全实；远层 0.46 让整条山腰泡进雾里 —— 空气透视
+         仍然成立，但脊线不会被自己洗掉。
+       · uRelief（层内明暗）四层**给到同一量级**：远层的对比被距离雾按 (1-fogFactor)
+         压缩（近层剩 85%、远层只剩 43%），远层本来就更吃亏，不能再"越远越弱"。
+         ⚠️ 这里我走过一次弯路：先按"越远越弱"给（0.34/0.30/0.25/0.20），实测远层
+         标准差几乎不动（4.6/4.0），一度判成"噪声没生效"。**决定性对照否掉了这个结论**：
+         只改 uRelief 0→3.0 做逐像素 A/B，四层平均差 9.2/6.4/2.3/4.0（远层确实在变），
+         且 CPU 复算噪声 n ∈ [0.11, 0.85]、标准差 0.15 —— 噪声一直是活的。
+         真正的原因是**距离雾把明暗对比压扁了**，所以要补偿的是幅度，不是频率。
+       · uFreqPerM（噪声空间频率）按半径给：卡片宽度是绝对米数（26~54m），与半径无关
+         ⇒ 远层卡片在角度上只跨了近层的 1/2~1/3。0.075 ≈ 每张卡（~40m）3 个周期。
+     ⚠️ 上一版的注释（"uTopFade 二轮，各档收约 1/3"）描述的是**已被本次推翻的**
+        方向：那版把溶雾乘在高度上，越到峰顶越白，正好化掉脊线。 */
+  distantNear: makeDistantMat(0x4A5754, 0.95, 0.30, 0.40, 0.075),
+  distantDeep: makeDistantMat(0x60737A, 0.90, 0.36, 0.62, 0.075),
+  distant:     makeDistantMat(0x7A8F9C, 0.84, 0.42, 0.95, 0.075),
+  distantFar:  makeDistantMat(0x93A3AB, 0.76, 0.46, 1.25, 0.075),
   /* ⚠️ 2026-09-23：原 distantTree（"柱状树林"的树形剪影广告牌材质）**已整层删除** ——
      它被修过三轮（矩形→树形、改深灰绿、降不透明度、并进 DISTANT_MATS 跟天光）都断不了根：
      只要这层还在，堂前池北岸就会立着一棵淡色树形剪影（并被 Reflector 镜像进水里）。
