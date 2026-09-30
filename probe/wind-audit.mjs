@@ -256,6 +256,18 @@ const check = (name, ok, detail = '') => {
         `叶盘 ${padsInPond.n} 片：池内 ${padsInPond.inPond} / 岸上 ${padsInPond.onLand}` +
         (padsInPond.ex.length ? `，例 ${JSON.stringify(padsInPond.ex)}` : ''));
 
+  /* ── 4b · 杆高必须盖住花底（2026-09-30 四轮恢复 —— 这条判据防的就是本次的病）──
+     GLB 荷花丛的几何里**没有茎**（花与叶分别烘进网格，0~1.7m 之间是空的），
+     杆一直是 08 里补的；杆在 mergeStatics 里合并后名字丢失，无法从场景反查
+     顶点高度 ⇒ 只能断言设计常量。四轮那天有人把这个常量判成"死判据"删了，
+     当晚老黄就反馈"荷花都浮在空中" —— 杆顶 1.78×0.84 ≈ 1.50m 必须盖住
+     花位下限 1.748×0.84 ≈ 1.47m，差 3cm，一删就悬空。 */
+  const stemConst = await page.evaluate(() => window.__garden.GLB_LOTUS_STEM_H);
+  const flowerBottomMin = 1.748 * 0.84;
+  check('荷花杆：杆高常量已覆盖 GLB 花位下限（杆顶 ≥ 花底，否则花悬空）',
+        stemConst * 0.84 >= flowerBottomMin - 0.02,
+        `常量 ${stemConst} → 最低株杆顶 ${(stemConst * 0.84).toFixed(3)}m，花底 ${flowerBottomMin.toFixed(3)}m`);
+
   /* ── 5 · 风的三层调度：L1 风向 16 档 / L2 风力四档 ──
      ⚠️ 必须**手动步进**状态机，不能靠墙钟等：软渲染下一帧 8.4 秒、模拟时间只走真实 1/20，
      等一次 12~30 秒的换向要等到天荒地老，而且换向目标随机、等到一次也未必看得全。

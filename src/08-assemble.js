@@ -827,6 +827,28 @@ for (let i = 0; i < 12; i++){
       补杆才是歪斜主因；"杆旋转变粗"也只在补的棱柱杆上，丛自带的茎没这毛病），
       同时保留 makePondPads 的叶盘（归池 + 提亮）与"近看穿帮"的已知取舍 ——
       用户原话："有点假但是至少能看"。 */
+/* ── ⑤ 2026-09-30 四轮（同日）：杆必须补回来 ──
+   GLB 回归当天老黄即反馈："荷花和荷叶都回来了，但是没有杆啊，荷花都浮在空中"
+   —— 定案 ④ 的判断错了：**这套 GLB 的几何里根本没有茎**（花与叶分别烘进网格，
+   0~1.7m 之间是空的），④ 以为"丛自带的茎没毛病"，实际一株都没有。所以从
+   "池边荷花"存在起，杆一直是**补的**；老黄记忆里"能看"的那版 = GLB 丛 + 这批杆。
+   补法沿用定案前的原方案（那版唯一被抱怨过的是 6 棱杆被风摆时"旋转变粗"，
+   已在 0a41f69 附近改成 12 棱）：
+     · 落点中心、竖直向上 —— 花烘在丛顶中心带，杆顶探进花簇即"托住"；
+     · 高度 = GLB_LOTUS_STEM_H × s × rr —— 顶到"花底 ≈ 1.748×s"之上（见
+       wind-audit 的杆高判据：常量必须覆盖花位下限，否则花悬空 —— 就是这次的病）；
+     · 材质 MAT.lily（tip 风摆 5cm 硬顶），与 GLB 丛注入的风参数完全一致
+       （12-env 的 seasonGLB.LotusPlant 注入同为 amp 0.030/tip/maxDisp 0.05）
+       ⇒ 杆与花同频摆，杆顶不会从花心里脱出来。 */
+/* 杆高系数独立成常量：杆在 mergeStatics 里被合并后**名字就丢了**，
+   wind-audit.mjs 无法再从场景反查杆的顶点高度 —— 只能断言这个设计常量。 */
+export const GLB_LOTUS_STEM_H = 1.78;
+lotusSpots.forEach(s=>{
+  const stemH = GLB_LOTUS_STEM_H * s.s * rr(0.98, 1.03);   // ⚠️ 这 12 次 rr 是全局流的一部分，别动
+  const stem = mesh(new THREE.CylinderGeometry(0.018, 0.034, stemH, 12), MAT.lily, { name:'glbLotusStem' });
+  stem.position.set(s.x, stemH / 2, s.z);
+  world.add(stem);
+});
 /* 池边荷花丛（LotusPlant.glb）：落点/尺度沿用本地流 lotusSpots（跨刷新确定，
    随机流守恒见上），由 placeAssets 异步挂载。 */
 placeAssets('assets/LotusPlant.glb', 2.0, lotusSpots);
