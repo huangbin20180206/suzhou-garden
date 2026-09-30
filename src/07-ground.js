@@ -320,14 +320,19 @@ export function makeDragonfly(){
 }
 
 /* ══ 大雁（2026-09-30 · 老黄："春天和秋天增加大雁迁徙的场景"）══════════════════
-   远景空中的小型涉禽：**低模**（体+颈+头+喙合成 1 个网格，两翅各留一个 pivot），
-   与蜻蜓同一套"会动的东西"的做法（合并刚性体 / 翅膀留 pivot / noMerge）。
-   ⚠️ 尺寸刻意小（体长约 0.30m、翅展 0.62m）：真实雁群在高空远观就是这个量级，
-      放大了会变成"低空扑腾的大鸟"抢主体。
-   ⚠️ 体/颈/头/喙**刚性同体**，只在 g 局部空间静止，靠 d.position/d.rotation 整体搬运
-      ⇒ 烘成一个网格（与 makeDragonfly 同理：13 只 × 5 件 = 65 个网格会白烧 draw call）。 */
+   ⚠️ **尺寸与高度是被用户实拍打回重定的**（第一版体长 0.155m / 高度 24~31m），
+      量出来的理由（outputs/_diag/goose-userview.mjs，用户视角 40m 外）：
+        · 每只身体只有 **4~5 像素** ⇒ 远看就是"棕色小圆球"，读不出是雁；
+        · 翅展 16~20px 也不足以让雁的剪影成立；
+        · 队形整体落在**画面外**（屏幕坐标 3883,3321 而画面只有 900×1100）。
+      现在的取值：体长 0.30m / 高度 13~17m ⇒ 40m 外体 9~10px、**翅展 37px**，
+      雁的"长颈 + 大翅膀 V 形"剪影才读得出来。
+      ⚠️ 仍刻意不做大：真实雁体长 0.6~0.75m，这里取其一半 —— 是"为远观可读而放大"，
+        与小鸟 BIRD_SCALE=2.2 同一取舍。
+   低模（体+颈+头+喙合成 1 个网格，两翅各留一个 pivot），与蜻蜓同一套"会动的东西"的做法
+   （合并刚性体 / 翅膀留 pivot / noMerge）：13 只 × 5 件 = 65 个网格会白烧 draw call。 */
 function makeGooseBodyGeo(){
-  const L = 0.155, W = 0.062, H = 0.058;          // 体：长 / 半宽 / 半高
+  const L = 0.30, W = 0.120, H = 0.112;           // 体：长 / 半宽 / 半高
   const parts = [];
   const body = new THREE.SphereGeometry(1, 10, 7);
   body.scale(W * 1.55, H, L);
@@ -354,12 +359,14 @@ function makeGooseBodyGeo(){
   parts.forEach(p => p.dispose());
   return g;
 }
-/* 单翅：以肩为原点、沿 +x 展开的薄三角面（远景只需要"翼面"这个剪影） */
+/* 单翅：以肩为原点、沿 +x 展开的薄三角面。
+   ⚠️ **翼面必须够宽**：远观认雁靠的是"两片大翅膀张成 V"，第一版的窄翅面
+   （长 0.31m）加上 4px 的身体 ⇒ 整只读作一个点。现在翼长 0.60m、翼宽加倍。 */
 function makeGooseWingGeo(){
   const s = new THREE.Shape();
   s.moveTo(0, 0);
-  s.quadraticCurveTo(0.16, 0.10, 0.31, 0.015);
-  s.quadraticCurveTo(0.20, -0.055, 0, -0.028);
+  s.quadraticCurveTo(0.30, 0.19, 0.60, 0.030);
+  s.quadraticCurveTo(0.40, -0.105, 0, -0.056);
   const g = new THREE.ShapeGeometry(s, 8);
   g.rotateX(-Math.PI / 2);                 // 躺平，成水平翼面
   return g;
@@ -371,12 +378,14 @@ export function makeGoose(){
   const wingMat = new THREE.MeshStandardMaterial({ color:0xB8B2A6, roughness:0.88, metalness:0.0, envMapIntensity:0.7, side:THREE.DoubleSide });
   const body = new THREE.Mesh(makeGooseBodyGeo(), bodyMat);
   g.add(body);
-  /* 两翅：各挂一个 pivot，updateGooseFlock 每帧写 pivot.rotation.z（正反相扇动） */
+  /* 两翅：各挂一个 pivot，updateGooseFlock 每帧写 pivot.rotation.z（正反相扇动）。
+     ⚠️ 肩点位置随体型一起放大（0.045→0.088）—— 体型放大后肩点还在原处，
+     翅膀会缩在身体里、远观又变回一个点。 */
   const wGeo = makeGooseWingGeo();
   const wings = [];
   for (const sx of [-1, 1]){
     const pivot = new THREE.Group();
-    pivot.position.set(sx * 0.045, 0.012, -0.01);
+    pivot.position.set(sx * 0.088, 0.022, -0.02);
     const w = new THREE.Mesh(wGeo, wingMat);
     w.scale.x = sx;                          // 镜像
     pivot.add(w);

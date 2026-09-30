@@ -646,21 +646,34 @@ DF_PATROL.forEach(p=>{
 export const geese = [];
 const gRnd = mulberry32(20260930);
 const GN = 13;                                  // 13 只：够读出阵型又不至于一片
-const GOOSE_ALT = [24, 31];                     // 高度区间（米）
-/** 阵型目标槽位（局部：x=横向、z=前后，头雁在原点，飞行方向 = −z） */
+/* 高度 13~17m（2026-09-30 二轮，原 24~31m）：用户实拍打回"只看到一个棕色小圆球"，
+   探针量到 40m 外每只只有 4~5 像素、且队形整体落在画面外。降到 13~17m 后，40m 外
+   体 9~10px、翅展 37px，"长颈 + V 形翅膀"的剪影才读得出；同时仍明显高于园内最高处
+   （假山峰 ~7.5m、正堂脊 ~9.4m）⇒ 不会像"在院子里飞"。 */
+const GOOSE_ALT = [13, 17];
+/* 队首初始位置（**必须在雁的装配循环之前声明**）——
+   2026-09-30 二轮踩过 TDZ：下面雁的初始位置要用它，而 GOOSE 对象在循环之后才声明
+   ⇒ "Cannot access 'GOOSE' before initialization"、整页崩。
+   ⚠️ 五轮：航线最终定为**绕园子的大圈**（见 updateGooseFlock），这个点只是"从哪开始飞"。 */
+const GOOSE_HEAD = new THREE.Vector3(-22, 15, -27);
+/** 阵型目标槽位（局部：x=横向、z=前后，头雁在原点，飞行方向 = −z）
+ *  ⚠️ 槽位间距 2026-09-30 三轮收紧（原 1.55/1.35 与 2.05 → 现 1.05/0.95 / 1.35）：
+ *   真实雁阵的"个体间距 ≈ 一个身长"（0.3m 量级），我第一版把它拉到 1.5~2m
+ *   （五六个身位）⇒ 13 只拉出 12m 宽的队伍，在画面上就是"几只互不相干的小点"，
+ *   读不出"一队"。收紧后队形跨度 8~9m、每只之间挨着，才读得出阵型。 */
 function gooseSlot(form, i){
   if (i === 0) return { x: 0, z: 0, lead: true };  // 头雁
   const k = i;                                    // 臂内序号（1 起）
   if (form === 0){                                // 人字：两臂 V
     const side = (i % 2 === 0) ? -1 : 1;
     const rank = Math.ceil(k / 2);
-    return { x: side * rank * 1.55, z: -rank * 1.35, lead: false };
+    return { x: side * rank * 1.05, z: -rank * 0.95, lead: false };
   }
   /* 八字：两列横向编织（sin 交叉 ⇒ 俯视是"8"） */
   const col = (i % 2 === 0) ? -1 : 1;
   const rank = Math.ceil(k / 2);
-  const x = col * (0.95 + 0.72 * Math.sin(rank * 1.25));
-  return { x, z: -rank * 2.05, lead: false };
+  const x = col * (0.70 + 0.55 * Math.sin(rank * 1.25));
+  return { x, z: -rank * 1.35, lead: false };
 }
 for (let i = 0; i < GN; i++){
   const d = makeGoose();
@@ -677,34 +690,42 @@ for (let i = 0; i < GN; i++){
     ph: gRnd() * TAU,                             // 扇翅相位
     sp: 0.90 + gRnd() * 0.22,                     // 个体速度差（队列不会完全刚性）
   });
-  /* 初始摆在航路上（按初始阵型槽位 + 队首基准点） */
-  const bx = -46, by = GOOSE_ALT[0] + gRnd() * (GOOSE_ALT[1] - GOOSE_ALT[0]), bz = 30;
-  d.userData.px = bx + d.userData.slot.x;
-  d.userData.pz = bz + d.userData.slot.z;
+  /* 初始摆在航路上（与 GOOSE 圆周起点一致，位置取自 GOOSE.head 的初始值） */
+  const by = GOOSE_ALT[0] + gRnd() * (GOOSE_ALT[1] - GOOSE_ALT[0]);
+  d.userData.px = GOOSE_HEAD.x + d.userData.slot.x;
+  d.userData.pz = GOOSE_HEAD.z + d.userData.slot.z;
   d.position.set(d.userData.px, by, d.userData.pz);
   world.add(d);
   geese.push(d);
 }
-/* 雁群整体状态（头雁那条航路 + 换阵时机）——独立于 12-env，季节显隐由它写 */
+/* 雁群整体状态（头雁那条航路 + 换阵时机）——独立于 12-env，季节显隐由它写
+   ⚠️ 2026-09-30 二轮：航路改成**贴着园子上空对穿**（原 −46→+62 的远端长弧大半时间在
+   画面外）。现在从西南 (−34, 34) 掠向东北 (30, −16)，航线**穿过园子正上方** ⇒
+   在园子里任何常用机位抬头都有机会看到整队；绕回阈值也跟着收紧。 */
 export const GOOSE = {
   t: 0, form: 0, nextForm: 0,          // nextForm 到点就换阵
-  head: new THREE.Vector3(-46, 27, 30),   // 队首世界坐标（沿航路推进）
-  dir: new THREE.Vector2(1, 0).normalize(), // 航向（x,z）
-  speed: 3.4,                              // m/s（真实雁速约 8~13，园子里放慢便于观察）
-  turn: 0,                                 // 当前转向率（弧线飞行）
+  head: GOOSE_HEAD,                     // 队首世界坐标（绕园子的大圈，见 updateGooseFlock）
+  a0: Math.PI * 0.62,                   // 起始相位（让第一圈就从西北开始）
+  dir: new THREE.Vector2(0, 1),        // 航向（圆周切线，每帧重算）
+  turn: 0,                                 // 当前转向率（保留字段：转场调试用）
 };
 /* 换阵时机：6~13s 一次，两种阵型轮流（"飞行过程中变换阵型"） */
 GOOSE.nextForm = gRnd() * 6 + 3;
 export function updateGooseFlock(dt, t){
   GOOSE.t += dt;
-  /* 航路：一条平缓大弧（转向率按 sin 缓慢起伏 ⇒ 整体走的是弧不是直线） */
-  GOOSE.turn = Math.sin(GOOSE.t * 0.055) * 0.16;
-  const ang = Math.atan2(GOOSE.dir.y, GOOSE.dir.x) + GOOSE.turn * dt;
-  GOOSE.dir.set(Math.cos(ang), Math.sin(ang));
-  GOOSE.head.x += GOOSE.dir.x * GOOSE.speed * dt;
-  GOOSE.head.z += GOOSE.dir.y * GOOSE.speed * dt;
-  /* 飞出园子太远就绕回来（循环，不留突兀的"凭空出现"） */
-  if (GOOSE.head.x > 62 || GOOSE.head.z > 52){ GOOSE.head.set(-52, GOOSE.head.y, 34); }
+  /* 航路：**绕园子一个大圈**（恒定角速度的圆周 + 缓慢的半径呼吸），而不是
+     在某一段天空里来回。
+     ⚠️ 五轮实测才想明白：把航线钉死在"正北偏西"只对**一种朝向**有效 ——
+     用户实测 30 秒：队首方位角一路 −45°~−112°（西到西北），平均 5.9 只在画面内，
+     但**另外一半时间它在别处，用户朝北/朝东看就是空的**。而用户的朝向是不可控的。
+     改成绕圈后，园子四周的天空轮流"过雁"，任何朝向抬头都有机会看到；
+     圈心取园心附近、半径 34m（正好在园子外一圈、不会被建筑挡住）。
+     ⚠️ 圆周运动本身"读得出在飞"（方向持续变化），比直线更像真实雁群。 */
+  const a = GOOSE.t * 0.115 + GOOSE.a0;                  // 角速度 0.115 rad/s ⇒ 一圈约 55s
+  const rad = 34 + Math.sin(GOOSE.t * 0.06) * 5;         // 半径呼吸 ±5m，航线不呆板
+  GOOSE.head.set(Math.cos(a) * rad, GOOSE.head.y, 3 + Math.sin(a) * rad);
+  /* 朝向 = 圆周切线（让雁头指向飞行方向，而不是径向） */
+  GOOSE.dir.set(-Math.sin(a), Math.cos(a));
   /* 换阵：到点 ⇒ 换目标阵型，位置按时间常数缓动过去（不过渡会读成闪现） */
   if (GOOSE.t > GOOSE.nextForm){
     GOOSE.form = GOOSE.form === 0 ? 1 : 0;

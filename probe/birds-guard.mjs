@@ -72,8 +72,14 @@ const check = (name, ok, detail = '') => {
   check('大雁：春/秋可见（迁徙季）', sp.vis === sp.n && au.vis === au.n,
     `春 ${sp.vis}/${sp.n}、秋 ${au.vis}/${au.n}`);
   check('大雁：夏/冬完全不见（非迁徙季）', su.vis === 0 && wi.vis === 0, `夏 ${su.vis}、冬 ${wi.vis}`);
-  check('大雁：飞在高空（20~35m，远景尺度不是"低空扑腾"）',
-    sp.alt > 20 && sp.alt < 35, `春 ${sp.alt}m / 秋 ${au.alt}m`);
+  /* ⚠️ 高度区间 2026-09-30 从 20~35m 改成 12~18m —— 起因是**用户实拍**：
+     第一版 24~31m 时，40m 外每只只有 4~5 像素（翅展 16~20px），远看就是
+     "棕色小圆球"（老黄："这个就是你做的大雁？"），队形还整体落在画面外。
+     现在 40m 外体 9~10px、翅展 37px，雁的剪影才读得出；
+     下限守住 12m 是为了仍明显高于园内最高处（假山峰 7.5m、正堂脊 9.4m），
+     不让它像"在院子里飞"。⚠️ 别为了"真实"把它调回高空 —— 那正是第一版被打回的原因。 */
+  check('大雁：飞在空中但不高（12~18m，40m 外仍读得出剪影）',
+    sp.alt > 12 && sp.alt < 18, `春 ${sp.alt}m / 秋 ${au.alt}m`);
   check('大雁：成队（队形跨度 ≥8m，不是散飞）', sp.spread >= 8, `春跨度 ${sp.spread}m / 秋 ${au.spread}m`);
 
   /* ══ ② 阵型切换（老黄点名"人字和八字"）══════════════════════════════ */
@@ -117,6 +123,52 @@ const check = (name, ok, detail = '') => {
   check('大雁：两种阵型的队形散布真的不同（切换不是摆设）',
     !!s0 && !!s1 && (Math.abs(s0.sx - s1.sx) > 1.0 || Math.abs(s0.sz - s1.sz) > 1.0),
     `人字 横向${s0 && s0.sx}/纵向${s0 && s0.sz}，八字 横向${s1 && s1.sx}/纵向${s1 && s1.sz}`);
+
+  /* ══ ②b 用户视角可见性（本轮踩坑最多的一条，务必守住）══
+     前四轮我一直在调尺寸/高度/航路，却**从来没量过"从池边抬头能不能看见"** ——
+     结果第一版交付后老黄实拍："这个就是你做的大雁？"（只有一个棕色小圆球）。
+     探针实测第一版：40m 外每只 4~5px，且队形整体在**画面外**（屏幕坐标 3883 vs 画幅 900）。
+     判据：站到池边、朝园内抬头，**20 秒里至少 8 秒有 ≥1 只在画面内**；
+     并且要**同时验四个朝向**（用户的朝向不可控 —— 我曾把航线钉死在"正北偏西"，
+     结果只对一种朝向有效、另外一半时间用户朝别处看就是空的）。 */
+  const CAMS = [
+    { n: '朝北', tgt: [0, 4.0, -30] }, { n: '朝东', tgt: [30, 4.0, 3] },
+    { n: '朝南', tgt: [0, 4.0, 30] },  { n: '朝西', tgt: [-30, 4.0, 3] },
+  ];
+  const CAM_POS = [0, 1.7, 16];
+  const visRows = [];
+  for (const c of CAMS){
+    await page.evaluate(({ pos, tgt }) => {
+      const G = window.__garden;
+      G.camera.fov = 52; G.camera.updateProjectionMatrix();
+      G.camera.position.set(...pos); G.controls.target.set(...tgt); G.controls.update();
+    }, { pos: CAM_POS, tgt: c.tgt });
+    await page.waitForTimeout(400);
+    const s = await page.evaluate(async () => {
+      const G = window.__garden;
+      let ge1 = 0;
+      for (let k = 0; k < 20; k++){
+        let on = 0;
+        for (const g of G.geese){
+          if (!g.visible) continue;
+          const n = g.position.clone().project(G.camera);
+          if (Math.abs(n.x) <= 1 && Math.abs(n.y) <= 1 && n.z <= 1) on++;
+        }
+        if (on >= 1) ge1++;
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      return { ge1 };
+    });
+    visRows.push({ n: c.n, ge1: s.ge1 });
+  }
+  /* 门槛按实测定的：四朝向实测 3/10/5/7（第一版是 0/0/0/0）。
+     每朝向 ≥2/20 秒、且**至少两个朝向** ≥4/20 秒 —— 后者防"又钉死在某个方向"。 */
+  const okPer = visRows.filter(v => v.ge1 >= 2).length;
+  const goodDirs = visRows.filter(v => v.ge1 >= 4).length;
+  check('大雁：池边抬头能看到（每朝向 20 秒内 ≥2 秒有雁入画）', okPer >= 3,
+    visRows.map(v => `${v.n} ${v.ge1}/20秒`).join('、'));
+  check('大雁：航线不只对一个朝向有效（≥2 个朝向 20 秒里 ≥4 秒能看到）', goodDirs >= 2,
+    `达标朝向 ${goodDirs}/4（${visRows.map(v => `${v.n}:${v.ge1}`).join(' ')}）`);
 
   /* ══ ③ 小鸟：落点贴面 + 行为 + 颜色 ═════════════════════════════════ */
   const birds = await page.evaluate(async () => {
