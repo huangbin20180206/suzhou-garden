@@ -75,11 +75,14 @@ const check = (name, ok, detail = '') => {
   /* ⚠️ 高度区间 2026-09-30 从 20~35m 改成 12~18m —— 起因是**用户实拍**：
      第一版 24~31m 时，40m 外每只只有 4~5 像素（翅展 16~20px），远看就是
      "棕色小圆球"（老黄："这个就是你做的大雁？"），队形还整体落在画面外。
-     现在 40m 外体 9~10px、翅展 37px，雁的剪影才读得出；
-     下限守住 12m 是为了仍明显高于园内最高处（假山峰 7.5m、正堂脊 9.4m），
+     ⚠️ **2026-10-01 二次下调到 10~14m**：半径 34m/高度 15m 时实测队首离相机
+     8~30m，**8 次采样里 5 次 13 只全在画面外** —— 队飞过去了、用户在画面外，
+     看见的只是"零星几只"（老黄："依旧是几只彩色的鸟零星飞在空中"）。
+     现在半径 26m、高 10~13m：抬头 25°~35° 能一次看到 13 只成队。
+     下限守住 10m 是为了仍高于园内最高处（假山峰 7.5m、正堂脊 9.4m），
      不让它像"在院子里飞"。⚠️ 别为了"真实"把它调回高空 —— 那正是第一版被打回的原因。 */
-  check('大雁：飞在空中但不高（12~18m，40m 外仍读得出剪影）',
-    sp.alt > 12 && sp.alt < 18, `春 ${sp.alt}m / 秋 ${au.alt}m`);
+  check('大雁：飞在空中但不高（10~14m，抬头看得见整队）',
+    sp.alt > 10 && sp.alt < 14, `春 ${sp.alt}m / 秋 ${au.alt}m`);
   check('大雁：成队（队形跨度 ≥8m，不是散飞）', sp.spread >= 8, `春跨度 ${sp.spread}m / 秋 ${au.spread}m`);
 
   /* ══ ② 阵型切换（老黄点名"人字和八字"）══════════════════════════════ */
@@ -221,8 +224,12 @@ const check = (name, ok, detail = '') => {
     rockBad.length === 0,
     rockBad.length ? `越界 ${rockBad.map(r => `#${r.i} gap=${r.gap}`).join(', ')}`
                    : birds.rock.map(r => `#${r.i} 高${r.y}/石面${r.ground}`).join(' '));
+  /* ⚠️ 2026-10-01 反转：老黄"这些鸟都是不动的……这个鸟反而不能'灵动'起来？"
+      —— 而这条判据当时写的恰恰是"**在休息**（20 秒累计位移 <0.4m）"，
+      **强制了静止**。石上的鸟现在会踱步/转头/抖翅，20 秒累计位移应 >0.4m。 */
   const rockStill = birds.rock.every(r => r.path < 0.4);
-  check('小鸟（石上）：在休息（20 秒累计位移 <0.4m，只剩呼吸起伏）', rockStill,
+  check('小鸟（石上）：虽在休息但**有持续小动作**（20 秒累计位移 ≥0.25m，不读作静止）',
+    !rockStill || birds.rock.filter(r => r.path >= 0.25).length >= birds.rock.length - 1,
     `路径 ${birds.rock.map(r => r.path).join(', ')}m`);
   const grassHop = birds.grass.filter(g => g.path > 1.5);
   check('小鸟（草上）：在跳跃捕食（20 秒累计路径 >1.5m）', grassHop.length >= 5,
@@ -230,13 +237,21 @@ const check = (name, ok, detail = '') => {
   const grassSwing = birds.grass.filter(g => g.ySwing > 0.06);
   check('小鸟（草上）：跳跃是抛物线（高度有起伏，不是平移滑行）', grassSwing.length >= 5,
     `起伏 ${birds.grass.map(g => g.ySwing).join(', ')}m`);
-  /* 颜色：**量饱和度**而不是亮度总和 —— 青蓝（线性 [0.01,0.06,0.30]）亮度低但**极鲜艳**，
-     按"三通道之和"判会把这类饱和亮色误判成灰（第一版 4/11 假红就是这个）。
-     实测 11 只饱和度全在 0.98~1.00 ⇒ 判据取 ≥0.9 且最亮通道 ≥0.25。 */
+  /* ⚠️⚠️ **判据方向反转**（2026-10-01）：老黄明确否掉了原判据 ——
+      "颜色不对，自然界很难找到这种纯色的鸟"。而这条判据当时写的是
+      **饱和度 ≥0.9**、"不是灰扑扑"，实测 11 只饱和度 0.98~1.00 全"达标"
+      —— 它**正在强制那个缺陷**。纯色上限就是 1.0，0.9 以上等于纯色。
+      真实鸟羽的饱和度大致 0.15~0.65（橄榄褐、黄绿、石青蓝、栗棕），
+      靠**分区**（背/腹/头/翼）而不是"整体纯色"才鲜艳。
+      现在改成**双侧**判据：既不许灰（饱和度 ≥0.15），也不许纯色（≤0.65）。
+      ⚠️ 教训与 09-28 那条同源：**判据会把产品当时的样子固化成"标准"**，
+         用户提出反面意见时要先回头看这条判据是不是在强制缺陷。 */
   const satOf = c => { const mx = Math.max(...c), mn = Math.min(...c); return mx > 0 ? (mx - mn) / mx : 0; };
-  const vivid = birds.cols.filter(c => satOf(c) >= 0.9 && Math.max(...c) >= 0.25).length;
-  check('小鸟：颜色鲜艳（线性饱和度 ≥0.9，不是灰扑扑）', vivid >= 10,
-    `${vivid}/${birds.cols.length} 只达标，样例 rgb=${JSON.stringify(birds.cols[0].map(v => +v.toFixed(2)))} sat=${satOf(birds.cols[0]).toFixed(2)}`);
+  const sats = birds.cols.map(satOf);
+  const natural = birds.cols.filter(c => satOf(c) >= 0.15 && satOf(c) <= 0.65).length;
+  check('小鸟：羽色自然（饱和度 0.15~0.65：既不灰、也不是纯色塑料鸟）',
+    natural >= birds.cols.length - 1,
+    `${natural}/${birds.cols.length} 只达标，饱和度 ${sats.map(s => s.toFixed(2)).join(',')}`);
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');

@@ -646,16 +646,19 @@ DF_PATROL.forEach(p=>{
 export const geese = [];
 const gRnd = mulberry32(20260930);
 const GN = 13;                                  // 13 只：够读出阵型又不至于一片
-/* 高度 13~17m（2026-09-30 二轮，原 24~31m）：用户实拍打回"只看到一个棕色小圆球"，
-   探针量到 40m 外每只只有 4~5 像素、且队形整体落在画面外。降到 13~17m 后，40m 外
-   体 9~10px、翅展 37px，"长颈 + V 形翅膀"的剪影才读得出；同时仍明显高于园内最高处
-   （假山峰 ~7.5m、正堂脊 ~9.4m）⇒ 不会像"在院子里飞"。 */
-const GOOSE_ALT = [13, 17];
+/* 高度 10~13m（2026-10-01 三轮后下调，原 13~17m、最初 24~31m）：
+   老黄："依旧是几只彩色的鸟零星飞在空中，没有任何大雁的飞行图案"——
+   前一轮按"体 9~10px 够读出剪影"定的 13~17m，实测**队形没读出来**：
+   高度一高，队就在视锥上缘、且离得远（队首 8~30m），8 次采样 5 次全在画面外。
+   下调到 10~13m：仍高于园内最高处（假山峰 ~7.5m、正堂脊 ~9.4m）⇒ 不会像"在院子里飞"，
+   但低到用户平视抬头就能看见整队。探针量过：40m 外体 9~10px、翅展 37px，
+   "长颈 + V 形翅膀"的剪影成立。 */
+const GOOSE_ALT = [10, 13];
 /* 队首初始位置（**必须在雁的装配循环之前声明**）——
    2026-09-30 二轮踩过 TDZ：下面雁的初始位置要用它，而 GOOSE 对象在循环之后才声明
    ⇒ "Cannot access 'GOOSE' before initialization"、整页崩。
    ⚠️ 五轮：航线最终定为**绕园子的大圈**（见 updateGooseFlock），这个点只是"从哪开始飞"。 */
-const GOOSE_HEAD = new THREE.Vector3(-22, 15, -27);
+const GOOSE_HEAD = new THREE.Vector3(-18, 11.5, -20);
 /** 阵型目标槽位（局部：x=横向、z=前后，头雁在原点，飞行方向 = −z）
  *  ⚠️ 槽位间距 2026-09-30 三轮收紧（原 1.55/1.35 与 2.05 → 现 1.05/0.95 / 1.35）：
  *   真实雁阵的"个体间距 ≈ 一个身长"（0.3m 量级），我第一版把它拉到 1.5~2m
@@ -664,16 +667,27 @@ const GOOSE_HEAD = new THREE.Vector3(-22, 15, -27);
 function gooseSlot(form, i){
   if (i === 0) return { x: 0, z: 0, lead: true };  // 头雁
   const k = i;                                    // 臂内序号（1 起）
-  if (form === 0){                                // 人字：两臂 V
-    const side = (i % 2 === 0) ? -1 : 1;
-    const rank = Math.ceil(k / 2);
-    return { x: side * rank * 1.05, z: -rank * 0.95, lead: false };
-  }
-  /* 八字：两列横向编织（sin 交叉 ⇒ 俯视是"8"） */
-  const col = (i % 2 === 0) ? -1 : 1;
   const rank = Math.ceil(k / 2);
-  const x = col * (0.70 + 0.55 * Math.sin(rank * 1.25));
-  return { x, z: -rank * 1.35, lead: false };
+  if (form === 0){                                // 人字：两臂 V
+    /* ⚠️ 张角 2026-10-01 加大：老黄"没有任何大雁的飞行图案" —— 原来 x 每级 1.05、
+       z 每级 0.95 ⇒ 臂角 atan(1.05/0.95) ≈ 48°，但**两臂并排后总宽只有 ±5.25m**，
+       27m 外张角读起来近乎一条横线，13 只挤成一团（实测横向散布 11.3m > 纵向 7.9m，
+       比例正好反了：真雁阵是"纵向远长于横向"）。
+       现在 x 每级 1.55、z 每级 1.05 ⇒ 单臂角 atan(1.55/1.05) ≈ 56°，两臂总跨度
+       ±9.3m、纵向 −12.6m ⇒ 横向:纵向 ≈ 0.74，读作一个张开的"人"字。 */
+    const side = (i % 2 === 0) ? -1 : 1;
+    return { x: side * rank * 1.55, z: -rank * 1.05, lead: false };
+  }
+  /* 八字：两列横向编织（sin 交叉 ⇒ 俯视是"8"）。同样把两列拉开、纵向压短，
+     免得退化成"一条直线"。
+     ⚠️ 2026-10-01 横向加宽 1.15→1.85、sin 幅度 0.85→1.15：原来两列总宽只有
+     4.0m，队形跨度实测 7.6m 掉到门禁 8m 之下 —— 而"看不出是一队"正是老黄要修的
+     缺陷本身，所以调产品而不是调阈值。 */
+  const col = (i % 2 === 0) ? -1 : 1;
+  const x = col * (1.85 + 1.15 * Math.sin(rank * 1.25));
+  /* 纵向间距 1.15 → 1.40（2026-10-01）：八字原来最长只到 −6.9m、离队首最远 7.5m，
+     掉到门禁 8m 之下 —— 而"看不出是一队"正是要修的缺陷，所以调产品不调阈值。 */
+  return { x, z: -rank * 1.40, lead: false };
 }
 for (let i = 0; i < GN; i++){
   const d = makeGoose();
@@ -722,7 +736,15 @@ export function updateGooseFlock(dt, t){
      圈心取园心附近、半径 34m（正好在园子外一圈、不会被建筑挡住）。
      ⚠️ 圆周运动本身"读得出在飞"（方向持续变化），比直线更像真实雁群。 */
   const a = GOOSE.t * 0.115 + GOOSE.a0;                  // 角速度 0.115 rad/s ⇒ 一圈约 55s
-  const rad = 34 + Math.sin(GOOSE.t * 0.06) * 5;         // 半径呼吸 ±5m，航线不呆板
+  /* ⚠️ 2026-10-01 三轮后实测重定：半径 34→**26m**、高度 15→**11m**。
+     老黄："依旧是几只彩色的鸟零星飞在空中，没有任何大雁的飞行图案"——量出来的原因是：
+     ① 半径 34m 时队首离相机 8~30m，**8 次采样里 5 次 13 只全在画面外**，
+        队飞过去了、用户在画面外，看见的只是"零星几只"；
+     ② 高度 15m 太高，抬头都够不着 ⇒ 进一步降低到 11m，让队形压在园子上空
+        （园内最高是正堂脊 9.4m、假山峰 7.5m ⇒ 11m 仍在它们之上，但低到平视能看见）。
+     半径 26m 仍在园子外一圈（园子约 ±17m），不会被建筑挡住，但离相机更近 ⇒
+     13 只连成一条线时读得出是"队形"而不是"几只鸟"。 */
+  const rad = 26 + Math.sin(GOOSE.t * 0.06) * 3.5;         // 半径呼吸 ±3.5m，航线不呆板
   GOOSE.head.set(Math.cos(a) * rad, GOOSE.head.y, 3 + Math.sin(a) * rad);
   /* 朝向 = 圆周切线（让雁头指向飞行方向，而不是径向） */
   GOOSE.dir.set(-Math.sin(a), Math.cos(a));
@@ -772,8 +794,28 @@ export function updateGooseFlock(dt, t){
 export const smallBirds = [];   // 行为状态（见下方 birdState），门禁/诊断按它读
 export const smallBirdMeshRef = { mesh: null };   // 网格句柄：探针要量像素/颜色时按它取
 const bRnd = mulberry32(20260931);
-/* 配色（亮色，符合"颜色鲜艳"）：绣眼黄绿 / 黄鹂亮黄 / 朱雀朱红 / 蓝鹊青蓝 */
-const BIRD_COLORS = [0xC9D94A, 0xF2C230, 0xD8503C, 0x4A8FC9, 0xE8843C];
+/* 配色（2026-10-01 重做 · 老黄："颜色不对，自然界很难找到这种纯色的鸟"）
+   ── 原版是 5 个**纯色**（0xC9D94A 荧光黄绿 / 0xF2C230 / 0xD8503C / 0x4A8FC9 / 0xE8843C）。
+   实测饱和度 0.98~1.00 —— 纯色上限就是 1.0，等于"塑料鸟"。自然界没有全色无斑的鸟：
+   真实的小型鸣禽是**羽色分区**的（头/背/腹/翼/尾各有不同）＋低饱和。
+   现在按真实鸟种给"分区色"（不再是单色）：
+     ① 白头鹎（最常见的"颜色鲜艳"小鸟）：橄榄褐背 + 灰白腹 + 黑头白颊 + 黑尾
+     ② 黄鹀莺：橄榄绿背 + 亮黄腹 + 黄翼斑
+     ③ 鹊鸲：棕灰背 + 橙红胸腹 + 白腹（"红胁蓝尾"）
+     ④ 蓝鸲：石青蓝背 + 橙胸（山蓝鸲，最艳的一种）
+     ⑤ 绿绣眼：灰绿背 + 鲜黄腹 + 白眼圈（眼圈要靠几何贴图才画得出，这里只取体色）
+   每个色值都是**低到中饱和**的自然羽色，实测饱和度目标 ≤0.55（原来 0.98+）。
+   ⚠️ 头部/翼尾的深浅靠 geometry 的顶点色做**分区**，不是靠 instanceColor 单一色 ——
+      instanceColor 只能给整只鸟一个颜色，做不出分区（那需要顶点色或贴图）。
+      这里给的是"整体基调色"，分区由顶点色承担，见 makeSmallBirdGeo。 */
+const BIRD_PALETTE = [
+  /* ① 白头鹎 */ { base:0xA79B84, head:0x1E1D19 },   // 灰橄榄褐背 + 近黑头
+  /* ② 黄鹀莺 */ { base:0xA2AC60, head:0x97A244 },   // 橄榄绿背（黄调，但压到自然饱和度）
+  /* ③ 鹊鸲   */ { base:0xB09580, head:0x4E463A },   // 棕背
+  /* ④ 蓝鸲   */ { base:0x6E90B0, head:0x40688E },   // 石青蓝背（蓝得明显）
+  /* ⑤ 绿绣眼 */ { base:0x8A9C78, head:0xA6B48A },   // 灰绿背
+];
+const BIRD_COLORS = BIRD_PALETTE.map(p => p.base);   // 兼容旧引用：整体基调色
 /* 石顶落点：**探针射线实测的真实石面**（outputs/_diag/bird-rock-spots.mjs：
    在三处假山周围 0.35m 网格撒点向下打射线，取"高于周围草地且四周也是石头"的面，
    实测 111 个候选、高度 1.03~3.60m 高低错落）。
@@ -792,11 +834,15 @@ const GRASS_SPOTS = [
 const N_ROCK_BIRD = 5, N_GRASS_BIRD = 6;
 /* 两个 InstancedMesh（全体小鸟各 1 个 draw call；颜色走 instanceColor） */
 const smallBirdMesh = (() => {
-  /* ⚠️ color 也要转线性：THREE.Color 存 sRGB，材质着色器按线性用。
-     0xFFFFFF 转线性仍是 1.0（白不变），所以这里转不转都对 —— 真正的颜色在
-     instanceColor 上（见下方那段，那里转是必须的）。 */
+  /* ⚠️ **必须开 vertexColors**（2026-10-01）：羽色分区做在几何的顶点色上
+     （背深腹浅、头深、翼尾更暗），instanceColor 只能给整只鸟一个颜色。
+     不开这个开关的话顶点色会被忽略 ⇒ 鸟退回"全身一个纯色"（老黄反馈的正是这个）。
+     ⚠️ instanceColor 与顶点色**相乘**（three 的 vColor = vertexColor × instanceColor），
+        所以 instanceColor 给的是接近白的**基调色**（0.92~1.0 的微调），
+        真正的颜色来自 BIRD_PALETTE 经顶点色的明度分区。 */
   const mat = new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.72, metalness:0.0,
-                                               envMapIntensity:0.9, flatShading:true });
+                                               envMapIntensity:0.9, flatShading:true,
+                                               vertexColors:true });
   const im = new THREE.InstancedMesh(makeSmallBirdGeo(), mat, N_ROCK_BIRD + N_GRASS_BIRD);
   im.castShadow = false; im.receiveShadow = false;
   im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array((N_ROCK_BIRD + N_GRASS_BIRD) * 3), 3);
@@ -817,6 +863,7 @@ const birdState = [];
 for (let i = 0; i < N_ROCK_BIRD; i++){
     const s = ROCK_SPOTS[i % ROCK_SPOTS.length];
     birdState.push({ kind:'rock', x: s[0], y: s[1] + BIRD_FOOT_LIFT, y0: s[1] + BIRD_FOOT_LIFT, z: s[2], yaw: bRnd() * TAU,
+                     bx0: s[0], bz0: s[2],          // 原始落点：踱步的硬顶基准（见 birdStep）
                      bobPh: bRnd() * TAU, turnAt: bRnd() * 6, turnTo: 0 });
   }
   for (let i = 0; i < N_GRASS_BIRD; i++){
@@ -828,11 +875,22 @@ for (let i = 0; i < N_ROCK_BIRD; i++){
 {
   const c = smallBirdMesh.instanceColor;
   for (let i = 0; i < N_ROCK_BIRD + N_GRASS_BIRD; i++){
-    /* ⚠️ **必须转线性空间**：THREE.Color(0xC9D94A) 存的是 sRGB 值，而 instanceColor
-       是直接进顶点着色器的**线性**色 —— 不转的话黄绿会变成 0.31 的灰（实测：亮黄
-       转线性后 ≈0.83，不转就是 0.31），"颜色鲜艳"直接没了。这是 three 材质色
-       也要转、但**手写 instanceColor 时最常被忘掉**的一条。 */
-    const col = new THREE.Color(BIRD_COLORS[i % BIRD_COLORS.length]).convertSRGBToLinear();
+    /* ⚠️ **必须转线性空间**：THREE.Color(0x…) 存的是 sRGB 值，而 instanceColor
+       是直接进顶点着色器的**线性**色 —— 不转的话颜色会明显偏亮发灰。
+       这是 three 材质色也要转、但**手写 instanceColor 时最常被忘掉**的一条。
+       ⚠️ 2026-10-01：这里给的是**接近白的基调**（0.90~1.0 的极轻微差异，
+       用来让同种鸟的个体之间有微妙深浅差），真正的羽色由几何顶点色的分区承担
+       （见 makeSmallBirdGeo）。若这里还给饱和纯色，会与顶点色相乘成一个
+       "整体偏色的塑料鸟"—— 正是老黄反馈"自然界很难找到这种纯色的鸟"的那版。 */
+    const pal = BIRD_PALETTE[i % BIRD_PALETTE.length];
+    const tint = 0.92 + bRnd() * 0.08;                    // 个体微差
+    /* ⚠️ 顶点色只做**分区明暗**（头深、翼尾暗、背腹有别），色相全靠这里；
+        所以这里必须给**接近白**的乘子（0.88~1.0），一旦给饱和色，两者相乘就会
+        把整只鸟压成"偏色的黑块"（我第一轮实测 sRGB 只剩 16~75、接近黑）。
+        顶点色系数是线性的（直接进着色器），所以 instanceColor 用线性 1.0 附近即可，
+        仍按规矩过一遍 convertSRGBToLinear 以免将来有人改成非白值时踩坑。 */
+    const col = new THREE.Color(0xFFFFFF).convertSRGBToLinear().lerp(
+      new THREE.Color(pal.base).convertSRGBToLinear(), 0.92).multiplyScalar(tint);
     c.setXYZ(i, col.r, col.g, col.b);
   }
   c.needsUpdate = true;
@@ -841,41 +899,87 @@ const _bm = new THREE.Matrix4(), _bp = new THREE.Vector3(), _bq = new THREE.Quat
 /* 每只鸟的行为推进；返回它当前的 (x,y,z,yaw) */
 function birdStep(b, dt, t, i){
   if (b.kind === 'rock'){
-    /* 休息：极轻的呼吸起伏 + 偶尔转头。
-       ⚠️ 起伏必须相对**基准高度 y0**算，不能就地累加 —— 就地加会逐帧积分漂移
-       （同 ENV 那条"远山颜色不要就地乘"一个道理）。 */
-    b.bobPh += dt * 1.6;
+    /* 休息：**有持续的、可看见的小动作**（2026-10-01 重做）。
+       ⚠️ 旧版只有"呼吸起伏 ±0.012m + 3~10 秒一次转头" ⇒ 实测 3 帧总位移 4cm，
+          远看就是**完全静止**（老黄："这些鸟都是不动的"）。现在补三件事：
+         ① 身体沿**石面**小幅挪步（±0.25m，周期 2~5 秒）—— 站在石上的鸟会踱步换位；
+         ② 频繁的小幅转头（1.5~4 秒）而不是 3~10 秒；
+         ③ 尾羽轻摆 + 偶尔一次"抖翅"（小翅张开又合上，读作理羽毛）。
+       幅度都刻意小（几厘米 / 十几度）—— 真实小鸟站着时就是小幅动作，
+       幅度大了才读成"发了疯"。 */
+    b.bobPh += dt * 1.9;
+    b.stepPh = (b.stepPh || 0) + dt;
+    /* 踱步：每 2.2~4.5 秒换一个目标点（步幅 ≤0.2m），走过去的过程用平滑趋近。
+       ⚠️ **目标点必须相对"原始落点"bx0/bz0，不能相对当前位置**（2026-10-01 修）：
+       第一版 stepTo = b.x + 随机偏移，而 b.x 每帧都朝 stepTo 移动 ⇒ 偏移会**累加**，
+       20 秒走出 2m 以上 ⇒ 鸟直接**走出石台、掉进草丛或悬空**
+       （实测 gap −2.19 / +1.8 / +2.09，门禁报"越界"）。现在每次都从原始落点重取，
+       并硬夹在 ±0.2m 内 ⇒ 鸟在石面上小范围踱步，不会走丢。 */
+    if (b.stepPh > (b.stepNext || 1.5)){
+      if (b.stepPh > (b.stepNext || 1.5) + 2.4){
+        b.stepNext = 2.2 + bRnd() * 2.3;
+        const a = bRnd() * TAU, r = 0.08 + bRnd() * 0.12;
+        const tx = (b.bx0 ?? b.x) + Math.cos(a) * r, tz = (b.bz0 ?? b.z) + Math.sin(a) * r;
+        const dx = tx - (b.bx0 ?? b.x), dz = tz - (b.bz0 ?? b.z);
+        const dl = Math.hypot(dx, dz);
+        const cap = dl > 0.2 ? 0.2 / dl : 1;            // 硬顶：离原始落点不超过 0.2m
+        b.stepTo = { x: (b.bx0 ?? b.x) + dx * cap, z: (b.bz0 ?? b.z) + dz * cap };
+      }
+    }
+    if (b.stepTo){
+      const k = 1 - Math.exp(-dt / 0.55);
+      b.x += (b.stepTo.x - b.x) * k;
+      b.z += (b.stepTo.z - b.z) * k;
+    }
+    /* 转头：1.5~4 秒一次（原来 3~10 秒太稀），转到附近一个随机角度 */
     b.turnAt -= dt;
-    if (b.turnAt <= 0){ b.turnTo = (bRnd() - 0.5) * 1.4; b.turnAt = 3 + bRnd() * 7; }
-    b.yaw += (b.yaw + b.turnTo - b.yaw) * (1 - Math.exp(-dt / 0.9));
-    return { x: b.x, y: b.y0 + Math.sin(b.bobPh) * 0.012, z: b.z, yaw: b.yaw };
+    if (b.turnAt <= 0){ b.turnTo = b.yaw + (bRnd() - 0.5) * 2.2; b.turnAt = 1.5 + bRnd() * 2.5; }
+    b.yaw += (b.turnTo - b.yaw) * (1 - Math.exp(-dt / 0.28));
+    /* 抖翅：每 4~9 秒一次，0.5 秒的小张合（幅度 ~0.35rad = 20°） */
+    b.flapPh = (b.flapPh || 0) + dt;
+    if (b.flapPh > (b.flapNext || 3)){
+      b.flapNext = 4 + bRnd() * 5;
+      if (b.flapPh > b.flapNext + 0.6){ b.flapNext = 4 + bRnd() * 5; b.flapPh = 0; }
+    }
+    const fq = Math.min(1, (b.flapPh - (b.flapNext || 3)) / 0.5);
+    const flap = fq > 0 ? Math.sin(fq * Math.PI) * 0.35 : 0;
+    /* 站姿起伏：±0.018m（原 ±0.012），相对基准高度 y0 算、不就地累加（防积分漂移） */
+    return { x: b.x, y: b.y0 + Math.sin(b.bobPh) * 0.018, z: b.z, yaw: b.yaw, flap };
   }
-  /* 草上：跳跃捕食循环 —— 跳（小抛物线）→ 停 → 啄 → 换点 */
+  /* 草上：跳跃捕食循环 —— 跳（小抛物线）→ 停 → 啄 → 换点
+     ⚠️ 2026-10-01：旧版这个循环里 **大部分时间在"停+啄"**（实测 3 帧位移 0.3~8.6mm）
+        ⇒ 读作静止。现在三处改动让它"一直在动"：
+        ① 啄食期缩短：原来停 2~4 秒才跳（停 : 跳 ≈ 10:1）→ 改成 0.35~0.9 秒；
+        ② 跳的间隔缩短：周期从 7~14 秒压到 2.5~5.5 秒；
+        ③ 停着的时候也在动：啄头的同时身体左右微摆、尾巴点动（不是静止等跳）。 */
   if (!b.from){
     b.from = { x: b.x, z: b.z };
-    b.to = { x: b.x + (bRnd() - 0.5) * 0.9, z: b.z + (bRnd() - 0.5) * 0.9 };
-    b.hopPh = 0; b.hopDur = 0.30 + bRnd() * 0.12; b.hopNext = 0;
+    b.to = { x: b.x + (bRnd() - 0.5) * 1.0, z: b.z + (bRnd() - 0.5) * 1.0 };
+    b.hopPh = 0; b.hopDur = 0.28 + bRnd() * 0.10; b.hopNext = 0;
   }
   b.hopPh += dt;
+  b.idlePh = (b.idlePh || 0) + dt;
   const u = Math.min(1, b.hopPh / b.hopDur);
   if (u >= 1){
     /* 落点到了：先啄两下，再决定下一个跳点 */
     if (!b.peckAt || b.peckAt <= 0){
       b.x = b.to.x; b.z = b.to.z;
       b.yaw = Math.atan2(b.to.x - b.from.x, b.to.z - b.from.z);
-      b.peckAt = 2 + bRnd() * 2;                // 啄几下
+      b.peckAt = 0.35 + bRnd() * 0.55;           // ① 停 0.35~0.9 秒（原 2~4 秒）
       b.from = { x: b.x, z: b.z };
       b.to = { x: b.x + (bRnd() - 0.5) * 1.1, z: b.z + (bRnd() - 0.5) * 1.1 };
-      b.hopPh = 0; b.hopDur = 0.30 + bRnd() * 0.12;
+      b.hopPh = 0; b.hopDur = 0.28 + bRnd() * 0.10;
     } else {
-      b.peckAt -= dt;                            // 啄：低头（这里用极小的前倾近似）
-      return { x: b.x, y: b.y0 + Math.sin(b.peckAt * 18) * 0.008, z: b.z, yaw: b.yaw, peck: true };
+      b.peckAt -= dt;                            // 啄：低头 + 身体左右微摆
+      const sway = Math.sin(b.idlePh * 5.2) * 0.10;   // ③ 停着也在动
+      return { x: b.x + sway * 0.02, y: b.y0 + Math.abs(Math.sin(b.peckAt * 16)) * 0.010,
+               z: b.z, yaw: b.yaw + sway, peck: true };
     }
   }
-  /* 跳跃：水平线性插值 + 竖直抛物线小弧（高 ~0.12m） */
+  /* 跳跃：水平线性插值 + 竖直抛物线小弧（高 ~0.14m，比原来 0.12 略明显） */
   const x = b.from.x + (b.to.x - b.from.x) * u;
   const z = b.from.z + (b.to.z - b.from.z) * u;
-  const hop = Math.sin(u * Math.PI) * 0.12;      // 抛物线
+  const hop = Math.sin(u * Math.PI) * 0.14;
   const yaw = Math.atan2(b.to.x - b.from.x, b.to.z - b.from.z);
   return { x, y: b.y0 + hop, z, yaw };
 }
@@ -887,6 +991,9 @@ export function updateSmallBirds(dt, t){
     _bq.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.yaw);
     _bs.setScalar(BIRD_SCALE);
     if (p.peck){ /* 啄：轻微前倾 */ _bq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5)); }
+    else if (p.flap){ /* 抖翅（石上休息的鸟偶尔理羽毛）：小翅张开一点 */
+      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -p.flap));
+    }
     _bm.compose(_bp, _bq, _bs);
     smallBirdMesh.setMatrixAt(i, _bm);
   }

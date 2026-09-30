@@ -398,37 +398,76 @@ export function makeGoose(){
   return g;
 }
 
-/* ══ 鲜艳小鸟（2026-09-30 · "假山石和草皮中随机增加颜色鲜艳的小鸟"）══════════
-   两种行为共用一套几何：**体+头+喙+尾+翅**合成 1 个网格（不做单件动画 ⇒ 可以整体合并），
-   颜色用 instanceColor 逐只不同（绣眼的黄绿 / 黄鹂的亮黄 / 朱雀的朱红 / 蓝鹊的青蓝）。
+/* ══ 鲜艳小鸟（2026-09-30 · "假山石和草皮中随机增加颜色鲜艳的小鸟"；
+      2026-10-01 改成**分区羽色** + 会动）
+   两种行为共用一套几何：**体+头+喙+尾+翅**合成 1 个网格（不做单件动画 ⇒ 可以整体合并）。
+   ── 2026-10-01 改动：给几何加**顶点色分区**。理由：instanceColor 只能给整只鸟一个颜色，
+      做不出"背深腹浅、头黑尾白"���自然界没有全色无斑的鸟（老黄："颜色不对，
+      自然界很难找到这种纯色的鸟"。实测原版饱和度 0.98~1.00 = 纯色上限）。
+      分区规则按真实鸟种：**背/体=基调色、头=头色、腹=腹色、翅=翼色、喙=暗灰、尾=深色**。
+      顶点色与 instanceColor 相乘（shader 端 vertexColors + instanceColor 都开），
+      所以 instanceColor 仍可逐只微调（乘一个接近白的色调），保持"每只略有差异"。
    ⚠️ 尺寸：体长约 0.115m —— 真实小鸟就这个量级；园子里"点景人物"是 1.6m 的剪影，
       小鸟要比它小一个数量级才对得起尺度。 */
 export function makeSmallBirdGeo(){
   const L = 0.062, R = 0.030;
+  /* 每个部件的分区键：body / head / beak / tail / wing */
   const parts = [];
+  const tagged = [];
+  const add = (geo, tag) => { parts.push(geo.toNonIndexed()); tagged.push(tag); };
+
   const body = new THREE.SphereGeometry(1, 9, 7);
   body.scale(R, R * 0.92, L);                 // 胖一点的纺锤（ Sparrow 体型）
-  parts.push(body);
+  add(body, 'body');
   const head = new THREE.SphereGeometry(R * 0.74, 8, 6);
   head.translate(0, R * 0.52, L * 0.78);
-  parts.push(head);
+  add(head, 'head');
   const beak = new THREE.ConeGeometry(R * 0.22, L * 0.36, 4);
   beak.rotateX(Math.PI / 2);
   beak.translate(0, R * 0.50, L * 1.06);
-  parts.push(beak);
+  add(beak, 'beak');
   const tail = new THREE.ConeGeometry(R * 0.62, L * 0.72, 4);
   tail.rotateX(-Math.PI / 2);
   tail.scale(1, 0.34, 1);                    // 压扁成尾羽片
   tail.translate(0, R * 0.12, -L * 1.05);
-  parts.push(tail);
+  add(tail, 'tail');
   /* 折起的小翅：贴体两侧一片，远看是"身体有厚度"而不是光球 */
   for (const sx of [-1, 1]){
     const w = new THREE.SphereGeometry(1, 7, 5);
     w.scale(R * 0.30, R * 0.62, L * 0.62);
     w.translate(sx * R * 0.86, R * 0.06, -L * 0.06);
-    parts.push(w);
+    add(w, 'wing');
   }
-  const g = mergeGeometries(parts.map(p => p.toNonIndexed()), false);
+  const g = mergeGeometries(parts, false);
+  /* 顶点色：按部位分区。写 1.0 的槽位保持"由 instanceColor 决定"，
+     写实际分色的槽位则与 instanceColor 相乘（所以 instanceColor 要给接近白的基调）。
+     ⚠️ 顶点色存**线性**空间（直接进顶点着色器），而 BIRD_PALETTE 的 hex 是 sRGB
+        ⇒ 必须 convertSRGBToLinear，否则深色部位会明显偏亮、像没上色。 */
+  {
+    const pos = g.attributes.position;
+    const nrm = g.attributes.normal;
+    const col = new Float32Array(pos.count * 3).fill(1);
+    const ZONE = { body: 'base', head: 'head', beak: 'beak', tail: 'tail', wing: 'wing' };
+    let vi = 0;
+    for (let k = 0; k < tagged.length; k++){
+      const n = parts[k].attributes.position.count;
+      const key = ZONE[tagged[k]];
+      for (let j = 0; j < n; j++, vi++){
+        if (key === 'beak'){ col[vi*3] = 0.55; col[vi*3+1] = 0.52; col[vi*3+2] = 0.48; continue; }
+        if (key === 'tail'){ col[vi*3] = 0.42; col[vi*3+1] = 0.42; col[vi*3+2] = 0.44; continue; }
+        /* body / wing / head：由 instanceColor 的基调 × 部位系数做分区
+           —— 头略深（0.55）、翼很深（0.42）、背中等（1.0）、腹部浅（1.35）。
+           腹浅靠"身体下半球"判定（顶点 y < 0 的一半），这正是真实鸟"背深腹浅"的由来。 */
+        const y = pos.getY(vi);
+        let f = key === 'head' ? 0.55 : key === 'wing' ? 0.42 : 1.0;
+        if (key === 'body' && y < 0) f = 1.42;             // 腹部提亮
+        if (key === 'body' && y > R * 0.2) f = 0.82;      // 背部压暗
+        col[vi*3] = f; col[vi*3+1] = f; col[vi*3+2] = f;
+      }
+    }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    void nrm;
+  }
   parts.forEach(p => p.dispose());
   return g;
 }
