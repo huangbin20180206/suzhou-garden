@@ -20,7 +20,9 @@
 /* 2026-09-30 撤池边大荷花批次 bump v8→v9：改了 SHELL 成员 index.html —— 内联主模块的
    import 清单里删掉已不存在的 GLB_LOTUS_STEM_H（漏改会 ESM 链接报错、页面停在加载页，
    实测正是这么炸的：check 只查语法、不查模块链接）。 */
-const CACHE = 'suzhou-garden-v9';
+/* 2026-09-30 荷花回归批次 bump v9→v10：GLBS 预缓存清单恢复 LotusPlant.glb
+   （老黄："之前有个版本有好多株树立的荷花，虽然有点假但是至少能看"）。 */
+const CACHE = 'suzhou-garden-v10';
 const SHELL = [
   './',
   './index.html',
@@ -30,8 +32,9 @@ const SHELL = [
   './docs/cover.jpg',       // 水墨封面：loading 层要离线可见，归入应用壳
 ];
 const GLBS = [
-  /* 2026-09-30：LotusPlant.glb 下线（池边荷花改程序化），此处与 13-preload 同步移除。 */
+  /* 2026-09-30 三轮：LotusPlant.glb 回归（与 13-preload 同步；沿革见 08 的注释）。 */
   './assets/BananaPlant.glb',
+  './assets/LotusPlant.glb',
   './assets/koi.glb',
   './assets/Turtle.glb',
 ];

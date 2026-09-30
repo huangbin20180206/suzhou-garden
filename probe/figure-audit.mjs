@@ -124,14 +124,14 @@ fs.mkdirSync(shotsDir, { recursive: true });
      挂上之后同一束射线被荷叶挡住，机位就跳到别的方位去。
      实测同一份代码两次跑分别落在 `(1.21,1.82,0.75)` 与 `(-3.11,1.82,-1.04)` —— 两版样张不可比。 */
   const glbReady = await page.waitForFunction(() => {
-    let banana = 0;
+    let lotus = 0, banana = 0;
     window.__garden.scene.traverse(o => {
       if (!o.isMesh) return;
-      if (o.name === 'BananaPlant') banana++;
+      if (o.name === 'LotusPlant') lotus++;
+      else if (o.name === 'BananaPlant') banana++;
     });
-    /* 2026-09-30：LotusPlant.glb 已删（a08bde0）、池边大荷花整体撤下 ——
-       只剩芭蕉要等；旧"lotus >= 12"条件会永远超时。 */
-    return banana >= 8 ? { banana } : false;
+    /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄要回"树立的荷花"）⇒ 恢复等荷花+芭蕉。 */
+    return lotus >= 12 && banana >= 8 ? { lotus, banana } : false;
   }, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   check('取景前异步 GLB 到齐（否则机位求解不确定）', !!glbReady,
     glbReady ? JSON.stringify(glbReady) : '超时未齐 —— 下面的机位可能换方位，样张与上次不可比');

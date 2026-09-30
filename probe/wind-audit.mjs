@@ -56,14 +56,16 @@ const check = (name, ok, detail = '') => {
      上一版固定等 8 秒正好卡在临界点上，同一份代码两次跑一次看得到一次看不到，
      误报"GLB 资产没进风场"。改为轮询到齐。 */
   const ready = await page.waitForFunction(() => {
-    let banana = 0;
+    let lotus = 0, banana = 0;
     window.__garden.scene.traverse(o => {
       if (!o.isMesh) return;
-      if (o.name === 'BananaPlant') banana++;
+      if (o.name === 'LotusPlant') lotus++;
+      else if (o.name === 'BananaPlant') banana++;
     });
-    /* 2026-09-30：LotusPlant.glb 已删（a08bde0）、池边大荷花整体撤下 ——
-       这里只剩芭蕉要等；原来"lotus >= 12"的条件会永远超时白等 120 秒。 */
-    return banana >= 8 ? { banana } : false;
+    /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄："之前有个版本有好多株树立的荷花，
+       虽然有点假但是至少能看"）⇒ 等待条件恢复成"荷花+芭蕉"（中间程序化/撤空两轮
+       曾删掉 lotus 条件；GLB 在不在，这里就是证据位）。 */
+    return lotus >= 12 && banana >= 8 ? { lotus, banana } : false;
   }, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   console.log(`\n[wind-audit] GLB 到齐：${ready ? JSON.stringify(ready) : '超时未齐（下面结果可能不完整）'}`);
 
@@ -121,10 +123,9 @@ const check = (name, ok, detail = '') => {
   /* GLB 荷花丛与芭蕉叶都是**带贴图**的材质（GLB 自带 map），程序化植被一律无贴图 ——
      所以"有 map + tip"就是这两类资产的指纹。 */
   const tipMapped = mats.filter(m => m.hasMap && m.mode === 'tip');
-  /* 2026-09-30：LotusPlant.glb 已删（a08bde0）——带贴图的 tip 材质只剩芭蕉叶一种，
-     旧判据"≥2"自那笔提交起就是必然红。 */
-  check('风场：GLB 资产（芭蕉叶，带贴图）已注入且走 tip 模式',
-        tipMapped.length >= 1, tipMapped.map(m => `amp=${m.amp}`).join(' ') || '无');
+  /* 2026-09-30 三轮：LotusPlant.glb 回归 ⇒ 带贴图的 tip 材质恢复两种（荷花丛+芭蕉叶）。 */
+  check('风场：GLB 资产（荷花丛/芭蕉叶，带贴图）已注入且走 tip 模式',
+        tipMapped.length >= 2, tipMapped.map(m => `amp=${m.amp}`).join(' ') || '无');
   /* 芭蕉叶幅度二轮定标（2026-09-17 用户："夸张到极致了"）：0.13→0.05。
      amp 0.13 时叶尖 ampEff ≈ 0.45m（12% 株高）= 抽搐；0.05 → ≈0.17m（4.5% 株高）。 */
   check('风场：芭蕉叶幅度 0.04~0.08（叶尖被风掀起量级，非抽搐）',
@@ -143,11 +144,9 @@ const check = (name, ok, detail = '') => {
   const capped  = mats.filter(m => m.inj && m.mode === 'tip' && m.maxDisp > 0);
   const aquatic = capped.filter(m => m.maxDisp <= 0.06);
   const bigLeaf = capped.filter(m => m.maxDisp > 0.06);
-  /* 2026-09-30：≥3 → ≥2 —— 第三个是 LotusPlant.glb 自带材质，a08bde0 删 GLB 时就没了
-     （那笔提交没跑本门，红潜伏到今天才被跑出来）。现行合法的两个：
-     #f2c7d4 荷花瓣（MAT.lotus）+ #3e7a34 睡莲叶/杆（MAT.lily）。 */
+  /* 2026-09-30 三轮：GLB 回归 ⇒ 水生 tip 材质恢复 ≥3（荷花丛自带 + 荷花瓣 + 睡莲叶/杆）。 */
   check('风场：水生植物（tip 模式）位移有硬上限且 ≤6cm',
-        aquatic.length >= 2 && aquatic.every(m => m.maxDisp <= 0.06),
+        aquatic.length >= 3 && aquatic.every(m => m.maxDisp <= 0.06),
         aquatic.map(m => `${m.amp}/上限${m.maxDisp}`).join(' '));
   check('风场：芭蕉大叶位移硬上限 ≤22cm',
         bigLeaf.length >= 1 && bigLeaf.every(m => m.maxDisp <= 0.22),
