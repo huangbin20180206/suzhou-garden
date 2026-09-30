@@ -22,7 +22,9 @@
    实测正是这么炸的：check 只查语法、不查模块链接）。 */
 /* 2026-09-30 荷花回归批次 bump v9→v10：GLBS 预缓存清单恢复 LotusPlant.glb
    （老黄："之前有个版本有好多株树立的荷花，虽然有点假但是至少能看"）。 */
-const CACHE = 'suzhou-garden-v10';
+/* 2026-09-30 补杆批次 bump v10→v11：又改了 SHELL 成员 index.html（内联主模块的
+   import 清单恢复 GLB_LOTUS_STEM_H）。 */
+const CACHE = 'suzhou-garden-v11';
 const SHELL = [
   './',
   './index.html',
