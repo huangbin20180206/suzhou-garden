@@ -232,11 +232,11 @@ const check = (name, ok, detail = '') => {
         swung.every(s => s.botShift > 0.01 && s.lampShift > s.botShift),
         swung.map(s => `${s.topShift}<${s.botShift}<${s.lampShift}`).join(' '));
 
-  /* ── 4 · 池面叶盘（2026-09-30 重写）──
-     原本这两条断言的是"程序化杆高常量 vs GLB 花位下限""GLB 丛顶 ≈2.0m" ——
-     GLB 在 a08bde0 已删、池边大荷花在 2026-09-30 二轮整体撤下（只剩叶盘），
-     两条都成了必然红的死判据。换成守**现行不变量**：池面叶盘全部落在池内
-     （旧版大荷花叶盘没走夹回，实测 5 片在岸上 —— 老黄："睡莲又到草皮上了"）。 */
+  /* ── 4 · 池面叶盘（2026-09-30 三轮升级：量"边缘越岸"，不只量中心）──
+     二轮判据只查中心在池内 ⇒ 漏掉"中心在池里、边缘探上岸"（老黄："还有睡莲
+     长到草皮上的bug没有修"—— 实测 2 片越岸 0.39/0.18m，正是中心在 0.85×岸线内）。
+     三轮把 clampAquaticToPond 升级成按边缘收，这里同步升级判据：
+     逐片算 叶盘半径 −（岸线 − 中心距），>5cm 即越岸。 */
   const padsInPond = await page.evaluate(() => {
     const g = window.__garden, THREE = g.THREE;
     const pads = [];
@@ -245,16 +245,29 @@ const check = (name, ok, detail = '') => {
       const m = new THREE.Matrix4(), v = new THREE.Vector3();
       for (let i = 0; i < o.count; i++){
         o.getMatrixAt(i, m); v.setFromMatrixPosition(m).applyMatrix4(o.matrixWorld);
-        pads.push([+v.x.toFixed(2), +v.z.toFixed(2)]);
+        pads.push({ x: v.x, z: v.z, r: m.getMaxScaleOnAxis() * 0.62 });
       }
     });
-    const inPond = pads.filter(p => g.insidePond(p[0], p[1] - 3.0));   // insidePond 吃池局部坐标（池心世界 z=+3）
-    return { n: pads.length, inPond: inPond.length, onLand: pads.length - inPond.length,
-             ex: pads.filter(p => !g.insidePond(p[0], p[1])).slice(0, 3) };
+    const RADII = g.POND_RADII, N = RADII.length;
+    let inP = 0, onLand = 0, overN = 0, worst = 0;
+    const ex = [];
+    for (const p of pads){
+      const lx = p.x, lz = p.z - 3.0;               // insidePond/岸线都吃池局部坐标（池心世界 z=+3）
+      if (g.insidePond(lx, lz)) inP++;
+      else { onLand++; if (ex.length < 3) ex.push([+p.x.toFixed(2), +p.z.toFixed(2)]); }
+      let a = Math.atan2(lz, lx); if (a < 0) a += Math.PI * 2;
+      const ri = Math.min(N - 1, Math.floor(a / (Math.PI * 2) * N));
+      const over = p.r - (RADII[ri] - Math.hypot(lx, lz));
+      if (over > 0.05){ overN++; worst = Math.max(worst, over); if (ex.length < 5) ex.push(`越${over.toFixed(2)}m@(${p.x.toFixed(1)},${p.z.toFixed(1)})`); }
+    }
+    return { n: pads.length, inP, onLand, overN, worst: +worst.toFixed(2), ex };
   });
-  check('池面叶盘：全部落在池内（睡莲不上岸）', padsInPond.onLand === 0,
-        `叶盘 ${padsInPond.n} 片：池内 ${padsInPond.inPond} / 岸上 ${padsInPond.onLand}` +
+  check('池面叶盘：中心全部在池内（睡莲不上岸）', padsInPond.onLand === 0,
+        `叶盘 ${padsInPond.n} 片：池内 ${padsInPond.inP} / 中心在岸上 ${padsInPond.onLand}` +
         (padsInPond.ex.length ? `，例 ${JSON.stringify(padsInPond.ex)}` : ''));
+  check('池面叶盘：边缘不越岸线 >5cm（中心判据防不住的那种）', padsInPond.overN === 0,
+        `越岸 ${padsInPond.overN} 片，最大越 ${padsInPond.worst}m` +
+        (padsInPond.overN ? `，例 ${JSON.stringify(padsInPond.ex)}` : ''));
 
   /* ── 4b · 杆高必须盖住花底（2026-09-30 四轮恢复 —— 这条判据防的就是本次的病）──
      GLB 荷花丛的几何里**没有茎**（花与叶分别烘进网格，0~1.7m 之间是空的），

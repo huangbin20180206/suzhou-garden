@@ -186,12 +186,15 @@ export function makePondPads(spots){
     for (let k = 0; k < padsPer; k++){
       const a = jr() * TAU, rad = 0.45 + jr() * 1.15;
       let wx = sp.x + Math.cos(a) * rad, wz = sp.z + Math.sin(a) * rad * 0.85;
-      /* 落点抽完再夹回 0.85×岸线内（不重抽 —— 同 makeAquatic 的做法与理由） */
-      const cl = clampAquaticToPond(0, 0, wx, wz);
+      /* 落点抽完再夹回（不重抽 —— 同 makeAquatic 的做法与理由）。
+         edge = 这片叶盘的真实半径（jr 流是本函数私有的，先抽 scale 再夹回不碍事）——
+         2026-09-30 二轮：0.85×岸线只管中心，池腰窄处兜不住边缘（见 clamp 注释）。 */
+      const sc = (0.9 + jr() * 0.7) * sp.s;
+      const cl = clampAquaticToPond(0, 0, wx, wz, sc * 0.62);
       wx = cl.x; wz = cl.z;
       p.set(wx, CFG.water + 0.075 + jr() * 0.02, wz);
       q.setFromAxisAngle(AY, jr() * TAU);
-      s.setScalar((0.9 + jr() * 0.7) * sp.s);
+      s.setScalar(sc);
       m.compose(p, q, s);
       pads.setMatrixAt(slot++, m);
     }
@@ -760,14 +763,19 @@ function installLilyCorridor(mat){
    makeAquatic 的散布只是个压扁的粗略椭圆、不贴池形 ⇒ 个别叶/花越过岸线。
    落点在**抽完角度/半径之后**就地夹回 0.85×岸线内。
    ⚠️ 绝不能"丢弃重抽"：重抽会多消耗全局随机流，其后全场抽样整体错位（铁律 1）。
-   夹回不消耗任何随机数，全局流的位置一位不动（改的只是落点值）。 */
-function clampAquaticToPond(gx, gz, px, pz){
+   夹回不消耗任何随机数，全局流的位置一位不动（改的只是落点值）。
+   2026-09-30 二轮（老黄："还有睡莲长到草皮上的bug没有修"）：0.85×岸线只保证
+   **中心**在池里 —— 池腰窄处（岸线 ~4m）15% 只有 0.6m，兜不住叶盘半径（最大 0.775m）
+   ⇒ 实测 2 片边缘越岸 0.39/0.18m。cap 取 min(0.85×岸线, 岸线 − edge − 0.1)：
+   宽处 0.85 仍较小（行为不变），窄处按**边缘**收。edge= 物体自身半径（调用方给）。 */
+function clampAquaticToPond(gx, gz, px, pz, edge = 0){
   const lx = gx + px, lz = gz + pz - 3.0;        // 世界 → 池局部（池心世界 z=+3）
   const r = Math.hypot(lx, lz);
   if (r < 1e-6) return { x: px, z: pz };
   let a = Math.atan2(lz, lx); if (a < 0) a += TAU;
   const ri = Math.min(POND_RADII.length - 1, Math.floor(a / TAU * POND_RADII.length));
-  const cap = POND_RADII[ri] * 0.85;             // 0.85×岸线：叶盘离岸留 ~15% 观感余量
+  const shore = POND_RADII[ri];
+  const cap = Math.min(shore * 0.85, Math.max(0, shore - edge - 0.10));
   if (r <= cap) return { x: px, z: pz };
   const k = cap / r;
   return { x: lx * k - gx, z: lz * k + 3.0 - gz };
@@ -789,8 +797,14 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
     const a = rr(0, TAU), rad = Math.sqrt(rnd()) * radius;
     let px = Math.cos(a)*rad, pz = Math.sin(a)*rad * 0.72;
     /* 2026-09-28：先夹回池内（岸上的落点沿"池心→落点"方向拉回 0.85×岸线内，
-       随机数已抽完、不重抽），再走下面的汀步让位 —— 顺序对随机流的消耗无影响。 */
-    const cl = clampAquaticToPond(x, z, px, pz); px = cl.x; pz = cl.z;
+       随机数已抽完、不重抽），再走下面的汀步让位 —— 顺序对随机流的消耗无影响。
+       2026-09-30：edge 参 —— 0.85 只保证**中心**在池里；池腰窄处（岸线 ~4m）0.15×岸线
+       只有 0.6m，兜不住最大 0.775m 的叶盘半径 ⇒ 边缘探上岸（实测 2 片越 0.39/0.18m，
+       老黄："睡莲长到草皮上"）。取 min(0.85×岸线, 岸线 − 叶盘半径 − 0.1)：
+       宽处行为不变（0.85 仍是较小值），窄处按边缘收。
+       ⚠️ 叶盘 scale 的 rr(0.62,1.25) 在这之后才抽 —— 不能为拿"每片真实半径"去动抽数顺序
+          （错位=全场景布局漂移，铁律 1），这里按最大可能半径 0.775 保守收。 */
+    const cl = clampAquaticToPond(x, z, px, pz, 0.775); px = cl.x; pz = cl.z;
     /* ⚠️ 汀步在 z≈5.6 的一条直线上（见 makeSteppingStones），叶盘压上去必然与石板穿模
        （用户实拍：石板从叶盘中间穿出来）。这里按**标称石位**让开 0.8m ——
        不去引用那块列表，是因为它的随机数消耗顺序不能动（一动整场景的随机布局都会变）。 */
@@ -825,8 +839,9 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
     const a = rr(0, TAU), rad = Math.sqrt(rnd()) * radius * 0.92;
     let fx = Math.cos(a)*rad, fz = Math.sin(a)*rad*0.72;
     /* 2026-09-28：与叶盘同款夹回池内（见 clampAquaticToPond 注释）—— 否则岸上的
-       落点会出现"草坡上一根孤零零的花梗"（老黄截图）。 */
-    const cf = clampAquaticToPond(x, z, fx, fz); fx = cf.x; fz = cf.z;
+       落点会出现"草坡上一根孤零零的花梗"（老黄截图）。
+       2026-09-30 二轮：edge 传花头半径量级（茎细、花头 ~0.12），窄处按边缘收。 */
+    const cf = clampAquaticToPond(x, z, fx, fz, 0.10); fx = cf.x; fz = cf.z;
     /* ⚠️ 花梗高度必须**高过睡莲叶盘**：叶盘顶部在 0.21，原来最低 0.2 的花
        等于坐在叶子上，0.2m 的杆被 1.5m 宽的叶子完全挡住（用户："荷花几乎没有杆撑着"）。 */
     const fy = CFG.water + rr(0.48, 1.08);        // 花朵高低错落（下限抬到叶盘之上）
