@@ -62,6 +62,37 @@ try {
     }
     console.log(`      PWA：sw.js 语法 OK · 缓存版本 ${ver} · cache-first 资产（${frozen.length} 件）未越过版本号 ✓`);
   }
+  /* ── 未定义标识符门禁（no-undef · 2026-10-02 · ESLint flat config）──
+     病因（src/08-assemble.js 实录）：`b.preen` 误写成 `b.peen`，undefined*13 产 NaN，
+     被 `p.yaw = b.yaw + (b.yawOff || 0)` 的 `||0` 静默吃掉 —— 语法门（--check）全绿，
+     53 道浏览器门禁也全绿，只有那个动作消失。本层用 ESLint no-undef 做**真·作用域分析**：
+     裸用未定义标识符（忘 import 的模块名 / 写错的变量名 / 给未声明变量赋值）在此报红，
+     它们运行期要么 ReferenceError、要么产 NaN 被 `||0` 之类静默吞掉 —— 两样都看不见。
+     范围：src/*.js + index.html 内联主模块（lintText 以虚拟文件名 index-inline.mjs 喂入，
+     flat config 里有对应 files 条目）+ build-entry.js + sw.js。配置：eslint.config.mjs。
+     ⚠️ 边界（如实声明）：**属性链上的拼写**（`b.peen` 是属性访问）不归本层管 ——
+     no-undef 只判"标识符是否声明过"，不判"对象的属性存不存在"；那要另做
+     "对象自身属性名校验"才抓得住，本层不装能抓。
+     ⚠️ eslint 是 devDependency，而本机 npm 配置 omit=dev：普通 `npm install` 不装它。
+     缺件时这里**必须红**（门禁没牙 = 没有门禁），并给出复装命令。 */
+  {
+    let ESLint;
+    try { ({ ESLint } = await import('eslint')); }
+    catch {
+      throw new Error('no-undef 检查需要 eslint，但 node_modules 里没有（本机 npm 配置 omit=dev 会跳过 devDependencies）。跑一次 `npm install --include=dev` 再重试。');
+    }
+    const eslint = new ESLint({ cwd: ROOT });
+    const results = await eslint.lintFiles([...srcFiles.map(f => 'src/' + f), 'build-entry.js', 'sw.js']);
+    results.push(...await eslint.lintText(m[1], { filePath: 'index-inline.mjs' }));
+    const relOf = p => path.isAbsolute(p) ? path.relative(ROOT, p) : p;
+    const bad = [];
+    for (const r of results) for (const msg of r.messages)
+      if (msg.severity === 2) bad.push(`        · ${relOf(r.filePath)}:${msg.line}:${msg.column}  ${msg.message}  (${msg.ruleId})`);
+    if (bad.length) {
+      throw new Error(`no-undef：${bad.length} 处裸用未定义标识符（多为忘 import / 写错变量名，页面加载或运行期必炸，或被 ||0 之类静默吞掉）：\n` + bad.join('\n'));
+    }
+    console.log(`      no-undef：${results.length} 个编译单元（src ${srcFiles.length} + 内联主模块 + build-entry.js + sw.js）无未定义标识符 ✓`);
+  }
   const lines = m[1].split('\n').length;
   console.log(`check: PASS（内联模块 ${lines} 行 + build-entry.js + src ${srcFiles.length} 个模块：${srcFiles.join(', ')}）`);
 } catch (e) {
