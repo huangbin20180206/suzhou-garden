@@ -105,17 +105,51 @@ const check = (name, ok, detail = '') => {
   await setEnv('dusk', 'afterrain'); await settle();
   const rb = await rbUniform();
   check('彩虹：雨后初晴下虹强度 > 0', rb && rb.amount > 0.5, `amount=${rb && rb.amount}`);
-  /* 虹心方位必须**精确**在太阳的反方向（真实成因：背对太阳才看得到）。
-     ⚠️ 仰角**刻意偏离**了（"让彩虹在园林里看得见"的明确艺术性让步），
-     所以整体点积不再接近 −1：
-       · 2026-09-30：仰角 −8°~−12° ⇒ 点积 ≈ cos(10°) = −0.985，判据 ≤ −0.98；
-       · **2026-10-01 四轮后：仰角压到 −40°**（老黄要"一道跨越全园的宽拱"，
-         而默认机位俯视 −19.3°、只看得到 −42°~+4° 的天带，弧顶必须落进这条带）
-         ⇒ 点积 ≈ cos(40°) = −0.766，**实测 −0.889**。判据放宽到 ≤ −0.85。
-     ⚠️ **方位角那一部分仍严格不变**（uRainbowDir 的水平分量严格 = −uSunDir 的
-        水平分量，见 12-env 的 `su.uRainbowDir.value.set(-ax*ce, se, -az2*ce)`）——
-        放宽的只是"仰角偏离"这一项，不是"方向可以歪"。真彩虹仍然只能背对太阳看到。 */
-  check('彩虹：虹心在太阳的反方向（点积 ≤ −0.85）', rb && rb.dot <= -0.85, `dot=${rb && rb.dot}`);
+  /* ⚠️⚠️ **判据随产品形态一起改**（2026-10-01 第三轮，老黄："雨后初晴为啥彩虹没了"）。
+     这里原来守的是"虹心在太阳的反方向（点积 ≤ −0.85）" —— 那条守的是"虹的**方向**对不对"，
+     **守不住"用户看不看得见"**：方位严格锁死太阳反方向时，实测
+       dawn 默认机位 0 像素 / 「看彩虹」机位 0 像素
+       noon 默认机位 0 像素 / 「看彩虹」机位 0 像素
+     （虹环的两侧落在方位 ±90° 处，超出默认机位 ±35° 的水平视野 ⇒ 整条虹必然在画外）
+     而那两道点积判据当时**全绿** —— 又一个"判据把产品当时的样子固化成标准"
+     （同 09-28「判据只断下限会诱发调过头」、10-01「小鸟颜色判据在强制纯色鸟」）。
+     ⇒ 现在直接量**默认机位能不能看到虹**，三个时段各量一次。
+     下限 3000px（实测 17.7k~24.1k，余量 6~8 倍）只防"又整个看不见"；
+     同时要求虹的横向范围**在画面内**（x0>0 且 x1<100）—— 防"虹缩到画面某个角"。
+     ⚠️ 不再断"点积"：方位已明确改成固定的园子主视方位（见 12-env 的长注释），
+        那是"要看得见"与"背对太阳才看得到"之间的取舍，判据不该再把物理约束钉死。 */
+  for (const time of ['dawn', 'noon', 'dusk']){
+    await setEnv(time, 'afterrain');
+    await page.evaluate(() => { window.__garden.resetCamera && window.__garden.resetCamera(); });
+    await settle();
+    const vis = await page.evaluate(() => {
+      const G = window.__garden;
+      const sky = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
+                                          && o.material.uniforms.uRainbow);
+      const u = sky.material.uniforms;
+      const cv = document.createElement('canvas');
+      cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+      const ctx = cv.getContext('2d');
+      const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0);
+        return ctx.getImageData(0, 0, cv.width, cv.height); };
+      const keep = u.uRainbow.value;
+      grab();                                   // 预热一张（别让重编落在被测帧上）
+      const A = grab();
+      u.uRainbow.value = 0; grab(); const B = grab();
+      u.uRainbow.value = keep;
+      let hot = 0, x0 = 1e9, x1 = -1e9;
+      for (let y = 0; y < A.height; y++) for (let x = 0; x < A.width; x++){
+        const i = (y*A.width + x)*4;
+        const d = Math.abs(A.data[i]-B.data[i]) + Math.abs(A.data[i+1]-B.data[i+1]) + Math.abs(A.data[i+2]-B.data[i+2]);
+        if (d > 12){ hot++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
+      }
+      return { hot, pct: +(hot/(A.width*A.height)*100).toFixed(2),
+               x0: +(x0/A.width*100).toFixed(1), x1: +(x1/A.width*100).toFixed(1) };
+    });
+    check(`雨后初晴·${time}：默认机位能看到彩虹（>3000px 且横跨画面中部）`,
+      vis.hot > 3000 && vis.x0 > 0 && vis.x1 < 100 && vis.x0 < 40 && vis.x1 > 60,
+      `虹像素 ${vis.hot}（${vis.pct}%），横向 ${vis.x0}%~${vis.x1}%`);
+  }
   /* 夜间没有太阳也就没有虹（按 uStarAmount 门控） */
   await setEnv('night', 'afterrain'); await settle();
   const rbNight = await rbUniform();
