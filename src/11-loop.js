@@ -1667,6 +1667,10 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   lightningStrikeNow,
                   thunderState: () => Snd.thunder(),
                   perchingDragonflies, perchingAnchors, updatePerchingDragonflies,
+                  /* 游弋蜻蜓（2026-10-02）：legibility-guard 要"整组一句柄可整体隐藏"地量
+                     它在默认机位的像素贡献 —— 停栖的那组早已暴露，游弋的这组漏了
+                     （探针 [..G.dragonflies] 直接 not iterable）。 */
+                  dragonflies,
                   /* 大雁/小鸟（2026-09-30）：门禁要按季节数雁、按行为看小鸟，必须**显式暴露**
                      —— 靠 traverse 猜不到（体/翅都是无名的 Group）。 */
                   geese, GOOSE, smallBirds, smallBirdMeshRef,

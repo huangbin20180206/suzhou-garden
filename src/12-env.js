@@ -3135,10 +3135,17 @@ const EAVE_DRIP = (() => {
           （1 个 draw call；每片用自己的 scale 出椭圆、自己的 rotation 出朝向）。
    抖动用 Math.random —— 运行期效果，不吃布局流（铁律 1）。 */
 const PUDDLES = (() => {
+  /* ⚠️⚠️ **候选点的抖动必须走自己的种子流，绝不能用 Math.random**（2026-10-02，铁律 1 的
+     直接翻车案例）：本模块体在**装配期**跑，而 Math.random 同时被时序类代码（对象 UUID、
+     涟漪、音景）按帧消费 ⇒ "候选怎么抖"随加载时序变 ⇒ **实例网格的 count 都会漂**
+     —— 81 ←→ 78 片来回跳，layout-fingerprint 修好之后立刻被抓出来（连跑两次不一致）。
+     与 06/08 的既定规矩一致：布局/装配类走局部 mulberry32；运行期"每次不同"的效果
+     （每颗水珠落在檐口线哪个点）才用 Math.random。 */
+  const jr = mulberry32(20261002);
   const CAND = [];
   for (let x = -19; x <= 19.01; x += 2.7)
     for (let z = -7.6; z <= 16.61; z += 2.7){
-      const jx = x + (Math.random() - 0.5) * 1.8, jz = z + (Math.random() - 0.5) * 1.8;
+      const jx = x + (jr() - 0.5) * 1.8, jz = z + (jr() - 0.5) * 1.8;
       /* ⚠️ insidePond 吃**池局部坐标**（池心世界 (0,+3)）⇒ y 传 z−3 */
       if (insidePond(jx, jz - 3)) continue;
       CAND.push([jx, jz]);
@@ -3211,6 +3218,9 @@ function placePuddlesOnce(){
   const down = new THREE.Vector3(0, -1, 0);
   const nrm = new THREE.Vector3();
   const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), sv = new THREE.Vector3();
+  /* ⚠️ 每片的尺寸/朝向/长宽比也是**摆位决定** ⇒ 走自己的种子流（确定性就够，
+     不必与候选点那条流"续上" —— 那要数燃烧次数，反而更脆）。 */
+  const pj = mulberry32(20261003);
   let ok = 0;
   PUDDLES.im.visible = false;
   for (const [x, z] of PUDDLES.cand){
@@ -3232,10 +3242,10 @@ function placePuddlesOnce(){
     const mc = hit.object.material && hit.object.material.color;
     if (mc && mc.g > mc.r * 1.12 && mc.g > mc.b * 1.12){ PUDDLES.onGrass++; continue; }
     if (Math.hypot(hit.point.x - x, hit.point.z - z) > 3.5){ PUDDLES.missed++; continue; }
-    const R = 0.75 + Math.random() * 1.05;
+    const R = 0.75 + pj() * 1.05;
     p.set(hit.point.x, hit.point.y + 0.02, hit.point.z);
-    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * TAU);
-    sv.set(R, 1, R * (0.62 + Math.random() * 0.32));      // 每片自己的长宽比 ⇒ 不是一水儿的圆
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), pj() * TAU);
+    sv.set(R, 1, R * (0.62 + pj() * 0.32));      // 每片自己的长宽比 ⇒ 不是一水儿的圆
     m.compose(p, q, sv);
     PUDDLES.im.setMatrixAt(ok, m);
     ok++;

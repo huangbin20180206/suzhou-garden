@@ -889,6 +889,7 @@ const smallBirdMesh = (() => {
   im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array((N_ROCK_BIRD + N_GRASS_BIRD) * 3), 3);
   im.userData.noMerge = true;
   im.frustumCulled = false;
+  im.name = 'smallBirdMesh';   // ⚠️ layout-fingerprint 按名字排除它（见那边的注释）
   world.add(im);
   smallBirdMeshRef.mesh = im;
   /* ⚠️ 两类只数必须**暴露出去**（2026-10-01）：门禁原来把 N_ROCK 写死成 5，
@@ -899,8 +900,13 @@ const smallBirdMesh = (() => {
   return im;
 })();
 /* 观感放大：真实小鸟体长 0.115m，20m 外只有几个像素。园林是"看整体氛围"的场景，
-   放大到 ~2.2 倍（体长约 0.25m，站在石台上仍远小于 1.6m 的点景人物，尺度不违和）。 */
-const BIRD_SCALE = 2.2;
+   放大到 ~2.2 倍（体长约 0.25m，站在石台上仍远小于 1.6m 的点景人物，尺度不违和）。
+   ⚠️ 2026-10-02 再放大到 **3.3 倍（≈1.5×2.2，体长约 0.38m）**：老黄实拍
+   "把天上飞的几只小鸟去掉，几个小黑点看也看不清"之后，石上 3 只在**默认机位**
+   实测最长边只有 6~11.6px（"看清是只鸟"约需 14~18px）—— 投影在画内、像素上不可读，
+   等于白做。1.5× 之后 ~9~17px，且仍不到点景人物（1.6m）的 1/4，尺度不破。
+   这是"默认机位可读性"评审项（P1）的落地，legibility-guard 会量它。 */
+const BIRD_SCALE = 3.3;
 /* 落脚高度补偿：几何原点在**体心**，直接放在石面高度上 ⇒ 半个身子陷进石头。
    体半高 0.030 × 2.2 ≈ 0.066m，再留一点"站在石上"的观感余量 ⇒ +0.08m。 */
 const BIRD_FOOT_LIFT = 0.08;

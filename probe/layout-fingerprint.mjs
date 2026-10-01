@@ -94,7 +94,13 @@ async function sample(page, { poke = false } = {}){
          · mistField：位置在 shader 的 aBase 属性里算，实例矩阵是单位阵；
          · 涟漪池：RingGeometry，**逐帧写矩阵**（涟漪在动）。
        其余 InstancedMesh 的矩阵都是"建场时一次写定"的常量 ⇒ 它们才是全局随机流的产物。 */
-    const EXCLUDE_NAME = new Set(['mistField']);
+    /* ⚠️ 排除两类**逐帧动画驱动**的网格（2026-10-02 加第二个）——它们不是"布局"：
+     ① mistField：位置在 shader 的 aBase 属性里、uOpacity 每帧变；
+     ② smallBirdMesh：踱步/啄毛/理羽连续动 ⇒ **采样时刻的相位决定矩阵** ⇒
+        两次加载的哈希必然不同（实测首实例相同、哈希不同——这是"采样相位"不是布局漂移）。
+        位置/落点/行为的守卫交给 birds-guard（它本来就查"石上鸟在石面上、
+        在最高的假山、有持续动作"）。若以后再加"每帧写矩阵"的实例网格，也要来这里登记。 */
+  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh']);
     const EXCLUDE_GEOM = new Set(['RingGeometry']);
     const rows = [];
     let global = 0;
@@ -207,21 +213,40 @@ const render = (fp) => [
       if (!fs.existsSync(BASELINE)){
         check('基线文件存在', false, `缺 ${path.relative(ROOT, BASELINE)}；先跑 --update-baseline`);
       } else {
-        const want = fs.readFileSync(BASELINE, 'utf8').split('\n').filter(l => l && !l.startsWith('#'));
-        const got = render(fp).split('\n').filter(l => l && !l.startsWith('#'));
+        /* ⚠️⚠️ **滤行只滤注释，绝不能滤 '#' 开头的数据行**（2026-10-02 修，真窟窿）：
+           基线里每条数据行都以颜色十六进制开头（`#ffffff|117|PlaneGeometry…`），
+           旧写法 `!l.startsWith('#')` 把**全部数据行滤光**，只剩 3 条无色（'-'）网格
+           ——"与基线一致"实际只比了 3 个网格。实测坐实：BIRD_SCALE 2.2↔3.3
+           总指纹 3830115668↔1092296036 明明变了，判据仍报"变化 0 新增 0 消失 0"恒绿。
+           注释行的固定格式是 `# `（井号+空格），数据行是 `#<hex>|…`（井号+字符）——
+           用 `'# '` 区分两者。 */
+        const want = fs.readFileSync(BASELINE, 'utf8').split('\n').filter(l => l && !l.startsWith('# '));
+        const got = render(fp).split('\n').filter(l => l && !l.startsWith('# '));
+        /* ⚠️⚠️ **比较必须是"多重集合"，不能按键 Map**（同日修，第二个窟窿）：
+           175 个网格里有 70 个键重复（键=#色|count|几何类型），`new Map()` 每键只留
+           最后一条 ⇒ 同键的其余网格全部**静默不比**。多重集合比较 = 排序后逐行相等，
+           任何一条的 hash 变 / 任何一条的增删都会被抓到（排序本身稳定：
+           render() 先按 key 排序，同键行的次序继承自确定性的场景遍历序）。 */
+        const wantS = [...want].sort();
+        const gotS = [...got].sort();
+        const linesEqual = wantS.length === gotS.length && wantS.every((l, i) => l === gotS[i]);
+        /* 键级诊断（只是给人看的明细；判定看上面的多重集合） */
         const wantMap = new Map(want.map(l => [l.split('\t')[0], l]));
         const gotMap = new Map(got.map(l => [l.split('\t')[0], l]));
         const changed = [...gotMap.entries()].filter(([k, v]) => wantMap.has(k) && wantMap.get(k) !== v).map(([k]) => k);
         const added = [...gotMap.keys()].filter(k => !wantMap.has(k));
         const removed = [...wantMap.keys()].filter(k => !gotMap.has(k));
-        console.log(`  [指纹] 网格 ${fp.rows.length} ｜ 总指纹 ${fp.global} ｜ 变化 ${changed.length} 新增 ${added.length} 消失 ${removed.length}`);
+        const cntKey = (arr) => { const m = new Map(); for (const l of arr){ const k = l.split('\t')[0]; m.set(k, (m.get(k) || 0) + 1); } return m; };
+        const wc = cntKey(want), gc = cntKey(got);
+        const countMismatch = [...new Set([...wc.keys(), ...gc.keys()])].filter(k => (wc.get(k) || 0) !== (gc.get(k) || 0));
+        console.log(`  [指纹] 网格 ${fp.rows.length} ｜ 总指纹 ${fp.global} ｜ 变化 ${changed.length} 新增 ${added.length} 消失 ${removed.length} 同键条数不齐 ${countMismatch.length}`);
         changed.slice(0, 6).forEach(k => console.log(`    · 变了：${k}\n        基线 ${wantMap.get(k)}\n        现在 ${gotMap.get(k)}`));
         added.slice(0, 6).forEach(k => console.log(`    · 新增：${gotMap.get(k)}`));
         removed.slice(0, 6).forEach(k => console.log(`    · 消失：${wantMap.get(k)}`));
+        countMismatch.slice(0, 6).forEach(k => console.log(`    · 同键条数不齐：${k}（基线 ${wc.get(k) || 0} 条 / 现在 ${gc.get(k) || 0} 条 —— Map 比较会静默吞掉这类差异）`));
         check('布局指纹与基线一致（全局随机流未漂）',
-              changed.length === 0 && added.length === 0 && removed.length === 0,
-              changed.length + added.length + removed.length === 0 ? '' :
-              '若有**有意**改布局，请跑 --update-baseline 并在 commit 里写明原因');
+              linesEqual,
+              linesEqual ? '' : '若有**有意**改布局，请跑 --update-baseline 并在 commit 里写明原因');
       }
     }
   }
