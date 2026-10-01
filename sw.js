@@ -26,7 +26,9 @@
    import 清单恢复 GLB_LOTUS_STEM_H）。 */
 /* 2026-09-30 合并+新场景批次 bump v11→v12：改了 SHELL 成员 index.html
    （天气行删"电闪雷鸣"、加"雨后初晴"；提示串 A S H F G → A S J F G）。 */
-const CACHE = 'suzhou-garden-v12';
+/* 2026-10-01 雨后痕迹批次 bump v12→v13：改了 SHELL 成员 index.html
+   （内联主模块的 import 清单加 updatePostRain）。 */
+const CACHE = 'suzhou-garden-v13';
 const SHELL = [
   './',
   './index.html',

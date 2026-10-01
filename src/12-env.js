@@ -16,7 +16,7 @@ import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
 import { TAU, HOOKS, ENV_REF, mulberry32, CFG } from './00-config.js';
 import { spawnRipple, rainRippleActive, treeLanternInsts } from './06-vegetation.js';
-import { POND_RADII } from './05-water.js';
+import { POND_RADII, groundHeight, insidePond } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    12 · 环境时序系统（ENV）
    ══════════════════════════════════════════════════════════════
@@ -3058,6 +3058,229 @@ export function updatePrecip(dt, t){
     S.points.geometry.attributes.position.needsUpdate = true;
     S.points.geometry.setDrawRange(0, active);
   }
+}
+
+/* ══ 雨后痕迹（2026-10-01 · 老黄："雨后初晴不是应该地面和周边环境还有雨水的痕迹么，
+      或者屋檐还在继续滴水，否则怎么判断是雨后初晴"）══════════════════════════════
+   在这之前，"雨后初晴"只有 wetness 一项（材质变光），既没有继续滴的水、也没有地上的水洼 ——
+   所以光看画面确实读不出"刚下过雨"。
+   两个部件，都只在 **wetness 高 + 雨已停** 时出现（雨还在下时由雨粒子负责，别叠加）：
+     ① 屋檐滴水：沿三栋建筑的**檐口线**布 170 颗水珠，自由落体 → 落地 → 随机停顿 → 重生。
+     ② 积水：铺地/地面上若干片不规则浅水洼（反光水膜），透明度随 wetness。
+   ⚠️ 都用**运行期 Math.random**（不是布局流）：屋檐滴水是"每次不同"的效果，
+      与本项目"运行期效果走 Math.random"的既定分工一致，**不吃全局布局流**（铁律 1）。
+   ⚠️ 檐口线是**手写常量**（照 04-buildings 的屋顶参数算的），改屋顶尺寸要同步改这里 ——
+      之所以不遍历场景去找屋檐：这里没有"檐口面"这种可直接识别的几何。 */
+
+/* ① 檐口线（世界坐标折线）+ 檐高 + 落点高度 */
+const EAVE_LINES = (() => {
+  const out = [];
+  const rect = (cx, cz, hx, hz, y, gy) => {
+    const p = [[cx-hx, cz-hz], [cx+hx, cz-hz], [cx+hx, cz+hz], [cx-hx, cz+hz]];
+    for (let i = 0; i < 4; i++){
+      const a = p[i], b = p[(i+1) % 4];
+      out.push({ x0: a[0], z0: a[1], x1: b[0], z1: b[1], y, gy });
+    }
+  };
+  /* 远香堂：屋顶外沿 w=W+4.6=24.6 / d=D+4.6=12.6 @ (0,·,−12.8)；檐口高 = roof.position.y
+     = 1.24 + colH + 0.5（colH = H−2.35 = 4.65）⇒ 6.39；落点 = 台基面 1.24。 */
+  rect(0, -12.8, 12.3, 6.3, 6.39, 1.24);
+  /* 水榭（荷风四面亭）：屋顶 w=W+3.2=11.2 / d=D+3.2=10.2；08 里 position (14.2,0,6.4)
+     且 rotation.y = π/2 ⇒ 长宽在世界里**互换**（世界 x 半宽 = 10.2/2，z 半宽 = 11.2/2）；
+     檐口高 = 0.55 + colH + 0.42（colH = 3.5）⇒ 4.47；落点 = 榭台面 0.55。 */
+  rect(14.2, 6.4, 5.1, 5.6, 4.47, 0.55);
+  /* 游廊：沿中线两侧各偏 1.76（= width*0.28 + 0.92，见 04-buildings 的 corridorFascia），
+     檐口高 = colH + 0.44（colH = 2.9）⇒ 3.34。中线点抄自 08-assemble 的 makeCorridor 调用。 */
+  const CP = [[10.6, -9.6], [13.2, -9.6], [13.2, -1.8], [24.0, -1.8], [24.0, 15.0]];
+  for (let i = 0; i < CP.length - 1; i++){
+    const dx = CP[i+1][0] - CP[i][0], dz = CP[i+1][1] - CP[i][1];
+    const L = Math.hypot(dx, dz) || 1, nx = -dz / L, nz = dx / L;
+    for (const s of [-1, 1]){
+      out.push({ x0: CP[i][0] + nx * 1.76 * s, z0: CP[i][1] + nz * 1.76 * s,
+                 x1: CP[i+1][0] + nx * 1.76 * s, z1: CP[i+1][1] + nz * 1.76 * s, y: 3.34, gy: 0.02 });
+    }
+  }
+  let acc = 0;
+  for (const s of out){ s.len = Math.hypot(s.x1 - s.x0, s.z1 - s.z0); s.t0 = acc; acc += s.len; }
+  return { segs: out, total: acc };
+})();
+
+const EAVE_DRIP = (() => {
+  /* ⚠️ 尺寸/密度按"看得见"定，不是按物理：真实水珠 4~6mm，在这个视距下不到 1 像素。
+     实测第一版（半径 0.021、停顿 0.25~2.6s）三个机位分别只贡献 65/220/96 像素 ——
+     等于白做。现在加大到 0.030、缩短停顿（同时在落的比例更高）、数量 170→220。 */
+  const N = 320;
+  const geo = new THREE.SphereGeometry(0.046, 6, 5);
+  const mat = new THREE.MeshBasicMaterial({ color: 0xE4EEF6, transparent: true, opacity: 0,
+                                            depthWrite: false, fog: false });
+  const im = new THREE.InstancedMesh(geo, mat, N);
+  im.frustumCulled = false; im.visible = false; im.renderOrder = 18;
+  scene.add(im);
+  const drops = [];
+  for (let i = 0; i < N; i++) drops.push({ s: 0, f: 0, y: 0, vy: 0, wait: Math.random() * 1.6, live: false });
+  const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), sv = new THREE.Vector3();
+  return { im, mat, drops, N, m, p, q, sv };
+})();
+
+/* ② 积水：铺地/地面上的不规则浅水洼。
+   ⚠️ 2026-10-01 三轮实测后的定案形状（每一轮都是被实测/多模态当场否掉的）：
+      · 第一版**手挑 10 个点**、高度取 `groundHeight+0.015` ⇒ 埋进铺地下面（铺地是浮在
+        地形之上的独立网格），实测"开↔关"两张图**逐像素为 0** —— 完全看不见、也不报错。
+        ⇒ 改成运行时**射线量真实表面**。
+      · 第二版射线只取"第一个非实例网格" ⇒ 落点上方有墙/屋面时会把水洼**贴到墙上**
+        （材质 metalness 高、反天空 ⇒ 发白），多模态一眼看出"右侧白墙上有一块不自然的白斑"。
+        ⇒ 加两条：**只接受近似竖直朝上的面（世界法线 n.y > 0.8）且落点低（y < 2.6）**。
+      · 第三版手挑点太少（10 片、默认机位只贡献 1607px＝0.27%）⇒ 多模态仍判"地面没湿痕"。
+        ⇒ 改成**抖动网格自动铺**（候选约 80 个，池内的丢掉），并且**合成一个 InstancedMesh**
+          （1 个 draw call；每片用自己的 scale 出椭圆、自己的 rotation 出朝向）。
+   抖动用 Math.random —— 运行期效果，不吃布局流（铁律 1）。 */
+const PUDDLES = (() => {
+  const CAND = [];
+  for (let x = -19; x <= 19.01; x += 2.7)
+    for (let z = -7.6; z <= 16.61; z += 2.7){
+      const jx = x + (Math.random() - 0.5) * 1.8, jz = z + (Math.random() - 0.5) * 1.8;
+      /* ⚠️ insidePond 吃**池局部坐标**（池心世界 (0,+3)）⇒ y 传 z−3 */
+      if (insidePond(jx, jz - 3)) continue;
+      CAND.push([jx, jz]);
+    }
+  /* 一片不规则水膜的基几何（一圈带噪声的半径；实例再压扁成椭圆） */
+  const n = 16, pts = [];
+  for (let i = 0; i < n; i++){
+    const a = i / n * TAU, r = 0.72 + 0.28 * Math.abs(Math.sin(i * 2.7 + 1.3));
+    pts.push(new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r));
+  }
+  const g2 = new THREE.ShapeGeometry(new THREE.Shape(pts));
+  g2.rotateX(-Math.PI / 2);
+  /* ⚠️⚠️ **必须自己写 UV**：ShapeGeometry 的 uv 直接取形状的 xy 坐标（不是 0~1 归一化），
+     拿它当 alphaMap 的采样坐标会整片错位（全部 clamp 到边缘 ⇒ 没有柔和边缘）。
+     按"形状半径≈1"把 x/z 归一化到 0~1 ⇒ 每片实例（等比缩放）都能正确取到
+     中心亮、边缘淡的径向贴图。 */
+  {
+    const pos = g2.attributes.position, uv = new Float32Array(pos.count * 2);
+    for (let i = 0; i < pos.count; i++){
+      uv[i*2]   = pos.getX(i) * 0.5 + 0.5;
+      uv[i*2+1] = pos.getZ(i) * 0.5 + 0.5;
+    }
+    g2.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  }
+  /* 柔和边缘的径向 alpha：水洼不能是个硬边多边形块 —— 硬边版本被多模态判成
+     "生硬贴在草地上的深色多边形色块，像贴图或模型瑕疵"。 */
+  const alphaTex = (() => {
+    const S = 64, cv = document.createElement('canvas');
+    cv.width = cv.height = S;
+    const ctx = cv.getContext('2d');
+    const grd = ctx.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+    grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+    grd.addColorStop(0.62, 'rgba(255,255,255,0.92)');
+    grd.addColorStop(0.88, 'rgba(255,255,255,0.34)');
+    grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grd; ctx.fillRect(0, 0, S, S);
+    const t2 = new THREE.CanvasTexture(cv);
+    t2.colorSpace = THREE.NoColorSpace;
+    return t2;
+  })();
+  const mat = new THREE.MeshStandardMaterial({ color: 0x243039, roughness: 0.06, metalness: 0.30,
+                                               transparent: true, opacity: 0, depthWrite: false,
+                                               alphaMap: alphaTex });
+  const im = new THREE.InstancedMesh(g2, mat, CAND.length);
+  im.frustumCulled = false; im.visible = false;
+  scene.add(im);
+  return { im, mat, cand: CAND, placed: 0, missed: 0, badNormal: 0, tooHigh: 0, onGrass: 0 };
+})();
+
+/* 雨停之后才有：wetness 高、且雨/雪都不在下 */
+export const POSTRAIN = { drip: EAVE_DRIP, puddles: PUDDLES };   // 给门禁读的句柄
+function postRainK(){
+  const p = ENV.cur || {};
+  const wet = p.wetness || 0;
+  const raining = (p.rainAmount || 0) > 0.05 || (p.snowAmount || 0) > 0.05;
+  if (raining) return 0;
+  return Math.max(0, Math.min(1, (wet - 0.30) / 0.45));
+}
+/* ⚠️ 水洼的**高度必须在运行时用射线量**（2026-10-01 实测踩到）：
+   第一版按 `groundHeight(x,z)+0.015` 摆 —— 那是**地形**高度，而铺地/台基是浮在地形之上的
+   独立网格 ⇒ 水洼被**埋进铺地下面**，实测"关掉水洼"与"开着"两张图**逐像素为 0 差异**
+   （完全看不见，且不报错）。现在改成：第一次需要显示时，从每个落点上方 12m 向下打一条射线，
+   取**真正的可见表面**高度 + 0.02，打不中就把那一片丢掉。
+   放在"第一次显示"时做，是因为模块求值期场景（延迟批）还没装配好。 */
+let _puddlePlaced = false;
+function placePuddlesOnce(){
+  if (_puddlePlaced) return;
+  _puddlePlaced = true;
+  const rc = new THREE.Raycaster(); rc.far = 40;
+  const down = new THREE.Vector3(0, -1, 0);
+  const nrm = new THREE.Vector3();
+  const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), sv = new THREE.Vector3();
+  let ok = 0;
+  PUDDLES.im.visible = false;
+  for (const [x, z] of PUDDLES.cand){
+    rc.set(new THREE.Vector3(x, 14, z), down);
+    const hs = rc.intersectObjects(scene.children, true)
+                 .filter(h => h.object.isMesh && h.object.visible && !h.object.isInstancedMesh && h.face);
+    const hit = hs[0];
+    if (!hit){ PUDDLES.missed++; continue; }
+    /* ⚠️⚠️ **必须拒绝"打到墙/屋面上"的命中**（实测踩到，见本块顶部注释）：
+       只取"第一个非实例网格"的话，落点上方只要是屋面或墙面就会把水洼**贴到墙上** ——
+       实测效果是"右侧白墙上出现一块不自然的白斑"。判法：取该三角面的**世界法线**，
+       只接受接近竖直朝上的面；再要求落点低。屋面/墙面两条都被卡掉。 */
+    nrm.copy(hit.face.normal).transformDirection(hit.object.matrixWorld);
+    if (nrm.y < 0.8){ PUDDLES.badNormal++; continue; }
+    if (hit.point.y > 2.6){ PUDDLES.tooHigh++; continue; }
+    /* ⚠️ **草地不积水洼**：草地上的深色片读成"泥斑/贴图瑕疵"（多模态实测判语：
+       "生硬贴在草地上的深色多边形色块"）。判法用材质基色的绿优势 —— 铺地/石/月台都是
+       灰调（g 不显著大于 r/b），草地明显偏绿 ⇒ 直接跳过。 */
+    const mc = hit.object.material && hit.object.material.color;
+    if (mc && mc.g > mc.r * 1.12 && mc.g > mc.b * 1.12){ PUDDLES.onGrass++; continue; }
+    if (Math.hypot(hit.point.x - x, hit.point.z - z) > 3.5){ PUDDLES.missed++; continue; }
+    const R = 0.75 + Math.random() * 1.05;
+    p.set(hit.point.x, hit.point.y + 0.02, hit.point.z);
+    q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.random() * TAU);
+    sv.set(R, 1, R * (0.62 + Math.random() * 0.32));      // 每片自己的长宽比 ⇒ 不是一水儿的圆
+    m.compose(p, q, sv);
+    PUDDLES.im.setMatrixAt(ok, m);
+    ok++;
+  }
+  PUDDLES.im.count = ok;
+  PUDDLES.im.instanceMatrix.needsUpdate = true;
+  PUDDLES.placed = ok;
+}
+export function updatePostRain(dt, t){
+  const k = postRainK();
+  const D = EAVE_DRIP;
+  D.im.visible = k > 0.001;
+  PUDDLES.im.visible = k > 0.001;
+  D.mat.opacity = 0.85 * k;
+  PUDDLES.mat.opacity = 0.60 * k;
+  if (!D.im.visible) return;
+  placePuddlesOnce();
+  const { m, p, q, sv } = D;
+  for (let i = 0; i < D.N; i++){
+    const d = D.drops[i];
+    if (!d.live){
+      /* 停顿结束后重生：在**整条檐口线**上按长度加权随机取一点 */
+      d.wait -= dt;
+      if (d.wait > 0) continue;
+      let tt = Math.random() * EAVE_LINES.total;
+      let seg = EAVE_LINES.segs[0];
+      for (const s of EAVE_LINES.segs){ if (tt >= s.t0 && tt <= s.t0 + s.len){ seg = s; break; } }
+      const f = Math.random();
+      d.s = seg; d.f = f; d.y = seg.y + Math.random() * 0.06; d.vy = -0.2; d.live = true;
+    } else {
+      /* 自由落体（限速 4.6 m/s ⇒ 从 6.4m 檐口落到台基约 1.4s，看得见）*/
+      d.vy = Math.max(-4.6, d.vy - 9.8 * dt);
+      d.y += d.vy * dt;
+      if (d.y <= d.s.gy){ d.live = false; d.wait = 0.12 + Math.random() * 1.15; }
+    }
+    const x = d.s.x0 + (d.s.x1 - d.s.x0) * d.f, z = d.s.z0 + (d.s.z1 - d.s.z0) * d.f;
+    const vis = d.live ? 1 : 0;
+    p.set(x, d.y, z);
+    /* 速度越快拉得越长 ⇒ 读作"一条水线"而不是"一颗珠子"；没在落的收到 0（不画） */
+    const stretch = d.live ? Math.min(3.4, 1 + Math.abs(d.vy) * 0.55) : 0.001;
+    sv.set(vis, stretch * vis, vis);
+    m.compose(p, q, sv);
+    D.im.setMatrixAt(i, m);
+  }
+  D.im.instanceMatrix.needsUpdate = true;
 }
 
 /* 雨打水面：复用鱼跃涟漪的池子，按雨量把雨痕铺满池面。
