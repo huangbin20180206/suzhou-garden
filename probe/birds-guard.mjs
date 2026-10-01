@@ -55,36 +55,19 @@ const check = (name, ok, detail = '') => {
   await page.waitForTimeout(2500);
   const settle = () => page.waitForTimeout(4200);
 
-  /* ══ ① 大雁的季节显隐 ═══════════════════════════════════════════════ */
-  const seasonRows = [];
-  for (const s of ['spring', 'summer', 'autumn', 'winter']){
-    await page.evaluate((s) => { const G = window.__garden; G.setEnv('season', s); G.setEnv('time', 'noon'); G.setEnv('weather', 'clear'); }, s);
-    await settle();
-    seasonRows.push(await page.evaluate(() => {
-      const G = window.__garden;
-      const vis = G.geese.filter(g => g.visible);
-      return { n: G.geese.length, vis: vis.length,
-               alt: vis.length ? +vis[0].position.y.toFixed(1) : null,
-               spread: vis.length ? +Math.max(...vis.map(g => g.position.distanceTo(vis[0].position))).toFixed(1) : null };
-    }));
-  }
-  const sp = seasonRows[0], su = seasonRows[1], au = seasonRows[2], wi = seasonRows[3];
-  check('大雁：春/秋可见（迁徙季）', sp.vis === sp.n && au.vis === au.n,
-    `春 ${sp.vis}/${sp.n}、秋 ${au.vis}/${au.n}`);
-  check('大雁：夏/冬完全不见（非迁徙季）', su.vis === 0 && wi.vis === 0, `夏 ${su.vis}、冬 ${wi.vis}`);
-
-  /* ⚠️ **全组合扫描**（2026-10-01 新增）：老黄报"大雁一年四季都在，任何天气任何时段都在"。
-     上面那两条只测了**单一天气 + 单一时段**，覆盖面太窄 ⇒ 这类"某个组合漏了"的
-     缺陷正好从缝里漏过去。改成把 4 季节 × 4 天气 × 4 时段 = **64 个组合全扫一遍**，
-     任何一个夏/冬组合出现 >0 只就报红，并打印是哪个组合。
-     （实测产品侧 64/64 全部正确：春/秋 各 13 只，夏/冬 各 0 只 —— 所以本门是
-      "锁住正确行为"，不是"修一个已复现的缺陷"。老黄看到的若是真实现象，
-      最可能是浏览器吃旧缓存，见文件末尾的排查提示。） */
+  /* ══ ① 大雁：**整层下线，本门改守"它别再回来"**（2026-10-01）═════════════
+     老黄："把天上飞的几只小鸟去掉，几个小黑点看也看不清，还觉得凌乱"。
+     大雁做了五轮（航线/高度/体型/阵型 × 三次），用户实拍仍判"看不懂、凌乱" ——
+     根因不是参数：13 只低模雁在 27m 外每只只有 4~10 像素，本来就只是几个黑点，
+     而"读出队形"要求用户恰好站在某个方位、赶上换阵的那几秒。收益低、成本高 ⇒ 整层下线。
+     ⚠️ **代码全部保留**（makeGoose / gooseSlot / updateGooseFlock / GOOSE 都在，
+     GN=0 即可恢复），所以本门的作用从"守大雁的行为"变成**守它别悄悄复活**。
+     下面这条把 4 季 × 4 天气 × 4 时段 = 64 组合全扫一遍，任何组合出现雁都报红。 */
   {
     const SE = ['spring', 'summer', 'autumn', 'winter'];
     const WE = ['clear', 'mist', 'storm', 'afterrain'];
     const TI = ['morning', 'noon', 'dusk', 'night'];
-    const bad = [], nSeen = new Set();
+    const bad = [];
     for (const ss of SE){
       for (const ww of WE){
         for (const tt of TI){
@@ -93,135 +76,26 @@ const check = (name, ok, detail = '') => {
             G.setEnv('season', a); G.setEnv('weather', b); G.setEnv('time', c);
           }, [ss, ww, tt]);
           await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
-          await page.waitForTimeout(150);
-          const vis = await page.evaluate(() => window.__garden.geese.filter(g => g.visible).length);
-          const mig = (ss === 'spring' || ss === 'autumn');
-          if (vis > 0) nSeen.add(ss);
-          if (mig !== (vis > 0)) bad.push(`${ss}/${ww}/${tt}=${vis}只`);
+          await page.waitForTimeout(120);
+          const st = await page.evaluate(() => {
+            const G = window.__garden;
+            return { total: G.geese.length, vis: G.geese.filter(g => g.visible).length };
+          });
+          if (st.total > 0 || st.vis > 0) bad.push(`${ss}/${ww}/${tt}: ${st.vis}/${st.total} 只`);
         }
       }
     }
-    check(`大雁：64 个组合（4 季 × 4 天气 × 4 时段）季节显隐全部正确`,
+    check('大雁：已整层下线，64 个组合（4 季 × 4 天气 × 4 时段）都不出现',
       bad.length === 0,
-      bad.length ? `异常 ${bad.length} 个：${bad.slice(0, 8).join('，')}` : '春/秋全 13、夏/冬全 0');
-    /* ⚠️ 扫描完必须**把环境复位**，否则后面的判据会继承扫描的最后一个组合
-       （winter/afterrain/night ⇒ 大雁全隐藏 ⇒ "抬头能看到"必然全红）。
-       我第一版漏了这条，症状是"64 组合那条绿、紧接着的可见性那条全红"，很像新 bug。 */
+      bad.length ? `复活 ${bad.length} 个：${bad.slice(0, 6).join('，')}` : '场景里 0 只（GN=0，代码保留可恢复）');
+    /* 复位环境，供后面的判据用 */
     await page.evaluate(() => {
       const G = window.__garden;
       G.setEnv('season', 'spring'); G.setEnv('weather', 'clear'); G.setEnv('time', 'noon');
     });
     await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
-    await page.waitForTimeout(400);
+    await page.waitForTimeout(300);
   }
-  /* ⚠️ 高度区间 2026-09-30 从 20~35m 改成 12~18m —— 起因是**用户实拍**：
-     第一版 24~31m 时，40m 外每只只有 4~5 像素（翅展 16~20px），远看就是
-     "棕色小圆球"（老黄："这个就是你做的大雁？"），队形还整体落在画面外。
-     ⚠️ **2026-10-01 二次下调到 10~14m**：半径 34m/高度 15m 时实测队首离相机
-     8~30m，**8 次采样里 5 次 13 只全在画面外** —— 队飞过去了、用户在画面外，
-     看见的只是"零星几只"（老黄："依旧是几只彩色的鸟零星飞在空中"）。
-     现在半径 26m、高 10~13m：抬头 25°~35° 能一次看到 13 只成队。
-     下限守住 10m 是为了仍高于园内最高处（假山峰 7.5m、正堂脊 9.4m），
-     不让它像"在院子里飞"。⚠️ 别为了"真实"把它调回高空 —— 那正是第一版被打回的原因。 */
-  check('大雁：飞在空中但不高（10~14m，抬头看得见整队）',
-    sp.alt > 10 && sp.alt < 14, `春 ${sp.alt}m / 秋 ${au.alt}m`);
-  check('大雁：成队（队形跨度 ≥8m，不是散飞）', sp.spread >= 8, `春跨度 ${sp.spread}m / 秋 ${au.spread}m`);
-
-  /* ══ ② 阵型切换（老黄点名"人字和八字"）══════════════════════════════ */
-  await page.evaluate(() => window.__garden.setEnv('season', 'spring'));
-  await settle();
-  const seq = await page.evaluate(async () => {
-    const G = window.__garden;
-    const out = [];
-    for (let i = 0; i < 40; i++){ out.push(G.GOOSE.form); await new Promise(r => setTimeout(r, 1000)); }
-    return out;
-  });
-  const changes = seq.filter((v, i) => i > 0 && v !== seq[i - 1]).length;
-  const forms = [...new Set(seq)];
-  check('大雁：飞行过程中变换阵型（40s 内 ≥1 次切换）', changes >= 1, `切换 ${changes} 次，序列 ${seq.join('')}`);
-  check('大雁：人字与八字两种阵型都出现过', forms.length === 2,
-    `出现：${forms.map(f => f === 0 ? '人字' : '八字').join(' + ')}`);
-  /* 有牙的补充：只断言 form 数字变过是不够的 —— 两种阵型的**槽位几何**必须真的不同，
-     否则"切换"只是计数器变了、画面上队伍没变形（form 变成一个摆设）。
-     做法：强制停在两种阵型上，各量一次"全队相对队首的散布"，两次必须不同。 */
-  const spreadByForm = await page.evaluate(async () => {
-    const G = window.__garden;
-    const snap = () => {
-      const vis = G.geese.filter(g => g.visible);
-      if (vis.length < 2) return null;
-      const lead = vis.reduce((a, b) => (b.userData.slot.lead ? b : a), vis[0]);
-      const lp = lead.position;
-      const xs = vis.map(g => g.position.x - lp.x), zs = vis.map(g => g.position.z - lp.z);
-      return { sx: +(Math.max(...xs) - Math.min(...xs)).toFixed(2),
-               sz: +(Math.max(...zs) - Math.min(...zs)).toFixed(2) };
-    };
-    const out = {};
-    for (const f of [0, 1]){
-      G.GOOSE.form = f;
-      /* 阵型变了位置要缓动 1.6s 才到位 ⇒ 等它落定再量 */
-      await new Promise(r => setTimeout(r, 2600));
-      out[f] = snap();
-    }
-    return out;
-  });
-  const s0 = spreadByForm[0], s1 = spreadByForm[1];
-  check('大雁：两种阵型的队形散布真的不同（切换不是摆设）',
-    !!s0 && !!s1 && (Math.abs(s0.sx - s1.sx) > 1.0 || Math.abs(s0.sz - s1.sz) > 1.0),
-    `人字 横向${s0 && s0.sx}/纵向${s0 && s0.sz}，八字 横向${s1 && s1.sx}/纵向${s1 && s1.sz}`);
-
-  /* ══ ②b 用户视角可见性（本轮踩坑最多的一条，务必守住）══
-     前四轮我一直在调尺寸/高度/航路，却**从来没量过"从池边抬头能不能看见"** ——
-     结果第一版交付后老黄实拍："这个就是你做的大雁？"（只有一个棕色小圆球）。
-     探针实测第一版：40m 外每只 4~5px，且队形整体在**画面外**（屏幕坐标 3883 vs 画幅 900）。
-     判据：站到池边、朝园内抬头，**20 秒里至少 8 秒有 ≥1 只在画面内**；
-     并且要**同时验四个朝向**（用户的朝向不可控 —— 我曾把航线钉死在"正北偏西"，
-     结果只对一种朝向有效、另外一半时间用户朝别处看就是空的）。 */
-  const CAMS = [
-    { n: '朝北', tgt: [0, 4.0, -30] }, { n: '朝东', tgt: [30, 4.0, 3] },
-    { n: '朝南', tgt: [0, 4.0, 30] },  { n: '朝西', tgt: [-30, 4.0, 3] },
-  ];
-  const CAM_POS = [0, 1.7, 16];
-  /* ⚠️ **四个朝向必须交错采样、共用一整圈时间轴**（2026-10-01 修）。
-     原来每个朝向各测 20 秒，而雁群绕园一圈只要 ~50 秒 ⇒ 20 秒窗口只覆盖 40% 的轨道，
-     判读完全取决于**开测那一刻 GOOSE.t 恰好在轨道哪一段** ⇒ 时绿时红。
-     实测：同一份代码一次"朝北19/东12/南2/西0"、另一次"朝北0/东0/南2/西12"。
-     现在改成 240 次循环、每次 200ms、循环内轮换朝向 ⇒ 每个朝向拿到 60 个样本、
-     **各自覆盖完整一整圈**，既覆盖整圈又只花 48 秒（原来四个朝向串行要 80 秒）。 */
-  const visAccum = CAMS.map(() => 0);
-  {
-    await page.evaluate(({ pos }) => {
-      const G = window.__garden;
-      G.camera.fov = 52; G.camera.updateProjectionMatrix();
-      G.camera.position.set(...pos); G.controls.enabled = false;
-    }, { pos: CAM_POS });
-    for (let k = 0; k < 240; k++){
-      const ci = k % 4;
-      const on = await page.evaluate(({ tgt }) => {
-        const G = window.__garden;
-        G.controls.target.set(...tgt); G.controls.update(); G.camera.updateMatrixWorld(true);
-        let n = 0;
-        for (const g of G.geese){
-          if (!g.visible) continue;
-          const p = g.position.clone().project(G.camera);
-          if (Math.abs(p.x) <= 1 && Math.abs(p.y) <= 1 && p.z <= 1) n++;
-        }
-        return n;
-      }, { tgt: CAMS[ci].tgt });
-      if (on >= 1) visAccum[ci]++;
-      await page.waitForTimeout(200);
-    }
-  }
-  /* 60 个样本里"有 ≥1 只入画"的次数（等价于秒数，采样间隔 200ms） */
-  const visRows = CAMS.map((c, i) => ({ n: c.n, ge1: visAccum[i] }));
-  /* 门槛：每朝向 ≥4/60、且**至少两个朝向** ≥8/60（各自都覆盖完整一圈）——
-     后者防"航线又钉死在某个方向"。⚠️ 2026-10-01 从"20 秒窗口"改成"整圈交错采样"，
-     原口径下同一份代码两次跑出"19/12/2/0"与"0/0/2/12"，是采样相位问题不是产品问题。 */
-  const okPer = visRows.filter(v => v.ge1 >= 4).length;
-  const goodDirs = visRows.filter(v => v.ge1 >= 8).length;
-  check('大雁：池边抬头能看到（每朝向整圈内 ≥4/60 次采样有雁入画）', okPer >= 3,
-    visRows.map(v => `${v.n} ${v.ge1}/60`).join('、'));
-  check('大雁：航线不只对一个朝向有效（≥2 个朝向整圈内 ≥8/60）', goodDirs >= 2,
-    `达标朝向 ${goodDirs}/4（${visRows.map(v => `${v.n}:${v.ge1}`).join(' ')}）`);
 
   /* ══ ③ 小鸟：落点贴面 + 行为 + 颜色 ═════════════════════════════════ */
   const birds = await page.evaluate(async () => {
@@ -239,7 +113,42 @@ const check = (name, ok, detail = '') => {
     /* ① **20 秒**窗口的累计路径（第一版用 1.4s 窗口 ⇒ 假红，见下方注释） */
     const SECS = 20;
     const hist = [];
-    for (let k = 0; k < SECS * 5; k++){ hist.push(read()); await new Promise(r => setTimeout(r, 200)); }
+    /* ⚠️ **NaN 自检**（2026-10-01 新增，被真事故逼出来的）：石上鸟的"转头啄毛"
+       我第一版把变量名写成了 `b.peen`（应为 `b.preen`）⇒ yawOff = NaN。
+       ⚠️⚠️ **负例对照实测（把 bug 装回去跑一遍）证明：矩阵判据抓不到它** ——
+       `p.yaw = b.yaw + (b.yawOff || 0)` 里的 `|| 0` 会把 NaN **静默归零**，
+       矩阵 16 个元素全程有限、位置/高度/颜色全绿，**只是那个动作没发生**。
+       ⇒ 真正的牙在下面那条"读状态"的判据（stateNan / preenMax），
+         这条矩阵判据只作为"姿态整体算坏"的粗兜底，**不要指望它抓 typo**。
+       两条都必须**在整个采样窗口内取最坏值**（理羽只占 ~0.7s / 每 1.5~4s，
+       只在窗口末尾抽查一次约四成概率漏掉 ⇒ 那会是一条时红时绿的假门）。 */
+    const nanScan = () => {
+      const raw = im.instanceMatrix.array;
+      let n = 0;
+      for (let i = 0; i < raw.length; i++) if (!Number.isFinite(raw[i])) n++;
+      return n;
+    };
+    /* ⚠️ 阳性判据：**状态本身**必须有限，且"理羽"必须真的产生侧向偏头。
+       带牙版本（读产品自己的行为状态，2026-10-01 起 smallBirdMeshRef.state）。 */
+    const st = G.smallBirdMeshRef.state;
+    let nanWorst = 0, stateNan = 0, preenMax = 0, preenSeen = 0;
+    const scanState = () => {
+      if (!st) return;
+      for (const b of st){
+        for (const k of ['x', 'y', 'z', 'yaw']) if (!Number.isFinite(b[k])) stateNan++;
+        if (b.kind !== 'rock') continue;              // yawOff/preen 只有石上鸟有
+        if (!Number.isFinite(b.yawOff)) stateNan++;
+        if (!(b.preen > 0)) continue;
+        preenSeen++;
+        if (Number.isFinite(b.yawOff)) preenMax = Math.max(preenMax, Math.abs(b.yawOff));
+      }
+    };
+    for (let k = 0; k < SECS * 5; k++){
+      hist.push(read());
+      nanWorst = Math.max(nanWorst, nanScan());
+      scanState();
+      await new Promise(r => setTimeout(r, 200));
+    }
     const s2 = hist[hist.length - 1];
     /* ② 石面高度：射线量每只脚下处的命中面，与鸟高比 */
     const rc = new T.Raycaster(); rc.far = 60;
@@ -248,7 +157,11 @@ const check = (name, ok, detail = '') => {
       const hs = rc.intersectObjects(G.scene.children, true).filter(h => h.object.isMesh);
       return hs.length ? +hs[0].point.y.toFixed(2) : null;
     };
-    const N_ROCK = 5;                       // 与产品侧一致
+    /* ⚠️ 石上/草上的只数必须**从产品侧读**，不能在这里写死（2026-10-01 修）。
+       写死 N_ROCK=5 时，产品已改成 3 只石上 + 6 只草上，索引 3/4 就被**误判成
+       "石上"** ⇒ 报出"高度 −0.25/−0.21、越界"这类根本不存在的假红，
+       而真正的草上行为（跳跃抛物线）反而少了两只被算成石头。 */
+    const N_ROCK = (G.smallBirdMeshRef.counts && G.smallBirdMeshRef.counts.rock) || 0;
     const rock = [], grass = [];
     for (let i = 0; i < im.count; i++){
       const [x, y, z] = s2[i];
@@ -265,10 +178,23 @@ const check = (name, ok, detail = '') => {
     const cols = [];
     for (let i = 0; i < im.count; i++)
       cols.push([im.instanceColor.getX(i), im.instanceColor.getY(i), im.instanceColor.getZ(i)]);
-    return { count: im.count, rock, grass, cols };
+    return { count: im.count, rock, grass, cols, nan: nanWorst,
+             stateNan, preenSeen, preenMax: +preenMax.toFixed(2) };
   });
 
-  check('小鸟：总数 = 石上 5 + 草上 6', birds.count === 11, `${birds.count} 只`);
+  /* ⚠️ 数量 2026-10-01 按老黄要求改：石上 5 → **3**（"做两三只停在最高的假山上"），
+     草上仍是 6。总数 11 → 9。 */
+  check('小鸟：总数 = 石上 3 + 草上 6', birds.count === 9, `${birds.count} 只`);
+  /* ⚠️ 新增（老黄："停在**最高的假山**上"）：三只必须都在**同一处**假山、
+     且高度明显高于另一处（实测东假山最高 5.09m、西假山 4.08m）。
+     量法：取三只石上鸟的 y，要求极差 ≤1.2m（同一座山）且最低那只 >2.5m（山顶量级）。 */
+  {
+    const ys = birds.rock.map(r => r.y).sort((a, b) => a - b);
+    const spread = ys.length ? +(ys[ys.length - 1] - ys[0]).toFixed(2) : 99;
+    check('小鸟（石上）：两三只都在**最高的假山**顶上（高度极差 ≤1.2m、最低 >2.5m）',
+      birds.rock.length === 3 && spread <= 1.2 && ys[0] > 2.5,
+      `高度 ${ys.join(' / ')}m（极差 ${spread}m）`);
+  }
   const rockBad = birds.rock.filter(r => r.gap === null || r.gap < -0.05 || r.gap > 0.45);
   check('小鸟（石上）：站在石面上（脚底与石面差 0.45m 内，不悬空不陷进去）',
     rockBad.length === 0,
@@ -281,11 +207,16 @@ const check = (name, ok, detail = '') => {
   check('小鸟（石上）：虽在休息但**有持续小动作**（20 秒累计位移 ≥0.25m，不读作静止）',
     !rockStill || birds.rock.filter(r => r.path >= 0.25).length >= birds.rock.length - 1,
     `路径 ${birds.rock.map(r => r.path).join(', ')}m`);
+  /* ⚠️ 门槛用"多数"而不是写死只数：2026-10-01 石上从 5 改 3 之后，
+     草上仍是 6 只，但索引分类曾经错位导致"4/4 只"这种读数 ——
+     写死 `>= 5` 会在只数变化时误报。改成"至少 4 只且过半"。 */
   const grassHop = birds.grass.filter(g => g.path > 1.5);
-  check('小鸟（草上）：在跳跃捕食（20 秒累计路径 >1.5m）', grassHop.length >= 5,
+  check('小鸟（草上）：在跳跃捕食（20 秒累计路径 >1.5m）',
+    grassHop.length >= 4 && grassHop.length * 2 >= birds.grass.length,
     `${grassHop.length}/${birds.grass.length} 只，路径 ${birds.grass.map(g => g.path).join(', ')}m`);
   const grassSwing = birds.grass.filter(g => g.ySwing > 0.06);
-  check('小鸟（草上）：跳跃是抛物线（高度有起伏，不是平移滑行）', grassSwing.length >= 5,
+  check('小鸟（草上）：跳跃是抛物线（高度有起伏，不是平移滑行）',
+    grassSwing.length >= 4 && grassSwing.length * 2 >= birds.grass.length,
     `起伏 ${birds.grass.map(g => g.ySwing).join(', ')}m`);
   /* ⚠️⚠️ **判据方向反转**（2026-10-01）：老黄明确否掉了原判据 ——
       "颜色不对，自然界很难找到这种纯色的鸟"。而这条判据当时写的是
@@ -302,6 +233,16 @@ const check = (name, ok, detail = '') => {
   check('小鸟：羽色自然（饱和度 0.15~0.65：既不灰、也不是纯色塑料鸟）',
     natural >= birds.cols.length - 1,
     `${natural}/${birds.cols.length} 只达标，饱和度 ${sats.map(s => s.toFixed(2)).join(',')}`);
+
+  check('小鸟：实例矩阵无 NaN（姿态整体不能被算坏）', birds.nan === 0,
+    birds.nan ? `窗口内最多 ${birds.nan} 个非有限元素` : '20 秒窗口内全程有限');
+  /* ⚠️ 这条才是有牙的那条（见上方注释：`|| 0` 会掩盖 NaN，矩阵/位移/颜色都抓不到）。
+     老黄点名要的三个动作之一"转头啄毛"，其可测量形态就是
+     **低头期间头部朝身侧偏 ≥0.5rad**；typo 版本这条恒为 0。
+     负例对照：把 `b.preen` 改回 `b.peen` ⇒ stateNan>0 且 preenMax=0 ⇒ 必红。 */
+  check('小鸟（石上）：理羽动作真的发生（低头期间侧偏 ≥0.5rad，状态无 NaN）',
+    birds.stateNan === 0 && birds.preenSeen > 0 && birds.preenMax >= 0.5,
+    `状态 NaN ${birds.stateNan} 处 · 理羽采样 ${birds.preenSeen} 次 · 最大侧偏 ${birds.preenMax}rad`);
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');

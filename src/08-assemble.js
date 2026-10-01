@@ -645,14 +645,16 @@ DF_PATROL.forEach(p=>{
    · 每只按"到目标的槽位方向"侧倾（roll），转弯时队形会真的歪一下。 */
 export const geese = [];
 const gRnd = mulberry32(20260930);
-const GN = 13;                                  // 13 只：够读出阵型又不至于一片
-/* 高度 10~13m（2026-10-01 三轮后下调，原 13~17m、最初 24~31m）：
-   老黄："依旧是几只彩色的鸟零星飞在空中，没有任何大雁的飞行图案"——
-   前一轮按"体 9~10px 够读出剪影"定的 13~17m，实测**队形没读出来**：
-   高度一高，队就在视锥上缘、且离得远（队首 8~30m），8 次采样 5 次全在画面外。
-   下调到 10~13m：仍高于园内最高处（假山峰 ~7.5m、正堂脊 ~9.4m）⇒ 不会像"在院子里飞"，
-   但低到用户平视抬头就能看见整队。探针量过：40m 外体 9~10px、翅展 37px，
-   "长颈 + V 形翅膀"的剪影成立。 */
+/* ⚠️⚠️ **2026-10-01 整层下线**（老黄："把天上飞的几只小鸟去掉，几个小黑点看也看不清，还觉得凌乱"）
+   大雁做了五轮、换过航线/高度/体型/两种阵型，用户实拍仍判"看不懂、凌乱"。
+   根因不是参数：13 只低模雁在 27m 外每只只有 4~10 像素，本来就只是几个黑点，
+   而"读出队形"要求用户恰好站在某个方位、恰好赶上换阵的那几秒 —— 收益低、成本高。
+   ⇒ 这里**保留全部代码**（makeGoose / gooseSlot / updateGooseFlock / GOOSE 都在，
+   随时可恢复），只是**不把雁装配进场景**，并让季节通道 gooseShow 恒为 0。
+   恢复方式：把 GN 改成 >0 的值即可（装配循环仍在那儿）；或按注释里的路径改两处。 */
+const GN = 0;                                   // 0 = 不装配（2026-10-01 整层下线）
+/* 高度 10~13m（曾用；下线前最后定值）：原 24~31m（40m 外每只只有 4~5 像素、
+   读成"棕色小圆球"）→ 13~17m（队形整体在画面外）→ 10~13m（能一次看到 13 只成队）。 */
 const GOOSE_ALT = [10, 13];
 /* 队首初始位置（**必须在雁的装配循环之前声明**）——
    2026-09-30 二轮踩过 TDZ：下面雁的初始位置要用它，而 GOOSE 对象在循环之后才声明
@@ -801,7 +803,7 @@ export function updateGooseFlock(dt, t){
       草皮 1341 候选），不是"随便取个 xz"—— 那样会出现"鸟浮在池塘上/埋在石里"。
    ⚠️ 独立随机流：不吃主 rnd。 */
 export const smallBirds = [];   // 行为状态（见下方 birdState），门禁/诊断按它读
-export const smallBirdMeshRef = { mesh: null };   // 网格句柄：探针要量像素/颜色时按它取
+export const smallBirdMeshRef = { mesh: null, counts: { rock: 0, grass: 0 } };   // 网格句柄 + 两类只数
 const bRnd = mulberry32(20260931);
 /* 配色（2026-10-01 重做 · 老黄："颜色不对，自然界很难找到这种纯色的鸟"）
    ── 原版是 5 个**纯色**（0xC9D94A 荧光黄绿 / 0xF2C230 / 0xD8503C / 0x4A8FC9 / 0xE8843C）。
@@ -825,22 +827,52 @@ const BIRD_PALETTE = [
   /* ⑤ 绿绣眼 */ { base:0x8A9C78, head:0xA6B48A },   // 灰绿背
 ];
 const BIRD_COLORS = BIRD_PALETTE.map(p => p.base);   // 兼容旧引用：整体基调色
-/* 石顶落点：**探针射线实测的真实石面**（outputs/_diag/bird-rock-spots.mjs：
-   在三处假山周围 0.35m 网格撒点向下打射线，取"高于周围草地且四周也是石头"的面，
-   实测 111 个候选、高度 1.03~3.60m 高低错落）。
-   ⚠️ 之前两版都栽在这里：① 落在假山**最高峰**（y=7.47m）—— 鸟停那儿远看只有 1~2 像素，
-   等于白做；② 高度靠**猜**（1.6~3.0m）—— 画面里就是几只鸟浮在半空，脚下的石头
-   和它们对不上。**落点必须来自射线实测，不能手填。** */
+/* 石顶落点：**探针射线实测的真实石面**。
+   ⚠️ 2026-10-01 按老黄要求改为「**只停在最高的假山上，2~3 只**」：
+      "园中的小鸟做两三只停在最高的假山上休息"。
+      实测两处假山（outputs/_diag/rockery-tops.log，0.4m 网格撒点打射线、
+      取"周围 0.9m 也是同高"的顶面）：
+        东假山（心 9.5,16.0）最高 **5.09m**  ← 最高，用它
+        西假山（心 −6.5,14.2）最高 4.08m
+      取东假山顶部三个可站面： (10.9, 5.08, 17.0) / (11.3, 4.71, 15.8) /
+      (11.3, 3.48, 17.0)。⚠️ **不要再手填坐标** —— 前两版都栽在这：
+      ① 落在假山最高峰 y=7.47m（那是"特置立峰"，鸟停那儿远看只有 1~2 像素）；
+      ② 高度靠猜（1.6~3.0m）⇒ 画面里就是几只鸟浮在半空、脚下的石头对不上。
+   ⚠️ 高度也别太高：5m 处的鸟在默认机位（俯视）离得远、只有几个像素。
+      这里选 3.5~5.1m 的三个面，是"足够高（读作'在山顶'）"与"还看得清"之间的折中。 */
 const ROCK_SPOTS = [
-  [-7.25, 1.03, 15.90], [-4.45, 1.12, 16.60], [ 7.20, 1.31, 13.70],
-  [-4.45, 2.23, 14.85], [-0.60, 2.45, 13.10], [ 6.50, 2.52, 15.45],
+  /* ⚠️ 2026-10-01 三轮实测才定下（这一处我手填失败两次）：
+     第一版手填 (10.9,5.08,17.0)/(11.3,4.71,15.8)/(11.3,3.48,17.0) ——
+       门禁报"高度极差 1.61m"（读作分布在山腰到山顶，不是聚在山顶）且有一只陷入石头 6cm；
+     第二版按"高度收拢"手填 (10.9,5.08,17.0)/(10.9,4.90,16.4)/(11.3,4.71,15.8) ——
+       仍然有一只 gap −0.06（那个点的实际石面比填的值低）。
+     现在这三个点**全部来自细网格射线实测**（outputs/_diag/rockery-pick3.mjs：
+     0.2m 网格、只取 4m 以上、**头顶 1.5m 内无遮挡**、周边 0.5m 平坦度 ≥0.6），
+     实测东假山顶部是一小片 y≈5.05~5.10 的平台（x 10.6~11.2、z 16.2~17.0），
+     所以三只只能挤在这 0.6m 内 —— 这是山就那么大，不是没挑好。
+     高度极差 0.03m，三只在画面上读作"山顶上一小群"。 */
+  [10.80, 5.10, 16.40], [11.20, 5.08, 16.40], [10.80, 5.07, 17.00],
 ];
-/* 草皮落点：探针实测的地面点（避开池/铺地/建筑/石头），y 取实测地面高 */
+/* 草皮落点：**2026-10-01 按老黄标注重排**。
+   他圈了六处红框（截图 outputs/_diag/user-birds-2.png），要"其余在草皮上捕食的小鸟
+   位置全部移动到红色区域（大致就行）去"。
+   ⚠️ **诚实边界**：我用两种量法都没能把红框像素精确反投影成世界坐标 ——
+      ① 屏幕像素反投影：每个框都命中相机自己（距离 0m），量出来全是垃圾；
+      ② 世界坐标撒点：x∈[−16,2]、z∈[−4,11] 内 40 个可站草地候选，但它们散布在
+         西侧各处，**与红框对不上**。
+      ⇒ 不再假装量准，按"大致就行"的授权 + 截图里的空间关系（竹丛南侧的草皮与
+      铺地边缘、竹影斑驳处）手工取点，落点**仍是实测草地**（下方 sweep 复核高度）。
+      复核脚本：outputs/_diag/bird-spots-sweep.mjs（0.8m 网格打射线取 MAT.grass）。 */
 const GRASS_SPOTS = [
-  [-16.5, 16.5, -0.30], [ 15.8, 13.2, -0.42], [-13.2, 19.4, -0.36],
-  [ 17.6,  9.5, -0.38], [-19.0, 10.8, -0.26], [ 13.0, 18.6, -0.50],
+  [-12.8, -0.30,  1.6],   // 竹林南缘草地（红框 B/C 一带）
+  [ -8.4, -0.34,  4.8],
+  [ -3.2, -0.28,  2.4],   // 铺地与草地交界
+  [  0.8, -0.36,  6.0],
+  [ -6.0, -0.30,  8.8],   // 更南、竹影里
+  [-10.8, -0.32,  7.2],
 ];
-const N_ROCK_BIRD = 5, N_GRASS_BIRD = 6;
+/* ⚠️ 假山上 3 只（老黄要"两三只"），草上 6 只 */
+const N_ROCK_BIRD = 3, N_GRASS_BIRD = 6;
 /* 两个 InstancedMesh（全体小鸟各 1 个 draw call；颜色走 instanceColor） */
 const smallBirdMesh = (() => {
   /* ⚠️ **必须开 vertexColors**（2026-10-01）：羽色分区做在几何的顶点色上
@@ -859,6 +891,11 @@ const smallBirdMesh = (() => {
   im.frustumCulled = false;
   world.add(im);
   smallBirdMeshRef.mesh = im;
+  /* ⚠️ 两类只数必须**暴露出去**（2026-10-01）：门禁原来把 N_ROCK 写死成 5，
+     产品改成 3 只石上后，索引 3/4 被误判成"石上" ⇒ 报出一堆假红
+     （"高度 −0.25、越界"），而真正的草上行为反而少算两只。 */
+  smallBirdMeshRef.counts.rock = N_ROCK_BIRD;
+  smallBirdMeshRef.counts.grass = N_GRASS_BIRD;
   return im;
 })();
 /* 观感放大：真实小鸟体长 0.115m，20m 外只有几个像素。园林是"看整体氛围"的场景，
@@ -872,8 +909,13 @@ const birdState = [];
 for (let i = 0; i < N_ROCK_BIRD; i++){
     const s = ROCK_SPOTS[i % ROCK_SPOTS.length];
     birdState.push({ kind:'rock', x: s[0], y: s[1] + BIRD_FOOT_LIFT, y0: s[1] + BIRD_FOOT_LIFT, z: s[2], yaw: bRnd() * TAU,
-                     bx0: s[0], bz0: s[2],          // 原始落点：踱步的硬顶基准（见 birdStep）
-                     bobPh: bRnd() * TAU, turnAt: bRnd() * 6, turnTo: 0 });
+                     bx0: s[0], bz0: s[2],          // 原始落点：踱步/跳跃的硬顶基准（见 birdStep）
+                     bobPh: bRnd() * TAU,            // 呼吸起伏相位
+                     stepPh: bRnd() * 3, stepNext: 1.5, stepTo: null, hopU: 0,   // ① 跳跃/踱步
+                     turnBodyTo: undefined,          // ② 转身目标角
+                     preen: 0, preenSide: 1, peckPh: bRnd() * 3, peckNext: 2,   // ③ 啄毛
+                     lookPh: bRnd() * 3, lookNext: 1.5, yawOff: 0,               // 常态左右看
+                     flapPh: bRnd() * 4, flapNext: 3 });                        // ④ 抖翅
   }
   for (let i = 0; i < N_GRASS_BIRD; i++){
     const s = GRASS_SPOTS[i % GRASS_SPOTS.length];
@@ -881,6 +923,13 @@ for (let i = 0; i < N_ROCK_BIRD; i++){
                      hopPh: bRnd() * 6, hopNext: 0, hopDur: 0.34, from: null, to: null,
                    peckAt: bRnd() * 3 });
 }
+/* ⚠️ **把行为状态引用暴露给门禁**（2026-10-01）。触发原因是一次真事故：
+   "转头啄毛"里我把变量名写成 `b.peen`（应为 `b.preen`）⇒ `b.yawOff = NaN`。
+   而 `p.yaw = b.yaw + (b.yawOff || 0)` 里的 `|| 0` 会把 NaN **静默归零**
+   ⇒ 矩阵完全正常、位移/高度/颜色判据全绿，只是**那个动作根本没发生**。
+   ⇒ 这类"状态里出了 NaN、但被兜底运算符吃掉"的缺陷，**只能靠读状态抓**，
+      矩阵/像素判据一律看不见。暴露引用比在门禁里另起一套测量可靠得多。 */
+smallBirdMeshRef.state = birdState;
 {
   const c = smallBirdMesh.instanceColor;
   for (let i = 0; i < N_ROCK_BIRD + N_GRASS_BIRD; i++){
@@ -908,43 +957,79 @@ const _bm = new THREE.Matrix4(), _bp = new THREE.Vector3(), _bq = new THREE.Quat
 /* 每只鸟的行为推进；返回它当前的 (x,y,z,yaw) */
 function birdStep(b, dt, t, i){
   if (b.kind === 'rock'){
-    /* 休息：**有持续的、可看见的小动作**（2026-10-01 重做）。
-       ⚠️ 旧版只有"呼吸起伏 ±0.012m + 3~10 秒一次转头" ⇒ 实测 3 帧总位移 4cm，
-          远看就是**完全静止**（老黄："这些鸟都是不动的"）。现在补三件事：
-         ① 身体沿**石面**小幅挪步（±0.25m，周期 2~5 秒）—— 站在石上的鸟会踱步换位；
-         ② 频繁的小幅转头（1.5~4 秒）而不是 3~10 秒；
-         ③ 尾羽轻摆 + 偶尔一次"抖翅"（小翅张开又合上，读作理羽毛）。
-       幅度都刻意小（几厘米 / 十几度）—— 真实小鸟站着时就是小幅动作，
+    /* 石上休息：**四个持续的小动作**（2026-10-01 两轮重做）。
+       老黄先说"这些鸟都是不动的"，随后点名要"轻微跳跃、转身、转头啄毛"。
+       逐条对应：
+         ① **轻微跳跃**  —— 踱步时把落脚点做成小抛物线（不是贴地平移）；
+         ② **转身**      —— 换向时整只转 180° 左右（不是只摆头）；
+         ③ **转头啄毛**  —— 低头朝身体侧面啄（真实的整理羽毛动作）；
+         ④ 常态的呼吸起伏 + 偶尔抖翅（保留上一轮加的，仍然需要）。
+       ⚠️ 幅度都刻意小（几厘米 / 十几度）—— 真实小鸟站着时就是小幅动作，
        幅度大了才读成"发了疯"。 */
     b.bobPh += dt * 1.9;
     b.stepPh = (b.stepPh || 0) + dt;
-    /* 踱步：每 2.2~4.5 秒换一个目标点（步幅 ≤0.2m），走过去的过程用平滑趋近。
+    /* ① 踱步 + 轻微跳跃：每 2.2~4.5 秒换一个目标点（步幅 ≤0.2m），
+       走的过程做成小抛物线（峰高 ~5cm）⇒ 读作"轻轻跳了一下"，不是滑行。
        ⚠️ **目标点必须相对"原始落点"bx0/bz0，不能相对当前位置**（2026-10-01 修）：
        第一版 stepTo = b.x + 随机偏移，而 b.x 每帧都朝 stepTo 移动 ⇒ 偏移会**累加**，
        20 秒走出 2m 以上 ⇒ 鸟直接**走出石台、掉进草丛或悬空**
        （实测 gap −2.19 / +1.8 / +2.09，门禁报"越界"）。现在每次都从原始落点重取，
        并硬夹在 ±0.2m 内 ⇒ 鸟在石面上小范围踱步，不会走丢。 */
-    if (b.stepPh > (b.stepNext || 1.5)){
-      if (b.stepPh > (b.stepNext || 1.5) + 2.4){
-        b.stepNext = 2.2 + bRnd() * 2.3;
-        const a = bRnd() * TAU, r = 0.08 + bRnd() * 0.12;
-        const tx = (b.bx0 ?? b.x) + Math.cos(a) * r, tz = (b.bz0 ?? b.z) + Math.sin(a) * r;
-        const dx = tx - (b.bx0 ?? b.x), dz = tz - (b.bz0 ?? b.z);
-        const dl = Math.hypot(dx, dz);
-        const cap = dl > 0.2 ? 0.2 / dl : 1;            // 硬顶：离原始落点不超过 0.2m
-        b.stepTo = { x: (b.bx0 ?? b.x) + dx * cap, z: (b.bz0 ?? b.z) + dz * cap };
-      }
+    if (b.stepPh > (b.stepNext || 1.5) + 2.4){
+      b.stepNext = 2.2 + bRnd() * 2.3;
+      const a = bRnd() * TAU, r = 0.08 + bRnd() * 0.12;
+      const bx = b.bx0 ?? b.x, bz = b.bz0 ?? b.z;
+      const tx = bx + Math.cos(a) * r, tz = bz + Math.sin(a) * r;
+      const dx = tx - bx, dz = tz - bz;
+      const dl = Math.hypot(dx, dz);
+      const cap = dl > 0.2 ? 0.2 / dl : 1;            // 硬顶：离原始落点不超过 0.2m
+      b.stepTo = { x: bx + dx * cap, z: bz + dz * cap };
+      /* ② 转身：换目标点时有 ~45% 概率整只转 180°（不是只摆头）。
+         转身与走路**同时**发生才自然，所以记一个转身起点，缓动 0.7 秒。 */
+      if (bRnd() < 0.45) b.turnBodyTo = b.yaw + (bRnd() < 0.5 ? Math.PI : -Math.PI);
     }
+    /* 跳跃：用一个 0~1 的进度驱动抛物线；走到位后归零 */
     if (b.stepTo){
       const k = 1 - Math.exp(-dt / 0.55);
       b.x += (b.stepTo.x - b.x) * k;
       b.z += (b.stepTo.z - b.z) * k;
+      b.hopU = Math.min(1, (b.hopU || 0) + dt / 0.55);
+      if (b.x === b.stepTo.x && b.z === b.stepTo.z){ b.stepTo = null; b.hopU = 0; }
     }
-    /* 转头：1.5~4 秒一次（原来 3~10 秒太稀），转到附近一个随机角度 */
-    b.turnAt -= dt;
-    if (b.turnAt <= 0){ b.turnTo = b.yaw + (bRnd() - 0.5) * 2.2; b.turnAt = 1.5 + bRnd() * 2.5; }
-    b.yaw += (b.turnTo - b.yaw) * (1 - Math.exp(-dt / 0.28));
-    /* 抖翅：每 4~9 秒一次，0.5 秒的小张合（幅度 ~0.35rad = 20°） */
+    const hopY = (b.hopU || 0) > 0 && (b.hopU || 0) < 1 ? Math.sin(b.hopU * Math.PI) * 0.05 : 0;
+    /* ② 身体朝向：转向缓动（0.7s）；没触发转身时朝向不动，只有头部在动（见下） */
+    if (b.turnBodyTo !== undefined){
+      let d = b.turnBodyTo - b.yaw;
+      while (d > Math.PI) d -= TAU;
+      while (d < -Math.PI) d += TAU;
+      b.yaw += d * (1 - Math.exp(-dt / 0.7));
+      if (Math.abs(d) < 0.05) b.turnBodyTo = undefined;
+    }
+    /* ③ 转头啄毛：每 1.5~4 秒低头朝身侧啄一下（低头 0.7 秒、啄 2~3 下）。
+       低头 = 身体前倾 + 头点动；用 peckAng 传给 updateSmallBirds 去做前倾。 */
+    b.peckPh = (b.peckPh || 0) + dt;
+    if (b.peckPh > (b.peckNext || 2)){
+      b.peckNext = 1.5 + bRnd() * 2.5;
+      b.peckPh = 0;
+      b.preen = 0.7;                      // 低头持续 0.7 秒
+      b.preenSide = bRnd() < 0.5 ? -1 : 1;
+    }
+    if (b.preen > 0){
+      b.preen -= dt;
+      /* 啄：0.7 秒里点 3 下头。
+         ⚠️ 变量名必须是 b.preen —— 第一版我误写成 b.peen（undefined）：
+            `undefined * 13` ⇒ NaN ⇒ yawOff=NaN ⇒ p.yaw=NaN ⇒ 实例矩阵 NaN，
+            理羽那一瞬间整只鸟的矩阵坏掉。而门禁只查位移/高度/朝向差值，
+            **抓不到 NaN 姿态**（NaN 参与比较恒为 false，判据会静默跳过）。 */
+      const beat = Math.abs(Math.sin(b.preen * 13));
+      b.yawOff = b.preenSide * (0.55 + beat * 0.35);
+    } else {
+      /* 常态：偶尔左右看看（小幅转头，不是啄） */
+      b.lookPh = (b.lookPh || 0) + dt;
+      if (b.lookPh > (b.lookNext || 1.5)){ b.lookNext = 1.5 + bRnd() * 2.5; b.lookPh = 0; }
+      b.yawOff = Math.sin(b.lookPh * 1.1) * 0.35;
+    }
+    /* ④ 抖翅：每 4~9 秒一次，0.5 秒的小张合（幅度 ~0.35rad = 20°） */
     b.flapPh = (b.flapPh || 0) + dt;
     if (b.flapPh > (b.flapNext || 3)){
       b.flapNext = 4 + bRnd() * 5;
@@ -952,8 +1037,9 @@ function birdStep(b, dt, t, i){
     }
     const fq = Math.min(1, (b.flapPh - (b.flapNext || 3)) / 0.5);
     const flap = fq > 0 ? Math.sin(fq * Math.PI) * 0.35 : 0;
-    /* 站姿起伏：±0.018m（原 ±0.012），相对基准高度 y0 算、不就地累加（防积分漂移） */
-    return { x: b.x, y: b.y0 + Math.sin(b.bobPh) * 0.018, z: b.z, yaw: b.yaw, flap };
+    /* 站姿起伏：±0.018m，相对基准高度 y0 算、不就地累加（防积分漂移） */
+    return { x: b.x, y: b.y0 + hopY + Math.sin(b.bobPh) * 0.018, z: b.z,
+             yaw: b.yaw + (b.yawOff || 0), flap, preen: b.preen > 0 };
   }
   /* 草上：跳跃捕食循环 —— 跳（小抛物线）→ 停 → 啄 → 换点
      ⚠️ 2026-10-01：旧版这个循环里 **大部分时间在"停+啄"**（实测 3 帧位移 0.3~8.6mm）
@@ -999,8 +1085,9 @@ export function updateSmallBirds(dt, t){
     _bp.set(p.x, p.y, p.z);
     _bq.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.yaw);
     _bs.setScalar(BIRD_SCALE);
-    if (p.peck){ /* 啄：轻微前倾 */ _bq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5)); }
-    else if (p.flap){ /* 抖翅（石上休息的鸟偶尔理羽毛）：小翅张开一点 */
+    if (p.peck || p.preen){ /* 啄/啄毛：轻微前倾（preen 是石上鸟低头理羽） */
+      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5));
+    } else if (p.flap){ /* 抖翅（石上休息的鸟偶尔理羽毛）：小翅张开一点 */
       _bq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -p.flap));
     }
     _bm.compose(_bp, _bq, _bs);
