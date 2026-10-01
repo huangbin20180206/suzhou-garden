@@ -246,6 +246,22 @@ export function makeBamboo(x, z, count = 9, hBase = 6.6){
     const ox = rr(-0.95, 0.95), oz = rr(-0.95, 0.95);   // 收窄丛幅，避免叶片越出围墙
     const tilt = rr(-0.09, 0.09);
     stalks.push({ x: ox, z: oz, h, tilt });
+    /* ⚠️ **竿是斜的，所有长在竿上的东西必须跟着斜**（2026-10-01 冬季缺陷根因）。
+       竹竿实例化用 `Euler(s.tilt, 0, s.tilt*0.8)`（±0.09 rad），但**竹节环、竹枝、
+       竹叶原先都按"竖直轴"摆**（y = s.h*k/6 直接落 x/z = s.x/s.z）——
+       在 y≈6m、tilt 0.09 时横向偏出去 **~0.5m**，而竹节环半径只有 0.066m ⇒
+       一圈圈圆环悬在竹竿旁边几十厘米处。
+       老黄 2026-10-01 实拍："竹子枝头有很多悬空的小圆环状物体"。
+       为什么**只有冬天报**：夏/秋叶量大（bambooLeaf 0.33~1.0）把这些环盖住了，
+       冬季 `bambooLeaf: 0.33` 才露出来 —— **缺陷一直在，只是平时看不见**。
+       下面 toWorld() 就是"沿斜竿的真实位置"：先按竿的四元数旋转、再平移到基座。
+       ⚠️ 它只消耗位置，**不消耗任何 rnd()/rr()** ⇒ 全局随机流完全不受影响（铁律 1）。 */
+    const _sq = new THREE.Quaternion().setFromEuler(new THREE.Euler(tilt, 0, tilt * 0.8));
+    const _org = new THREE.Vector3(ox, 0, oz);
+    stalks[stalks.length - 1].sq = _sq;   // 竹节环也要用这四元数（见下面 nodeInst）
+    /* 局部坐标 (lx,ly,lz) → 世界：按竿的真实倾角转过去再落基座。
+       0,ly,0 就是"竿上高度 ly 处"；lx/lz 是垂直于竿的横向偏移（枝的伸展方向）。 */
+    const toWorld = (lx, ly, lz) => new THREE.Vector3(lx, ly, lz).applyQuaternion(_sq).add(_org);
     /* 竹枝 + 叶：每竿 5~8 根**真枝**，从竿节外伸并下垂，叶片沿枝的外半段着生。
        ⚠️ 上一版没有枝：每片叶从竿身伸一根半径 0.011、长 ≤0.34 的短枝到叶基 ——
        4m 外完全看不见，贴脸看就是"一丛针 + 从一点放射的叶"，用户反馈"竹叶还是有悬空"。
@@ -264,7 +280,10 @@ export function makeBamboo(x, z, count = 9, hBase = 6.6){
         const r = Lb * 0.92 * Math.sin(t * Math.PI * 0.5);   // t=0 落在竿轴上 → 枝从竿里长出来，不留缝
         const y = y0 + Lb * 0.12 * Math.sin(t * 1.5) - droop * t * t;
         const a2 = a + bend * t;
-        pts.push(new THREE.Vector3(ox + Math.cos(a2) * r, y, oz + Math.sin(a2) * r));
+        /* ⚠️ t=0 那个点原先写死在**竖直轴** (ox,y,oz) 上，而竿是斜的 ⇒ 枝根插不进竿里
+           （与竹节环同一个根因，只是偏移小些、被叶片盖住所以没被单独报）。 */
+        const bp = toWorld(Math.cos(a2) * r, y, Math.sin(a2) * r);
+        pts.push(bp);
       }
       branchlets.push({ pts, r0: 0.022, r1: 0.009 });
       /* 2026-09-16 用户反馈"夏竹叶稀疏像病竹快掉光"：旧 4~7 片/枝在 0.42m 小叶下
@@ -305,12 +324,25 @@ export function makeBamboo(x, z, count = 9, hBase = 6.6){
   // 竹节环
   const nodeGeo = new THREE.TorusGeometry(0.066, 0.016, 4, 8);
   const nodes = [];
+  const qFlat = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI/2,0,0));
   stalks.forEach(s=>{
-    for (let k = 1; k < 6; k++) nodes.push({ x:s.x, y:s.h*k/6, z:s.z });
+    /* ⚠️ **位置与朝向都必须跟着竿的倾角走**（2026-10-01 冬季缺陷）。
+       旧版 np=(s.x, s.h*k/6, s.z) 且朝向恒为 qFlat ⇒ 环留在**竖直轴**上，
+       而竿已经倾斜 ⇒ y 越高偏得越远（0.09 rad × 6m ≈ 0.54m），环悬在竿旁。
+       正解 = 与竹竿实例化完全同一条公式：world = T + sq · (0, y, 0)，
+       朝向 = sq ⊗ qFlat（先摆成水平、再随竿倾斜），两者共用同一个 sq。 */
+    const sq = s.sq || new THREE.Quaternion().setFromEuler(new THREE.Euler(s.tilt, 0, s.tilt*0.8));
+    const orient = sq.clone().multiply(qFlat);
+    const base = new THREE.Vector3(s.x, 0, s.z);
+    for (let k = 1; k < 6; k++){
+      const y = s.h * k / 6;
+      const p = new THREE.Vector3(0, y, 0).applyQuaternion(sq).add(base);
+      nodes.push({ p, q: orient });
+    }
   });
   const nodeInst = new THREE.InstancedMesh(nodeGeo, MAT.bambooB, nodes.length);
-  const nm = new THREE.Matrix4(), np = new THREE.Vector3(), nq = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI/2,0,0)), ns = new THREE.Vector3(1,1,1);
-  nodes.forEach((n, i)=>{ np.set(n.x, n.y, n.z); nm.compose(np, nq, ns); nodeInst.setMatrixAt(i, nm); });
+  const nm = new THREE.Matrix4(), np = new THREE.Vector3(), ns = new THREE.Vector3(1,1,1);
+  nodes.forEach((n, i)=>{ np.copy(n.p); nm.compose(np, n.q, ns); nodeInst.setMatrixAt(i, nm); });
   nodeInst.instanceMatrix.needsUpdate = true;
   g.add(nodeInst);
   /* 竹枝实体：沿折线扫出的**锥形四棱柱**（每段 8 个三角形，比 TubeGeometry 便宜得多）。
@@ -2591,9 +2623,42 @@ export function makeWillow(x, z, scale = 1){
     new THREE.Vector3(0, 0, 0),
     new THREE.Vector3(rr(-0.25,0.25), H*0.34, rr(-0.25,0.25)),
     new THREE.Vector3(rr(-0.4,0.4),  H*0.66, rr(-0.35,0.35)),
-    new THREE.Vector3(rr(-0.3,0.3),  H*0.94, rr(-0.25,0.25)),
+    /* ⚠️ **主干顶 0.94H → 1.15H**（2026-10-01，与"冬季悬空枝"同一处修复）。
+       冠肋的 y0 范围是 H×[0.85, 1.13]，**70% 的肋原本高过旧主干顶 0.94H**
+       ⇒ 那些肋的根悬在树顶上方 0~1.2m 的空气里（老黄实拍："柳树顶部树枝
+       有大量和主干不相连的情况，也变成悬空的状态"）。
+       只把肋根夹到主干顶也能"接上"，但 22 根肋会同时挤在**同一个点**上放射 ——
+       这正是第八轮验收明确否掉过的"从干顶一点放射读作灯柱/八爪鱼"。
+       所以正解是把主干**往上延长**到盖住全部肋根（1.15H > 1.13H）：
+       每根肋各自落在**自己那个高度**的主干上，沿主干 0.85H~1.13H 一段散开长出来；
+       而肋的 1..6 号点一个字没动 ⇒ 冠形/垂梢节奏完全不变，只换了"根扎在哪"。
+       ⚠️ 只改 y 系数、rr 的次数与顺序不变 ⇒ 全局随机流一位不漂（铁律 1）。 */
+    new THREE.Vector3(rr(-0.3,0.3),  H*1.15, rr(-0.25,0.25)),
   ]);
   g.add(mesh(new THREE.TubeGeometry(trunkCurve, 18, 0.185 * rr(0.9, 1.15), 8, false), MAT.willowBark, { name:'willowTrunk' }));
+  /* ── 主干在**给定高度**的真实中心点（2026-10-01 冬季缺陷根因修复）──
+     主干是一条会左右摆动的 CatmullRom 曲线（控制点横向偏 ±0.25~0.4m），而下面的
+     **主枝起点原来写死在"竖直轴"上**（`rr(-0.2,0.2), y0, rr(-0.2,0.2)`）——
+     两者最多差 **0.4m**，而枝半径只有 0.042m ⇒ 顶部枝的根**根本没插进主干**，
+     与主干之间空着一大截。冠肋更离谱：起点在半径 `0.18*reach ≈ 0.37m` 处
+     （主干半径才 0.185m），且 y0 上限 1.13H **超过了主干顶 0.94H** ⇒ 一半的肋
+     **悬在树顶上方的空气里**。
+     老黄 2026-10-01 实拍："柳树顶部树枝有大量和主干不相连的情况，也变成悬空的状态"。
+     为什么**只有冬天报**：夏/秋叶幕把枝根盖住了，冬季 `willowLeaf: 0` 裸枝才露馅。
+     这个函数按 y 找曲线上最近的采样点（无随机消耗，铁律 1 安全）。
+     ⚠️ 采样要**按 y 就近**而不是按 t 反解 —— 曲线是 CatmullRom、分段不等距，
+        用 t 反解会把根插到半空中。 */
+  const trunkAt = (() => {
+    const S = [];
+    for (let i = 0; i <= 64; i++) S.push(trunkCurve.getPoint(i / 64));
+    const TOP = S[S.length - 1].y;
+    return (y) => {
+      const yl = Math.min(Math.max(y, 0), TOP);
+      let best = S[0], bd = Infinity;
+      for (const p of S){ const d = Math.abs(p.y - yl); if (d < bd){ bd = d; best = p; } }
+      return best;
+    };
+  })();
   /* ── 根盘（2026-09-23 重塑 · 老黄："桃/柳露根几乎一模一样，而且真实中没有这种
      类似花瓣一样的根系"）──
      旧版：5 块低模球**均匀绕一圈**（72° 间隔）→ 与桃树的 6 块同配方，读作"一圈蒜瓣"。
@@ -2642,7 +2707,17 @@ export function makeWillow(x, z, scale = 1){
     const y0 = H * (i < 4 ? rr(0.42, 0.62) : rr(0.72, 0.92));
     const tipY = H * rr(0.50, 0.70);
     const brCurve = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(rr(-0.2,0.2), y0, rr(-0.2,0.2)),
+      /* ⚠️ **起点必须落在主干的真实轴上**（2026-10-01 冬季缺陷）：
+         原来是 `rr(-0.2,0.2), y0, rr(-0.2,0.2)` —— 写死在**竖直轴**上，
+         而主干是左右摆动的曲线（横向偏 ±0.25~0.4m）⇒ 顶部枝的根悬在主干旁边
+         （老黄："柳树顶部树枝有大量和主干不相连的情况"）。
+         现在取 trunkAt(y0)（主干在 y0 高度的真实中心），再叠 **±0.06m** 的抖动
+         （原是 ±0.2m，太大了会自己甩出主干外）。⚠️ rr 的**次数与顺序必须不变** ——
+         仍在这里抽 2 次，只是范围改小（铁律 1 只看次数与顺序，不看参数值）。 */
+      (() => {
+        const tb = trunkAt(y0);
+        return new THREE.Vector3(tb.x + rr(-0.06,0.06), tb.y, tb.z + rr(-0.06,0.06));
+      })(),
       new THREE.Vector3(Math.cos(a)*reach*0.45, y0 + H*rr(0.10, 0.22), Math.sin(a)*reach*0.45),
       new THREE.Vector3(Math.cos(a)*reach*0.8, tipY + H*rr(0.04, 0.10), Math.sin(a)*reach*0.8),
       new THREE.Vector3(Math.cos(a)*reach, tipY, Math.sin(a)*reach),
@@ -2670,7 +2745,15 @@ export function makeWillow(x, z, scale = 1){
       const r = reach * (0.18 + 0.82 * Math.sin(t * Math.PI * 0.5)) * (1 + wob * t);
       const y = y0 - H * droop * Math.pow(t, droopPow);
       const aa = a + tipBend * t * t;
-      pts.push(new THREE.Vector3(Math.cos(aa) * r, y, Math.sin(aa) * r));
+      /* ⚠️ **第 0 点原先落在半径 0.18*reach ≈ 0.37m 处，而主干半径只有 0.185m**
+         —— 根本没碰到主干，30 根肋有近一半 y0 还超过主干顶 0.94H ⇒ 全部悬空
+         （老黄："柳树顶部树枝有大量和主干不相连的情况，也变成悬空的状态"）。
+         第 0 点改成**主干在该高度的真实中心点** ⇒ 肋从主干里长出来；
+         y0 超过主干顶时 trunkAt 会夹到 0.94H ⇒ 肋从**树顶**长出来，不会悬在树上方。
+         ⚠️ 只改第 0 点，1..6 点原样保留 ⇒ 冠形（那几轮调出来的垂梢节奏）不变。 */
+      const p0 = k === 0 ? (() => { const c = trunkAt(y0); return new THREE.Vector3(c.x, c.y, c.z); })()
+                         : new THREE.Vector3(Math.cos(aa) * r, y, Math.sin(aa) * r);
+      pts.push(p0);
     }
     const curve = new THREE.CatmullRomCurve3(pts);
     crownRibs.push(curve);
