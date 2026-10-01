@@ -15,7 +15,7 @@ import { tickLightning, LIGHTNING, lightningStrikeNow } from './12-env.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
-import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL, enterBasic as preloadEnterBasic } from './13-preload.js';
+import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL, enterBasic as preloadEnterBasic, assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
 import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRefractRT } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    11 · 循环与自适应
@@ -269,8 +269,15 @@ const Snd = (()=>{
   function loadThunder(){
     if (thunderBuf || thunderLoading || !ctx) return;
     thunderLoading = true;
-    fetch('assets/thunder.mp3')
-      .then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error('http ' + r.status)))
+    /* 双轨入口（2026-10-02 · CDN 可选基址）：雷声素材也走 assetUrl。
+       CDN 关（默认）：grab(assetUrl(...)) 与旧实现**同一条 fetch 链**（assetUrl 对
+       空 base 原样返回，fetch 仍在同一时机发出）；
+       CDN 开：withCdnFallback 负责"CDN 取不到（报错/超 60% 预载预算）⇒ 本地路径
+       重试一次"，**两次都失败**才落进下面的 catch（thunderLoading 复位，下次闪电再试）。
+       thunder.mp3 不在预载清单里，失败不进 settleAsset/替身链 —— 与旧版一致。 */
+    const grab = (reqUrl) => fetch(reqUrl)
+      .then(r => r.ok ? r.arrayBuffer() : Promise.reject(new Error('http ' + r.status)));
+    (ASSET_CDN.base ? withCdnFallback('assets/thunder.mp3', grab) : grab(assetUrl('assets/thunder.mp3')))
       .then(a => ctx.decodeAudioData(a))
       .then(b => { thunderBuf = b; })
       .catch(() => { thunderLoading = false; });

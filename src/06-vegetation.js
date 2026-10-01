@@ -9,7 +9,10 @@ import { world, scene, ACTIVE_QUALITY, renderer } from './02-scene.js';
    而它 import 08；本模块一旦 import 12-env，12-env 就会把 08 提前拽进来 → 同一个 TDZ。
    它只在 loadAssetOnce 的**回调**里调用（那时一切就绪），故走 00-config 的 HOOKS 延迟绑定。 */
 import { TAU, rnd, rr, CFG, mulberry32, bootMark, HOOKS } from './00-config.js';
-import { onAssetFailed } from './13-preload.js';
+/* 2026-10-02 CDN 双轨：assetUrl/withCdnFallback 只改"请求发到哪"，settleAsset /
+   reportAssetProgress 的键**仍是相对路径**（预载清单键一位不挪）；ASSET_CDN.base
+   为空（默认）时三个入口都走与旧版逐字节相同的直接调用。 */
+import { onAssetFailed, assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
 
 /* ── 布局专用抖动流（2026-09-23 · T0）────────────────────────────────────
    为什么必须独立：`Math.random` 是**全局共享流**，被时序类代码在**异步/按帧**时刻消费
@@ -1454,7 +1457,14 @@ export function makeKoiGroup(n = 11){
     KOI_DRAW.push({ t: rr(0, TAU), speed: rr(0.10, 0.22), jitter: rr(0.72, 1.0),
                     phase: rr(0, TAU), rise: Math.random() * 18 });
   }
-  new GLTFLoader().load('assets/koi.glb', (gltf)=>{
+  /* ── 双轨入口（2026-10-02 · CDN 可选基址）────────────────────────────────
+     CDN 关（默认）：走 else 的直接 load —— 语句形状与旧版相同（assetUrl 对空 base
+     原样返回），请求 URL、回调、时序一字不变；
+     CDN 开：经 13-preload 的 withCdnFallback 包壳 —— CDN 失败（onError 或超 60%
+     预载预算）自动用本地路径重试一次，**本地也失败**才落到 koiOnErr 的
+     settleAsset(false)。三个回调体一字未改：回调里只读 KOI_DRAW 的预抽值，
+     绝不碰任何随机流（本函数开头的铁律，开了 CDN 也不放松）。 */
+  const koiOnLoad = (gltf)=>{
     const src = gltf.scene;
     const b1 = new THREE.Box3().setFromObject(src);
     const s1 = b1.getSize(new THREE.Vector3());
@@ -1484,13 +1494,22 @@ export function makeKoiGroup(n = 11){
        折射层标记 —— 漏了就是「水面折射里一条鱼都没有」，而且不报错。 */
     markUnderwater(g);
     HOOKS.settleAsset?.('assets/koi.glb', true);      // 预载清单：到位（13-preload 经 HOOKS 延迟绑定）
-  }, e=>{                                             // ← 第三槽：原为 `undefined`，现接 onProgress
+  };
+  const koiOnProgress = (e)=>{                        // ← 第三槽：原为 `undefined`，现接 onProgress
     HOOKS.reportAssetProgress?.('assets/koi.glb', e.loaded, e.total);
-  }, e=>{
+  };
+  const koiOnErr = (e)=>{
     /* 失败也必须报给预载清单，否则 required:false 的项走不进替身流程 */
     HOOKS.settleAsset?.('assets/koi.glb', false, e);
     console.warn('koi.glb 加载失败', e);
-  });
+  };
+  if (ASSET_CDN.base){
+    withCdnFallback('assets/koi.glb', (reqUrl)=>new Promise((resolve, reject)=>{
+      new GLTFLoader().load(reqUrl, resolve, koiOnProgress, reject);
+    })).then(koiOnLoad, koiOnErr);
+  } else {
+    new GLTFLoader().load(assetUrl('assets/koi.glb'), koiOnLoad, koiOnProgress, koiOnErr);
+  }
   return g;
 }
 
@@ -1538,23 +1557,52 @@ export function loadAssetOnce(url, targetSize, cb, overrideMat){
   const key = url + '|' + targetSize + '|' + (overrideMat ? (overrideMat.uuid || 'mat') : '-');
   if (assetCache.has(key)){ cb(assetCache.get(key)); return; }
   if (!rawCache.has(url)){
-    rawCache.set(url, new Promise((resolve, reject)=>{
-      const loader = createGLTFLoaderWithDecoders();
-      loader.load(url, (gltf)=>{ HOOKS.settleAsset?.(url, true); resolve(gltf.scene); },
-        /* ← 第三槽：原为 `undefined`，现接 onProgress（13-preload 的预载清单）
-           ⚠️ **SW cache-first 下这里会直接 0→100 跳变，这是预期**：
-           首次访问走网络时 loaded/total 是真进度；SW 装好后 .glb 命中缓存直接
-           return，不产生数据流事件，直到 onLoad 那一刻 settle 一次性补满。
-           装成 PWA 后那段时间里根本没有网络发生，没有进度可言。 */
-        (e)=>{ HOOKS.reportAssetProgress?.(url, e.loaded, e.total); },
-        (e)=>{
-          rawCache.delete(url); assetFailures++;
-          /* 失败报给预载清单：required:false 的项据此进入程序化替身流程
-             （芭蕉叶片不来就会留一根 3.6m 高的光杆，比没有芭蕉更难看）。 */
-          HOOKS.settleAsset?.(url, false, e);
-          console.warn('模型加载失败：', url, e); reject(e);
-        });
-    }));
+    /* ── 双轨入口（2026-10-02 · CDN 可选基址）─────────────────────────────
+       CDN 关（默认）：走 else —— 与旧实现**逐语句相同**（仅请求 URL 改经 assetUrl，
+       空 base 恒等返回），失败判定仍在 loader 的 onError 里同步做
+       rawCache.delete + assetFailures++ + settleAsset(false)，时序一位不挪。
+       CDN 开：attempt 只负责"发一次请求"（onError 只 reject，**不算失败**）；真失败
+       统一挪到 raw.catch —— 走到那里时 withCdnFallback 已把"CDN 失败 ⇒ 本地重试一次"
+       走完，**两次都失败**才轮得到 = 失败判定链与旧版同一条
+       （settleAsset(false) → required:false 的项进程序化替身流程）。 */
+    if (ASSET_CDN.base){
+      const attempt = (reqUrl)=>new Promise((resolve, reject)=>{
+        const loader = createGLTFLoaderWithDecoders();
+        loader.load(reqUrl, (gltf)=>{ HOOKS.settleAsset?.(url, true); resolve(gltf.scene); },
+          /* ← 第三槽：onProgress 口径不变（SW cache-first 下 0→100 跳变是预期，见
+             13-preload.reportAssetProgress 的注释）。CDN 半途而废时 13 的回退会把
+             该件 loaded 清零，本地重下从真实起算。settle/report 的键仍是相对 url。 */
+          (e)=>{ HOOKS.reportAssetProgress?.(url, e.loaded, e.total); },
+          reject);
+      });
+      const raw = withCdnFallback(url, attempt);
+      raw.catch((e)=>{
+        rawCache.delete(url); assetFailures++;
+        /* 失败报给预载清单：required:false 的项据此进入程序化替身流程
+           （芭蕉叶片不来就会留一根 3.6m 高的光杆，比没有芭蕉更难看）。 */
+        HOOKS.settleAsset?.(url, false, e);
+        console.warn('模型加载失败：', url, e);
+      });
+      rawCache.set(url, raw);
+    } else {
+      rawCache.set(url, new Promise((resolve, reject)=>{
+        const loader = createGLTFLoaderWithDecoders();
+        loader.load(assetUrl(url), (gltf)=>{ HOOKS.settleAsset?.(url, true); resolve(gltf.scene); },
+          /* ← 第三槽：原为 `undefined`，现接 onProgress（13-preload 的预载清单）
+             ⚠️ **SW cache-first 下这里会直接 0→100 跳变，这是预期**：
+             首次访问走网络时 loaded/total 是真进度；SW 装好后 .glb 命中缓存直接
+             return，不产生数据流事件，直到 onLoad 那一刻 settle 一次性补满。
+             装成 PWA 后那段时间里根本没有网络发生，没有进度可言。 */
+          (e)=>{ HOOKS.reportAssetProgress?.(url, e.loaded, e.total); },
+          (e)=>{
+            rawCache.delete(url); assetFailures++;
+            /* 失败报给预载清单：required:false 的项据此进入程序化替身流程
+               （芭蕉叶片不来就会留一根 3.6m 高的光杆，比没有芭蕉更难看）。 */
+            HOOKS.settleAsset?.(url, false, e);
+            console.warn('模型加载失败：', url, e); reject(e);
+          });
+      }));
+    }
   }
   rawCache.get(url).then(raw=>{
     const src = raw.clone(true);                 // 几何/贴图与原始模板共享，只有变换是独立的

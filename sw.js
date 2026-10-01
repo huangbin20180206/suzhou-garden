@@ -28,7 +28,12 @@
    （天气行删"电闪雷鸣"、加"雨后初晴"；提示串 A S H F G → A S J F G）。 */
 /* 2026-10-01 雨后痕迹批次 bump v12→v13：改了 SHELL 成员 index.html
    （内联主模块的 import 清单加 updatePostRain）。 */
-const CACHE = 'suzhou-garden-v13';
+/* 2026-10-02 CDN 双轨批次 bump v13→v14：src/13-preload.js 新增"CDN 可选基址
+   （?cdn= / localStorage suzhou-cdn-base，默认关闭）+ 失败自动回退本地"，06/11 的
+   GLB 与雷声 mp3 请求 URL 改走 assetUrl。SHELL 与 GLBS 清单未动；跨域 CDN 请求本就被
+   fetch 分流第一行放行（不进 SW 缓存），本地回退路径照旧 cache-first。按交付规矩
+   升一级，让已装 SW 的浏览器整体换缓存。 */
+const CACHE = 'suzhou-garden-v14';
 const SHELL = [
   './',
   './index.html',

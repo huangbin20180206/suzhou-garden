@@ -28,6 +28,113 @@
 
 import { HOOKS } from './00-config.js';
 
+/* ══ CDN 双轨（2026-10-02）：可选基址 + 失败自动回退本地 ═══════════════════
+   用户拍板："从来没要求过离线使用……代价再大也要完成"CDN 分发，且既定做法是
+   **双轨**：本地相对路径照旧（默认），CDN 只是**可选**的分流轨道，一个开关即可打开。
+   ⚠️ 等价性红线：base 为空串（默认）时，assetUrl 必须原样返回相对路径，所有加载
+      入口不得多建一个定时器、多发一个请求 —— 行为与没有这批代码**逐字节相同**。
+      下面所有"回退/截止"机制都以 `ASSET_CDN.base` 非空为前提才被创建/触发。
+   ⚠️ 随机流红线：本批改动只碰 URL 拼接与失败编排，不新增/移动任何 rnd()/rr()/
+      Math.random() 调用（全局流的"次数与顺序"一位都不能变，否则全园布局漂且不报错）。
+   ── base 的来源（优先级）─────────────────────────────────────────────────
+     ① URL 参数 `?cdn=<encodeURIComponent(基址)>` —— 读取用 URLSearchParams，
+        它等价 decodeURIComponent（生成这种链接的一侧务必 encodeURIComponent）；
+     ② localStorage `suzhou-cdn-base`；
+     ③ 都没有 ⇒ 空串 = 纯本地。
+   读取必须在**模块早期**同步完成：本模块是模块期求值，而 GLB 请求在 06/08 的
+   模块体里就发出了 —— base 必须先于任何 assetUrl() 被调用而定下来。
+   边界说明：本模块仍然**不发任何网络请求**（见头部边界注释）—— withCdnFallback
+   只做"何时重试/何时判死"的编排，真正的请求仍由 06/11 的加载器发出，不新建第二条
+   下载路径；CDN 关时连那个截止定时器都不会被创建。 */
+
+/* ASSET_CDN.base 是唯一事实（空串 = 纯本地，与旧实现逐字节等价）；
+   CDN_STATE 是给将来门禁/诊断读的可读投影：on=CDN 轨道是否开启、hit=CDN 直取
+   命中数、fallback=转本地重试数、fail=CDN+本地都失败数。不参与任何判定逻辑。 */
+export const ASSET_CDN = { base: '' };
+export const CDN_STATE = { on: false, hit: 0, fallback: 0, fail: 0 };
+
+(function resolveCdnBase(){
+  let b = '';
+  try {
+    const q = new URLSearchParams(location.search).get('cdn');   // ① URL 参数（已解码）
+    if (q !== null && q.trim() !== '') b = q.trim();
+    else {
+      const s = localStorage.getItem('suzhou-cdn-base');          // ② localStorage
+      if (typeof s === 'string' && s.trim() !== '') b = s.trim();
+    }
+  } catch (e) { /* file:// / 隐私模式 / 纯 Node 探针读不到 ⇒ 走 ③：纯本地 */ }
+  ASSET_CDN.base = b;
+  CDN_STATE.on = b !== '';
+})();
+
+/** 请求 URL 拼接（全部 GLB/音频入口的唯一改道点）：
+    base 空 ⇒ 原样返回 —— 与没有 CDN 这回事时的请求**逐字节相同**；
+    非空 ⇒ 尾斜杠归一后拼在相对路径前（`./` 前缀剥掉）。预载清单键、settleAsset
+    键、SW 缓存键全部仍是相对路径，一个都不改 —— 改的只有"实际请求发到哪"。 */
+export function assetUrl(rel){
+  const base = ASSET_CDN.base;
+  if (!base) return rel;
+  return base.replace(/\/+$/, '') + '/' + String(rel).replace(/^\.\//, '');
+}
+
+/* CDN 尝试在总预算里占的份额：CDN 拿 60%（180s 预算下 = 108s），余下 ≥40%（72s）
+   留给本地重试；**总预算本身不动** —— 180s 的一刀切兜底仍是 preloadPhase 原有逻辑
+   （在飞的按失败结算、替身上场），本批一行不碰。选"按份额切截止点"而不是"共用
+   剩余预算"：份额给 CDN 尝试一个确定的死线，本地重试至少还有 40% 可用，两段都
+   装在同一个 PRELOAD_TIMEOUT_MS 之内，可解释、也无需改 preloadPhase。 */
+const CDN_DEADLINE_SHARE = 0.6;
+
+/** CDN 失败自动回退本地的统一壳（调用方只在 ASSET_CDN.base 非空时才该走这里；
+    空 base 直发一次 = 双保险，行为与旧路径相同）。
+    attempt(requestUrl) → Promise：发起**一次**加载（成功 resolve / 失败 reject）。
+    · CDN 请求失败（onError）⇒ 立刻用本地路径重试一次；
+    · CDN 超过 60% 预算仍在飞 ⇒ 同样转本地（GLTFLoader/fetch 都无法 abort，CDN
+      那条若"迟到成功"会被 done 闸挡掉 —— 只浪费带宽，绝不会双挂载）；
+    · **本地也失败才算真失败**（此时才 reject），由调用方走既有
+      settleAsset(false) + 程序化替身链 —— 失败判定链的语义一位不挪；
+    · 两次都成功竞速时先到者胜、后到者丢弃（防"CDN 迟到成功 + 本地已成功"双挂载）。 */
+export function withCdnFallback(url, attempt){
+  if (!ASSET_CDN.base) return attempt(url);
+  const deadlineMs = CFG_PRELOAD.timeoutMs * CDN_DEADLINE_SHARE;
+  return new Promise((resolve, reject) => {
+    let done = false, localStarted = false, timer = 0;
+    /* ⚠️ 两条失败路径必须**分开接**（不能共用一个 lose）：CDN 的死线先到、本地重试
+       已经在飞时，CDN 那条还可能再报一次错 —— 共用的话那次错会被误当成"本地也失败"
+       而提前判死，吞掉仍在飞、本可能成功的本地重试。 */
+    const win = (v, viaCdn) => {
+      if (done) return;
+      done = true; clearTimeout(timer);
+      if (viaCdn) CDN_STATE.hit++;                   // CDN 直取命中
+      resolve(v);
+    };
+    const cdnLose = () => {                          // CDN 尝试失败 ⇒ 只在还没回退过时触发回退
+      if (done || localStarted) return;
+      startLocal();
+    };
+    const localLose = (e) => {                       // 本地重试失败 ⇒ 真失败（CDN+本地都倒下）
+      if (done) return;
+      done = true; clearTimeout(timer); CDN_STATE.fail++; reject(e);
+    };
+    /* attempt 同步抛（如 fetch 对畸形 URL 直接 throw）也按"这次尝试失败"处理 ——
+       否则会把"CDN 基址写错"变成整页崩溃，而它本该触发本地回退。 */
+    const runAttempt = (reqUrl, onOk, onFail) => {
+      try { attempt(reqUrl).then(onOk, onFail); } catch (e) { onFail(e); }
+    };
+    const startLocal = () => {
+      if (done || localStarted) return;
+      localStarted = true; clearTimeout(timer);      // 死线已尽其用（后续再触发是 no-op）
+      CDN_STATE.fallback++;                          // 记一笔"回退本地"
+      /* 回退时把该件已下字节清零：CDN 半途而废的进度不作数，进度条从本地重下起算。
+         （thunder.mp3 不在预载清单里 ⇒ items.get 为 undefined，天然跳过。） */
+      const it = items.get(url);
+      if (it && it.settled === null){ it.loaded = 0; it.reportedTotal = 0; }
+      runAttempt(url, v => win(v, false), localLose);   // 本地路径 = 原相对路径
+    };
+    timer = setTimeout(startLocal, deadlineMs);      // CDN 的 60% 死线（超时也视作"CDN 失败"）
+    runAttempt(assetUrl(url), v => win(v, true), cdnLose);
+  });
+}
+
 /* ── 采样合并：进度条不许被逐 chunk 刷 ───────────────────────────────────
    一个 10 MB 的流在快网下能每秒吐出上百个 chunk 事件。逐个写 DOM 会让
    probe/loading-guard 的"更新次数"上界形同虚设，而且 MutationObserver

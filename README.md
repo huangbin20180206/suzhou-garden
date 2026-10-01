@@ -59,7 +59,25 @@ npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 **部署**：整个站点 = `index.html` + `src/*.js` + `vendor.js` + `assets/*.glb`（外加 PWA 三件套
 `manifest.webmanifest` / `sw.js` / `icons/`），纯静态，丢进任意静态托管即可。
 **离线/内网可用**：three.js 与全部 addons 已由 esbuild 打进本地 `vendor.js`，页面**不请求任何外部 CDN**
-（大陆网络下 unpkg / jsDelivr 常不稳定，这是硬约束）。
+（大陆网络下 unpkg / jsDelivr 常不稳定，这是硬约束）。资产分发另有**可选** CDN 轨道（默认关闭，见下节）。
+
+### 可选 CDN 基址（双轨 · 默认关闭）
+
+`assets/*.glb` 与 `assets/thunder.mp3` 默认全部走本地相对路径。需要把资产分流到 CDN 时**不用改代码**，两个开关任选其一：
+
+- **URL 参数**（只影响本次加载，优先级更高）：`index.html?cdn=<encodeURIComponent(基址)>`，
+  例 `?cdn=https%3A%2F%2Fcdn.example.com%2Fsg%2F`；
+- **localStorage**（该浏览器持续生效）：`localStorage.setItem('suzhou-cdn-base', 'https://cdn.example.com/sg/')` 后刷新。
+
+行为要点：
+
+- 基址会归一尾斜杠后拼在相对路径前（`assets/koi.glb` → `https://cdn.example.com/sg/assets/koi.glb`），
+  预载清单键与 SW 缓存键都不变；
+- **失败自动回退本地**：某资产从 CDN 报错、或超过预载预算 60%（180s 中的 108s）仍未到手，
+  会自动用本地路径重试一次；**本地也失败才算真失败**，照旧走 `settleAsset(false)` + 程序化替身的降级链；
+- 诊断状态在 `src/13-preload.js` 的 `CDN_STATE`（`on` / `hit` / `fallback` / `fail`）；
+- Service Worker 只缓存同源请求：CDN 请求不进 SW 缓存，本地回退照常享受离线缓存；
+- **默认（不带开关）`base` 为空串**：`assetUrl()` 原样返回相对路径，请求与纯本地部署逐字节等价。
 
 ---
 
