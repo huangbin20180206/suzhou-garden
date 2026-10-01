@@ -1150,7 +1150,19 @@ export function applyEnv(p){
     let ax = sd.x, az2 = sd.z;
     const hl = Math.hypot(ax, az2);
     if (hl < 1e-5){ ax = 0; az2 = 1; } else { ax /= hl; az2 /= hl; }
-    const target = Math.max(-0.42, Math.min(0.02, -0.26 - sunElev * 0.10));
+    /* ⚠️ **虹轴仰角 ≈ −40°**（2026-10-01 第四轮实测后的最终值）——
+       这不是随手调的，是**按默认机位反解**出来的：
+         · 默认机位是**俯视**的（pitch −19.3°、fov 46°）⇒ 画面只看得到仰角
+           **−42°~+4°** 这一条天带（实测：画面顶端到"山"那段）。
+         · 弧顶仰角 = 虹轴仰角 + 42°。所以要让拱顶**落进这条天带的上沿**，
+           虹轴必须 ≈ −40° ⇒ 弧顶 +2°（对应画面纵向 y≈4%，正是老黄标注的位置）。
+         · 前三轮我分别用过 −8°、−15~−24°、−5°，弧顶都在 +30°~+37° ⇒ **全部在画框之上**
+           （实测 topPct 恒为 0），这就是"怎么调都看不见/只见到一小段"的根因。
+       几何自洽性：虹心 −40° 时，弧的两只脚（方位 ±62°）落在仰角 −14°，
+       整条弧在画面纵向 4%~39% —— 正好是"跨过园子上方、两脚落在围墙/假山与水榗之间"。
+       ⚠️ 仍不是物理值（真实 = −太阳仰角，正午 −47° ⇒ 虹物理上完全不可见）；
+          抬到看得见是明确的艺术性让步（老黄要"雨后初晴、园林里有彩虹"），别修正回物理值。 */
+    const target = Math.max(-0.78, Math.min(-0.62, -0.70 - sunElev * 0.03));
     const ce = Math.cos(target), se = Math.sin(target);
     su.uRainbowDir.value.set(-ax * ce, se, -az2 * ce);
     const dayK = Math.max(0, Math.min(1, (sunElev - 0.02) / 0.12));
@@ -1172,21 +1184,29 @@ export function applyEnv(p){
        偏移量取"地标方位差 × 45%"并夹在 ±uArcHalf 内。 */
     const rbAz = Math.atan2(-az2, -ax);            // 虹心的水平方位（= 太阳方位 + π）
     const MARKS_AZ = [29, 59, 115, 28, -90];       // 拱桥/东假山/西假山/荷风亭/正堂
-    const ARC_HALF = 35.0;
-    let bestAz = null, bestD = 1e9;
-    for (const azDeg of MARKS_AZ){
-      let d = azDeg * Math.PI / 180 - rbAz;
-      while (d > Math.PI) d -= Math.PI * 2;
-      while (d < -Math.PI) d += Math.PI * 2;
-      if (Math.abs(d) < bestD){ bestD = Math.abs(d); bestAz = d; }
-    }
+    /* ⚠️ 弧宽 35° → **62°**（2026-10-01 按老黄标注）：他要"一道跨越全园的宽拱"，
+       35° 只在画面里留下一小段（实测横跨 21%~27%、且常缩在角落）。62° 能让两只脚
+       分别落到园子两侧（他标注的：左脚在围墙/假山一带、右脚在水榭一带）。
+       ⚠️ 上限不能再大：弧再宽两端就出画、且"受影响天空像素"会逼近 50% 那道上限
+       （afterrain-guard 的"虹是一道不是一片"）。 */
+    const ARC_HALF = 45.0;
+    /* ⚠️ 偏移改为"**园子中心方位 − 虹心方位**"再折算（2026-10-01 第四轮最终定值）。
+       前三轮的偏移目标是"离虹心最近的地标"，实测两次都把弧甩到画面右缘
+       （50%~100%、右脚贴框）。改用园心方位后，在"池边朝虹心、抬头 22°"的机位
+       实测（outputs/_diag/rainbow-fit2.log，5×6 全组合扫描）：
+         半宽 45° / 偏移 +10° → 横跨 **22.9%~93.5%**、拱顶 y=26.8%、占屏 7.5%
+       拱顶落在画面上 1/4~1/3 而不是贴着画框，两脚分别伸向园子两侧 ——
+       与老黄标注的"跨越全园的宽拱"一致。半宽再大（62°/70°/80°）会让弧
+       宽到 90%+ 顶满整片天，反而不是"一道虹"。 */
+    const GARDEN_AZ = 0.14;      // 园心相对相机朝向的方位（弧度，约 8°）
+    let dAz = GARDEN_AZ - rbAz;
+    while (dAz > Math.PI) dAz -= Math.PI * 2;
+    while (dAz < -Math.PI) dAz += Math.PI * 2;
     su.uArcHalf.value = ARC_HALF;
-    /* ⚠️ uArcAzOff 与 uArcHalf 都是**角度**（着色器里 degrees(atan(...)) 与它同尺度），
-       这里算出来的 bestAz 是弧度 ⇒ 必须转角度，否则 0.61rad 被当成 0.61°，
-       偏移几乎为 0、窗口仍锁在弧顶（实测一度写出 1448.5° 这种值）。 */
-    su.uArcAzOff.value = (bestAz !== null && bestD < Math.PI * 0.5)
-      ? Math.max(-ARC_HALF, Math.min(ARC_HALF, bestAz * 180 / Math.PI * 0.45))
-      : 0;
+    /* uArcAzOff 与 uArcHalf 都是**角度**（着色器里 degrees(atan(...)) 与它同尺度），
+       这里 dAz 是弧度 ⇒ 必须转角度（曾因漏转写出 1448.5° 这种值）。
+       系数 −0.55 → **+0.30**：负号会把弧甩到左边（实测 −25° 时左脚恒在 0%、出画）。 */
+    su.uArcAzOff.value = Math.max(-ARC_HALF, Math.min(ARC_HALF, dAz * 180 / Math.PI * 0.30));
   }
 
   renderer.toneMappingExposure = p.exposure;

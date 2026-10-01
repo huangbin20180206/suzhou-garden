@@ -397,10 +397,12 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
             /* 地面遮罩：虹要"从地里升起来"，所以**低处不能淡出**（原来那版
                smoothstep(-0.02,0.16,d.y) 专门削掉低处，是"虹不长到水里"的怕法，
                但同时把两只脚削掉了 ⇒ 虹读成"横在天上的一道"而不是"从园子里升起的"）。
-               现在只在**太高**处收（虹顶不会高过 45°），低处保持到地平线。
-               0.62 上限是实测定的：画面里虹要落在园墙/树梢**之上**但不能顶到画框上沿，
-               改前 0.95（几乎不收）时虹顶正好压在画面顶端（纵向 0%）。 */
-            float ground = smoothstep(-0.08, 0.02, d.y) * (1.0 - smoothstep(0.62, 0.95, d.y));
+               现在只在**太高**处收，低处保持到地平线。
+               ⚠️ 上限 0.62 → **0.86**（2026-10-01 按老黄"跨越全园的宽拱"）：
+               0.62 时弧顶附近（仰角 40°、d.y≈0.64）已经开始被削 ⇒ 弧顶发虚、两脚够不到
+               园子两侧。0.86 让仰角 40° 的弧顶几乎不被削（sin40°=0.64 远在 0.86 以下），
+               只在接近天顶（d.y>0.86）才淡出，那已经不在这道虹的范围里了。 */
+            float ground = smoothstep(-0.08, 0.02, d.y) * (1.0 - smoothstep(0.86, 0.99, d.y));
             /* 强度 0.46：天空本身已经很亮（雨后初晴 luma≈143），加色到 0.78 会整片过曝成白。 */
             vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.35);   // 提饱和
             col += spSat * band * azWin * fade * ground * uRainbow * breathe * 0.46;
@@ -422,7 +424,7 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
             sc = mix(sc, vec3(0.42, 0.24, 0.72), smoothstep(0.66, 0.84, ts));  // 紫（外）
             float anti2 = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
             float fade2 = smoothstep(0.10, 0.62, anti2);
-            float ground2 = smoothstep(-0.06, 0.06, d.y) * (1.0 - smoothstep(0.68, 1.00, d.y));
+            float ground2 = smoothstep(-0.06, 0.06, d.y) * (1.0 - smoothstep(0.90, 1.00, d.y));
             /* 强度 0.16 ≈ 主虹的 1/3：真实次虹就明显更淡（两次反射多损失一路光），
                老黄要"很淡"—— 只在特定角度/时段能隐约看见，不抢主虹。 */
             col += sc * sBand * azWin * fade2 * ground2 * uRainbow * breathe * 0.16;
