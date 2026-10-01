@@ -29,9 +29,23 @@ function declsOf(src){
   return names;
 }
 function importsOf(src){
+  /* ⚠️ **别名 import 必须把"原名"和"本地名"都记进可见集**（2026-10-02 修既存红门时定位）。
+     旧写法 `names.add(part.trim())` 把 `aggregate as preloadAggregate` 整串当成一个名字
+     ⇒ 集合里既没有 `aggregate` 也没有 `preloadAggregate`。两个后果（① 是 HEAD 上红了两天的假红）：
+       ① ② 段判"缺 import"比对的是**导出原名**：codeOnly 会保留 import 语句行本身，
+          而 referencesName 不认识 import 语法 ⇒ import 行里的原名被当成"一次使用"
+          ⇒ 11-loop 的 `aggregate as preloadAggregate` 被报"用到 aggregate 但没 import"；
+       ② ③ 段"禁止给导入绑定赋值"比对的是本地名 ⇒ 别名导入的绑定根本不在保护名单里。
+     修这一处，两段同时受益。 */
   const names = new Set();
   for (const r of src.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]([^'"]+)['"]/g)){
-    for (const part of r[1].split(',')) if (part.trim()) names.add(part.trim());
+    for (const part of r[1].split(',')){
+      const p = part.trim();
+      if (!p) continue;
+      const m = p.match(/^([\w$]+)\s+as\s+([\w$]+)$/);   // 原名 as 本地名
+      if (m){ names.add(m[1]); names.add(m[2]); }
+      else names.add(p);
+    }
   }
   return names;
 }
