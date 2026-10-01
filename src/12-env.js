@@ -2647,8 +2647,14 @@ function buildLightning(){
   LIGHTNING._group = g; LIGHTNING._bolt = bolt; LIGHTNING._boltMat = boltMat;
   LIGHTNING._streak = streak; LIGHTNING._streakMat = streakMat;
 }
-/* 闪光包络：一串"起得快、落得稍慢"的脉冲（真实闪电的多闪节奏） */
+/* 闪光包络：一串"起得快、落得稍慢"的脉冲（真实闪电的多闪节奏）。
+   ⚠️ **pulses 必须容 null**（2026-10-02 夜间全量链抓到的真缺陷）：
+      `LIGHTNING.next = 4.0`（第一次打击在仿真第 4 秒），而 `lnApply(tNow - L.t0)`
+      在那之前就会跑 —— 那时 `_pulses` 还是 null ⇒ `for (const p of null)` 必炸
+      TypeError。shadow-cover / ripple-bounds 两道门在暴雨臂里各抓到 ×2。
+      返回 0 = "还没有闪电就没有照亮"，与"先闪电后照亮"的硬约束自洽。 */
 function lnFlashAt(pulses, tau){
+  if (!pulses) return 0;
   let v = 0;
   for (const p of pulses){
     if (tau < p.t) break;
@@ -2770,7 +2776,9 @@ export function tickLightning(dt, tNow){
   }
   /* 定格模式（见 LIGHTNING.hold 的注释）：按指定 tau 重放包络，不排新事件、不动 t0 */
   if (L.hold !== null){ lnApply(L.hold); return; }
-  if (tNow >= L.next){
+  if (tNow >= L.next || !L._pulses){
+    /* ⚠️ `!L._pulses` 也触发首击（2026-10-02）：进入暴雨/雷雨后第一帧就打雷，
+       而不是让用户等 4 个仿真秒看"只有乌云没有闪电"—— 同时把 null 包络这条路堵死。 */
     lnStrike(tNow);
     L.strikes++;
     L.t0 = tNow;
@@ -2782,6 +2790,11 @@ export function tickLightning(dt, tNow){
    抽出来是为了给"定格"复用（探针要可复现的峰值帧，截图要拍到闪电）。 */
 function lnApply(tau){
   const L = LIGHTNING;
+  /* ⚠️ 闪电几何是**首击时懒建**的（lnStrike → buildLightning）—— 在那之前
+     _bolt/_streak 都是 null。上面的 lnFlashAt 空值兜底让执行走到这里，
+     不挡一下就会换成 "Cannot read properties of null (reading 'visible')"。
+     此时本来就还没有闪电 ⇒ 闪光归零、直接返回。 */
+  if (!L._group){ L.flash = 0; return; }
   const fRaw = lnFlashAt(L._pulses, tau);
   /* ⚠️ "先闪电、后照亮"是**硬约束**（老黄原话："一定是闪电后才有照亮场景的效果"）：
      把照亮**铆在闪电网格的可见期上** —— 网格不可见的帧一律不许有闪光量。
