@@ -9,6 +9,7 @@
     "audit": "node probe/import-audit.mjs",
     "test": "node probe/smoke.mjs",
     "verify": "node probe/verify-all.mjs",
+    "verify:quick": "node probe/verify-all.mjs --quick",
     "serve": "node probe/serve.mjs"
   },
   "keywords": [],

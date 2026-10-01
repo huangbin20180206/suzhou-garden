@@ -395,7 +395,27 @@ const gpuTag = () => {
    GPU 是否打印、退出码是否为 1）—— 否则要验证它就得先真弄红一门、白等 13 分钟。
    例：`VERIFY_SELFTEST=probe/_selfcheck-fail.mjs node probe/verify-all.mjs` */
 const SELFTEST = process.env.VERIFY_SELFTEST;
-const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]] : SUITES;
+/* ── 分层验证：`--quick`（2026-10-02，老黄 2026-09-25 定的原则"局部改动只跑相关专项，
+     高风险/发布节点才跑全量"的形式化；评审清单 P2）────────────────────────────
+   quick 选的门槛原则：**快**（每门都应在 1 分钟内）+ **覆盖面广**（不是只测最近改的东西）——
+   它的职责是"日常改动后的 5 分钟兜底"，抓的是语法/导入/运行期炸/布局漂移/最核心的行为回归。
+   ⚠️ 明确不进 quick 的：像素门与长采样门（mist 185~390s、birds 230s、figure-audit、
+     intro/loading/warmboot 等启动期采样门）—— 那些是"高风险/发布节点"的职责，
+     收尾与发布前必须跑一次全量 `npm run verify`，这条写在 README 的验证体系里。
+   估算耗时：check 2s + codeonly-unit 1s + import-audit 1s + smoke ~25s + pageerror ~70s
+     + layout-fingerprint ~12s + random-guard 10s ≈ **2 分钟出头**。 */
+const QUICK = new Set([
+  'probe/check.mjs', 'probe/codeonly-unit.mjs', 'probe/import-audit.mjs',
+  'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
+  'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
+]);
+const QUICK_MODE = process.argv.includes('--quick');
+const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]]
+              : QUICK_MODE ? SUITES.filter(([, p]) => QUICK.has(p))
+              : SUITES;
+if (QUICK_MODE && !SELFTEST){
+  say(`[verify-all] ⚡ quick 模式：${LIST.length}/${SUITES.length} 道（快门 + 广覆盖；发布前仍须跑全量 npm run verify）`);
+}
 
 /* ── 红门重跑 + FLAKY 标注（2026-09-24）────────────────────────────────────
    为什么要有它：项目里反复出现"**全链红在某一门、单跑全绿**"（GPU 档位切换 / 并发负载 /
