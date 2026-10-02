@@ -229,6 +229,53 @@ const check = (name, ok, detail) => { results.push({ name, ok, detail }); consol
     snow.rendered > 0 && rain.rendered > 0,
     `雪 ${snow.rendered} / 雨 ${rain.rendered}`);
 
+  /* ── 2026-10-02 第九轮：**积雪覆盖层**的室内剔除（老黄又报"冬季室内仍然被白雪
+     覆盖"）。这是与粒子**完全独立的第二个洞**：上面几条量的是"空中飘进来的雪粒"，
+     这次被拍的是 snowCover 通道把堂内**地面/案几顶面铺了一层白**（多模态定性：
+     连续贴附表面的白层，与门外台阶雪连成一片）。
+     判据：门洞视角下，**冬+晴 ↔ 冬+雪** 冻结帧对比（只切天气，色调不变）：
+       · 堂内地面 ROI 的 Δ 必须**跟着天空 Δ 走**（天光变化，不是雪），
+         即 |Δ堂内 − Δ天空| 小 ⇒ 堂内没被雪刷白；
+       · 堂外月台 ROI 的 Δ 明显**比堂内亮**（真的铺了雪）⇒ 雪覆盖通道在工作。
+     ⚠️ 判据口径（踩过的坑）：拿"秋+晴 ↔ 冬+雪"当基线是错的 —— 冬季天光整体
+       变暗（实测堂内 Δ=−17.6），那是色调不是雪，会把"无雪"读成"仍变白"。
+     ⚠️ 机位必须从月台正对门洞（打不进堂内则判据形同虚设）。 */
+  {
+    const ab = await page.evaluate(async () => {
+      const G = window.__garden;
+      G.camera.position.set(0, 2.4, -5.5);
+      G.controls.target.set(0, 1.0, -12); G.controls.update();
+      const cv = document.createElement('canvas');
+      cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+      const ctx = cv.getContext('2d');
+      const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0);
+        return ctx.getImageData(0, 0, cv.width, cv.height); };
+      const roiLuma = (img, x0, y0, x1, y1) => {
+        let s = 0, n = 0;
+        for (let y = Math.round(y0*img.height); y < Math.round(y1*img.height); y++)
+          for (let x = Math.round(x0*img.width); x < Math.round(x1*img.width); x++){
+            const i = (y*img.width + x)*4;
+            s += 0.299*img.data[i] + 0.587*img.data[i+1] + 0.114*img.data[i+2]; n++;
+          }
+        return s/n;
+      };
+      G.setEnv('weather', 'snow');
+      await new Promise(r => setTimeout(r, 4000));
+      const on = grab();
+      G.setEnv('weather', 'clear');
+      await new Promise(r => setTimeout(r, 4000));
+      const off = grab();
+      return {
+        sky:  roiLuma(on,0.05,0.02,0.30,0.10) - roiLuma(off,0.05,0.02,0.30,0.10),
+        indoor: roiLuma(on,0.42,0.30,0.58,0.42) - roiLuma(off,0.42,0.30,0.58,0.42),
+      };
+    });
+    const devIndoor = Math.abs(ab.indoor - ab.sky);   // 堂内变化与天光的偏离 = 铺雪量
+    check('冬季：堂内地面无积雪（变化全来自天光，不是雪层）',
+      devIndoor < 10,
+      `堂内Δ=${ab.indoor.toFixed(1)} · 天空Δ=${ab.sky.toFixed(1)} · 偏离=${devIndoor.toFixed(1)}（<10 判无铺雪）`);
+  }
+
   check('全程零 pageerror', pageErrors.length === 0, pageErrors.length ? pageErrors[0] : '0 条');
 
   await browser.close();

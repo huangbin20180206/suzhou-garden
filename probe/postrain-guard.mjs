@@ -176,6 +176,35 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
   check('屋檐滴水真的画进了像素（檐下近景 3 组取最大 > 4px）', dripPx > 4, `滴水贡献 ${dripPx}px（3 组最大）`);
   check('积水真的画进了像素（默认机位 > 3000px）', px.pud > 3000, `积水贡献 ${px.pud}px`);
 
+  /* ── 2026-10-02 第九轮：檐滴**加速下落**（老黄："下落过程中应该越来越快，不是匀速的，
+     现在雨滴下落速度太慢了点"）。录一颗正在落的滴的 vy 序列（逐帧）。
+     判据：存在一段**未到限速**的加速序列（|vy| 从小往大单调递增）。
+     ⚠️ 不能要求"整个 90 帧窗都单调加速"—— 一颗滴从起跳到落地只有 ~1.2s（限速 6.5），
+     采样窗若从中段起采，整窗都是限速 −6.5（匀速段），会误判成"匀速"。 */
+  const dripV = await page.evaluate(async () => {
+    const M = await import('/src/12-env.js');
+    const P = M.POSTRAIN;
+    const track = [];
+    for (let i = 0; i < 180; i++){          // 180 帧 ≈ 3s，覆盖多颗滴的起跳段
+      const d = P.drip.drops.find(x => x.live);
+      if (d) track.push(+d.vy.toFixed(3));
+      await new Promise(r => requestAnimationFrame(r));
+    }
+    return track;
+  });
+  // vy 是负值、越来越负 = 加速。找是否存在连续 ≥3 个样本的严格加速子序列（未达限速 −6.5）
+  let hasAccel = false, accelRun = 0;
+  for (let i = 0; i < dripV.length; i++){
+    if (Math.abs(dripV[i]) < 6.4){          // 未到限速
+      if (i > 0 && dripV[i] < dripV[i-1] - 0.005) accelRun++;
+      else accelRun = 0;
+      if (accelRun >= 2) { hasAccel = true; break; }
+    } else accelRun = 0;
+  }
+  check('屋檐滴水下落是加速的（存在未达限速的加速段，|vy| 单调递增）',
+    hasAccel,
+    `vy 前8=${JSON.stringify(dripV.slice(0,8))} · 采样 ${dripV.length} 帧`);
+
   /* ── 隔离：不湿的天气不该有这两个部件 ── */
   for (const w of ['clear', 'snow', 'mist']){
     await setWx(w);

@@ -2049,6 +2049,21 @@ function installSnow(list){
       if (prevCB) prevCB.call(this, shader, renderer);
       shader.uniforms.uSnowCover = snowUniform;
       shader.uniforms.uSnowTint  = snowTintUniform;
+      /* 室内剔除盒：从 PRECIP_INDOOR **就地求值**（盒沿 ±0.3 外扩：含墙厚余量，
+         shader 里再留 0.2 平滑带，门洞处雪从门口往里渐隐不出硬缝；y 下界 −1.5
+         连台基底一起罩住）。
+         ⚠️⚠️ 不能在模块级提前 const 出来引用 PRECIP_INDOOR —— installSnow 的调用点
+         （装配收尾）在 PRECIP_INDOOR 定义**之前**，模块级求值会 TDZ ⇒ 传进去
+         undefined ⇒ three 上传 uniform 时 `value[i].toArray()` 抛
+         "Cannot read properties of undefined" ⇒ **整页卡在加载页**（渲染循环每帧抛）。 */
+      shader.uniforms.uInLo = { value: PRECIP_INDOOR.map(b => new THREE.Vector3(b.x0 - 0.3, -1.5, b.z0 - 0.3)) };
+      shader.uniforms.uInHi = { value: PRECIP_INDOOR.map(b => new THREE.Vector3(b.x1 + 0.3, b.yTop + 0.15, b.z1 + 0.3)) };
+      shader.uniforms.uInN  = { value: PRECIP_INDOOR.length };
+      /* ⚠️⚠️ GLSL 里 `uInLo[6]` 的长度必须与 PRECIP_INDOOR.length **逐字一致**：
+         three 按 GLSL 声明的数组长度注册 uniform（size=6），上传时按该长度 flatten，
+         JS 侧少给一个 ⇒ `array[6]` 是 undefined ⇒ flatten 里 `toArray()` 抛
+         "Cannot read properties of undefined" ⇒ **渲染循环每帧抛、整页卡在加载页**。
+         （这就是刚才那一次的故障：盒子实际 6 个、GLSL 写了 7。）新增禁区盒子时两处同步。 */
       // 逐材质：薄叶面用自己的加成，没有登记的材质为 0（= 完全走原来的朝上判据）
       shader.uniforms.uSnowBoost = (this.userData && this.userData.snowBoost)
                                  ? this.userData.snowBoost : { value: 0 };
@@ -2078,6 +2093,9 @@ function installSnow(list){
           'uniform float uSnowCover;\n' +
           'uniform vec3 uSnowTint;\n' +
           'uniform float uSnowBoost;\n' +
+          'uniform vec3 uInLo[6];\n' +
+          'uniform vec3 uInHi[6];\n' +
+          'uniform int uInN;\n' +
           'float snowHash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123); }\n' +
           'float snowNoise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);\n' +
           '  return mix(mix(snowHash(i), snowHash(i + vec2(1.0, 0.0)), u.x),\n' +
@@ -2098,6 +2116,21 @@ function installSnow(list){
           '    float hi = mix(0.80, 0.52, uSnowBoost);\n' +
           '    float amt = smoothstep(lo, hi, dr) * upness * uSnowCover;\n' +
           '    amt *= 1.0 + 0.25 * uSnowBoost;\n' +
+          /* ⚠️ 室内剔除（2026-10-02）：盒子内的片元（堂内/廊下/亭下的地面与家具顶面）
+             雪量归零 —— snowCover 只认"面朝上"，没有它堂内地面会与门外台阶雪连成一片
+             （老黄实拍定性）。盒沿已在 JS 侧外扩 0.3，这里再留 ±0.2 平滑带：
+             门洞处雪从门口往里渐隐，不出硬缝。y 下界 -1.5 连台基底一起罩住。 */
+          '    float inK = 0.0;\n' +
+          '    for (int i = 0; i < 7; i++){\n' +
+          '      if (i >= uInN) break;\n' +
+          '      vec3 lo2 = uInLo[i];\n' +
+          '      vec3 hi2 = uInHi[i];\n' +
+          '      vec3 inA = smoothstep(lo2 - vec3(0.2), lo2 + vec3(0.2), vSnowW);\n' +
+          '      vec3 outA = 1.0 - smoothstep(hi2 - vec3(0.2), hi2 + vec3(0.2), vSnowW);\n' +
+          '      vec3 mm = clamp(inA * outA, 0.0, 1.0);\n' +
+          '      inK = max(inK, mm.x * mm.y * mm.z);\n' +
+          '    }\n' +
+          '    amt *= 1.0 - inK;\n' +
           '    diffuseColor.rgb = mix(diffuseColor.rgb, uSnowTint * (0.72 + 0.40 * dr), amt);\n' +
           '  }');
     };
@@ -2973,9 +3006,12 @@ let _prevCamX = null, _prevCamZ = null;
      （outputs/_diag/repro-2026-10-02.mjs）：堂内 0（9-01 那次修复有效），
      但**游廊内 1~7 粒/帧、水榭亭顶下 8~14 粒/帧** —— 这两处没有禁区，粒子
      直接穿廊顶/亭檐出现在顶棚下方。
-     yTop 取**各自檐口标高**（游廊 3.34 / 榭 4.47）+ 一点余量：粒子在 y>yTop 时不判，
-     落穿 yTop 那一帧才杀 ⇒ 杀点紧贴顶棚下沿，从廊外/亭外看被檐口结构挡住，
-     不会读出"半空中雪点凭空消失"；顶棚以上的雪不受影响（不出现"雪洞"）。 */
+       yTop 取**各自檐口标高**（游廊 3.34 / 榭 4.47）+ 一点余量：粒子在 y>yTop 时不判，
+       落穿 yTop 那一帧才杀 ⇒ 杀点紧贴顶棚下沿，从廊外/亭外看被檐口结构挡住，
+       不会读出"半空中雪点凭空消失"；顶棚以上的雪不受影响（不出现"雪洞"）。
+     ⚠️ 这组盒子**同时被积雪覆盖层借用**（installSnow 的 uInLo/uInHi，见那里的注释）——
+       2026-10-02 老黄再报"冬季室内仍然被白雪覆盖"时定性为**表面铺雪**而非飘雪粒子：
+       snowCover 只认"面朝上"，堂内地面/案几顶面照样铺白。 */
 const PRECIP_INDOOR = [
   /* 远香堂室内。XZ 覆盖整个建筑外廓（W20/D8 @ z=-12.8）只留 4cm 内缩 ——
      这 4cm 落在**墙体厚度里**（墙厚 0.3），粒子死在墙体内部、被墙挡住，看不出来；
@@ -3116,8 +3152,8 @@ const EAVE_DRIP = (() => {
          用独立 mulberry32 选点，不碰任何共享流；数量固定 ⇒ 实例 count 不漂，铁律 1 安全）；
        · 半径 0.046 → 0.023（视觉尺寸减半；仍比真实水珠大 —— 纯物理 5mm 在 10m 外
          不到 1 像素，0.023 是"看得见"的下限附近）；
-       · 限速 4.6 → 2.0 m/s（6.4m 檐口落到台基 ~2.7s，读得出"慢慢滴"；真实檐滴
-         末速 ~9m/s 一闪而过反而看不见）；
+       · 限速 4.6 → 2.0 m/s（第九轮再放宽到 6.5 —— 见下方下落段的注释：
+         加速段要占得到 1/3 檐高，"越来越快"才看得见；全程 ~1.15s）；
        · 节奏：每滴落地后**该滴点**停 1.2~4.7s 再滴下一滴（原来是 0.12~1.27s 全线抢跑）。
      同一时刻空中最多 16 颗且分布在不同滴点 ⇒ 默认机位的视觉密度大幅下降。 */
   const N = 16;
@@ -3296,8 +3332,14 @@ export function updatePostRain(dt, t){
       if (d.wait > 0) continue;
       d.s = spot.seg; d.f = spot.f; d.y = spot.seg.y + Math.random() * 0.06; d.vy = -0.2; d.live = true;
     } else {
-      /* 自由落体（限速 2.0 m/s ⇒ 从 6.4m 檐口落到台基约 2.7s —— "慢慢滴"）*/
-      d.vy = Math.max(-2.0, d.vy - 9.8 * dt);
+      /* 自由落体。⚠️ 2026-10-02 第九轮（老黄："下落过程中应该越来越快，不是匀速的，
+         现在雨滴下落速度太慢了点"）—— 旧限速 2.0 m/s 是上一轮"滴水慢一点"时压的，
+         但它把加速段掐到只剩开头 0.2s（0.2s 就顶到 2m/s），之后 2.5s 全程匀速滑落，
+         老黄看到的"匀速"完全属实。现在限速放宽到 6.5：
+         · 加速段（0→6.5m/s）要 ~0.66s、掉 ~2.2m，占檐高的 1/3 ⇒ "越来越快"看得见；
+         · 全程 6.4m 从 ~2.7s 缩到 ~1.15s ⇒ 整体也快了一倍多；
+         · 不取真实末速 9m/s 是刻意的：6.4m 自由落体 1.14s 一闪而过，快到看不见。 */
+      d.vy = Math.max(-6.5, d.vy - 9.8 * dt);
       d.y += d.vy * dt;
       if (d.y <= d.s.gy){ d.live = false; d.wait = 1.2 + Math.random() * 3.5; }
     }
