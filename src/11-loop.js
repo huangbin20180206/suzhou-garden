@@ -1,7 +1,7 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
 import { camera, renderer, RENDER_SCALE, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
-         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState } from './02-scene.js';
+         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
@@ -507,6 +507,8 @@ function lxpSyncWind(adv, rainNow){
   }
   MIST.uTime.value = windClock;
   skyMesh.material.uniforms.uTime.value = windClock;
+  /* 彩虹独立层的呼吸钟（第七轮从天空球搬出后，uTime 也要单独推） */
+  rainbowMesh.material.uniforms.uTime.value = windClock;
 }
 /* 长曝合成本身：返回装裱好的 PNG dataURL。下载与门禁采样共用 ——
    门禁不点 `<a>`（headless 里点不出来），而是直接读这张返回的画。 */
@@ -982,6 +984,8 @@ function animate(){
      与枝叶/水面/雾同一个坑：软渲染一帧 8.4s，墙钟每帧跳 8.4s → 云不是"飘"而是"瞬移"，
      探针低帧率下云影采样也不稳定。真机 60fps 两者等价。 */
   skyMesh.material.uniforms.uTime.value = windClock;
+  // 彩虹独立层同钟（第七轮搬出天空球，呼吸的相位要跟天空动画一致）
+  rainbowMesh.material.uniforms.uTime.value = windClock;
 
   // 锦鲤沿椭圆轨道游动（轨道经核算落在池内）
   const fishes = koiGroup.userData.fishes;

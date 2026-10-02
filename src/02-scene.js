@@ -163,19 +163,13 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
       /* 电闪（2026-09-30 电闪雷鸣）：0=无闪；由 12-env 的 tickLightning 每帧写。
          云层响应最强（空中电闪读得出来）、整片天幕同时泛白。 */
       uFlash:{value:0.0},
-      /* 七色彩虹 + 次虹（2026-09-30 雨后初晴；2026-10-01 按老黄反馈重做形态）。
-         uRainbow = 0 关（非该天气恒 0）。uRainbowDir = 虹心方向（**太阳的反方向**
-         = -uSunDir），由 applyEnv 写 —— 真实成因，改不了：背对太阳才看得到虹。
-
-         uArcHalf = 弧的**方位角半宽**（**角度**，0~180）。真实彩虹是一整圈，但一整圈画出来
-         必然横贯整个天空（实测 99% 画面宽、虹顶顶在画面上沿 ⇒ 老黄反馈"又高又远、
-         只有这个角度才看得见"）。真实里你之所以只看到一小段，是因为**雨区只有一小块**
-         —— 所以这里按"雨区有限"取一段弧，读作一道小虹而不是天上一道宽带。
-         uArcAzOff = 这段弧**相对弧顶（90°）**的偏移角度，由 applyEnv 按园内地标方位算。 */
-      uRainbow:{value:0.0},
-      uRainbowDir:{value:new THREE.Vector3(0,1,0)},
-      uArcHalf:{value:35.0},
-      uArcAzOff:{value:0.0},
+      /* ⚠️⚠️ 彩虹已搬出天空球（2026-10-02 第七轮）：挂在天空球上时它被四层远山
+         卡片（仰角 −10°~+21°、不透明 0.76~0.95）挡在背后 —— 默认俯视机位的整条
+         可见天带都在山后面，强度怎么调都只从山缝里漏几个灰阶（取证见
+         outputs/_diag/rb-intensity.mjs + rainbow-natural.png，多模态判"极淡"）。
+         现在虹是**独立透明层 rainbowMesh**（见下方 makeRainbowMesh），renderOrder
+         排在远山之后 ⇒ 画在山前面（中国山水画"山前挂虹"的画法），近景园景
+         （写深度的不透明网格）照常把它挡住。本材质只留天空本体。 */
     },
     vertexShader:`varying vec3 vDir;
       void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
@@ -187,9 +181,6 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
       uniform vec3  uMoonDir, uMoonColor;
       uniform float uMoonAmount, uMoonPhase;
       uniform float uFlash;
-      uniform float uRainbow;
-      uniform vec3  uRainbowDir;
-      uniform float uArcHalf, uArcAzOff;
 
       // 便宜的 value-noise FBM —— 给天空一层有体积感的云，
       // 原来的天空是均匀平色，占了画面 30~40% 面积却毫无信息。
@@ -332,104 +323,9 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
           col += uMoonColor * glow * mvis * 0.38;
         }
 
-        /* ── 彩虹：主虹 + 次虹（2026-10-01 按老黄反馈重做形态）──
-           物理（不能动的部分）：阳光在雨滴内折射+内部反射，**虹心恒在太阳的反方向**，
-           背对太阳才看得到。主虹对角半径 42°（次虹 51°，光在雨滴内反射**两次**）。
-           形态（可调的部分，也是这次改的）：
-           ① **只画一段弧，不画整圈**。真实里你只看到一小段，是因为雨区只有一小块；
-              整圈画出来必然横贯整个天空（实测 99% 画面宽、虹顶顶在画面上沿）。
-           ② **方位角窗口**（uArcHalf / uArcAzOff）：这段弧的宽度与它在虹心周圈的
-              位置。uArcAzOff 用来把弧脚挪到园内景物（拱桥/东假山）那一侧。
-           ③ **压低弧顶**：虹心仰角本来就压到 −8°（正午物理上虹在地平线下看不到），
-              这里再让弧的可见部分偏低，虹脚就能贴到园墙/树梢而不是浮在半空。
-           ④ **次虹**：半径 51°、七色**内外反转**（外红内紫）、强度约主虹的 1/3 ——
-              这是真实的"双彩虹"，老黄要的。做得很淡，只是多一道影子，不抢主虹。 */
-        if (uRainbow > 0.001){
-          vec3 rd2 = normalize(uRainbowDir);
-          float a = acos(clamp(dot(d, rd2), -1.0, 1.0));      // 与虹轴的夹角
-          /* 呼吸必须声明在**两条虹之外**：主虹的 breathe 原本声明在它自己的 if 块里，
-             次虹那个块看不见它 ⇒ 编译失败 "breathe: undeclared identifier"
-             ⇒ **整个天空球变全黑**（着色器编译不过 ⇒ 材质被丢弃）。
-             这类错误的症状极具误导性：画面表现是"天空没了"，与"虹画错了"毫无关系。
-             ⚠️ 教训：GLSL 改完必须确认 program LINK_STATUS（页面会打 console 报错，
-                但页面**照常显示**，没有任何异常表现）——见 outputs/_diag/sky-shader-err.mjs。 */
-          float breathe = 0.88 + 0.12 * sin(uTime * 0.157);   // 极缓慢呼吸（周期≈40s）
-          /* 方位角窗口：只在一段周圈角度内可见 ⇒ 天空里只剩一段弧而不是整圈。
-             ⚠️ 基准系：bitan = 世界上投影进"虹轴 ⊥"平面 ⇒ **竖直向上**（弧顶方向）；
-                tangent = bitan × 虹轴 ⇒ 水平且与之正交。
-                于是 ringAtan 的 90° = 弧顶、0° = 水平切向。
-             ⚠️ **窗口中心必须落在弧顶（90°）**，否则整条虹会被切光（实测第一版把中心
-                开在 35°、弧顶在 90° ⇒ 三个时段占屏 0%）。uArcAzOff 是"相对弧顶的
-                偏移"，取值范围 ±uArcHalf 之内，由 applyEnv 按园内地标方位算出。 */
-          vec3 upW = vec3(0.0, 1.0, 0.0);
-          vec3 bitan = upW - rd2 * dot(upW, rd2);            // 虹轴所在竖直面内的"上"
-          float bl = length(bitan);
-          /* 虹轴接近竖直时 normalize(0) 会出 NaN，NaN 让整条虹静默消失 —— 必须兜底 */
-          bitan = bl > 1e-3 ? bitan / bl : vec3(1.0, 0.0, 0.0);
-          vec3 tangent = normalize(cross(bitan, rd2));
-          vec2 ring = vec2(dot(d, tangent), dot(d, bitan));
-          float ringLen = length(ring);
-          /* 90° = 弧顶；uArcAzOff 是相对弧顶的偏移（0 = 正中） */
-          float ringAtan = degrees(atan(ring.y, ring.x));     // 弧度→角度，便于和 uArcAzOff 同尺度
-          float azWin = 1.0 - smoothstep(uArcHalf * 0.55, uArcHalf, abs(ringAtan - (90.0 + uArcAzOff)));
-          azWin *= smoothstep(0.02, 0.16, ringLen);
-
-          /* 主虹：42°。带宽是四轮调出来的：
-             v1 0.700~0.790（5°）→ 弧太窄，多数机位拍不到；
-             v2 0.620~0.800（10°）+ 强度 0.78 → 81% 的天空被染成乳白（像蒙了层雾）；
-             v3 0.655~0.785（7.4°）→ 读成"一道虹"；
-             v4（本轮）0.660~0.770 —— 略窄，配合 azWin 让它读作"一小段"。 */
-          const float A0 = 0.660, A1 = 0.770;
-          float band = smoothstep(A0 - 0.020, A0 + 0.034, a) * (1.0 - smoothstep(A1 - 0.044, A1 + 0.010, a));
-          if (band * azWin > 0.001){
-            float t = clamp((a - A0) / (A1 - A0), 0.0, 1.0);   // 0=内缘(紫) 1=外缘(红)
-            /* 七色（内→外：紫 靛 蓝 绿 黄 橙 红），每色占 1/7 略作重叠 */
-            vec3 sp = vec3(0.42, 0.24, 0.72);                  // 紫
-            sp = mix(sp, vec3(0.16, 0.24, 0.70), smoothstep(0.00, 0.16, t));   // 靛
-            sp = mix(sp, vec3(0.13, 0.42, 0.82), smoothstep(0.14, 0.31, t));   // 蓝
-            sp = mix(sp, vec3(0.20, 0.66, 0.40), smoothstep(0.29, 0.46, t));   // 绿
-            sp = mix(sp, vec3(0.93, 0.88, 0.28), smoothstep(0.43, 0.60, t));   // 黄
-            sp = mix(sp, vec3(0.95, 0.58, 0.16), smoothstep(0.57, 0.74, t));   // 橙
-            sp = mix(sp, vec3(0.93, 0.22, 0.16), smoothstep(0.71, 0.90, t));   // 红
-            /* 越近太阳侧越淡：uSunDir 方向的反面最浓 */
-            float anti = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
-            float fade = smoothstep(0.05, 0.55, anti);
-            /* 地面遮罩：虹要"从地里升起来"，所以**低处不能淡出**（原来那版
-               smoothstep(-0.02,0.16,d.y) 专门削掉低处，是"虹不长到水里"的怕法，
-               但同时把两只脚削掉了 ⇒ 虹读成"横在天上的一道"而不是"从园子里升起的"）。
-               现在只在**太高**处收，低处保持到地平线。
-               ⚠️ 上限 0.62 → **0.86**（2026-10-01 按老黄"跨越全园的宽拱"）：
-               0.62 时弧顶附近（仰角 40°、d.y≈0.64）已经开始被削 ⇒ 弧顶发虚、两脚够不到
-               园子两侧。0.86 让仰角 40° 的弧顶几乎不被削（sin40°=0.64 远在 0.86 以下），
-               只在接近天顶（d.y>0.86）才淡出，那已经不在这道虹的范围里了。 */
-            float ground = smoothstep(-0.08, 0.02, d.y) * (1.0 - smoothstep(0.86, 0.99, d.y));
-            /* 强度 0.46：天空本身已经很亮（雨后初晴 luma≈143），加色到 0.78 会整片过曝成白。 */
-            vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.35);   // 提饱和
-            col += spSat * band * azWin * fade * ground * uRainbow * breathe * 0.46;
-          }
-
-          /* ── 次虹（双彩虹的外圈那道）：半径 51°、七色内外反转、更淡。
-             真实成因：光线在雨滴内**反射两次**（主虹一次），所以半径更大、强度约为
-             主虹的一半，且颜色顺序翻转（主虹外红内紫 ⇒ 次虹外紫内红）。 */
-          const float S0 = 0.865, S1 = 0.955;
-          float sBand = smoothstep(S0 - 0.018, S0 + 0.030, a) * (1.0 - smoothstep(S1 - 0.038, S1 + 0.010, a));
-          if (sBand * azWin > 0.001){
-            float ts = clamp((a - S0) / (S1 - S0), 0.0, 1.0);  // 0=内缘 1=外缘
-            /* 颜色反转：内缘红 → 外缘紫 */
-            vec3 sc = vec3(0.93, 0.22, 0.16);                  // 红（内）
-            sc = mix(sc, vec3(0.95, 0.58, 0.16), smoothstep(0.10, 0.26, ts));  // 橙
-            sc = mix(sc, vec3(0.93, 0.88, 0.28), smoothstep(0.24, 0.40, ts));  // 黄
-            sc = mix(sc, vec3(0.20, 0.66, 0.40), smoothstep(0.38, 0.54, ts));  // 绿
-            sc = mix(sc, vec3(0.13, 0.42, 0.82), smoothstep(0.52, 0.68, ts));  // 蓝
-            sc = mix(sc, vec3(0.42, 0.24, 0.72), smoothstep(0.66, 0.84, ts));  // 紫（外）
-            float anti2 = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
-            float fade2 = smoothstep(0.10, 0.62, anti2);
-            float ground2 = smoothstep(-0.06, 0.06, d.y) * (1.0 - smoothstep(0.90, 1.00, d.y));
-            /* 强度 0.16 ≈ 主虹的 1/3：真实次虹就明显更淡（两次反射多损失一路光），
-               老黄要"很淡"—— 只在特定角度/时段能隐约看见，不抢主虹。 */
-            col += sc * sBand * azWin * fade2 * ground2 * uRainbow * breathe * 0.16;
-          }
-        }
+        /* 彩虹已搬出天空球（2026-10-02 第七轮，见下方 makeRainbowMesh）：
+           挂在天空球上时整条可见天带都被四层远山卡片挡在背后，强度怎么调
+           都只从山缝里漏几个灰阶。现在虹是独立透明层、画在山前。 */
 
         gl_FragColor = vec4(col, 1.0);
       }`,
@@ -442,6 +338,133 @@ export const skyMesh = new THREE.Mesh(
 skyMesh.frustumCulled = false;
 scene.add(skyMesh);
 bootMark('天空球');
+
+/* ══ 彩虹独立层（2026-10-02 第七轮 · 从天空球搬出）══════════════════════════
+   为什么必须独立：挂在天空球（r=420）上时，整条默认机位可见的天带都躺在四层
+   远山卡片（r=78~176、仰角约 −10°~+21°、不透明 0.76~0.95，10-01 远山改造抬浓后）
+   **背后** —— 加法/替换式、强度 0.46~2.6 七轮取证全都只从山缝里漏几个灰阶，
+   多模态读图永远"极淡"。
+   ⇒ 现在虹是自己的透明球壳（r=300，在远山之前），**renderOrder 排在远山之后**
+   ⇒ 虹画在山前面（中国山水画"山前挂虹"的画法）；
+   depthTest 开着 ⇒ 近景园景（写深度的不透明网格：堂/树/墙）照常把虹挡住；
+   园内其它透明物（雾团/水面/粒子，renderOrder ≥ 0）都排在虹之后画 ⇒
+   近景雾气盖在虹上，大气层次不乱。
+   排序实现：远山卡片 renderOrder = −2（见 07-ground makeRidge），虹层 = −1，
+   其余透明物默认 0 —— 三个负值都不改变"不透明网格最先画"的次序。
+   ⚠️ PMREM 环境烘焙用的是独立小场景（envBakeScene），虹层不会被烘进环境贴图。 */
+function makeRainbowMesh(){
+  const mat = new THREE.ShaderMaterial({
+    uniforms:{
+      uRainbow:{value:0.0},                                   // 由 12-env applyEnv 写
+      uRainbowDir:{value:new THREE.Vector3(0,1,0)},
+      uArcHalf:{value:45.0},
+      uArcAzOff:{value:0.0},
+      uSunDir:{value:new THREE.Vector3(0,1,0)},               // fade（越近太阳越淡）用
+      uTime:{value:0},                                        // breathe 用，由 11-loop 每帧推
+    },
+    vertexShader:`varying vec3 vDir;
+      void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader:`varying vec3 vDir;
+      uniform float uRainbow;
+      uniform vec3  uRainbowDir;
+      uniform float uArcHalf, uArcAzOff;
+      uniform vec3  uSunDir;
+      uniform float uTime;
+      void main(){
+        vec3 d = normalize(vDir);
+        /* 虹外全透明：只有虹带内的像素贡献颜色（transparent 材质 + alpha=1-k 的带外区域） */
+        float outA = 0.0;
+        vec3 col = vec3(0.0);
+        if (uRainbow > 0.001){
+          vec3 rd2 = normalize(uRainbowDir);
+          float a = acos(clamp(dot(d, rd2), -1.0, 1.0));      // 与虹轴的夹角
+          /* 呼吸：极缓慢（周期≈40s）。⚠️ 必须声明在两条虹的 if 块之外
+             （作用域错误会让整个材质编译失败、虹静默消失——见天空球那条老教训）。 */
+          float breathe = 0.88 + 0.12 * sin(uTime * 0.157);
+          /* 方位角窗口：bitan=竖直向上（弧顶方向）、tangent=与之正交的水平切向；
+             ringAtan 的 90° = 弧顶；窗口中心必须锁在弧顶（偏了整条弧会被切光）。 */
+          vec3 upW = vec3(0.0, 1.0, 0.0);
+          vec3 bitan = upW - rd2 * dot(upW, rd2);
+          float bl = length(bitan);
+          bitan = bl > 1e-3 ? bitan / bl : vec3(1.0, 0.0, 0.0);
+          vec3 tangent = normalize(cross(bitan, rd2));
+          vec2 ring = vec2(dot(d, tangent), dot(d, bitan));
+          float ringLen = length(ring);
+          float ringAtan = degrees(atan(ring.y, ring.x));
+          float azWin = 1.0 - smoothstep(uArcHalf * 0.55, uArcHalf, abs(ringAtan - (90.0 + uArcAzOff)));
+          azWin *= smoothstep(0.02, 0.16, ringLen);
+
+          /* 主虹 42°：带宽 6.3°、过渡带收窄到 1.1°（浓核占 70%，七轮取证的形态定值）。
+             带内用**替换式**（不是加法）：真实虹醒目是因为它替换了背景，
+             additive 在 luma≈143 的亮天上永远做不鲜明。 */
+          const float A0 = 0.660, A1 = 0.770;
+          float band = smoothstep(A0 - 0.008, A0 + 0.012, a) * (1.0 - smoothstep(A1 - 0.012, A1 + 0.006, a));
+          if (band * azWin > 0.001){
+            float t = clamp((a - A0) / (A1 - A0), 0.0, 1.0);   // 0=内缘(紫) 1=外缘(红)
+            vec3 sp = vec3(0.42, 0.24, 0.72);                  // 紫
+            sp = mix(sp, vec3(0.16, 0.24, 0.70), smoothstep(0.00, 0.16, t));   // 靛
+            sp = mix(sp, vec3(0.13, 0.42, 0.82), smoothstep(0.14, 0.31, t));   // 蓝
+            sp = mix(sp, vec3(0.20, 0.66, 0.40), smoothstep(0.29, 0.46, t));   // 绿
+            sp = mix(sp, vec3(0.93, 0.88, 0.28), smoothstep(0.43, 0.60, t));   // 黄
+            sp = mix(sp, vec3(0.95, 0.58, 0.16), smoothstep(0.57, 0.74, t));   // 橙
+            sp = mix(sp, vec3(0.93, 0.22, 0.16), smoothstep(0.71, 0.90, t));   // 红
+            float anti = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
+            float fade = smoothstep(0.05, 0.55, anti);
+            /* 地面遮罩：只负责"虹脚不伸进地下"。
+               ⚠️⚠️ 下限三改（2026-10-02 第七轮）：弧从顶点往两侧走，环上点的仰角快速
+               下降（偏 30° 方位就到 −25°）—— 下限 −0.42 时 azWin 45° 窗内的大半段弧
+               全被渐隐掐掉，浓核只剩中央一小截（实测 p90 仅 5~16 灰阶）。
+               放宽到 −0.80/−0.32 ⇒ 窗内整段都在，弧脚（仰角 −50° 以下）仍收进园景。 */
+            float ground = smoothstep(-0.80, -0.32, d.y) * (1.0 - smoothstep(0.86, 0.99, d.y));
+            float k = band * azWin * fade * ground * uRainbow * breathe;
+            /* ⚠️ 别用 max(spSat, 常数) 给蓝紫段"托底"——那是逐通道托底，会把每段虹色的
+               暗通道拉亮、色相全被拉平成灰白（实测 A/B 从 87 灰阶崩到 9）。要提亮度
+               走整体乘子，色相交给饱和度。 */
+            vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.80);
+            col = spSat * 1.45;
+            outA = k * 1.0;   // 带中央全替换（0.72 那版被 dst 的灰蓝山色稀释成 30 灰阶，实测仍"极淡"）
+          }
+
+          /* 次虹（51°）：七色内外反转、只替换 22% —— "隐约多一道影子"，不抢主虹 */
+          const float S0 = 0.865, S1 = 0.955;
+          float sBand = smoothstep(S0 - 0.008, S0 + 0.012, a) * (1.0 - smoothstep(S1 - 0.012, S1 + 0.006, a));
+          if (sBand * azWin > 0.001){
+            float ts = clamp((a - S0) / (S1 - S0), 0.0, 1.0);
+            vec3 sc = vec3(0.93, 0.22, 0.16);                  // 红（内）
+            sc = mix(sc, vec3(0.95, 0.58, 0.16), smoothstep(0.10, 0.26, ts));
+            sc = mix(sc, vec3(0.93, 0.88, 0.28), smoothstep(0.24, 0.40, ts));
+            sc = mix(sc, vec3(0.20, 0.66, 0.40), smoothstep(0.38, 0.54, ts));
+            sc = mix(sc, vec3(0.13, 0.42, 0.82), smoothstep(0.52, 0.68, ts));
+            sc = mix(sc, vec3(0.42, 0.24, 0.72), smoothstep(0.66, 0.84, ts));
+            float anti2 = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
+            float fade2 = smoothstep(0.10, 0.62, anti2);
+            float ground2 = smoothstep(-0.80, -0.32, d.y) * (1.0 - smoothstep(0.90, 1.00, d.y));
+            float k2 = sBand * azWin * fade2 * ground2 * uRainbow * breathe;
+            col = sc * 1.25;
+            outA = k2 * 0.28;   // 主/次虹带不重叠，直接写；次虹 ≈ 主虹的 1/3 浓
+          }
+        }
+        gl_FragColor = vec4(col, clamp(outA, 0.0, 1.0));
+      }`,
+    side: THREE.BackSide,
+    transparent: true,
+    depthWrite: false,
+    depthTest: true,          // 近景园景（写深度的不透明网格）照常挡虹；山不写深度（见 07-ground）
+    fog: false,
+  });
+  const m = new THREE.Mesh(new THREE.SphereGeometry(300, 48, 28), mat);
+  m.renderOrder = -1;         // 山卡片 −2 → 先画；虹 −1 后画 ⇒ 虹在山前；园内透明物 0+ 更后
+  m.frustumCulled = false;
+  return m;
+}
+export const rainbowMesh = makeRainbowMesh();
+/* ⚠️ 视觉层不参与任何射线判定（雾团 2026-09-28 显式 raycast=()=>{} 的同款先例）：
+   这层半径 300m 的球壳罩住全场，不关 raycast 会把所有朝天的射线先拦下 ——
+   mist-guard 找"山脊上方的天空"（认定半径 420 的天空球）整批 0 列就是它挡的
+   （2026-10-02 实测）；将来任何"视线是否被挡"类判定（点景人物 / 交互拾取）
+   也一样会被它劫持。 */
+rainbowMesh.raycast = () => {};
+scene.add(rainbowMesh);
 
 /* ── 环境贴图（PMREM）：按时段**按需烘焙 + 缓存**（2026-09-25）────────────────
    旧实现只在启动时按"白天渐变天空 + 地面色"烘一张，之后永不重烘，

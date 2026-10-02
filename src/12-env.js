@@ -11,7 +11,7 @@ import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
          cancelCamFly, CAM_FLY, introActive, introCancel, geese } from './08-assemble.js';
 import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
-import { skyMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
+import { skyMesh, rainbowMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
 import { TAU, HOOKS, ENV_REF, mulberry32, CFG } from './00-config.js';
@@ -1162,15 +1162,26 @@ export function applyEnv(p){
        整条弧在画面纵向 4%~39% —— 正好是"跨过园子上方、两脚落在围墙/假山与水榗之间"。
        ⚠️ 仍不是物理值（真实 = −太阳仰角，正午 −47° ⇒ 虹物理上完全不可见）；
           抬到看得见是明确的艺术性让步（老黄要"雨后初晴、园林里有彩虹"），别修正回物理值。 */
-    /* ⚠️ 虹轴**仰角**（与上面的方位无关，方位见下面第二段）：
+    /* ⚠️ 虹轴**仰角**（与方位无关，方位见下面第二段）：
        弧顶仰角 = 虹轴仰角 + 42°。默认机位俯视 −19.3°、垂直视野 46° ⇒ 画面只看得到
-       仰角 **−42°~+4°** 这一条天带。要让整条弧落在这条带里、且拱顶不贴画框上沿，
-       虹轴取 **≈ −50°** ⇒ 弧顶 ≈ **−8°**（对应画面纵向 y≈25%，"拱顶在画面上部"）。
-       ⚠️ 2026-10-01 第三轮修"雨后初晴看不到虹"时把这里从 −0.70（弧顶 +2°、**贴顶被切**，
-       实测虹像素的屏幕范围 y0=0）压到 −0.86。 */
-    const target = Math.max(-0.78, Math.min(-0.62, -0.70 - sunElev * 0.03));
+       仰角 **−42°~+4°** 这一条天带。
+       ⚠️⚠️ 七轮取证后的定案（2026-10-02）：被山挡/被地挡/贴顶/太淡四个坑全踩过 ——
+         · 山挡（主因，10-01 远山改造把四层卡片抬浓到 0.76~0.95 之后）：挂在天空球上的
+           虹整条在山背后 ⇒ 已把虹搬成**独立透明层**（02-scene rainbowMesh，画在山前，
+           "山前挂虹"）。从此**弧顶可以回到老黄标注的"画面上部 20~27%"**。
+         · target ≈ −0.70 时弧顶 +2° **贴死画面上沿**（取证 bbox y0=0）；
+         · target ≈ −0.95 时弧顶 −14° **撞园外地面**（17m 高的机位，仰角低于 −10° 的
+           视线 68m 内撞地，A/B 差掉到 5 灰阶）。
+       ⇒ 取 **−0.84**：弧顶 ≈ −6.6°、画面纵向 y≈22%，拱顶在画面上部、两脚沉进园景，
+       且画在山前 ⇒ 默认机位一眼可见。仍不是物理值（正午物理上虹不可见），
+       抬到看得见是明确的艺术性让步，别修正回物理值。 */
+    const target = Math.max(-0.92, Math.min(-0.70, -0.84 - sunElev * 0.03));
     const dayK = Math.max(0, Math.min(1, (sunElev - 0.02) / 0.12));
-    su.uRainbow.value = (p.rainbow || 0) * dayK * (1 - Math.min(1, su.uStarAmount.value / 0.35));
+    /* 虹已搬到独立层 rainbowMesh（第七轮）：强度/方向/窗口都写它自己的 uniforms；
+       dayK 的星量门控仍读天空球的 uStarAmount（夜里没虹）。 */
+    const ru = rainbowMesh.material.uniforms;
+    ru.uRainbow.value = (p.rainbow || 0) * dayK * (1 - Math.min(1, su.uStarAmount.value / 0.35));
+    ru.uSunDir.value.copy(su.uSunDir.value);          // fade（越近太阳越淡）跟天空同一个太阳
     /* ── 虹的**方位**：见下面第二段（2026-10-01 第三轮已改成"固定园子主视方位"）。
        ⚠️ 第一、二轮在这里写过一整套"按园内地标方位算 uArcAzOff"的逻辑（MARKS_AZ /
           GARDEN_AZ），第三轮连同那段代码一起删了 —— 因为它**在原理上就救不了**：
@@ -1196,16 +1207,16 @@ export function applyEnv(p){
     const CAM_AZ = -1.03;                          // 默认机位朝向（本函数方位约定 az=atan2(z,x)，实测 −59°）
     const rbAz = CAM_AZ;
     const ce2 = Math.cos(target), se2 = Math.sin(target);
-    su.uRainbowDir.value.set(Math.cos(rbAz) * ce2, se2, Math.sin(rbAz) * ce2);
+    ru.uRainbowDir.value.set(Math.cos(rbAz) * ce2, se2, Math.sin(rbAz) * ce2);
     /* 弧宽 45°（2026-10-01 按老黄标注"一道跨越全园的宽拱"定值）：
        半宽再大（62°/70°/80°）会让弧宽到 90%+ 顶满整片天，反而不是"一道虹"。 */
     const ARC_HALF = 45.0;
-    su.uArcHalf.value = ARC_HALF;
+    ru.uArcHalf.value = ARC_HALF;
     /* 窗口中心锁在弧顶 ⇒ 偏移 0 就是"弧对称罩在园子上方"。
        旧值 +10°（相对太阳反方位往园心侧偏）是上一轮为"把虹脚推向围墙/水榭"调的；
        方位改成园子主视方位之后，弧本身就居中，再把偏移留着会把它甩偏。
        ⚠️ uArcAzOff 与 uArcHalf 都是**角度**（着色器里 degrees(...) 与它同尺度）。 */
-    su.uArcAzOff.value = 0;
+    ru.uArcAzOff.value = 0;
   }
 
   renderer.toneMappingExposure = p.exposure;

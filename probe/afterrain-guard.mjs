@@ -147,18 +147,25 @@ const check = (name, ok, detail = '') => {
       const A = grab();
       u.uRainbow.value = 0; grab(); const B = grab();
       u.uRainbow.value = keep;
-      let hot = 0, x0 = 1e9, x1 = -1e9;
+      let hot = 0, x0 = 1e9, x1 = -1e9, peak = 0;
       for (let y = 0; y < A.height; y++) for (let x = 0; x < A.width; x++){
         const i = (y*A.width + x)*4;
         const d = Math.abs(A.data[i]-B.data[i]) + Math.abs(A.data[i+1]-B.data[i+1]) + Math.abs(A.data[i+2]-B.data[i+2]);
-        if (d > 12){ hot++; if (x < x0) x0 = x; if (x > x1) x1 = x; }
+        if (d > 12){ hot++; if (x < x0) x0 = x; if (x > x1) x1 = x; if (d > peak) peak = d; }
       }
-      return { hot, pct: +(hot/(A.width*A.height)*100).toFixed(2),
+      return { hot, pct: +(hot/(A.width*A.height)*100).toFixed(2), peak,
                x0: +(x0/A.width*100).toFixed(1), x1: +(x1/A.width*100).toFixed(1) };
     });
-    check(`雨后初晴·${time}：默认机位能看到彩虹（>3000px 且横跨画面中部）`,
-      vis.hot > 3000 && vis.x0 > 0 && vis.x1 < 100 && vis.x0 < 40 && vis.x1 > 60,
-      `虹像素 ${vis.hot}（${vis.pct}%），横向 ${vis.x0}%~${vis.x1}%`);
+    /* ⚠️⚠️ 2026-10-02 补"浓核强度"判据（老黄实拍"没有看到彩虹"后的定案）：
+       原来这条只量"差分像素数"（>3000px、单像素差 >12/765）—— 旧版虹弱到 A/B
+       平均差只有 1.1 灰阶时它照样全绿：**绿 ≠ 看得见**。peak（受影响像素里的
+       最大三通道差）才是"浓核有多浓"：阈值 90（≈30 灰阶/通道）。
+       ⚠️ 阈值按"独立虹层 + 山前挂虹 + 替换式"的第七轮实测定：
+       浓核峰值实测 ~250~290/765，阈值 90 留 3 倍余量；
+       上限由 §4 的"受影响天空 ≤50%"防糊满（收窄过渡带后浓核只占屏幕 1~2%）。 */
+    check(`雨后初晴·${time}：默认机位能看到彩虹（>3000px、浓核峰值差 ≥90、横跨画面中部）`,
+      vis.hot > 3000 && vis.peak >= 90 && vis.x0 > 0 && vis.x1 < 100 && vis.x0 < 40 && vis.x1 > 60,
+      `虹像素 ${vis.hot}（${vis.pct}%），峰值差 ${vis.peak}/765，横向 ${vis.x0}%~${vis.x1}%`);
   }
   /* 夜间没有太阳也就没有虹（按 uStarAmount 门控） */
   await setEnv('night', 'afterrain'); await settle();

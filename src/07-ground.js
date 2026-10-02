@@ -170,6 +170,14 @@ export function makeDistantHills(){
       const m = mesh(hillGeo, mat, { cast:false, receive:false });
       m.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
       m.lookAt(0, 0, 0);
+      /* ⚠️⚠️ 2026-10-02：远山必须**不写深度**且 renderOrder=−2 —— 彩虹层（02-scene
+         的 rainbowMesh，renderOrder −1）要画在山**前面**（"山前挂虹"，否则整条默认
+         机位可见的天带都被这四层 0.76~0.95 不透明度的卡片挡在背后，虹怎么调都看不见，
+         七轮取证 outputs/_diag/rb-intensity.mjs）。
+         山 transparent 本就按距离排序画（远层先画），去掉 depthWrite 不改变层间
+         视觉；而不透明园景先画并写深度，山 depthTest 照常被园景挡 ⇒ 原遮挡关系不变。 */
+      m.material.depthWrite = false;
+      m.renderOrder = -2;
       grp.add(m);
     }
     return grp;
