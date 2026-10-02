@@ -71,10 +71,24 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
       P.puddles.im.getMatrixAt(i, m); m.decompose(p, q, s);
       ys.push(+p.y.toFixed(2)); maxY = Math.max(maxY, p.y); minY = Math.min(minY, p.y);
     }
+    /* 滴水状态（2026-10-02 产品改成"16 个固定滴点、慢滴"后新增的牙）：
+       · spotsN：固定滴点数 = 16（随机几处瓦片在漏水，不是全线 320 颗冰雹）；
+       · live：连续 30 帧（~0.5s）里"空中同时存在的水滴"的最大数 ——
+         停顿 1.2~4.7s/滴 ⇒ 任意时刻 0~16 都正常，但 0.5s 窗内必须出现过 >0
+         （否则就是"摆设不滴"）；≤16 由构造保证（每滴点最多 1 滴在空）。 */
+    const spotsN = P.drip.spots ? P.drip.spots.length : -1;
+    let liveMax = 0;
+    for (let f = 0; f < 30; f++){
+      let c = 0;
+      for (const d of P.drip.drops) if (d.live) c++;
+      liveMax = Math.max(liveMax, c);
+      await new Promise(r => requestAnimationFrame(r));
+    }
     return { dripVis: P.drip.im.visible, dripOp: +P.drip.mat.opacity.toFixed(2),
              puddleVis: P.puddles.im.visible, puddleOp: +P.puddles.mat.opacity.toFixed(2),
              placed: P.puddles.placed, cand: P.puddles.cand.length,
              onGrass: P.puddles.onGrass, badNormal: P.puddles.badNormal, tooHigh: P.puddles.tooHigh,
+            spotsN, liveMax,
              maxY, minY, ys: ys.slice(0, 8),
              wet: +(window.__garden.ENV.cur.wetness || 0).toFixed(2) };
   });
@@ -94,6 +108,11 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
     `落位 ${st.placed} 片（草地跳过 ${st.onGrass}、非法法线 ${st.badNormal}、过高 ${st.tooHigh}）`);
 
   /* ── 像素：两个部件都真的改变了画面（冻结帧同任务 A/B + 自检）── */
+  /* ⚠️ 2026-10-02 产品形态变更（老黄四连："滴水慢一点、密度低一些、随机几个瓦片
+     下水处就好、体积做小一点像冰雹"）⇒ 320 颗 0.046 → 16 个固定滴点 0.023、限速
+     2.0m/s。默认机位（俯视 20m+）下 16 颗小滴只贡献 ~7px —— "默认机位可见"已经
+     不是这个部件的验收口径了（老黄验收的是檐下近景的"滴答感"）。
+     ⇒ 滴水的像素判据改在**檐下近景机位**量；积水像素仍在默认机位量。 */
   const px = await page.evaluate(async () => {
     const M = await import('/src/12-env.js');
     const P = M.POSTRAIN, G = window.__garden;
@@ -108,15 +127,53 @@ const check = (name, ok, detail) => { results.push({ name, ok: !!ok, detail }); 
       } return n; };
     grab();
     const A = grab();
-    P.drip.im.visible = false; const noDrip = grab(); P.drip.im.visible = true;
     P.puddles.im.visible = false; const noPud = grab(); P.puddles.im.visible = true;
     grab(); const C = grab();
     let selfMax = 0;
     for (let i = 0; i < A.data.length; i++) selfMax = Math.max(selfMax, Math.abs(A.data[i]-C.data[i]));
-    return { drip: hot(A, noDrip), pud: hot(A, noPud), selfMax };
+    return { pud: hot(A, noPud), selfMax };
   });
+  /* 滴水：摆到堂前檐下近景再量（堂檐口在 (0,·,−12.8)，半宽 12.3、檐高 6.39）。
+     ⚠️ 机位摆动必须落在 page.evaluate 之外、摆完直接连渲 —— evaluate 里的
+     await 会劈开冻结帧（项目里踩过两次的老坑）。
+     ⚠️⚠️ 16 颗小滴形态下，这条的口径只能是很低的有无阈值（实测一组 A/B 只有
+     ~10px）：滴是 0.023m 半径的小球，檐下 14m 外单颗核心只有几像素；
+     且**冻结帧那一刻在空的滴数**有相位（0~16 都正常，期望 ~8）⇒ 单组 A/B 会
+     偶尔量到很少。取 3 组（组间让 rAF 推进滴相位 500ms）的最大值。
+     "真的在滴"的主牙在上一条状态判据（16 滴点 + live>0），这条只防
+     "整层 visible 却没画进任何像素"（材质/深度被弄坏那一类）。 */
+  await page.evaluate(() => {
+    const G = window.__garden;
+    G.camera.position.set(13.5, 2.6, -6.0);
+    G.controls.target.set(4.0, 6.1, -12.6);
+    G.controls.update();
+  });
+  let dripPx = 0;
+  for (let g = 0; g < 3; g++){
+    const px2 = await page.evaluate(async () => {
+      const M = await import('/src/12-env.js');
+      const P = M.POSTRAIN, G = window.__garden;
+      const cv = document.createElement('canvas');
+      cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+      const ctx = cv.getContext('2d');
+      const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0); return ctx.getImageData(0, 0, cv.width, cv.height); };
+      const hot = (A, B) => { let n = 0;
+        for (let i = 0; i < A.data.length; i += 4){
+          const d = Math.abs(A.data[i]-B.data[i]) + Math.abs(A.data[i+1]-B.data[i+1]) + Math.abs(A.data[i+2]-B.data[i+2]);
+          if (d > 12) n++;
+        } return n; };
+      grab();                                    // 预热（新机位首帧 / 新相位帧）
+      const A = grab();
+      P.drip.im.visible = false; const noDrip = grab(); P.drip.im.visible = true;
+      return { drip: hot(A, noDrip) };
+    });
+    dripPx = Math.max(dripPx, px2.drip);
+    if (g < 2) await page.waitForTimeout(500);   // 让 rAF 推进滴相位，下一组再量
+  }
   check('自检：同状态连渲两次画面不变（不是量的场景漂移）', px.selfMax === 0, `最大差 ${px.selfMax}`);
-  check('屋檐滴水真的画进了像素（默认机位 > 300px）', px.drip > 300, `滴水贡献 ${px.drip}px`);
+  check('雨后初晴：16 个固定滴点在跑、且有空滴在落（0.5s 窗内 live>0）',
+    st.spotsN === 16 && st.liveMax > 0, `滴点 ${st.spotsN} 处 · 0.5s 窗内空中水滴最多 ${st.liveMax} 颗`);
+  check('屋檐滴水真的画进了像素（檐下近景 3 组取最大 > 4px）', dripPx > 4, `滴水贡献 ${dripPx}px（3 组最大）`);
   check('积水真的画进了像素（默认机位 > 3000px）', px.pud > 3000, `积水贡献 ${px.pud}px`);
 
   /* ── 隔离：不湿的天气不该有这两个部件 ── */

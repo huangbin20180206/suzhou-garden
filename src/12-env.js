@@ -3145,20 +3145,41 @@ const EAVE_LINES = (() => {
 })();
 
 const EAVE_DRIP = (() => {
-  /* ⚠️ 尺寸/密度按"看得见"定，不是按物理：真实水珠 4~6mm，在这个视距下不到 1 像素。
-     实测第一版（半径 0.021、停顿 0.25~2.6s）三个机位分别只贡献 65/220/96 像素 ——
-     等于白做。现在加大到 0.030、缩短停顿（同时在落的比例更高）、数量 170→220。 */
-  const N = 320;
-  const geo = new THREE.SphereGeometry(0.046, 6, 5);
+  /* ⚠️⚠️ 2026-10-02 老黄四连否掉第一版："滴水慢一点、密度低一些、随机有几个瓦片
+     下水处有水滴滴下来就好、水滴体积做小一点（像冰雹）"。
+     第一版是 320 颗、半径 0.046（4.6cm 球 —— 真冰雹尺寸）、限速 4.6m/s、全线随机重生，
+     观感就是"沿整条屋檐下冰雹"。
+     ⇒ 改成**固定滴点**模型：
+       · 数量 320 → 16 个"漏水处"（每 ~12m 檐口线一个，位置固定且每次加载相同 ——
+         用独立 mulberry32 选点，不碰任何共享流；数量固定 ⇒ 实例 count 不漂，铁律 1 安全）；
+       · 半径 0.046 → 0.023（视觉尺寸减半；仍比真实水珠大 —— 纯物理 5mm 在 10m 外
+         不到 1 像素，0.023 是"看得见"的下限附近）；
+       · 限速 4.6 → 2.0 m/s（6.4m 檐口落到台基 ~2.7s，读得出"慢慢滴"；真实檐滴
+         末速 ~9m/s 一闪而过反而看不见）；
+       · 节奏：每滴落地后**该滴点**停 1.2~4.7s 再滴下一滴（原来是 0.12~1.27s 全线抢跑）。
+     同一时刻空中最多 16 颗且分布在不同滴点 ⇒ 默认机位的视觉密度大幅下降。 */
+  const N = 16;
+  const geo = new THREE.SphereGeometry(0.023, 6, 5);
   const mat = new THREE.MeshBasicMaterial({ color: 0xE4EEF6, transparent: true, opacity: 0,
                                             depthWrite: false, fog: false });
   const im = new THREE.InstancedMesh(geo, mat, N);
   im.frustumCulled = false; im.visible = false; im.renderOrder = 18;
   scene.add(im);
+  /* 滴点表：把檐口线总长**均分 N 段、每段内随机取一点**（均匀铺开 + 带随机，
+     不会两滴点挤在同一段瓦上）。选点走独立种子流 —— 滴点是"布局类"决定，
+     绝不能吃运行期 Math.random（会随加载时序漂、也不该每次刷新换瓦片）。 */
+  const dj = mulberry32(20261004);
+  const spots = [];
+  for (let i = 0; i < N; i++){
+    const tt = (i + dj()) * EAVE_LINES.total / N;
+    let seg = EAVE_LINES.segs[0];
+    for (const s of EAVE_LINES.segs){ if (tt >= s.t0 && tt <= s.t0 + s.len){ seg = s; break; } }
+    spots.push({ seg, f: (tt - seg.t0) / seg.len });
+  }
   const drops = [];
-  for (let i = 0; i < N; i++) drops.push({ s: 0, f: 0, y: 0, vy: 0, wait: Math.random() * 1.6, live: false });
+  for (let i = 0; i < N; i++) drops.push({ s: 0, f: 0, y: 0, vy: 0, wait: Math.random() * 3, live: false });
   const m = new THREE.Matrix4(), p = new THREE.Vector3(), q = new THREE.Quaternion(), sv = new THREE.Vector3();
-  return { im, mat, drops, N, m, p, q, sv };
+  return { im, mat, drops, N, spots, m, p, q, sv };
 })();
 
 /* ② 积水：铺地/地面上的不规则浅水洼。
@@ -3305,20 +3326,18 @@ export function updatePostRain(dt, t){
   const { m, p, q, sv } = D;
   for (let i = 0; i < D.N; i++){
     const d = D.drops[i];
+    const spot = D.spots[i];                 // 本滴的"漏水处"（固定，见 EAVE_DRIP 注释）
     if (!d.live){
-      /* 停顿结束后重生：在**整条檐口线**上按长度加权随机取一点 */
+      /* 停顿结束后重生：**仍从自己的滴点**落下一滴（不是全线随机）——
+         "哪个瓦片在漏水"是固定的，节奏是随机的。 */
       d.wait -= dt;
       if (d.wait > 0) continue;
-      let tt = Math.random() * EAVE_LINES.total;
-      let seg = EAVE_LINES.segs[0];
-      for (const s of EAVE_LINES.segs){ if (tt >= s.t0 && tt <= s.t0 + s.len){ seg = s; break; } }
-      const f = Math.random();
-      d.s = seg; d.f = f; d.y = seg.y + Math.random() * 0.06; d.vy = -0.2; d.live = true;
+      d.s = spot.seg; d.f = spot.f; d.y = spot.seg.y + Math.random() * 0.06; d.vy = -0.2; d.live = true;
     } else {
-      /* 自由落体（限速 4.6 m/s ⇒ 从 6.4m 檐口落到台基约 1.4s，看得见）*/
-      d.vy = Math.max(-4.6, d.vy - 9.8 * dt);
+      /* 自由落体（限速 2.0 m/s ⇒ 从 6.4m 檐口落到台基约 2.7s —— "慢慢滴"）*/
+      d.vy = Math.max(-2.0, d.vy - 9.8 * dt);
       d.y += d.vy * dt;
-      if (d.y <= d.s.gy){ d.live = false; d.wait = 0.12 + Math.random() * 1.15; }
+      if (d.y <= d.s.gy){ d.live = false; d.wait = 1.2 + Math.random() * 3.5; }
     }
     const x = d.s.x0 + (d.s.x1 - d.s.x0) * d.f, z = d.s.z0 + (d.s.z1 - d.s.z0) * d.f;
     const vis = d.live ? 1 : 0;
