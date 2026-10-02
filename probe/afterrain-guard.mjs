@@ -62,7 +62,17 @@ const check = (name, ok, detail = '') => {
     && document.getElementById('loading').classList.contains('done'), null, { timeout: 240000 });
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
   await page.addStyleTag({ content: '#hud,#env,#caption,#loading{display:none !important}' });
-  const settle = () => page.waitForTimeout(4200);
+  /* ⚠️⚠️ 等待必须等**过渡真的走完**（`ENV.t >= 1`），不能睡固定时长（2026-10-02 修，真假红）。
+     天气过渡按**仿真时间**推进（`ENV.dur = 2.8s`），而仿真钟在慢帧/启动期**落后于墙钟**
+     （dt 被固定步长夹住）⇒ 固定 4.2s 的睡眠会在过渡中途采样：实测 `ENV.cur.wetness`
+     读到 **0.44**（夜间全量链里读到 0.30）而预设是 0.85 ⇒ 判据假红。
+     这是本项目"探针改天气一律等 `ENV.t >= 1`"的既定做法（多条记忆都写着），本门一直漏了它。
+     实测（outputs/_diag/wetness-traj.mjs）：空跑时过渡 2.8s 走完；门里 setEnv 连发三次 +
+     紧接启动尾段的长帧 ⇒ 墙钟 4.2s 只走到一半。 */
+  const settle = async () => {
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 30000 });
+    await page.waitForTimeout(600);      // 余量：缓动收尾 + 环境贴图/替身挂载
+  };
   const setEnv = (time, weather) => page.evaluate(({ time, weather }) => {
     const G = window.__garden;
     G.setEnv('season', 'summer'); G.setEnv('time', time); G.setEnv('weather', weather);

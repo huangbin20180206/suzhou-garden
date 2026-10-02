@@ -426,6 +426,17 @@ const QUICK = new Set([
    匹配规则：对 path 与 label 做**子串**匹配（`--gates=mist-guard` 命中 probe/mist-guard.mjs）。
    ⚠️ 匹配不到任何一个 ⇒ **响亮报错并 exit 1**：否则「名字拼错」会变成「跑了 0 道门、全绿」，
       那正是本项目反复踩的「假绿」形状。 */
+/* ── 长门的**测量预算**单独放宽（2026-10-02，证据驱动）────────────────────────
+   ⚠️ 这是"给它多少时间量"、**不是**"放宽判据"：被 harness 掐死的门既不算通过、也不算
+      产品缺陷（exit=null），所以预算是纯粹的测量开销问题。
+   证据：mist-guard **单跑 343.9s 通过**，而在跑满 4 小时的全量链尾段两次都 >600s 被杀
+   （核显散热降速 ⇒ 同一门 1.7× 慢）；koi-ripple 同型（长采样 + 90s 稳态等待）。
+   对比：短门（intro 30.3s、hill 46s、postrain 70s…）600s 预算有 8~20× 余量，不用动。 */
+const GATE_TIMEOUT = new Map([
+  ['probe/mist-guard.mjs', 900000],
+  ['probe/koi-ripple-guard.mjs', 900000],
+]);
+const timeoutFor = (rel) => GATE_TIMEOUT.get(rel) || 600000;
 const GATES_ARG = (process.argv.find(a => a.startsWith('--gates=')) || '').slice(8);
 const GATE_KEYS = GATES_ARG.split(',').map(s => s.trim()).filter(Boolean);
 const byGates = GATE_KEYS.length
@@ -477,14 +488,14 @@ const dumpRed = (name, tag, r, dt) => {
 for (const [name, rel] of LIST){
   say(`── ${name} ──────────────────────────`);
   const t0 = Date.now();
-  const r1 = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: 600000 });
+  const r1 = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: timeoutFor(rel) });
   const dt1 = ((Date.now() - t0) / 1000).toFixed(1);
   let r = r1, dt = dt1, retried = false;
   if (r1.status !== 0 && RETRY){
     say(`⚠ 第 1 次 exit=${r1.status}（${dt1}s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）`);
     dumpRed(name, ' · 第 1 次', r1, dt1);
     const t2 = Date.now();
-    r = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: 600000 });
+    r = spawnSync(NODE, [path.join(ROOT, rel)], { cwd: ROOT, encoding: 'utf8', timeout: timeoutFor(rel) });
     dt = ((Date.now() - t2) / 1000).toFixed(1);
     retried = true;
     say(`↻ 重跑结果：exit=${r.status}（${dt}s）`);
