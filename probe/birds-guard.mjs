@@ -55,14 +55,15 @@ const check = (name, ok, detail = '') => {
   await page.waitForTimeout(2500);
   const settle = () => page.waitForTimeout(4200);
 
-  /* ══ ① 大雁：**整层下线，本门改守"它别再回来"**（2026-10-01）═════════════
-     老黄："把天上飞的几只小鸟去掉，几个小黑点看也看不清，还觉得凌乱"。
-     大雁做了五轮（航线/高度/体型/阵型 × 三次），用户实拍仍判"看不懂、凌乱" ——
-     根因不是参数：13 只低模雁在 27m 外每只只有 4~10 像素，本来就只是几个黑点，
-     而"读出队形"要求用户恰好站在某个方位、赶上换阵的那几秒。收益低、成本高 ⇒ 整层下线。
-     ⚠️ **代码全部保留**（makeGoose / gooseSlot / updateGooseFlock / GOOSE 都在，
-     GN=0 即可恢复），所以本门的作用从"守大雁的行为"变成**守它别悄悄复活**。
-     下面这条把 4 季 × 4 天气 × 4 时段 = 64 组合全扫一遍，任何组合出现雁都报红。 */
+  /* ══ ① 大雁：**2026-10-02 恢复**（老黄："春秋两季的大雁也没有了"）══════════════
+     2026-10-01 曾按老黄"把天上飞的几只小鸟去掉"整层下线（GN=0），10-02 他又报
+     "春秋两季的大雁也没有了"，拍板恢复（GN=13 + 整体放大 1.4×）。
+     本门随之翻回"守行为"：
+       (a) 季节显隐 64 组合全扫（4 季 × 4 天气 × 4 时段）：春/秋全 13 只可见、
+           夏/冬 0 —— 曾经只测单一天气+单一时段，"某个组合漏了"从缝里漏过去
+           （2026-10-01 的教训：扫全表 + 扫完必须复位）；
+       (b) 两种阵型真的都出现、且形状不同（人字横向宽、八字 S 纵向长）；
+       (c) 航线在园子上空的高度带/半径带内（10~13m / 半径 26±呼吸）。 */
   {
     const SE = ['spring', 'summer', 'autumn', 'winter'];
     const WE = ['clear', 'mist', 'storm', 'afterrain'];
@@ -81,20 +82,95 @@ const check = (name, ok, detail = '') => {
             const G = window.__garden;
             return { total: G.geese.length, vis: G.geese.filter(g => g.visible).length };
           });
-          if (st.total > 0 || st.vis > 0) bad.push(`${ss}/${ww}/${tt}: ${st.vis}/${st.total} 只`);
+          const wantVis = (ss === 'spring' || ss === 'autumn') ? 13 : 0;
+          if (st.total !== 13 || st.vis !== wantVis)
+            bad.push(`${ss}/${ww}/${tt}: ${st.vis}/${st.total} 只（期望 ${wantVis}/13）`);
         }
       }
     }
-    check('大雁：已整层下线，64 个组合（4 季 × 4 天气 × 4 时段）都不出现',
+    check('大雁：装配 13 只，春/秋 64 组合全可见、夏/冬全隐藏',
       bad.length === 0,
-      bad.length ? `复活 ${bad.length} 个：${bad.slice(0, 6).join('，')}` : '场景里 0 只（GN=0，代码保留可恢复）');
-    /* 复位环境，供后面的判据用 */
+      bad.length ? `${bad.length} 个异常：${bad.slice(0, 6).join('，')}` : '64 组合全部符合');
+    /* 复位环境（扫完必须复位，否则污染后面的判据——2026-10-01 的教训） */
     await page.evaluate(() => {
       const G = window.__garden;
       G.setEnv('season', 'spring'); G.setEnv('weather', 'clear'); G.setEnv('time', 'noon');
     });
     await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
     await page.waitForTimeout(300);
+  }
+  /* (b)(c)(d) 阵型/航线/入画。
+     ⚠️⚠️ (b) 阵型形状**量槽位（slot）**：槽位是数据层"阵型是什么"（人字两臂横向
+     张开 / S 纵向拖长），实际位置受跟随滞后影响、换阵过渡期更乱，定形状看槽位。
+     —— 2026-10-02 更正：此处早先写过"绕圈把横距压扁到 26%"，**是误诊** ——
+     那是把 S 形的横向 3.6m 对比人字槽位 13.8m（两形横向本来就不同）。复测
+     稳态人字横向 13.35m ≈ 设计 13.8m，横向上没压扁；真问题只有**整队拖尾**
+     （一阶缓动追 3m/s 前移目标，稳态恒落后 v×τ=4.8m ⇒ maxR 13.4m > 设计 9.8m），
+     已在 08-assemble 用"速度前置 lead"修掉（槽位目标沿航向前移 v·τ，maxR 回 9.8m）。
+     —— 跟随判据（量实际位置）：每帧 maxR = 全队相对头雁的最大散布。
+       上限 12（lead 修复后稳态 ~9.8m，留 18% 余量；真散飞是 20m+ 且高方差），
+       下限 2.5（全队叠成一团 = 缓动/slot 系统坏）。
+       ⚠️ **换阵后 3s 过渡窗跳过**（全队重排是正确行为，过渡期散布天然超稳态，
+       不跳会间歇红）。⚠️ 别量"离槽位世界目标的距离"（目标本身前移、滞后已被
+       产品 lead 项补偿，量它会回归假红）。⚠️ 别逐雁设下限 —— 头雁天然在散布
+       中心（R=0），逐雁下限会把它判越界。槽位是 userData.slot 的局部坐标。 */
+  {
+    const forms = {};
+    let altBad = 0, radBad = 0, hBad = 0, inView = 0, followBad = 0, followN = 0, frameMax = 0;
+    let fMaxMin = 1e9, fMaxMax = 0, prevForm = null, switchAt = 0, skipN = 0;
+    for (let k = 0; k < 200 && Object.keys(forms).length < 2; k++){
+      const st = await page.evaluate(() => {
+        const G = window.__garden;
+        const head = G.GOOSE.head;
+        const ndc = head.clone().project(G.camera);
+        const dir = G.GOOSE.dir, dl = Math.hypot(dir.x, dir.y) || 1;
+        const ux = dir.x / dl, uz = dir.y / dl;          // 航向单位向量（dir.y 存 z 分量）
+        const rel = G.geese.map(g => {
+          const px = g.position.x - head.x, pz = g.position.z - head.z;
+          const s = g.userData.slot || { x: 0, z: 0 };
+          return { sx: s.x, sz: s.z,
+                   lx: px * (-uz) + pz * ux,            // 实际位置：航向系横向
+                   lz: px * ux + pz * uz,               // 实际位置：航向系纵向
+                   y: g.position.y, r: Math.hypot(head.x, head.z - 3) };
+        });
+        return { form: G.GOOSE.form, rel, ndc: [+ndc.x.toFixed(2), +ndc.y.toFixed(2), +ndc.z.toFixed(2)] };
+      });
+      if (st.form !== prevForm){ prevForm = st.form; switchAt = Date.now(); }
+      const inTransition = Date.now() - switchAt < 3000;   // 换阵后 3s 重排窗跳过（不跳会间歇红）
+      frameMax = 0;                                   // 每帧重置（frameMax 是本帧聚合量）
+      if (!forms[st.form]){
+        const xs = st.rel.map(p => p.sx), zs = st.rel.map(p => p.sz);
+        forms[st.form] = { sx: Math.max(...xs) - Math.min(...xs), sz: Math.max(...zs) - Math.min(...zs) };
+      }
+      if (!inTransition){
+        /* 每帧聚合（不逐雁）：frameMax = 本帧全队相对头雁的最大散布。
+           上限/下限的设计依据与两条量法教训见本块头部注释。 */
+        for (const p of st.rel){
+          followN++;
+          const R = Math.hypot(p.lx, p.lz);
+          if (R > frameMax) frameMax = R;
+          if (p.y < 9 || p.y > 14.5) hBad++;
+          if (p.r < 20 || p.r > 31) radBad++;
+        }
+        if (frameMax > 12 || frameMax < 2.5) followBad++;
+        fMaxMin = Math.min(fMaxMin, frameMax); fMaxMax = Math.max(fMaxMax, frameMax);
+      } else skipN++;
+      if (Math.abs(st.ndc[0]) < 1 && Math.abs(st.ndc[1]) < 1 && st.ndc[2] < 1) inView++;
+      await page.waitForTimeout(200);
+    }
+    const f0 = forms[0], f1 = forms[1];
+    check('大雁：两种阵型的目标形状不同（槽位：人字两臂横向宽 / 八字 S 纵向长）',
+      !!f0 && !!f1 && f0.sx > f1.sx && f1.sz > f1.sx,
+      f0 && f1 ? `人字槽位 ${f0.sx.toFixed(1)}×${f0.sz.toFixed(1)}m / S槽位 ${f1.sx.toFixed(1)}×${f1.sz.toFixed(1)}m`
+               : `只采到 ${Object.keys(forms).join(',')} 种阵型`);
+    check('大雁：队形保持成队不散飞（每帧相对头雁最大散布 2.5~12m）',
+      followN > 0 && followBad === 0,
+      `越界 ${followBad}/${followN} 帧 · 每帧 maxR 实测 ${fMaxMin.toFixed(2)}~${fMaxMax.toFixed(2)}m · 换阵过渡跳过 ${skipN} 帧`);
+    check('大雁：全队高度在园子上空带内（9~14.5m），绕园半径 20~31m',
+      hBad === 0 && radBad === 0,
+      `高度越界 ${hBad} 次 · 半径越界 ${radBad} 次`);
+    check('大雁：绕园巡飞时会进默认机位的视野（40s 内队首入画采样 ≥3 次）',
+      inView >= 3, `入画采样 ${inView} 次（每 200ms 一次）`);
   }
 
   /* ══ ③ 小鸟：落点贴面 + 行为 + 颜色 ═════════════════════════════════ */
