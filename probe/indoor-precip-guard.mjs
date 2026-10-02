@@ -101,8 +101,24 @@ const check = (name, ok, detail) => { results.push({ name, ok, detail }); consol
             整条前沿带 44m³ ⇒ 期望 ~0.7/帧 ⇒ 24 帧内必出，才是确定性的判据。
             门洞只是这条带上**唯一看得见**的那格（其余被前墙挡住）。 */
       const FRONT = { x0: -9.7, x1: 9.7, y0: 0, y1: 6.4, z0: -9.2, z1: -8.85 };
+      /* ⚠️⚠️ 2026-10-02 三报后新增：**游廊（四段）与水榭**的顶棚下也不得有雪
+         （老黄"屋里还是有雪"的真身 —— 取证 outputs/_diag/repro-2026-10-02.mjs：
+         堂内 0、但游廊内 1~7 粒/帧、水榭亭顶下 8~14 粒/帧，穿顶落下）。
+         ⚠️ 判据盒子 = 产品禁区（12-env PRECIP_INDOOR）**再内缩 0.2m** —— 与堂那条
+         同一规矩：禁区的边条在顶棚投影的外缘，那里露天落雪是物理正确的，
+         用外廓判会把"顶棚外的雪"算成缺陷（永远红的假门）；内缩后判据区域
+         完全落在禁区内部，产品禁区稍有漏边（坐标抄错/忘加一段）立刻被抓。
+         判据只在**雪天**量（雨在廊/榭下的穿帮与雪同机制，同一禁区管两样）。 */
+      const CORRIDOR = [
+        { x0: 10.6, x1: 13.2, z0: -11.3, z1: -7.9,  yTop: 3.45 },
+        { x0: 11.3, x1: 15.1, z0: -9.6,  z1: -1.8,  yTop: 3.45 },
+        { x0: 13.2, x1: 24.0, z0: -3.5,  z1: 0.0,   yTop: 3.45 },
+        { x0: 22.4, x1: 25.6, z0: -2.2,  z1: 15.0,  yTop: 3.45 },
+      ];
+      const PAVILION = { x0: 9.5, x1: 18.9, z0: 1.2, z1: 11.6, yTop: 4.55 };
       const out = { hall: { worst: 0, rendered: 0, n: 0, ys: [] }, front: { worst: 0 },
                     cavity: { worst: 0 },
+                    cor: { worst: 0, above: 0 }, pav: { worst: 0, above: 0 },
                     snow: { worst: 0, rendered: 0, n: 0, ys: [] }, rain: { worst: 0, rendered: 0, n: 0, ys: [] } };
       const inHall = (a, i) => {
         const x = a[i*3], y = a[i*3+1], z = a[i*3+2];
@@ -112,9 +128,20 @@ const check = (name, ok, detail) => { results.push({ name, ok, detail }); consol
         const x = a[i*3], y = a[i*3+1], z = a[i*3+2];
         return x > FRONT.x0 && x < FRONT.x1 && z > FRONT.z0 && z < FRONT.z1 && y > FRONT.y0 && y < FRONT.y1;
       };
+      const inCor = (a, i) => {
+        const x = a[i*3], y = a[i*3+1], z = a[i*3+2];
+        if (y > CORRIDOR[0].yTop) return 0;                       // 顶棚以上不算（那是露天，物理正确）
+        for (const B of CORRIDOR) if (x > B.x0 && x < B.x1 && z > B.z0 && z < B.z1) return 1;
+        return 0;
+      };
+      const inPav = (a, i) => {
+        const x = a[i*3], y = a[i*3+1], z = a[i*3+2];
+        return (y < PAVILION.yTop && x > PAVILION.x0 && x < PAVILION.x1
+              && z > PAVILION.z0 && z < PAVILION.z1) ? 1 : 0;
+      };
       for (let f = 0; f < 24; f++){
         await new Promise(r => requestAnimationFrame(r));
-        let hallThis = 0, cavThis = 0, frontThis = 0;
+        let hallThis = 0, cavThis = 0, frontThis = 0, corThis = 0, pavThis = 0, corAbove = 0, pavAbove = 0;
         for (const S of G.PRECIP.list){
           const key = S === G.PRECIP.rain ? 'rain' : 'snow';
           const dr = S.points.geometry.drawRange.count;
@@ -130,12 +157,28 @@ const check = (name, ok, detail) => { results.push({ name, ok, detail }); consol
               if (out[key].ys.length < 12 && y > 4.9) out[key].ys.push(+y.toFixed(1));
             } else if (y >= 6.4 && y < 12) cavThis++;      // 天花以上：只作"体积确实罩住了堂"的证据
           }
+          if (key === 'snow'){
+            /* 游廊/水榭只在雪天量；above = 顶棚上方的粒子（做"体积确实罩住这两处"的证据） */
+            for (let i = 0; i < rendered; i++){
+              const x = a[i*3], y = a[i*3+1], z = a[i*3+2];
+              if (y > 3.6 && y < 10 && x > 10 && x < 26 && z > -12 && z < 16){
+                if (inCor(a, i)) corThis++;
+                if (inPav(a, i)) pavThis++;
+                if (y > CORRIDOR[0].yTop + 0.15 && y < 6.5 && x > 13 && x < 24.4 && z > -3.9 && z < 15.4) corAbove++;
+                if (y > PAVILION.yTop + 0.15 && y < 6.5 && x > PAVILION.x0 && x < PAVILION.x1 && z > PAVILION.z0 && z < PAVILION.z1) pavAbove++;
+              }
+            }
+          }
           out[key].worst = Math.max(out[key].worst, c);
           out[key].rendered = rendered; out[key].n = S.n;
         }
         out.hall.worst = Math.max(out.hall.worst, hallThis);
         out.cavity.worst = Math.max(out.cavity.worst, cavThis);
         out.front.worst = Math.max(out.front.worst, frontThis);
+        out.cor.worst = Math.max(out.cor.worst, corThis);
+        out.pav.worst = Math.max(out.pav.worst, pavThis);
+        out.cor.above = Math.max(out.cor.above, corAbove);
+        out.pav.above = Math.max(out.pav.above, pavAbove);
       }
       return out;
     });
@@ -168,6 +211,18 @@ const check = (name, ok, detail) => { results.push({ name, ok, detail }); consol
   check('堂内前沿那条带（门洞所在）不得有雨雪粒子', snowRep.front.worst === 0,
     snowRep.front.worst ? `最坏一帧 ${snowRep.front.worst} 个`
                         : '24 帧全 0（前沿带 x±9.7 / y 0~6.4 / z -9.2~-8.85）');
+  /* ── 2026-10-02 三报后新增：游廊四段 + 水榭的顶棚下也不得有雪 ──
+     前置断言用"顶棚上方量到雪"证明体积真的罩住了这两处（否则主判据静默变绿 ——
+     堂那条的教训：第一版没摆机位，堂内粒子恒 0，判据无论产品对错都是绿的）。 */
+  check('前置：雨雪体积确实罩住了游廊/水榭（顶棚上方量到雪粒子）',
+    snowRep.cor.above > 0 || snowRep.pav.above > 0,
+    `廊顶上方最坏 ${snowRep.cor.above} 个 / 榭顶上方最坏 ${snowRep.pav.above} 个`);
+  check('雪天：游廊四段顶棚下不得有雪粒子', snowRep.cor.worst === 0,
+    snowRep.cor.worst ? `最坏一帧 ${snowRep.cor.worst} 个`
+                      : '24 帧全 0（四段走廊盒 = 产品禁区各内缩 0.2m）');
+  check('雪天：水榭（荷风四面亭）顶棚下不得有雪粒子', snowRep.pav.worst === 0,
+    snowRep.pav.worst ? `最坏一帧 ${snowRep.pav.worst} 个`
+                      : '24 帧全 0（榭盒 = 产品禁区内缩 0.2m）');
   /* ⚠️ 上面两条是"零容忍"判据，必须配自检说明它真的被测到了东西：
      否则粒子系统整体失效（一个都不画）时它们也会绿。 */
   check('自检：粒子系统确实在跑（雪与雨的提交数都 > 0）',
