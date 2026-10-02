@@ -419,13 +419,20 @@ function makeRainbowMesh(){
             float k = band * azWin * fade * ground * uRainbow * breathe;
             /* ⚠️ 别用 max(spSat, 常数) 给蓝紫段"托底"——那是逐通道托底，会把每段虹色的
                暗通道拉亮、色相全被拉平成灰白（实测 A/B 从 87 灰阶崩到 9）。要提亮度
-               走整体乘子，色相交给饱和度。 */
-            vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.80);
-            col = spSat * 1.45;
-            outA = k * 1.0;   // 带中央全替换（0.72 那版被 dst 的灰蓝山色稀释成 30 灰阶，实测仍"极淡"）
+               走整体乘子，色相交给饱和度。
+               2026-10-02 第八轮降夸张（老黄实拍"彩虹太夸张"）：饱和乘子 1.80→1.45、
+               亮度 1.45→1.15、替换 alpha 1.0→0.75 —— 第七轮的"全替换+发光感"
+               在真屏上读作又艳又亮的彩带；现在保留浓核但透出 25% 背景天，
+               观感目标"隔着雨幕看到的虹"。 */
+            vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.45);
+            col = spSat * 1.15;
+            outA = k * 0.75;
           }
 
-          /* 次虹（51°）：七色内外反转、只替换 22% —— "隐约多一道影子"，不抢主虹 */
+          /* 次虹（51°）：七色内外反转 —— 2026-10-02 撤下（老黄实拍"好像有两个彩虹，
+             后面那个太淡"：51° 外虹在默认机位只读成一条无结构的"白雾/脏污带"，
+             负资产）。代码全保留，SEC_K 改回 0.28 即恢复。 */
+          const float SEC_K = 0.0;
           const float S0 = 0.865, S1 = 0.955;
           float sBand = smoothstep(S0 - 0.008, S0 + 0.012, a) * (1.0 - smoothstep(S1 - 0.012, S1 + 0.006, a));
           if (sBand * azWin > 0.001){
@@ -441,7 +448,7 @@ function makeRainbowMesh(){
             float ground2 = smoothstep(-0.80, -0.32, d.y) * (1.0 - smoothstep(0.90, 1.00, d.y));
             float k2 = sBand * azWin * fade2 * ground2 * uRainbow * breathe;
             col = sc * 1.25;
-            outA = k2 * 0.28;   // 主/次虹带不重叠，直接写；次虹 ≈ 主虹的 1/3 浓
+            outA = k2 * SEC_K;   // 主/次虹带不重叠，直接写；次虹 ≈ 主虹的 1/3 浓（现已撤，见 SEC_K 注释）
           }
         }
         gl_FragColor = vec4(col, clamp(outA, 0.0, 1.0));

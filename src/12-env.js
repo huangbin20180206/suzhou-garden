@@ -671,7 +671,8 @@ const ENV_TIME = {
     grade:{ contrast:0.13, saturation:1.02, split:0.30, vignette:0.50, warm:0xFFF2E0, cool:0xE6EEFF },
     /* 活雾三键（仅 mist 天气生效，见 applyWeatherTo）：晨 = 大雾裹正堂 ——
        mistMul 再乘雾密度、正堂雾团最浓、竹林雾团只留一线。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12, bankBridge:0.25, bankRockery:0.50 },
+    starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12, bankBridge:0.25, bankRockery:0.50,
+    rainbowMul:1.20 },   // 晨（第八轮）：背景冷、虹本就跳得出，只微抬防"太淡"
   noon: { label:'午',
     /* F8 光照"晴感"再平衡（2026-09-21 · 三张正午样张一致指出"像阴天"）：
        原 sun1.12 / 环境 amb.50+hemi.35+fill.32=1.17 —— 直射仅占 49%，阴影被环境光
@@ -700,7 +701,7 @@ const ENV_TIME = {
     /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul
        0.82→1.10（有效 1.98，晨 2.61 的 ~76%——比晨淡、但明显有雾）；雾团也留三成
        而不是归零（bankHall 0.28 / bankBamboo 0.22）。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20 },   // 午：淡一档但仍见雾
+    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20, rainbowMul:1.00 },   // 午：淡一档但仍见雾
   dusk: { label:'暮',
     sunColor:0xFFA45C, sunIntensity:1.00, sunPos:[-56, 15, 30],
     ambColor:0x6E7B96, ambIntensity:0.44,
@@ -724,7 +725,14 @@ const ENV_TIME = {
     /* saturation 1.04→0.97：暮色草地旧值下仍是高饱和翠绿，整体去艳半档，
        让暮色统一在灰暖调里。 */
     grade:{ contrast:0.20, saturation:0.97, split:0.42, vignette:0.56, warm:0xFFE4C0, cool:0xC8D8F0 },
-    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55, bankBridge:0.50, bankRockery:0.30 },  // 暮：雾复起，这回沉在竹林
+    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55, bankBridge:0.50, bankRockery:0.30,
+    /* rainbowMul（2026-10-02 第八轮）：暮色暖橙天幕会把虹的橙红段"同化"掉
+       —— 同样的浓度晨/午一眼可见、暮里却融进余晖（1.45 倍时冻结帧 A/B 仍有
+       6064px 差分，但单图判读完全读不出）。暮是雨后彩虹最经典的时刻，抬到 2.2
+       ——"夸张感"的来源是弧宽 45°+双道+发光感，这三样第八轮已收掉，
+       单纯浓度回补不会回到"夸张"（晨/午不动：它们背景冷、虹本来就跳）。
+       夜里 starAmount 门控归零，键只做占位。 */
+    rainbowMul:2.20 },  // 暮：雾复起，这回沉在竹林
   night: { label:'夜',
     sunColor:0xA8BEE0, sunIntensity:0.38, sunPos:[-34, 52, -22],
     /* 幽而不黑（2026-09-21 方案 n1，两轮收敛）：
@@ -752,7 +760,7 @@ const ENV_TIME = {
     grade:{ contrast:0.15, saturation:0.92, split:0.34, vignette:0.55, warm:0xE8D8C0, cool:0x9FB8E0 },
     /* 夜 mistMul 0.72 ⇒ 有效雾系数 1.8×0.72≈1.30，与旧版常数持平：night+mist 的画面
        与 mist-guard 的水位完全不动（夜里不加浓，画面别变脏）。 */
-    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08, bankBridge:0.30, bankRockery:0.08 },
+    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08, bankBridge:0.30, bankRockery:0.08, rainbowMul:1.00 },
 };
 
 /* ── 季节预设 ──
@@ -1178,9 +1186,11 @@ export function applyEnv(p){
     const target = Math.max(-0.92, Math.min(-0.70, -0.84 - sunElev * 0.03));
     const dayK = Math.max(0, Math.min(1, (sunElev - 0.02) / 0.12));
     /* 虹已搬到独立层 rainbowMesh（第七轮）：强度/方向/窗口都写它自己的 uniforms；
-       dayK 的星量门控仍读天空球的 uStarAmount（夜里没虹）。 */
+       dayK 的星量门控仍读天空球的 uStarAmount（夜里没虹）。
+       rainbowMul（第八轮）：时段乘子 —— 暮色暖背景会"同化"虹的暖色段，只给暮
+       抬一档（见 ENV_TIME.dusk 的注释），其余时段 1.0 等价原式。 */
     const ru = rainbowMesh.material.uniforms;
-    ru.uRainbow.value = (p.rainbow || 0) * dayK * (1 - Math.min(1, su.uStarAmount.value / 0.35));
+    ru.uRainbow.value = (p.rainbow || 0) * (p.rainbowMul ?? 1) * dayK * (1 - Math.min(1, su.uStarAmount.value / 0.35));
     ru.uSunDir.value.copy(su.uSunDir.value);          // fade（越近太阳越淡）跟天空同一个太阳
     /* ── 虹的**方位**：见下面第二段（2026-10-01 第三轮已改成"固定园子主视方位"）。
        ⚠️ 第一、二轮在这里写过一整套"按园内地标方位算 uArcAzOff"的逻辑（MARKS_AZ /
@@ -1208,9 +1218,12 @@ export function applyEnv(p){
     const rbAz = CAM_AZ;
     const ce2 = Math.cos(target), se2 = Math.sin(target);
     ru.uRainbowDir.value.set(Math.cos(rbAz) * ce2, se2, Math.sin(rbAz) * ce2);
-    /* 弧宽 45°（2026-10-01 按老黄标注"一道跨越全园的宽拱"定值）：
-       半宽再大（62°/70°/80°）会让弧宽到 90%+ 顶满整片天，反而不是"一道虹"。 */
-    const ARC_HALF = 45.0;
+    /* 弧宽 40°（2026-10-02 第八轮两步定值）：
+       45°（第七轮）+ 全浓度 ⇒ 横向占八成、被判"太夸张"；
+       一步收窄到 32° ⇒ 拱的两脚被切掉、只剩近水平的拱顶段，晨/午尚可辨，
+       暮色里被整圈暖 horizon 同化后**读作"水平霞光"而不是虹**（单图判读两轮证实）。
+       40° 让拱形弯曲可辨（浓度已降档、次虹已撤，宽度回一档不会回到"夸张"）。 */
+    const ARC_HALF = 40.0;
     ru.uArcHalf.value = ARC_HALF;
     /* 窗口中心锁在弧顶 ⇒ 偏移 0 就是"弧对称罩在园子上方"。
        旧值 +10°（相对太阳反方位往园心侧偏）是上一轮为"把虹脚推向围墙/水榭"调的；
