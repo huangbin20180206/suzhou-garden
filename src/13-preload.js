@@ -178,6 +178,11 @@ export const PRELOAD_MANIFEST = [
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
   { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
+  /* 金刚鹦鹉（2026-10-02 第九轮，老黄："草皮上和假山顶部的小鸟还是没有看到，
+     要不你加几只金刚鹦鹉，我给你参考图，这个好像更显眼一点，3D 效果也挺好"）：
+     AI 生成（rodin，text_to_3d，绿翅金刚鹦鹉），1.49MB。
+     required:false —— 拉不到时页面正常，只是假山上没有鹦鹉。 */
+  { url: 'assets/Macaw.glb',       bytes: 1561572, stage: '取', label: '鹦鹉', required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */
