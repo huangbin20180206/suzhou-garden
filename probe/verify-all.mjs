@@ -420,10 +420,27 @@ const QUICK = new Set([
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
 ]);
+/* ── `--gates=a,b,c`：只跑指定的几道门（2026-10-02 加，评审 P2「分层验证」的第二半）──
+   用途：交接文档里那种「晨间单跑复核三道疑似伪红」的活，一条命令就能干，
+   不必为它另写脚本、也不必整轮 2 小时。
+   匹配规则：对 path 与 label 做**子串**匹配（`--gates=mist-guard` 命中 probe/mist-guard.mjs）。
+   ⚠️ 匹配不到任何一个 ⇒ **响亮报错并 exit 1**：否则「名字拼错」会变成「跑了 0 道门、全绿」，
+      那正是本项目反复踩的「假绿」形状。 */
+const GATES_ARG = (process.argv.find(a => a.startsWith('--gates=')) || '').slice(8);
+const GATE_KEYS = GATES_ARG.split(',').map(s => s.trim()).filter(Boolean);
+const byGates = GATE_KEYS.length
+  ? SUITES.filter(([label, p2]) => GATE_KEYS.some(k => p2.includes(k) || label.includes(k)))
+  : null;
 const QUICK_MODE = process.argv.includes('--quick');
 const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]]
-              : QUICK_MODE ? SUITES.filter(([, p]) => QUICK.has(p))
+              : byGates ? byGates
+              : QUICK_MODE ? SUITES.filter(([, p2]) => QUICK.has(p2))
               : SUITES;
+if (byGates && !LIST.length){
+  console.error(`[verify-all] ✗ --gates=${GATES_ARG} 没有匹配到任何门（可用名字见 SUITES 表）——拒绝以「0 道门全绿」收场`);
+  process.exit(1);
+}
+if (byGates) say(`[verify-all] 🎯 --gates=${GATES_ARG} ⇒ 只跑 ${LIST.length} 道：${LIST.map(([l]) => l).join('、')}`);
 if (QUICK_MODE && !SELFTEST){
   say(`[verify-all] ⚡ quick 模式：${LIST.length}/${SUITES.length} 道（快门 + 广覆盖；发布前仍须跑全量 npm run verify）`);
 }
