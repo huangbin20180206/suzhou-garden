@@ -100,25 +100,28 @@ const check = (name, ok, detail = '') => {
     await page.waitForTimeout(300);
   }
   /* (b)(c)(d) 阵型/航线/入画。
-     ⚠️⚠️ (b) 阵型形状**量槽位（slot）**：槽位是数据层"阵型是什么"（人字两臂横向
-     张开 / S 纵向拖长），实际位置受跟随滞后影响、换阵过渡期更乱，定形状看槽位。
-     —— 2026-10-02 更正：此处早先写过"绕圈把横距压扁到 26%"，**是误诊** ——
-     那是把 S 形的横向 3.6m 对比人字槽位 13.8m（两形横向本来就不同）。复测
-     稳态人字横向 13.35m ≈ 设计 13.8m，横向上没压扁；真问题只有**整队拖尾**
-     （一阶缓动追 3m/s 前移目标，稳态恒落后 v×τ=4.8m ⇒ maxR 13.4m > 设计 9.8m），
-     已在 08-assemble 用"速度前置 lead"修掉（槽位目标沿航向前移 v·τ，maxR 回 9.8m）。
-     —— 跟随判据（量实际位置）：每帧 maxR = 全队相对头雁的最大散布。
-       上限 12（lead 修复后稳态 ~9.8m，留 18% 余量；真散飞是 20m+ 且高方差），
-       下限 2.5（全队叠成一团 = 缓动/slot 系统坏）。
-       ⚠️ **换阵后 3s 过渡窗跳过**（全队重排是正确行为，过渡期散布天然超稳态，
-       不跳会间歇红）。⚠️ 别量"离槽位世界目标的距离"（目标本身前移、滞后已被
-       产品 lead 项补偿，量它会回归假红）。⚠️ 别逐雁设下限 —— 头雁天然在散布
-       中心（R=0），逐雁下限会把它判越界。槽位是 userData.slot 的局部坐标。 */
+     ⚠️⚠️ 2026-10-02 第九轮航线重做（老黄："不要围绕着院子飞，就从整个画面中从左到右
+     （春季），从右到左（秋季），飞完一个回合再生成一波继续飞"）：
+       (b) 阵型形状**量槽位（slot）**：槽位是数据层"阵型是什么"（人字两臂横向
+           张开 / S 纵向拖长），实际位置受跟随滞后影响、换阵过渡期更乱，定形状看槽位。
+       (c) 航线：**高空横穿**（高度 18~23m、沿 x 轴、|z|≤12m），春 +x / 秋 −x
+           （dirSign 由 12-env 按季节写）；不再是"绕园半径"。
+       (d) 入画：横穿 ⇒ 队首在画面内的比例 >0（绕圈时有半程在画外也正常）。
+     —— 以下"误诊存档"留给后人：曾把 S 形的横向 3.6m 对比人字槽位 13.8m、
+       诊断"绕圈把横距压扁到 26%"，实际是量错了阵型；稳态人字横向与设计一致。
+     —— "跟随判据"量法（量实际位置）：每帧 maxR = 全队相对头雁的最大散布。
+       上限 12（稳态 ~9.8m；真散飞是 20m+ 高方差），下限 2.5（全队叠成一团）。
+       ⚠️ 换阵后 3s 过渡窗跳过（重排是正确行为）。⚠️ 别量"离槽位世界目标的距离"
+       （目标前移 + 产品 lead 补偿 ⇒ 回归假红）。⚠️ 别逐雁设下限（头雁天然在中心）。 */
+  /* ⚠️⚠️ 采样窗必须**跑满**（k<200 且不限形式条件），否则 followN=0：
+     横穿波次下换阵快（6~13s），"凑满两阵型就退出"会在 10 帧内结束 ——
+     而那 10 帧全落在换阵 3s 过渡窗内（被跳过）⇒ followN=0、fMaxMin 还是初始 1e9
+     ⇒ 判据读成"越界 0/0 · 实测 1e9~0m"假红（2026-10-02 实测）。 */
   {
     const forms = {};
-    let altBad = 0, radBad = 0, hBad = 0, inView = 0, followBad = 0, followN = 0, frameMax = 0;
+    let altBad = 0, zBad = 0, hBad = 0, inView = 0, followBad = 0, followN = 0, frameMax = 0;
     let fMaxMin = 1e9, fMaxMax = 0, prevForm = null, switchAt = 0, skipN = 0;
-    for (let k = 0; k < 200 && Object.keys(forms).length < 2; k++){
+    for (let k = 0; k < 200; k++){
       const st = await page.evaluate(() => {
         const G = window.__garden;
         const head = G.GOOSE.head;
@@ -131,7 +134,7 @@ const check = (name, ok, detail = '') => {
           return { sx: s.x, sz: s.z,
                    lx: px * (-uz) + pz * ux,            // 实际位置：航向系横向
                    lz: px * ux + pz * uz,               // 实际位置：航向系纵向
-                   y: g.position.y, r: Math.hypot(head.x, head.z - 3) };
+                   y: g.position.y, wz: g.position.z };  // wz = 世界 z（横穿走廊检查用）
         });
         return { form: G.GOOSE.form, rel, ndc: [+ndc.x.toFixed(2), +ndc.y.toFixed(2), +ndc.z.toFixed(2)] };
       });
@@ -149,8 +152,8 @@ const check = (name, ok, detail = '') => {
           followN++;
           const R = Math.hypot(p.lx, p.lz);
           if (R > frameMax) frameMax = R;
-          if (p.y < 9 || p.y > 14.5) hBad++;
-          if (p.r < 20 || p.r > 31) radBad++;
+          if (p.y < 18 || p.y > 23) hBad++;
+          if (Math.abs(p.wz + 20) > 9) zBad++;   // 横穿走廊 z=-20±2.5呼吸+缓动滞后 ⇒ 带±9
         }
         if (frameMax > 12 || frameMax < 2.5) followBad++;
         fMaxMin = Math.min(fMaxMin, frameMax); fMaxMax = Math.max(fMaxMax, frameMax);
@@ -164,11 +167,12 @@ const check = (name, ok, detail = '') => {
       f0 && f1 ? `人字槽位 ${f0.sx.toFixed(1)}×${f0.sz.toFixed(1)}m / S槽位 ${f1.sx.toFixed(1)}×${f1.sz.toFixed(1)}m`
                : `只采到 ${Object.keys(forms).join(',')} 种阵型`);
     check('大雁：队形保持成队不散飞（每帧相对头雁最大散布 2.5~12m）',
-      followN > 0 && followBad === 0,
-      `越界 ${followBad}/${followN} 帧 · 每帧 maxR 实测 ${fMaxMin.toFixed(2)}~${fMaxMax.toFixed(2)}m · 换阵过渡跳过 ${skipN} 帧`);
-    check('大雁：全队高度在园子上空带内（9~14.5m），绕园半径 20~31m',
-      hBad === 0 && radBad === 0,
-      `高度越界 ${hBad} 次 · 半径越界 ${radBad} 次`);
+      followN >= 30 && followBad === 0,
+      followN < 30 ? `采样不足（仅 ${followN} 个非过渡帧，跳过 ${skipN}）— 采样窗需覆盖一个完整波次`
+                   : `越界 ${followBad}/${followN} 帧 · 每帧 maxR 实测 ${fMaxMin.toFixed(2)}~${fMaxMax.toFixed(2)}m · 换阵过渡跳过 ${skipN} 帧`);
+    check('大雁：全队高度在高空带内（18~23m），且沿 x 轴横穿（z≈−20 走廊 ±9m）',
+      hBad === 0 && zBad === 0,
+      `高度越界 ${hBad} 次 · z 越界 ${zBad} 次`);
     check('大雁：绕园巡飞时会进默认机位的视野（40s 内队首入画采样 ≥3 次）',
       inView >= 3, `入画采样 ${inView} 次（每 200ms 一次）`);
   }

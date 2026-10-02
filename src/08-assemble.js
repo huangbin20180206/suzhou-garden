@@ -654,14 +654,23 @@ const gRnd = mulberry32(20260930);
      · 航线/高度/阵型沿用下线前的最终值（绕园大圈 26m、高 10~13m、人字 < / 八字 S）。
    再下线一次的话：把 GN 改回 0 即可（装配循环与季节通道 gooseShow 都还在）。 */
 const GN = 13;                                   // 2026-10-01 曾置 0 下线，2026-10-02 按老黄要求恢复
-/* 高度 10~13m（曾用；下线前最后定值）：原 24~31m（40m 外每只只有 4~5 像素、
-   读成"棕色小圆球"）→ 13~17m（队形整体在画面外）→ 10~13m（能一次看到 13 只成队）。 */
-const GOOSE_ALT = [10, 13];
+/* ⚠️⚠️ 2026-10-02 第九轮重做航线（老黄："大雁的外形太敷衍了…如果不建模你就让大雁
+   飞的高一些，把大雁的显示的样式变得小一些，也不要围绕着院子飞，就从整个画面中
+   从左到右（春季），从右到左（秋季），飞完一个回合再生成一波继续飞"）：
+   · 高度 10~13m → **21~25m**（远高于堂脊 9.4m，读作"高空过境"）；
+   · 尺寸 1.4× 放大 **改回小尺寸**（见下方 s：体长 ~0.18m）—— 高空小剪影正是
+     老黄的取舍："飞高一点 + 显示小一点" ⇒ 远到看不出建模细节，就不再暴露"没有建模"。
+     （之前那轮放大 1.4× 是"低空绕圈"前提下的判断，第九轮前提变了，缩放必须反向调回。）
+   · 航线绕园大圈 → **一条横穿园子上空的直线**（春 西→东 / 秋 东→西），
+     飞完一波飞出画面，6~12s 后下一波从对面再来（波次见 GOOSE.phase）。
+   旧"绕园大圈"五轮被否的根因（存档）：用户朝向不可控 ⇒ 绕圈永远有一半时间
+   在他背后；且 10~13m 低空的大雁近到能看出"没有建模"。 */
+const GOOSE_ALT = [19, 21];
 /* 队首初始位置（**必须在雁的装配循环之前声明**）——
    2026-09-30 二轮踩过 TDZ：下面雁的初始位置要用它，而 GOOSE 对象在循环之后才声明
    ⇒ "Cannot access 'GOOSE' before initialization"、整页崩。
-   ⚠️ 五轮：航线最终定为**绕园子的大圈**（见 updateGooseFlock），这个点只是"从哪开始飞"。 */
-const GOOSE_HEAD = new THREE.Vector3(-18, 11.5, -20);
+   第九轮起这里只是"波次起点"（模块期 gooseStartWave() 会按 dirSign 重置）。 */
+const GOOSE_HEAD = new THREE.Vector3(-85, 23, -6);
 /** 阵型目标槽位（局部：x=横向、z=前后，头雁在原点，飞行方向 = −z）
  *  ⚠️ 2026-10-01 **按老黄的示意图重做阵形**（第三次改阵形了，这次有图为准）：
  *   他画了一张示意图：人字 = `<`（两臂对称张开），八字 = **`S`（一条连续的
@@ -703,9 +712,14 @@ function gooseSlot(form, i){
 }
 for (let i = 0; i < GN; i++){
   const d = makeGoose();
-  /* 个体大小微差（整齐得太假）。⚠️ 2026-10-02 恢复时整体 ×1.4（见上）——
-     乘在 s 的取值范围上，gRnd 抽数次数/顺序一字不动（铁律 1）。 */
-  const s = 1.20 + gRnd() * 0.42;               // = 1.4 × (0.86~1.16)
+  /* 个体大小微差（整齐得太假）。
+     ⚠️⚠️ 2026-10-02 第九轮：整体 **×0.42**（0.86~1.16 → 0.36~0.49）——
+     上午那轮"放大 1.4×"是"低空绕圈"前提下的判断（体长 0.42m 想让人看清是雁）；
+     第九轮老黄改成"飞高一点 + 显示小一点"（高空横穿小剪影）⇒ 前提反转，
+     缩放必须反向调回：**21m 高、50m 外，0.18m 长的雁在画面上 ~6px**，
+     刚好是一枚能辨认的"小黑点 + 队形"，而不是一个看得清没建模的近景模型。
+     gRnd 抽数次数/顺序一字不动（铁律 1）。 */
+  const s = 0.36 + gRnd() * 0.13;               // = 0.42 × (0.86~1.16)
   d.scale.setScalar(s);
   /* ⚠️ 必须**合并**进已有 userData，不能整份替换：makeGoose() 刚把翅膀数组挂在
      d.userData.wings 上（updateGooseFlock 每帧要迭代它）—— 整份赋值会把它抹成
@@ -718,50 +732,76 @@ for (let i = 0; i < GN; i++){
     ph: gRnd() * TAU,                             // 扇翅相位
     sp: 0.90 + gRnd() * 0.22,                     // 个体速度差（队列不会完全刚性）
   });
-  /* 初始摆在航路上（与 GOOSE 圆周起点一致，位置取自 GOOSE.head 的初始值） */
-  const by = GOOSE_ALT[0] + gRnd() * (GOOSE_ALT[1] - GOOSE_ALT[0]);
-  d.userData.px = GOOSE_HEAD.x + d.userData.slot.x;
-  d.userData.pz = GOOSE_HEAD.z + d.userData.slot.z;
-  d.position.set(d.userData.px, by, d.userData.pz);
   world.add(d);
   geese.push(d);
 }
-/* 雁群整体状态（头雁那条航路 + 换阵时机）——独立于 12-env，季节显隐由它写
-   ⚠️ 2026-09-30 二轮：航路改成**贴着园子上空对穿**（原 −46→+62 的远端长弧大半时间在
-   画面外）。现在从西南 (−34, 34) 掠向东北 (30, −16)，航线**穿过园子正上方** ⇒
-   在园子里任何常用机位抬头都有机会看到整队；绕回阈值也跟着收紧。 */
+/* 雁群整体状态（队首那条横穿航路 + 波次时机 + 换阵）——独立于 12-env，季节显隐由它写
+   ⚠️⚠️ 2026-10-02 第九轮（老黄："也不要围绕着院子飞，就从整个画面中从左到右（春季），
+   从右到左（秋季），飞完一个回合再生成一波继续飞"）：
+   航线改成**一条横穿园子上空的直线 + 波次调度**。直线的三个好处：
+   ① 队形是正面朝用户的（人字/一字都读得出），绕圈时侧面看会退化成"一条线"；
+   ② 起止点在画面左右两侧 ⇒ 一波飞完必然**整个离开画面**，再从对面回来 ——
+      老黄说的"飞完一个回合再生成一波"由此自然成立；
+   ③ 飞行距离恒定（不像绕圈会时近时远）⇒ 屏幕上尺寸稳定，不用调大小补偿距离。
+   方向按季节由 12-env 写 dirSign（春 +1 / 秋 −1）；间隙 6~12s（运行期随机）。 */
 export const GOOSE = {
   t: 0, form: 0, nextForm: 0,          // nextForm 到点就换阵
-  head: GOOSE_HEAD,                     // 队首世界坐标（绕园子的大圈，见 updateGooseFlock）
-  a0: Math.PI * 0.62,                   // 起始相位（让第一圈就从西北开始）
-  dir: new THREE.Vector2(0, 1),        // 航向（圆周切线，每帧重算）
+  head: GOOSE_HEAD,                     // 队首世界坐标（横穿航路，见 updateGooseFlock）
+  dirSign: 1,                          // +1 = 西→东（画面左→右）；−1 反之（由 12-env 按季节写）
+  phase: 'flying',                     // 'flying' 横穿中 / 'gap' 波次间隙（整队在画面外等待）
+  gapT: 0,                             // 间隙剩余秒数
+  dir: new THREE.Vector2(0, 1),        // 航向单位向量（横穿时恒为 ±x）
   turn: 0,                                 // 当前转向率（保留字段：转场调试用）
 };
 /* 换阵时机：6~13s 一次，两种阵型轮流（"飞行过程中变换阵型"） */
 GOOSE.nextForm = gRnd() * 6 + 3;
+/* 波次参数：x=航线的 x 起止（西 −95 / 东 +95，两端都在画面外）、
+   z=走廊中心、y=高度（另见 GOOSE_ALT 随机）。
+   ⚠️⚠️ z=−20 与高度 19~21m 是**按默认机位反解出来的**，不是随手取的（2026-10-02
+   取证 round9-verify.mjs 实测：z=−6、高 23m 时队首入画 **0%**）——
+   默认机位在 (−20,17,32) **俯视 −19.3°**、垂直 fov 46° ⇒ 可见仰角只有
+   **−42°~+3.7°**。23m 高的雁在 40m 外仰角 +8.5°，整条航线**在画面上沿之外**，
+   用户抬头也看不到（这正是"飞太高"的另一面：俯视机位看不到高空）。
+   现在 z=−20（距相机 ~56m）：仰角 atan((19−17)/56) ≈ 2.1° < +3.7° ⇒ 全程在画内；
+   横向端点 x=±95 的方位偏离视线 86°，远在水平视野 36° 之外 ⇒ 从画面左侧外飞入、
+   从右侧外飞出，正是老黄要的"横穿整个画面"。 */
+const GOOSE_LINE = { x0: -95, x1: 95, z: -20, speed: 6.0 };
+function gooseStartWave(){
+  const s = GOOSE.dirSign;
+  GOOSE.phase = 'flying';
+  GOOSE.head.set(s > 0 ? GOOSE_LINE.x0 : GOOSE_LINE.x1, GOOSE_ALT[0] + 2, GOOSE_LINE.z);
+  /* 整队瞬移到波次起点：这是**画外**的瞬移（起点 x=∓95，默认机位画面只在 ±25m 内）
+     ⇒ 用户看到的是"下一波从画外飞进来"，不会读成闪现。 */
+  const ux = s, uz = 0, rx = -uz, rz = ux;
+  for (const g of geese){
+    const slot = gooseSlot(GOOSE.form, geese.indexOf(g));
+    g.userData.px = GOOSE.head.x + rx * slot.x + ux * slot.z;
+    g.userData.pz = GOOSE.head.z + rz * slot.x + uz * slot.z;
+    g.position.set(g.userData.px, GOOSE.head.y, g.userData.pz);
+  }
+}
+/* 装配完立刻开第一波（起点 x=∓95 在画外 ⇒ 首帧看不到，用户第一次见到的是
+   "一队雁从画面左侧飞进来"，而不是从头顶凭空出现）。 */
+gooseStartWave();
 export function updateGooseFlock(dt, t){
   GOOSE.t += dt;
-  /* 航路：**绕园子一个大圈**（恒定角速度的圆周 + 缓慢的半径呼吸），而不是
-     在某一段天空里来回。
-     ⚠️ 五轮实测才想明白：把航线钉死在"正北偏西"只对**一种朝向**有效 ——
-     用户实测 30 秒：队首方位角一路 −45°~−112°（西到西北），平均 5.9 只在画面内，
-     但**另外一半时间它在别处，用户朝北/朝东看就是空的**。而用户的朝向是不可控的。
-     改成绕圈后，园子四周的天空轮流"过雁"，任何朝向抬头都有机会看到；
-     圈心取园心附近、半径 34m（正好在园子外一圈、不会被建筑挡住）。
-     ⚠️ 圆周运动本身"读得出在飞"（方向持续变化），比直线更像真实雁群。 */
-  const a = GOOSE.t * 0.115 + GOOSE.a0;                  // 角速度 0.115 rad/s ⇒ 一圈约 55s
-  /* ⚠️ 2026-10-01 三轮后实测重定：半径 34→**26m**、高度 15→**11m**。
-     老黄："依旧是几只彩色的鸟零星飞在空中，没有任何大雁的飞行图案"——量出来的原因是：
-     ① 半径 34m 时队首离相机 8~30m，**8 次采样里 5 次 13 只全在画面外**，
-        队飞过去了、用户在画面外，看见的只是"零星几只"；
-     ② 高度 15m 太高，抬头都够不着 ⇒ 进一步降低到 11m，让队形压在园子上空
-        （园内最高是正堂脊 9.4m、假山峰 7.5m ⇒ 11m 仍在它们之上，但低到平视能看见）。
-     半径 26m 仍在园子外一圈（园子约 ±17m），不会被建筑挡住，但离相机更近 ⇒
-     13 只连成一条线时读得出是"队形"而不是"几只鸟"。 */
-  const rad = 26 + Math.sin(GOOSE.t * 0.06) * 3.5;         // 半径呼吸 ±3.5m，航线不呆板
-  GOOSE.head.set(Math.cos(a) * rad, GOOSE.head.y, 3 + Math.sin(a) * rad);
-  /* 朝向 = 圆周切线（让雁头指向飞行方向，而不是径向） */
-  GOOSE.dir.set(-Math.sin(a), Math.cos(a));
+  /* 航路（第九轮）：直线横穿 + 波次间隙。
+     ⚠️ 绕园大圈五轮被否的根因（存档）：① 用户朝向不可控，绕圈必有一半时间在背后；
+     ② 侧视时队形退化成一条线，读不出人字；③ 半径呼吸让尺寸忽大忽小。
+     横穿把这三条一起解决 —— 队形正面朝用户、尺寸恒定、飞完必然出画。 */
+  const s = GOOSE.dirSign >= 0 ? 1 : -1;
+  if (GOOSE.phase === 'gap'){
+    GOOSE.gapT -= dt;
+    if (GOOSE.gapT <= 0) gooseStartWave();
+  } else {
+    GOOSE.head.x += s * GOOSE_LINE.speed * dt;
+    /* 高度轻微起伏（±0.6m）：直线太死板时反而"不像在飞" */
+    GOOSE.head.y = GOOSE_ALT[0] + 2 + Math.sin(GOOSE.t * 0.5) * 0.6;
+    GOOSE.dir.set(s, 0);
+    /* 飞出画面 ⇒ 进间隙（整队在画外等 6~12s，再由 gooseStartWave 从对面回来） */
+    const done = s > 0 ? GOOSE.head.x >= GOOSE_LINE.x1 : GOOSE.head.x <= GOOSE_LINE.x0;
+    if (done){ GOOSE.phase = 'gap'; GOOSE.gapT = 6 + Math.random() * 6; }
+  }
   /* 换阵：到点 ⇒ 换目标阵型，位置按时间常数缓动过去（不过渡会读成闪现） */
   if (GOOSE.t > GOOSE.nextForm){
     GOOSE.form = GOOSE.form === 0 ? 1 : 0;
@@ -770,15 +810,12 @@ export function updateGooseFlock(dt, t){
   const hx = GOOSE.head.x, hz = GOOSE.head.z;
   const ux = GOOSE.dir.x, uz = GOOSE.dir.y;          // 航向单位向量
   const rx = -uz, rz = ux;                          // 右向（水平面内）
-  /* ⚠️⚠️ 2026-10-02 补"速度前置 lead"：一阶缓动追一个以 v 前移的目标，稳态恒落后
-     v·τ（v = ω·rad ≈ 3m/s、τ=1.6 ⇒ ~4.8m）—— 修之前整队拖在虚拟头雁身后，队形被
-     系统性拉长（实测 maxR 13.4m vs 槽位设计 9.8m，读作"松散拖尾"而非人字）。
-     把槽位目标沿航向**前移 v·τ** ⇒ 缓动收敛点恰好落在设计槽位上
-     （仿真+实测 maxR 13.4→9.8m，人字两臂 13.8m 宽真正张开）。换阵过渡不变
-     （目标照旧逐帧前移，只是整体位置前移一点）。
-     —— 误诊存档：曾把 S 形的横向 3.6m 当成人字实测、诊断"绕圈把横距压扁到 26%"
-     —— 稳态人字横向 13.35m ≈ 设计 13.8m，横向上根本没压扁，真问题只有拖尾。 */
-  const lead = 0.115 * rad * 1.6;                   // v·τ（rad 呼吸时 v 同步变，lead 跟着）
+  /* ⚠️⚠️ "速度前置 lead"（2026-10-02 上午）：一阶缓动追一个以 v 前移的目标，稳态恒落后
+     v·τ —— 修之前整队拖在虚拟头雁身后，队形被系统性拉长（实测 maxR 13.4m vs 槽位设计
+     9.8m，读作"松散拖尾"而非人字）。把槽位目标沿航向**前移 v·τ** ⇒ 缓动收敛点恰好
+     落在设计槽位上（仿真+实测 maxR 13.4→9.8m，人字两臂 13.8m 宽真正张开）。
+     ⚠️ 直线横穿后 v 恒定 ⇒ lead 变成常量，但公式仍用 speed 写（换航线时只改一处）。 */
+  const lead = GOOSE_LINE.speed * 1.6;               // v·τ
   for (let i = 0; i < geese.length; i++){
     const d = geese[i], u = d.userData;
     u.slot = gooseSlot(GOOSE.form, i);
@@ -1361,6 +1398,36 @@ lotusSpots.forEach(s=>{
    随机流守恒见上），由 placeAssets 异步挂载。 */
 placeAssets('assets/LotusPlant.glb', 2.0, lotusSpots);
 world.add(makePondPads(lotusSpots));
+
+/* ⚠️⚠️ 金刚鹦鹉（Macaw.glb）不走 placeAssets —— 自己 holder，原因是**材质**：
+   Rodin 生成的 GLB 里 metallicFactor=1（金属度拉满），而本场景低档位没有强环境反射
+   ⇒ 全金属材质渲染成**黑块**（实测：假山顶只看到一个小黑点，glb-inspect.mjs 确认
+   贴图/网格/19818 三角形都齐全，就是材质不对）。
+   placeAssets 的第四参 overrideMat 会**整体替换材质**、连贴图一起丢，也不能用。
+   ⇒ loadAssetOnce + 自建 holder，在回调里把 metalness/roughness 压到合理区间：
+   保留一点金属微光、让漫反射主导，颜色回到贴图本色。
+   落点复用 ROCK_SPOTS 已实测的三处石顶（射线量过、头顶 1.5m 无遮挡）；
+   size 按真实金刚鹦鹉体长 ~0.85m **放大到 1.1m** —— 实测 0.85m 在池边（10m 外）
+   只有 ~10px 红点，达不到老黄要的"更显眼"（园林是氛围场景，尺寸略夸张可接受）。
+   ⚠️ 必须让开小鸟落点 0.7m（+x）：小鸟的"脚底贴石面"判据是从鸟正上方打射线量石面，
+   鹦鹉若与小鸟同坐标会挡住这条射线（实测 hitY 变鹦鹉底座、gap 全 −0.36，门禁误报）。 */
+loadAssetOnce('assets/Macaw.glb', 1.1, (src) => {
+  for (const s of ROCK_SPOTS){
+    const holder = new THREE.Group();
+    holder.position.set(s[0] + 0.7, s[1], s[2]);
+    holder.rotation.y = 0.6;                     // 侧身朝池子方向（生成模型默认朝向未知，取一个自然角度）
+    const c = src.clone(true);
+    c.traverse(o => {
+      if (!o.isMesh) return;
+      const m = o.material;
+      if (m && m.metalness !== undefined){ m.metalness = 0.25; m.roughness = 0.65; m.needsUpdate = true; }
+      o.castShadow = true; o.receiveShadow = true;
+    });
+    holder.add(c);
+    world.add(holder);
+  }
+  onAssetAttached();               // 迟到资产立刻拿到当前季节状态
+});
 
 // 芭蕉（台基两侧，成丛）—— 高假茎 + 顶部叶片
 [
