@@ -77,15 +77,14 @@ const check = (name, ok, detail = '') => {
     const G = window.__garden;
     G.setEnv('season', 'summer'); G.setEnv('time', time); G.setEnv('weather', weather);
   }, { time, weather });
+  /* 第九轮：虹改成世界空间大拱后**没有 uSunDir/uRainbowDir**（球面环的旋钮全作废），
+     这里只读强度通道；旧写法读 uSunDir.value 会直接崩（判据滞后于产品）。 */
   const rbUniform = () => page.evaluate(() => {
     const G = window.__garden;
     const u = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
                                       && o.material.uniforms.uRainbow)?.material.uniforms;
     if (!u) return null;
-    return { amount: +u.uRainbow.value.toFixed(3),
-             sunDir: u.uSunDir.value.clone(),
-             rbDir: u.uRainbowDir.value.clone(),
-             dot: +u.uSunDir.value.dot(u.uRainbowDir.value).toFixed(4) };
+    return { amount: +u.uRainbow.value.toFixed(3) };
   });
 
   /* ══ §1 场景本身的物理量 ══════════════════════════════════════════════ */
@@ -179,22 +178,18 @@ const check = (name, ok, detail = '') => {
   check('彩虹：夜里自动消失（没有太阳就没有虹）', rbNight && rbNight.amount === 0, `amount=${rbNight && rbNight.amount}`);
 
   /* ══ §3 虹真的画进了像素（冻结帧同任务 A/B + 负例自检）═════════════════
-     ⚠️ 机位必须**背对太阳、朝虹心看**（虹心 = 太阳反方向）：暮时太阳在西（-x），
-        虹就在东（+x）⇒ 相机朝 +x 看。我第一版把机位设在东北、结果整片虹在画外，
-        判据报了 0.000 差 —— 那是**机位选错**，不是产品没画（另一个机位的截图里
-        七色分明）。这类"判据红但产品对"的排查，别急着改产品，先换机位复测。 */
+     ⚠️ 第九轮（2026-10-02）：虹从"球面环"改成**世界空间大拱**（02-scene
+     makeRainbowMesh，摆位按默认机位反解），几何不再有 uRainbowDir/uArcHalf ——
+     本段机位从"退到虹心方向 26m"改成**默认机位微抬头**（拱就摆在默认机位
+     前方 70m、垂直对着它）。旧写法读 uRainbowDir.value，在新几何上恒为
+     undefined ⇒ 机位退化成 NaN、判据必假红（这类"判据滞后于产品"要连机位一起改）。 */
   await setEnv('dusk', 'afterrain'); await settle();
   await page.evaluate(() => {
     const G = window.__garden;
-    /* 从虹心方向（-uSunDir）水平分量所指的一侧看过去，视线略微上抬取虹弧 */
-    const u = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
-                                      && o.material.uniforms.uRainbow).material.uniforms;
-    const d = u.uRainbowDir.value;
-    const cx = G.camera.position.x, cz = G.camera.position.z;
-    const len = Math.hypot(d.x, d.z) || 1;
-    const k = 26 / len;                                   // 退到虹心方向 26m 处
-    G.camera.position.set(cx + d.x * k, 3.0, cz + d.z * k);
-    G.controls.target.set(cx + d.x * (k + 20), 16.0, cz + d.z * (k + 20));
+    G.resetCamera && G.resetCamera();
+    /* 略微抬头一点，让拱顶落在画幅内（默认机位本身俯视 −19°，拱顶在画面 9% 处，
+       已经在画内；这里只把 target 抬到拱的中段，防止后续微调机位时掉出画外）。 */
+    G.controls.target.set(0, 8, -1);
     G.controls.update();
   });
   await page.waitForTimeout(900);
@@ -277,6 +272,47 @@ const check = (name, ok, detail = '') => {
   });
   check('虹是"一道"而不是"一片"（受影响天空像素 0.8%~50%，别糊满整片天）',
     skyShare > 0.8 && skyShare < 50, `受影响天空像素 ${skyShare}%（本机位实测 1.79%；改前整圈那次 6.5%；糊满整片天那次 81%）`);
+
+  /* ⚠️⚠️ 第九轮新增"拱形落位"三条（老黄："弧度太低了，角度不对，做得弧度再大一些，高一些"）。
+     这三条把"弧度"变成**可量化、可回归**的东西：球面环方案里矢高被几何锁死在 4~6°
+     （屏幕占比 <10%），改成世界空间大拱后实测跨度 90.7%、矢高 34%、拱顶 9%。
+     阈值都留了余量：跨度 ≥70%（实测 90.7%）、矢高 ≥18%（实测 34%）、
+     拱顶落在画面 3%~25%（实测 9%，太贴 0 就是"又贴顶了"的老坑）。 */
+  const arch = await page.evaluate(() => {
+    const G = window.__garden;
+    const mesh = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
+                                        && o.material.uniforms.uRainbow && o.geometry.attributes.aT);
+    if (!mesh) return null;
+    const u = mesh.material.uniforms;
+    const cv = document.createElement('canvas');
+    cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0);
+      return ctx.getImageData(0, 0, cv.width, cv.height); };
+    grab();
+    const A = grab();
+    const keep = u.uRainbow.value;
+    u.uRainbow.value = 0; const B = grab();
+    u.uRainbow.value = keep;
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    for (let y = 0; y < A.height; y++) for (let x = 0; x < A.width; x++){
+      const i = (y * A.width + x) * 4;
+      const d = Math.abs(A.data[i]-B.data[i]) + Math.abs(A.data[i+1]-B.data[i+1]) + Math.abs(A.data[i+2]-B.data[i+2]);
+      if (d > 12){ if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+    }
+    if (x1 < x0) return null;
+    return {
+      spanX: +((x1 - x0) / cv.width * 100).toFixed(1),
+      topY: +(y0 / cv.height * 100).toFixed(1),
+      rise: +((y1 - y0) / cv.height * 100).toFixed(1),
+    };
+  });
+  check('彩虹是**大拱**：横向跨度 ≥70% 画面宽（不是一小段）',
+    arch && arch.spanX >= 70, `跨度 ${arch ? arch.spanX : '?'}%（实测 90.7%；球面环方案上限 ~58%）`);
+  check('彩虹**弓得起来**：矢高 ≥18% 画面高（球面环方案几何上限只有 4~6%）',
+    arch && arch.rise >= 18, `矢高 ${arch ? arch.rise : '?'}%（实测 34%）`);
+  check('彩虹拱顶在画面上部 3%~25%（更高但没贴顶）',
+    arch && arch.topY >= 3 && arch.topY <= 25, `拱顶 y=${arch ? arch.topY : '?'}%（实测 9%；贴顶=0% 是旧坑）`);
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');

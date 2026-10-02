@@ -9,7 +9,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT, waterSurface, DISTANT_MATS, SEASON_TINT_REGISTRY, addWind, wetUniform, WET_MATS, SNOW_COVER_MATS, SNOW_HOOK } from './01-materials.js';
 import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart,
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
-         cancelCamFly, CAM_FLY, introActive, introCancel, geese } from './08-assemble.js';
+         cancelCamFly, CAM_FLY, introActive, introCancel, geese, GOOSE } from './08-assemble.js';
 import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
 import { skyMesh, rainbowMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
@@ -701,7 +701,11 @@ const ENV_TIME = {
     /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul
        0.82→1.10（有效 1.98，晨 2.61 的 ~76%——比晨淡、但明显有雾）；雾团也留三成
        而不是归零（bankHall 0.28 / bankBamboo 0.22）。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20, rainbowMul:1.00 },   // 午：淡一档但仍见雾
+    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20,
+    /* rainbowMul 1.35（第九轮）：正午背景最亮，同一 alpha 下彩带的差分最小 ——
+       半透明彩纱化（alpha 0.80→0.66）之后 noon 峰值差实测只有 72/765（门禁线 90），
+       正午恰好是老黄最常看效果的时刻 ⇒ 只给正午相对加浓，晨/暮各自的补偿不变。 */
+    rainbowMul:1.35 },   // 午：淡一档但仍见雾
   dusk: { label:'暮',
     sunColor:0xFFA45C, sunIntensity:1.00, sunPos:[-56, 15, 30],
     ambColor:0x6E7B96, ambIntensity:0.44,
@@ -1153,83 +1157,21 @@ export function applyEnv(p){
         第一版曾按物理取 target=0.62−太阳仰角×0.55，正午算出 9° ⇒ 弧顶 49°
         ⇒ **整条弧在画面外**。 */
   {
+    /* ⚠️⚠️ 第九轮（2026-10-02，老黄："这个彩虹弧度太低了，角度不对，做得弧度再大一些，
+       高一些；颜色过于鲜艳已经不真实了"）：虹的**几何本体**换成了 02-scene 里的
+       **世界空间大拱**（那里有完整定案：球面环方案在默认机位 ±36° 窄视野里，矢高被
+       几何锁死在 4~6°，"弧度太低"调参数原理上救不了 —— 前八轮一直在调错的东西）。
+       ⇒ 方位（CAM_AZ）、弧窗（ARC_HALF/uArcAzOff）、虹轴仰角（target）这些
+       **只有球面环才需要**的旋钮全部作废，本块只剩**强度通道**一条线：
+         天气开关 × 时段乘子 rainbowMul × 白天门控 dayK × 夜间星量门控。
+       ⚠️ rainbowMul（暮 2.20）是第八轮为"暮色暖背景同化暖色段"加的补偿，
+       大拱几何下浓度整体降了一档（饱和 1.18 / 亮度 1.02），实测后可能要回落 ——
+       先保留观察，别提前动。 */
     const sd = su.uSunDir.value;
     const sunElev = Math.asin(Math.max(-1, Math.min(1, sd.y)));
-    let ax = sd.x, az2 = sd.z;
-    const hl = Math.hypot(ax, az2);
-    if (hl < 1e-5){ ax = 0; az2 = 1; } else { ax /= hl; az2 /= hl; }
-    /* ⚠️ **虹轴仰角 ≈ −40°**（2026-10-01 第四轮实测后的最终值）——
-       这不是随手调的，是**按默认机位反解**出来的：
-         · 默认机位是**俯视**的（pitch −19.3°、fov 46°）⇒ 画面只看得到仰角
-           **−42°~+4°** 这一条天带（实测：画面顶端到"山"那段）。
-         · 弧顶仰角 = 虹轴仰角 + 42°。所以要让拱顶**落进这条天带的上沿**，
-           虹轴必须 ≈ −40° ⇒ 弧顶 +2°（对应画面纵向 y≈4%，正是老黄标注的位置）。
-         · 前三轮我分别用过 −8°、−15~−24°、−5°，弧顶都在 +30°~+37° ⇒ **全部在画框之上**
-           （实测 topPct 恒为 0），这就是"怎么调都看不见/只见到一小段"的根因。
-       几何自洽性：虹心 −40° 时，弧的两只脚（方位 ±62°）落在仰角 −14°，
-       整条弧在画面纵向 4%~39% —— 正好是"跨过园子上方、两脚落在围墙/假山与水榗之间"。
-       ⚠️ 仍不是物理值（真实 = −太阳仰角，正午 −47° ⇒ 虹物理上完全不可见）；
-          抬到看得见是明确的艺术性让步（老黄要"雨后初晴、园林里有彩虹"），别修正回物理值。 */
-    /* ⚠️ 虹轴**仰角**（与方位无关，方位见下面第二段）：
-       弧顶仰角 = 虹轴仰角 + 42°。默认机位俯视 −19.3°、垂直视野 46° ⇒ 画面只看得到
-       仰角 **−42°~+4°** 这一条天带。
-       ⚠️⚠️ 七轮取证后的定案（2026-10-02）：被山挡/被地挡/贴顶/太淡四个坑全踩过 ——
-         · 山挡（主因，10-01 远山改造把四层卡片抬浓到 0.76~0.95 之后）：挂在天空球上的
-           虹整条在山背后 ⇒ 已把虹搬成**独立透明层**（02-scene rainbowMesh，画在山前，
-           "山前挂虹"）。从此**弧顶可以回到老黄标注的"画面上部 20~27%"**。
-         · target ≈ −0.70 时弧顶 +2° **贴死画面上沿**（取证 bbox y0=0）；
-         · target ≈ −0.95 时弧顶 −14° **撞园外地面**（17m 高的机位，仰角低于 −10° 的
-           视线 68m 内撞地，A/B 差掉到 5 灰阶）。
-       ⇒ 取 **−0.84**：弧顶 ≈ −6.6°、画面纵向 y≈22%，拱顶在画面上部、两脚沉进园景，
-       且画在山前 ⇒ 默认机位一眼可见。仍不是物理值（正午物理上虹不可见），
-       抬到看得见是明确的艺术性让步，别修正回物理值。 */
-    const target = Math.max(-0.92, Math.min(-0.70, -0.84 - sunElev * 0.03));
     const dayK = Math.max(0, Math.min(1, (sunElev - 0.02) / 0.12));
-    /* 虹已搬到独立层 rainbowMesh（第七轮）：强度/方向/窗口都写它自己的 uniforms；
-       dayK 的星量门控仍读天空球的 uStarAmount（夜里没虹）。
-       rainbowMul（第八轮）：时段乘子 —— 暮色暖背景会"同化"虹的暖色段，只给暮
-       抬一档（见 ENV_TIME.dusk 的注释），其余时段 1.0 等价原式。 */
     const ru = rainbowMesh.material.uniforms;
     ru.uRainbow.value = (p.rainbow || 0) * (p.rainbowMul ?? 1) * dayK * (1 - Math.min(1, su.uStarAmount.value / 0.35));
-    ru.uSunDir.value.copy(su.uSunDir.value);          // fade（越近太阳越淡）跟天空同一个太阳
-    /* ── 虹的**方位**：见下面第二段（2026-10-01 第三轮已改成"固定园子主视方位"）。
-       ⚠️ 第一、二轮在这里写过一整套"按园内地标方位算 uArcAzOff"的逻辑（MARKS_AZ /
-          GARDEN_AZ），第三轮连同那段代码一起删了 —— 因为它**在原理上就救不了**：
-          方位锁在太阳反方向时，虹环两侧落在方位 ±90° 处、超出默认机位 ±35° 的水平
-          视野，无论窗口怎么偏都不在画里（实测晨/午 0 像素）。别再把它加回来。 */
-    /* ── 虹轴方位：**固定为"园子主视方位"**（2026-10-01 第三轮，老黄："雨后初晴为啥彩虹没了"）──
-       ⚠️ 前两轮把方位**严格锁在太阳反方向**（真实成因），结果实测：
-            dawn  默认机位 **0 像素** / 「看彩虹」机位 **0 像素**
-            noon  默认机位 **0 像素** / 「看彩虹」机位 **0 像素**
-            dusk  默认机位 18776（仅 3.1%，还缩在画面右上角）/ 机位 61274（10.2% 的宽拱）
-         为什么"把弧窗口往可见方向拧"也救不了：虹环是"与虹轴夹 42° 的一圈方向"，
-         虹轴压在 −40° 时，环的最高点（弧顶）在**虹轴方位**上、仰角 +2°，
-         而环的**两侧**（方位 = 虹轴方位 ±90°）仰角是 −40° —— 晨/午太阳反方位
-         约在园子正背后，弧顶在相机背后、两只脚又甩到相机左右各 90° 之外
-         （默认机位水平视野只 ±35°）⇒ **整条虹必然在画外**，与窗口偏移无关。
-       ⇒ 现在方位取固定的园子主视方位：虹永远悬在园子上方、默认机位一眼就能看到。
-         代价（明确记下）：**它不再跟着太阳走** —— 晨/午/暮三个时段虹的位置一样，
-         物理上这是"贴上去的"。这是老黄"要看得见"与"背对太阳才看得到"之间的取舍，
-         按当前反馈取"看得见"。若要回到随太阳：把 CAM_AZ 换回 antiSunAz 即可，
-         同时必须把 afterrain-guard 的"虹可看见"判据改回"虹心反太阳"，
-         并接受晨/午看不到（旧状）。
-       仰角仍保留 −40°（上一轮按默认机位俯视反解出来的值，别动）。 */
-    const CAM_AZ = -1.03;                          // 默认机位朝向（本函数方位约定 az=atan2(z,x)，实测 −59°）
-    const rbAz = CAM_AZ;
-    const ce2 = Math.cos(target), se2 = Math.sin(target);
-    ru.uRainbowDir.value.set(Math.cos(rbAz) * ce2, se2, Math.sin(rbAz) * ce2);
-    /* 弧宽 40°（2026-10-02 第八轮两步定值）：
-       45°（第七轮）+ 全浓度 ⇒ 横向占八成、被判"太夸张"；
-       一步收窄到 32° ⇒ 拱的两脚被切掉、只剩近水平的拱顶段，晨/午尚可辨，
-       暮色里被整圈暖 horizon 同化后**读作"水平霞光"而不是虹**（单图判读两轮证实）。
-       40° 让拱形弯曲可辨（浓度已降档、次虹已撤，宽度回一档不会回到"夸张"）。 */
-    const ARC_HALF = 40.0;
-    ru.uArcHalf.value = ARC_HALF;
-    /* 窗口中心锁在弧顶 ⇒ 偏移 0 就是"弧对称罩在园子上方"。
-       旧值 +10°（相对太阳反方位往园心侧偏）是上一轮为"把虹脚推向围墙/水榭"调的；
-       方位改成园子主视方位之后，弧本身就居中，再把偏移留着会把它甩偏。
-       ⚠️ uArcAzOff 与 uArcHalf 都是**角度**（着色器里 degrees(...) 与它同尺度）。 */
-    ru.uArcAzOff.value = 0;
   }
 
   renderer.toneMappingExposure = p.exposure;

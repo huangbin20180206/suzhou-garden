@@ -339,127 +339,110 @@ skyMesh.frustumCulled = false;
 scene.add(skyMesh);
 bootMark('天空球');
 
-/* ══ 彩虹独立层（2026-10-02 第七轮 · 从天空球搬出）══════════════════════════
-   为什么必须独立：挂在天空球（r=420）上时，整条默认机位可见的天带都躺在四层
-   远山卡片（r=78~176、仰角约 −10°~+21°、不透明 0.76~0.95，10-01 远山改造抬浓后）
-   **背后** —— 加法/替换式、强度 0.46~2.6 七轮取证全都只从山缝里漏几个灰阶，
-   多模态读图永远"极淡"。
-   ⇒ 现在虹是自己的透明球壳（r=300，在远山之前），**renderOrder 排在远山之后**
-   ⇒ 虹画在山前面（中国山水画"山前挂虹"的画法）；
-   depthTest 开着 ⇒ 近景园景（写深度的不透明网格：堂/树/墙）照常把虹挡住；
-   园内其它透明物（雾团/水面/粒子，renderOrder ≥ 0）都排在虹之后画 ⇒
-   近景雾气盖在虹上，大气层次不乱。
-   排序实现：远山卡片 renderOrder = −2（见 07-ground makeRidge），虹层 = −1，
-   其余透明物默认 0 —— 三个负值都不改变"不透明网格最先画"的次序。
-   ⚠️ PMREM 环境烘焙用的是独立小场景（envBakeScene），虹层不会被烘进环境贴图。 */
+/* ══ 彩虹独立层（2026-10-02 第七轮独立 · 第九轮改成**世界空间大拱**）══════════════
+   第七轮从天空球搬出来的原因：挂在 r=420 天空球上时，整条默认机位可见的天带都躺在
+   四层远山卡片（r=78~176、仰角 −10°~+21°、不透明 0.76~0.95）**背后** ——
+   强度 0.46~2.6 七轮取证全都只从山缝里漏几个灰阶。
+   ⚠️⚠️ 第九轮再改"几何本体"（老黄："弧度太低了，角度不对，做得弧度再大一些，高一些"）：
+   **球面环方案在原理上调不出弧度**。默认机位水平视野只有 ±36°，画框里装得下的环上
+   一段（方位 ±32°）其仰角差被几何锁死在 **4~6°**（矢高上限 ~5°、屏幕占比 <10%）——
+   这就是"弧度太低"的定量真相，与强度/饱和度无关；前八轮调的是错的东西。
+   ⇒ 放弃"球面上的环"，直接摆一条**世界空间的圆弧带几何**（像立一道彩虹拱门）：
+       · 圆半径 R=68m、圆心角 94°、矢高 22m ⇒ 默认机位画面上弓起约 38% 高度，
+         拱顶落在画面上部 ~14%、两脚垂到地下（y≈−5m）由地面/园景自然遮住
+         ⇒ "从园中升起的拱"，不再依赖 shader 端的遮罩技巧；
+       · 径向带宽 7.5m（= 原 42° 环上 6.3° 角宽在 68m 半径处的弧长），内外缘各 12% 羽化；
+       · 颜色第九轮再调自然：饱和乘子 1.45→1.18、亮度 1.15→1.02（老黄："颜色过于鲜艳
+         已经不真实了"）；
+       · 摆位常量见下（CAM_POS/CAM_AZ/DIST），改前先跑 outputs/_diag/rb-arch-calib.mjs
+         量 NDC 落位，别凭感觉拧。
+   次虹（51° 外虹）第八轮已撤（老黄："后面那个太淡"，读成"白雾/脏污带"），本层为单虹。
+   depthTest 开着 ⇒ 近景园景（写深度的不透明网格）照常把虹挡住。
+   ⚠️ PMREM 环境烘焙用独立小场景（envBakeScene），虹层不会被烘进环境贴图。 */
 function makeRainbowMesh(){
+  /* 摆位常量（默认机位实测：位置 (−20,17,32)、水平朝向 az=−1.03 rad、俯视 −19.3°、
+     垂直 fov 46° ⇒ 水平 fov 72°）。 */
+  const CAM_POS = new THREE.Vector3(-20, 17, 32);
+  const CAM_AZ  = -1.03;                     // 视线水平方向 rad（dir = (cos, 0, sin)）
+  const DIST    = 70;                         // 拱平面中心离机位的水平距离
+  const R       = 68;                         // 拱圆半径
+  const T0 = 47, T1 = 133;                    // 圆心角范围（度，90° = 拱顶）
+  const BAND    = 3.75;                       // 径向带半宽（m）
+  const SEG_T = 128, SEG_S = 5;
+  /* 局部系：x 横向、y 竖直、圆心在局部原点。世界位置 = C + right·x + up·y */
+  const dirH = new THREE.Vector3(Math.cos(CAM_AZ), 0, Math.sin(CAM_AZ));
+  const right = new THREE.Vector3().crossVectors(dirH, new THREE.Vector3(0, 1, 0)).negate();
+  /* 圆心世界：水平在机位前方 DIST，竖直让拱顶落在 y≈13.3（俯视机位画面上部 ~14%） */
+  const archTopY = 13.3;
+  const C = new THREE.Vector3(
+    CAM_POS.x + dirH.x * DIST,
+    archTopY - R,
+    CAM_POS.z + dirH.z * DIST);
+  const pos = [], tArr = [], idx = [];
+  for (let i = 0; i <= SEG_T; i++){
+    const th = (T0 + (T1 - T0) * i / SEG_T) * Math.PI / 180;
+    for (let j = 0; j <= SEG_S; j++){
+      const s = -1 + 2 * j / SEG_S;                 // -1 内缘 → +1 外缘
+      const rr2 = R + s * BAND;
+      const lx = Math.cos(th) * rr2, ly = Math.sin(th) * rr2;
+      pos.push(C.x + right.x * lx, C.y + ly, C.z + right.z * lx);
+      tArr.push((s + 1) * 0.5);                      // 0 内缘(紫) → 1 外缘(红)
+    }
+  }
+  for (let i = 0; i < SEG_T; i++) for (let j = 0; j < SEG_S; j++){
+    const a = i * (SEG_S + 1) + j, b = a + 1, c = a + SEG_S + 1, d = c + 1;
+    idx.push(a, c, b, b, c, d);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('aT', new THREE.Float32BufferAttribute(tArr, 1));
+  geo.setIndex(idx);
   const mat = new THREE.ShaderMaterial({
     uniforms:{
-      uRainbow:{value:0.0},                                   // 由 12-env applyEnv 写
-      uRainbowDir:{value:new THREE.Vector3(0,1,0)},
-      uArcHalf:{value:45.0},
-      uArcAzOff:{value:0.0},
-      uSunDir:{value:new THREE.Vector3(0,1,0)},               // fade（越近太阳越淡）用
-      uTime:{value:0},                                        // breathe 用，由 11-loop 每帧推
+      uRainbow:{value:0.0},                    // 由 12-env applyEnv 写（×时段乘子 rainbowMul）
+      uTime:{value:0},                         // 呼吸相位，由 11-loop 每帧推（与天空球同钟）
     },
-    vertexShader:`varying vec3 vDir;
-      void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
-    fragmentShader:`varying vec3 vDir;
+    vertexShader:`attribute float aT;
+      varying float vT;
+      void main(){ vT = aT; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
+    fragmentShader:`varying float vT;
       uniform float uRainbow;
-      uniform vec3  uRainbowDir;
-      uniform float uArcHalf, uArcAzOff;
-      uniform vec3  uSunDir;
       uniform float uTime;
       void main(){
-        vec3 d = normalize(vDir);
-        /* 虹外全透明：只有虹带内的像素贡献颜色（transparent 材质 + alpha=1-k 的带外区域） */
-        float outA = 0.0;
         vec3 col = vec3(0.0);
+        float alpha = 0.0;
         if (uRainbow > 0.001){
-          vec3 rd2 = normalize(uRainbowDir);
-          float a = acos(clamp(dot(d, rd2), -1.0, 1.0));      // 与虹轴的夹角
-          /* 呼吸：极缓慢（周期≈40s）。⚠️ 必须声明在两条虹的 if 块之外
-             （作用域错误会让整个材质编译失败、虹静默消失——见天空球那条老教训）。 */
+          /* 呼吸：极缓慢（周期≈40s），与天空球共用 uTime（11-loop 每帧推） */
           float breathe = 0.88 + 0.12 * sin(uTime * 0.157);
-          /* 方位角窗口：bitan=竖直向上（弧顶方向）、tangent=与之正交的水平切向；
-             ringAtan 的 90° = 弧顶；窗口中心必须锁在弧顶（偏了整条弧会被切光）。 */
-          vec3 upW = vec3(0.0, 1.0, 0.0);
-          vec3 bitan = upW - rd2 * dot(upW, rd2);
-          float bl = length(bitan);
-          bitan = bl > 1e-3 ? bitan / bl : vec3(1.0, 0.0, 0.0);
-          vec3 tangent = normalize(cross(bitan, rd2));
-          vec2 ring = vec2(dot(d, tangent), dot(d, bitan));
-          float ringLen = length(ring);
-          float ringAtan = degrees(atan(ring.y, ring.x));
-          float azWin = 1.0 - smoothstep(uArcHalf * 0.55, uArcHalf, abs(ringAtan - (90.0 + uArcAzOff)));
-          azWin *= smoothstep(0.02, 0.16, ringLen);
-
-          /* 主虹 42°：带宽 6.3°、过渡带收窄到 1.1°（浓核占 70%，七轮取证的形态定值）。
-             带内用**替换式**（不是加法）：真实虹醒目是因为它替换了背景，
-             additive 在 luma≈143 的亮天上永远做不鲜明。 */
-          const float A0 = 0.660, A1 = 0.770;
-          float band = smoothstep(A0 - 0.008, A0 + 0.012, a) * (1.0 - smoothstep(A1 - 0.012, A1 + 0.006, a));
-          if (band * azWin > 0.001){
-            float t = clamp((a - A0) / (A1 - A0), 0.0, 1.0);   // 0=内缘(紫) 1=外缘(红)
-            vec3 sp = vec3(0.42, 0.24, 0.72);                  // 紫
-            sp = mix(sp, vec3(0.16, 0.24, 0.70), smoothstep(0.00, 0.16, t));   // 靛
-            sp = mix(sp, vec3(0.13, 0.42, 0.82), smoothstep(0.14, 0.31, t));   // 蓝
-            sp = mix(sp, vec3(0.20, 0.66, 0.40), smoothstep(0.29, 0.46, t));   // 绿
-            sp = mix(sp, vec3(0.93, 0.88, 0.28), smoothstep(0.43, 0.60, t));   // 黄
-            sp = mix(sp, vec3(0.95, 0.58, 0.16), smoothstep(0.57, 0.74, t));   // 橙
-            sp = mix(sp, vec3(0.93, 0.22, 0.16), smoothstep(0.71, 0.90, t));   // 红
-            float anti = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
-            float fade = smoothstep(0.05, 0.55, anti);
-            /* 地面遮罩：只负责"虹脚不伸进地下"。
-               ⚠️⚠️ 下限三改（2026-10-02 第七轮）：弧从顶点往两侧走，环上点的仰角快速
-               下降（偏 30° 方位就到 −25°）—— 下限 −0.42 时 azWin 45° 窗内的大半段弧
-               全被渐隐掐掉，浓核只剩中央一小截（实测 p90 仅 5~16 灰阶）。
-               放宽到 −0.80/−0.32 ⇒ 窗内整段都在，弧脚（仰角 −50° 以下）仍收进园景。 */
-            float ground = smoothstep(-0.80, -0.32, d.y) * (1.0 - smoothstep(0.86, 0.99, d.y));
-            float k = band * azWin * fade * ground * uRainbow * breathe;
-            /* ⚠️ 别用 max(spSat, 常数) 给蓝紫段"托底"——那是逐通道托底，会把每段虹色的
-               暗通道拉亮、色相全被拉平成灰白（实测 A/B 从 87 灰阶崩到 9）。要提亮度
-               走整体乘子，色相交给饱和度。
-               2026-10-02 第八轮降夸张（老黄实拍"彩虹太夸张"）：饱和乘子 1.80→1.45、
-               亮度 1.45→1.15、替换 alpha 1.0→0.75 —— 第七轮的"全替换+发光感"
-               在真屏上读作又艳又亮的彩带；现在保留浓核但透出 25% 背景天，
-               观感目标"隔着雨幕看到的虹"。 */
-            vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.45);
-            col = spSat * 1.15;
-            outA = k * 0.75;
-          }
-
-          /* 次虹（51°）：七色内外反转 —— 2026-10-02 撤下（老黄实拍"好像有两个彩虹，
-             后面那个太淡"：51° 外虹在默认机位只读成一条无结构的"白雾/脏污带"，
-             负资产）。代码全保留，SEC_K 改回 0.28 即恢复。 */
-          const float SEC_K = 0.0;
-          const float S0 = 0.865, S1 = 0.955;
-          float sBand = smoothstep(S0 - 0.008, S0 + 0.012, a) * (1.0 - smoothstep(S1 - 0.012, S1 + 0.006, a));
-          if (sBand * azWin > 0.001){
-            float ts = clamp((a - S0) / (S1 - S0), 0.0, 1.0);
-            vec3 sc = vec3(0.93, 0.22, 0.16);                  // 红（内）
-            sc = mix(sc, vec3(0.95, 0.58, 0.16), smoothstep(0.10, 0.26, ts));
-            sc = mix(sc, vec3(0.93, 0.88, 0.28), smoothstep(0.24, 0.40, ts));
-            sc = mix(sc, vec3(0.20, 0.66, 0.40), smoothstep(0.38, 0.54, ts));
-            sc = mix(sc, vec3(0.13, 0.42, 0.82), smoothstep(0.52, 0.68, ts));
-            sc = mix(sc, vec3(0.42, 0.24, 0.72), smoothstep(0.66, 0.84, ts));
-            float anti2 = 1.0 - clamp(dot(d, normalize(uSunDir)), 0.0, 1.0);
-            float fade2 = smoothstep(0.10, 0.62, anti2);
-            float ground2 = smoothstep(-0.80, -0.32, d.y) * (1.0 - smoothstep(0.90, 1.00, d.y));
-            float k2 = sBand * azWin * fade2 * ground2 * uRainbow * breathe;
-            col = sc * 1.25;
-            outA = k2 * SEC_K;   // 主/次虹带不重叠，直接写；次虹 ≈ 主虹的 1/3 浓（现已撤，见 SEC_K 注释）
-          }
+          float t = clamp(vT, 0.0, 1.0);                     // 0 内缘(紫) → 1 外缘(红)
+          /* 七色（内→外：紫 靛 蓝 绿 黄 橙 红），每色占 1/7 略作重叠 */
+          vec3 sp = vec3(0.42, 0.24, 0.72);                  // 紫
+          sp = mix(sp, vec3(0.16, 0.24, 0.70), smoothstep(0.00, 0.16, t));   // 靛
+          sp = mix(sp, vec3(0.13, 0.42, 0.82), smoothstep(0.14, 0.31, t));   // 蓝
+          sp = mix(sp, vec3(0.20, 0.66, 0.40), smoothstep(0.29, 0.46, t));   // 绿
+          sp = mix(sp, vec3(0.93, 0.88, 0.28), smoothstep(0.43, 0.60, t));   // 黄
+          sp = mix(sp, vec3(0.95, 0.58, 0.16), smoothstep(0.57, 0.74, t));   // 橙
+          sp = mix(sp, vec3(0.93, 0.22, 0.16), smoothstep(0.71, 0.90, t));   // 红
+          /* 第九轮自然化两轮：第八轮 1.45/1.15 太艳 → 第九轮先降 1.18/1.02，
+             截图仍"像 PS 上去的油漆带"（真屏判语）⇒ 再降到 1.02/0.95，并把带做成
+             **半透明彩纱**（alpha 上限 0.62，透出 38% 背景天/山）—— 真实彩虹是
+             雨幕后的一层薄光纱，不是实色。 */
+          vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.02);
+          col = spSat * 0.95;
+          /* 径向羽化：内外缘各 12% 渐隐（硬边会读成"贴图"）。两脚垂进地下由深度
+             缓冲自然遮住，不再需要 shader 端的 ground 遮罩。 */
+          float edge = smoothstep(0.0, 0.12, t) * (1.0 - smoothstep(0.88, 1.0, t));
+          alpha = uRainbow * breathe * edge * 0.66;
         }
-        gl_FragColor = vec4(col, clamp(outA, 0.0, 1.0));
+        gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
       }`,
-    side: THREE.BackSide,
+    side: THREE.DoubleSide,    // 拱带是单层片：默认机位正面看得到，走近侧看也不消失
     transparent: true,
     depthWrite: false,
     depthTest: true,          // 近景园景（写深度的不透明网格）照常挡虹；山不写深度（见 07-ground）
     fog: false,
   });
-  const m = new THREE.Mesh(new THREE.SphereGeometry(300, 48, 28), mat);
+  const m = new THREE.Mesh(geo, mat);
   m.renderOrder = -1;         // 山卡片 −2 → 先画；虹 −1 后画 ⇒ 虹在山前；园内透明物 0+ 更后
   m.frustumCulled = false;
   return m;
