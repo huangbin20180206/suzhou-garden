@@ -294,16 +294,22 @@ const check = (name, ok, detail = '') => {
     const keep = u.uRainbow.value;
     u.uRainbow.value = 0; const B = grab();
     u.uRainbow.value = keep;
-    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9;
+    let x0 = 1e9, x1 = -1e9, y0 = 1e9, y1 = -1e9, yc = 1e9;
     for (let y = 0; y < A.height; y++) for (let x = 0; x < A.width; x++){
       const i = (y * A.width + x) * 4;
       const d = Math.abs(A.data[i]-B.data[i]) + Math.abs(A.data[i+1]-B.data[i+1]) + Math.abs(A.data[i+2]-B.data[i+2]);
       if (d > 12){ if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+      /* 虹带"芯"的 bbox 顶：阈值 90（≈30 灰阶/通道）。低阈值那条 bbox 会被
+         **后处理 bloom 的晕圈**撑到画面上沿，把"拱顶位置"读成 0%（b=2.1 实测），
+         而拱顶其实还在 9%。拱顶位置必须读带芯，不是晕圈 —— 否则这条判据会在
+         "虹变亮"时假红，又会反过来逼着把亮度压回去（那正是黑边的来源）。 */
+      if (d > 90 && y < yc) yc = y;
     }
     if (x1 < x0) return null;
     return {
       spanX: +((x1 - x0) / cv.width * 100).toFixed(1),
       topY: +(y0 / cv.height * 100).toFixed(1),
+      coreTopY: +(yc / cv.height * 100).toFixed(1),
       rise: +((y1 - y0) / cv.height * 100).toFixed(1),
     };
   });
@@ -312,9 +318,19 @@ const check = (name, ok, detail = '') => {
   /* ⚠️⚠️ 第十三轮新增"黑边"判据（老黄连续三轮实拍"彩虹的背景黑边"）——
      量化口径：**开虹后比关虹暗 18 灰阶以上**的像素数 = 虹把底图压暗的部分
      （蓝紫段 luma 低于灰山/亮天空时按 alpha 混入 ⇒ 沿虹缘读成黑边）。
-     阈值 <4000：参数扫描实测 b=1.9/a=0.75 时 晨 0 · 暮 0 · 正午 3111
-     （正午背景本身是强光，那一点压暗物理上消不掉），旧值 1.9~2.5 万。 */
-  {
+     ⚠️⚠️ 第十四轮修正：原来这条**只在 §3 的 dusk 状态量一次**，而黑边恰恰只在
+     **正午**出现 —— 晨暮背景是暖色/暗色，量出来恒为 0。于是 HEAD 上这条全绿
+     （暗像素 0）、老黄实拍却连着几轮报彩虹黑边没改掉：判据在测一个**不会出问题
+     的状态**。⇒ 改成 dawn/noon/dusk 三档各量一次，并用**默认机位**（老黄看的那个）。
+     实测：改前 b=1.9 正午 ~3900（压线过 4000 上限，肉眼就是黑边）；改后 b=2.1 为 0。
+     ⚠️ 上限同时收紧到 **800**（旧值 4000）：实测 b=1.9 正午 3000~3900 —— 旧上限
+     正好放它过去，所以判据"全绿"而老黄一直在报黑边。b=2.1 实测 0，余量足。
+     （旧记录：改前 1.9~2.5 万；亮度 1.35 时正午 12908。） */
+  for (const darkTime of ['dawn', 'noon', 'dusk']){
+    await setEnv(darkTime, 'afterrain'); await settle();
+    await page.evaluate(() => { const G = window.__garden;
+      G.resetCamera && G.resetCamera(); });
+    await page.waitForTimeout(600);
     const dark = await page.evaluate(() => {
       const G = window.__garden;
       const mesh = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
@@ -338,13 +354,17 @@ const check = (name, ok, detail = '') => {
       }
       return n;
     });
-    check('彩虹没有"黑边"（开虹后压暗底图 ≥18 灰阶的像素 < 4000）',
-      dark >= 0 && dark < 4000, `暗像素 ${dark}（修复前 1.9~2.5 万；亮度乘子 1.35 时正午 12908）`);
+    check('彩虹没有"黑边"（开虹后压暗底图 ≥18 灰阶的像素 < 800）',
+      dark >= 0 && dark < 800, `暗像素 ${dark}（改前 b=1.9 正午 3000~3900：旧上限 4000 正好放它过，肉眼就是黑边；改后为 0）· ${darkTime}`);
   }
+  /* 收尾：把机位恢复成 §3 那样（后面只剩"零 pageerror"一条，不再读画面） */
+  await page.evaluate(() => { const G = window.__garden;
+    G.controls.target.set(0, 8, -1); G.controls.update(); });
   check('彩虹**弓得起来**：矢高 ≥18% 画面高（球面环方案几何上限只有 4~6%）',
     arch && arch.rise >= 18, `矢高 ${arch ? arch.rise : '?'}%（实测 34%）`);
   check('彩虹拱顶在画面上部 3%~25%（更高但没贴顶）',
-    arch && arch.topY >= 3 && arch.topY <= 25, `拱顶 y=${arch ? arch.topY : '?'}%（实测 9%；贴顶=0% 是旧坑）`);
+    arch && arch.coreTopY >= 3 && arch.coreTopY <= 25,
+    `拱顶 y=${arch ? arch.coreTopY : '?'}%（低阈值 bbox 顶=${arch ? arch.topY : '?'}%，含 bloom 晕圈；贴顶=0% 是旧坑）`);
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');

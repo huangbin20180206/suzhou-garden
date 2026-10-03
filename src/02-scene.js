@@ -425,16 +425,29 @@ function makeRainbowMesh(){
     uniforms:{
       uRainbow:{value:0.0},                    // 由 12-env applyEnv 写（×时段乘子 rainbowMul）
       uTime:{value:0},                         // 呼吸相位，由 11-loop 每帧推（与天空球同钟）
-      /* 亮度乘子与 alpha 上限（2026-10-02 十一轮参数扫描定值，见
-         outputs/_diag/rb-dark-scan.mjs 27 组实测）：暗像素（开虹后比关虹暗 18 灰阶
-         以上 = 老黄说的"黑边"）**只由亮度驱动，与 alpha 无关** ——
+      /* 亮度乘子与 alpha 上限（2026-10-03 第十四轮参数扫描定值，见
+         outputs/_diag/rb-edge2.mjs / rb-dark-scan.mjs）：暗像素（开虹后比关虹暗 18 灰阶
+         以上 = 老黄说的"黑边"）**主要由亮度驱动（饱和度在临界处也有一票）** ——
          晨 b1.35→暗1968 / b1.6→暗0 / b1.9→暗0；暮任何 b 都暗 0（暖背景）；
          noon 最难（背景最亮）：b1.35 暗 6072 → b1.9 a0.62 暗 504。
-         取 **b=1.9 / a=0.75**：晨暮暗=0，noon 暗 3111（背景本身就是强光，正午
-         拱带压在亮天空上的压暗物理上消不掉，实测占比已从 12908 降 4 倍）。
+         取 **b=2.10 / a=0.75**：晨暮暗=0，正午暗 0 —— 上一版 b=1.9 时正午仍有
+         ~3900（压线过门禁上限 4000，其实肉眼就是黑边 ⇒ 老黄实拍"还是没有改掉"）。
+         机制（第十四轮 outputs/_diag/rb-edge2.mjs 扫「亮度 × 饱和度」重测）：
+         正午天空接近中性、且比虹带每一段都亮，而 alpha 混合是**按比例替换**背景，
+         只要带段 luma 低于背景就必然读成压暗 —— 光调 alpha 消不掉，必须把带整体
+         提到背景之上（抬 uBright）+ 收一点段间色差（降饱和 1.25→1.10，否则
+         红/蓝两端的极端色又会掉回背景之下）。
+         ⚠️⚠️ 上限不由"暗像素"给，而由**后处理 bloom** 给：uBright 拉到 3.2 时
+         虹带亮度越过 bloom 阈值、整幅被晕开，afterrain-guard 的「跨度 45~72% /
+         拱顶 3~25% / 受影响天空 <50%」当场三条全爆（实测 87.3% / 0% / 71.6%）。
+         dusk 复刻门禁口径的实测扫描：b1.9→跨度 63.8 / 天空 34.9；b2.10→66.9 / 42.4；
+         b2.25→71.5 / 46.7；b2.55→77.1 / 57.5；b3.20→87.3 / 71.6。
+         ⇒ 2.10 是"正午暗=0"与"dusk 不触发 bloom"的交集，两侧都留了余量。
          ⚠️ a 不是越大越好：0.88 时暗像素反而回升（带更厚 ⇒ 盖住更多亮背景、
-         蓝紫段自身 luma 低于亮天空）⇒ 取 0.75。 */
-      uBright:{value:1.90},
+         蓝紫段自身 luma 低于亮天空）⇒ 取 0.75。
+         ⚠️ 换 screen-premultiplied 混合也能到暗 0，但要多改 blending 与缓存键、
+         回归面更大；本轮取**只调参数**的最小改动。 */
+      uBright:{value:2.10},
       uAlphaC:{value:0.75},
     },
     vertexShader:`attribute float aT;
@@ -464,7 +477,7 @@ function makeRainbowMesh(){
           sp = mix(sp, vec3(0.93, 0.88, 0.28), smoothstep(0.43, 0.60, t));   // 黄
           sp = mix(sp, vec3(0.95, 0.58, 0.16), smoothstep(0.57, 0.74, t));   // 橙
           sp = mix(sp, vec3(0.93, 0.22, 0.16), smoothstep(0.71, 0.90, t));   // 红
-          vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.25);
+          vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.10);   // 第十四轮 1.25→1.10（正午黑边，见上方 uBright 注释）
           col = spSat * uBright;
           /* 径向羽化：内外缘各渐隐（硬边会读成"贴图"）。带宽 5.2m，羽化 9% → 5%
              （第十一轮）：羽化带越宽，被遮挡物的暗化过渡段越长、黑边越粗。 */
@@ -477,7 +490,7 @@ function makeRainbowMesh(){
     /* ⚠️ ShaderMaterial 必须给 customProgramCacheKey：three 用它决定复用哪份编译
        产物。缺了它，程序在"某个 uniform 组合"下编好后会被别的组合复用 ⇒ 值停在
        旧 uniform 上（黑屏/黑块类故障的经典来源）。 */
-    customProgramCacheKey: () => 'rainbow-arch-v11',
+    customProgramCacheKey: () => 'rainbow-arch-v12',   // 第十四轮 shader 源变了（饱和度字面量 1.25→1.10）⇒ 必须换键，否则会复用旧编译产物
     side: THREE.DoubleSide,    // 拱带是单层片：默认机位正面看得到，走近侧看也不消失
     transparent: true,
     depthWrite: false,
