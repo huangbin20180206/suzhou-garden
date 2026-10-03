@@ -974,6 +974,10 @@ export const MAT = {
   distantNear: makeDistantMat(0x4A5754, 0.95, 0.30, 0.40, 0.075),
   distantDeep: makeDistantMat(0x60737A, 0.90, 0.36, 0.62, 0.075),
   distant:     makeDistantMat(0x7A8F9C, 0.84, 0.42, 0.95, 0.075),
+  /* ⚠️ 2026-10-03 V-1：最远层的固有色**不动**。实测压 10% 脊线只暗 0.04 lum、
+     压 25% 也只暗 1.9 lum —— 远层脊线的颜色 **九成来自距离雾**（176m Exp2），
+     固有色只占一成，这条路走不通还把"层间色阶"的余量从 5.86 吃到 2.88。
+     真正的杠杆是正午 `fogColor`（12-env 的时段预设），见那边注释。 */
   distantFar:  makeDistantMat(0x93A3AB, 0.76, 0.46, 1.25, 0.075),
   /* ⚠️ 2026-09-23：原 distantTree（"柱状树林"的树形剪影广告牌材质）**已整层删除** ——
      它被修过三轮（矩形→树形、改深灰绿、降不透明度、并进 DISTANT_MATS 跟天光）都断不了根：

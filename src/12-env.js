@@ -694,8 +694,19 @@ const ENV_TIME = {
     cloudTint:0xF6F9FC, cloudAmount:0.58,
     /* fogDensity 0.0052（F7 后回归校准）：晴午仍保持四时段里最通透一档；
        薄雾天气 fogMul 1.30 后 =0.0068，正好落进 smoke 断言的 (0.0062,0.0085)
-       可读窗口 —— 旧值 0.0046 叠雾只有 0.0060，雾天与晴天拉不开差距。 */
-    fogColor:0xDCE3E2, fogDensity:0.0052, exposure:1.00,
+       可读窗口 —— 旧值 0.0046 叠雾只有 0.0060，雾天与晴天拉不开差距。
+       ⚠️⚠️ 2026-10-03 V-1：fogColor 0xDCE3E2 → 0xC6CCCB（lum 0.885 → 0.80）。
+       上一笔量证锁定"上幅白带"的机制是 **fogColor(0.884) 与 skyHorizon(0.898)
+       只差 1.4%**，而 176m 处 Exp2 吃 57% ⇒ 最远层远山被混进一个"与天空同值"的
+       颜色，脊线咬不住天（hill-guard 中位 −7.21，加密远山后跌到 −3.43）。
+       试过两条路都不通：① applyEnv 里把"雾色≤天光"的钳制扩到全天候 —— 收益 1 lum、
+       打破 mist-guard §1 的白天保证（上一笔已回退）；② 压最远层固有色 —— 脊线九成
+       是雾色，压 25% 只暗 1.9 lum。
+       ⇒ 动**参数本身**而不是加钳制：正午雾色压 10%，远层脊线咬天回到 ~12 lum。
+       近园不受影响（20~40m 处雾贡献只有 1~3%，改的是 176m 外那圈）；
+       mist-guard §1 断言的是"scene 雾色 = 参数雾色"，两边一起改、判据不受影响。
+       与 skyHorizon 的差从 1.4% 拉到 ~10%，"山与天同值"的根源解除。 */
+    fogColor:0xC6CCCB, fogDensity:0.0052, exposure:1.00,
     bloomStrength:0.26, bloomRadius:0.50, bloomThreshold:1.02, gtaoBlend:0.85,
     grade:{ contrast:0.25, saturation:1.12, split:0.24, vignette:0.50, warm:0xFFF6E8, cool:0xE2EEFF },
     /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul

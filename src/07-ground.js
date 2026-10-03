@@ -113,13 +113,22 @@ function withPos(obj, x, y, z){ obj.position.set(x, y, z); return obj; }
 export function makeDistantHills(){
   const g = new THREE.Group();
   // 远山：起伏山脊剪影（多峰、两端收拢）
-  const makeRidge = (radius, height, mat, count) => {
+  const makeRidge = (radius, height, mat, count, seed, hLo = 0.5, hHi = 1.28) => {
     const grp = new THREE.Group();
+    /* ⚠️ 2026-10-03 V-1：seed 给了 = 整层改走**本地种子流**（一行都不碰全局 rnd/rr）；
+       不给 = 沿用全局流（最内层 78m 保持原样，少动一处是一处）。
+       调用方必须先 burnRidge(原count) 把"这层原本会消耗的全局流"原位抽干，
+       否则其后假山/峰石/竹柳/点景人物整批前移且不报错（铁律 1）。
+       hLo/hHi：山高乘数的上下限（默认 0.5~1.28 = 原值）。外三层收得更紧，
+       是按"月轮最低仰角 2.25° 必须过"反推的 —— 见调用处注释。 */
+    const l0 = seed === undefined ? null : mulberry32(seed);
+    const R  = seed === undefined ? rr  : (lo, hi) => lo + l0() * (hi - lo);
+    const RN = seed === undefined ? rnd : l0;
     for (let i = 0; i < count; i++){
-      const a = (i/count)*TAU + rr(-0.16,0.16);
-      const r = radius * rr(0.9, 1.1);
-      const h = height * rr(0.5, 1.28);
-      const w = rr(26, 54);
+      const a = (i/count)*TAU + R(-0.16,0.16);
+      const r = radius * R(0.9, 1.1);
+      const h = height * R(hLo, hHi);
+      const w = R(26, 54);
       /* 山脊线 = 2~4 个高斯峰叠加，外包 sin 包络收两端。
          旧版每个折点独立 rr(0.35,1.05)，峰脊是随机锯齿折线，
          8~12 段在暮色里读成一排三角锥剪纸（2026-09-21 走查 F6）。
@@ -135,8 +144,8 @@ export function makeDistantHills(){
       }
       /* 抽干旧版在这里消耗的全局 rnd：1 次 n 选择 + (nOld+1) 次顶点 rr，
          保持之后远树/全园的随机序列分毫不差。 */
-      const nOld = 8 + ((rnd() * 4) | 0);
-      for (let k = 0; k <= nOld; k++) rr(0.35, 1.05);
+      const nOld = 8 + ((RN() * 4) | 0);
+      for (let k = 0; k <= nOld; k++) R(0.35, 1.05);
       const sh = new THREE.Shape();
       sh.moveTo(-w/2, 0);
       const n = 28;
@@ -182,10 +191,32 @@ export function makeDistantHills(){
     }
     return grp;
   };
+  /* ⚠️⚠️ 2026-10-03 V-1「上幅白带」：四层环向覆盖 114% / 73% / 46% / **29%**
+     （卡宽 26~54m × 张数 ÷ 2πr）—— 外两层缺口处直接露出天亮带。
+     band-scan 实测（正午·夏·晴·默认机位 1400×800）：全帧亮度 ≥200 的亮带
+     y 48~101 共 54 行，其中山只占 22.8%、园景 0% ⇒ 那一行几乎全是天。
+     ⇒ 外三层加密到 97% / 83% / 87%。三层的随机全部改走**本地种子流**，并在生成前
+     用 burnRidge 把"原 count 张会消耗的全局流"原位抽干 ⇒ 全局流总抽数一位不差，
+     其后布局分毫不移（layout-fingerprint 复跑通过；远山卡片是普通 Mesh、本就不进指纹）。 */
+  const burnRidge = (n) => {
+    for (let i = 0; i < n; i++){
+      rr(-0.16, 0.16); rr(0.9, 1.1); rr(0.5, 1.28); rr(26, 54);
+      const nOld = 8 + ((rnd() * 4) | 0);
+      for (let k = 0; k <= nOld; k++) rr(0.35, 1.05);
+    }
+  };
   g.add(makeRidge(78, 11, MAT.distantNear, 14));
-  g.add(makeRidge(104, 17, MAT.distantDeep, 12));
-  g.add(makeRidge(138, 24, MAT.distant, 10));
-  g.add(makeRidge(176, 30, MAT.distantFar, 8));     // 最远一层，几乎融进天光
+  /* ⚠️ 三层高度上限是**按月轮反推的**：night-sky-guard 要求 20:00~04:00 月亮
+     覆盖率 ≥40%，最低的月亮在 04:00、仰角只有 2.25° ⇒ 山脊（含轮廓函数里那个
+     min(1.12, ridge) 的峰顶系数）必须压在 ~1.9° 以下。按"17m 机位 + 各层半径
+     抖动下限"逐层解出：104m→1.05、138m→0.78、176m→0.70。
+     不压的代价：加密远山后月轮被咬掉一半（21:30 覆盖 100%→55%）。
+     亮度/层次不受影响 —— 四层还是近深远浅，只是整条山脊线整体下移到
+     地平线上下 ~2°，这正好也是"上幅白带"所在的那条带。 */
+  burnRidge(12); g.add(makeRidge(104, 17, MAT.distantDeep, 16, 0x51d7a1, 0.5, 1.05));
+  burnRidge(10); g.add(makeRidge(138, 24, MAT.distant,     18, 0x51d7b2, 0.5, 0.78));
+  /* ⚠️ 最远一层，几乎融进天光。 */
+  burnRidge(8);  g.add(makeRidge(176, 30, MAT.distantFar,  24, 0x51d7c3, 0.5, 0.70));
   /* ⚠️ 2026-09-23：**「柱状树林」整层删除**（老黄第 3 次指认"堂前池面那棵不知名的白色
      树形剪影"，并明确要求"完全隐藏或者直接删除"）。
      它被修过三轮都没断根：0f95688 把实心矩形换成树形剪影；2026-09-22 晚改成深灰绿
