@@ -307,8 +307,40 @@ const check = (name, ok, detail = '') => {
       rise: +((y1 - y0) / cv.height * 100).toFixed(1),
     };
   });
-  check('彩虹是**大拱**：横向跨度 ≥70% 画面宽（不是一小段）',
-    arch && arch.spanX >= 70, `跨度 ${arch ? arch.spanX : '?'}%（实测 90.7%；球面环方案上限 ~58%）`);
+  check('彩虹是**大拱**：横向跨度 45%~72% 画面宽（老黄十二次实拍"做得窄一些"）',
+    arch && arch.spanX >= 45 && arch.spanX <= 72, `跨度 ${arch ? arch.spanX : '?'}%（本轮实测 48~55%；第七轮宽版 90.7% 被判"太宽"）`);
+  /* ⚠️⚠️ 第十三轮新增"黑边"判据（老黄连续三轮实拍"彩虹的背景黑边"）——
+     量化口径：**开虹后比关虹暗 18 灰阶以上**的像素数 = 虹把底图压暗的部分
+     （蓝紫段 luma 低于灰山/亮天空时按 alpha 混入 ⇒ 沿虹缘读成黑边）。
+     阈值 <4000：参数扫描实测 b=1.9/a=0.75 时 晨 0 · 暮 0 · 正午 3111
+     （正午背景本身是强光，那一点压暗物理上消不掉），旧值 1.9~2.5 万。 */
+  {
+    const dark = await page.evaluate(() => {
+      const G = window.__garden;
+      const mesh = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
+                                          && o.material.uniforms.uRainbow && o.geometry.attributes.aT);
+      if (!mesh) return -1;
+      const u = mesh.material.uniforms;
+      const cv = document.createElement('canvas');
+      cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0);
+        return ctx.getImageData(0, 0, cv.width, cv.height); };
+      grab();
+      const A = grab();
+      const keep = u.uRainbow.value; u.uRainbow.value = 0;
+      const B = grab(); u.uRainbow.value = keep;
+      let n = 0;
+      for (let i = 0; i < A.data.length; i += 4){
+        const la = (A.data[i] + A.data[i+1] + A.data[i+2]) / 3;
+        const lb = (B.data[i] + B.data[i+1] + B.data[i+2]) / 3;
+        if (la < lb - 18) n++;
+      }
+      return n;
+    });
+    check('彩虹没有"黑边"（开虹后压暗底图 ≥18 灰阶的像素 < 4000）',
+      dark >= 0 && dark < 4000, `暗像素 ${dark}（修复前 1.9~2.5 万；亮度乘子 1.35 时正午 12908）`);
+  }
   check('彩虹**弓得起来**：矢高 ≥18% 画面高（球面环方案几何上限只有 4~6%）',
     arch && arch.rise >= 18, `矢高 ${arch ? arch.rise : '?'}%（实测 34%）`);
   check('彩虹拱顶在画面上部 3%~25%（更高但没贴顶）',

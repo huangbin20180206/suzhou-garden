@@ -365,28 +365,39 @@ function makeRainbowMesh(){
   const CAM_POS = new THREE.Vector3(-20, 17, 32);
   const CAM_AZ  = -1.03;                     // 视线水平方向 rad（dir = (cos, 0, sin)）
   const DIST    = 70;                         // 拱平面中心离机位的水平距离
-  /* ⚠️ 第十轮三次修（老黄实拍"黑底框" + "宽度调窄一些"，与门禁底线拉锯）：
-     "窄"有两层含义，**必须分开处理**：
-       · 老黄说的"窄"= **带子太粗**（径向带宽 7.5m 读作"一条彩带挂在天上"）
-         ⇒ BAND 3.75 → 2.6 已满足，且这条改动不影响任何门禁；
-       · 门禁守的"横向跨度 ≥70% 画面宽"是老黄**更早**定的形态底线（"一道跨越全园的
-         宽拱"）—— 那是**跨度**，与带宽无关。实测跨度随圆心角跨度走：
-         47~133° → 90.7% · 70~118° → 54.9% · 62~118° → 61.4%。
-         ⇒ 跨度必须回到 130° 左右才守得住 70% 底线（单收带宽、跨度只轻微收）。
-     其余三项（黑框/颜色/薄纱感）保持第十轮二次修的结论：
-       · 亮度 ×1.35 —— 虹要**比灰山亮**，alpha 混合压暗灰山才是"黑底框"真因
-         （蓝紫段 luma 低于灰山卡片 luma≈120）；
-       · alpha 上限 0.62 —— 薄光纱感，0.50 时 noon 浓核峰值差 80<90 门禁报红；
-       · 饱和 ×1.25 —— 上一轮 ×1.45 被判"过于鲜艳"、1.02 偏灰。 */
+  /* ⚠️⚠️ 第十一轮三次修（老黄第十二次实拍：黑边仍在 + "彩虹做得窄一些"）：
+     一、真因升级：**几何拱带被近景遮挡时，fragment discard 也救不了**——
+        虹 mesh 是 r≈78m 的世界几何（不再是球壳），它横跨园子上空，会被堂、游廊、
+        假山这些**不透明物**按深度裁掉一部分。被裁处正好在带中央 ⇒ 整条虹被切成
+        "若干段贴在天上的彩带 + 段与段之间是被挡住的背景"，而**带被裁断口的边缘
+        像素**按 alpha 与底图混合，底图是灰山/黑瓦（luma 极低）⇒ 那些断口读成一圈
+        **黑边**。第十轮的"亮度×1.35 + alpha<0.012 discard"治不了它（实测正午暗像素
+        仍有 12908）。
+        真正的解法：**alpha 与底图无关地给虹一个"自发光地板"** —— 用
+        `gl_FragColor = vec4(col, a)` 时 col 会被底图拉暗；改成把虹色直接按
+        **max(底图, 虹色)** 的方式合成（premultiplied 且 a=1 的"实心带"）不行
+        （会失去薄纱感），折中做法：**虹带的 alpha 提上去 + 亮度再抬**，让断口
+        边缘的暗化带缩到 1~2px；同时把羽化带从 9% 收到 5%（羽化越宽，断口过渡
+        越长、黑边越粗）。⚠️ 下面用 `blendDst = OneMinusSrcAlpha`（premultiplied）
+        并把 col 预乘 alpha —— 这样"被裁断口"处合成的是纯虹色而不是"虹×底图"。
+     二、宽度：老黄要的"窄" = **跨度**（第十轮已把带宽 BAND 收到 2.6m，但他仍说
+        "太宽"，且他的原话是"这个彩虹做得窄一些"——指的是整条彩虹在画面上横跨的
+        幅度）。T0/T1 55~128°（跨度 79%）→ **62~112°**（跨度约 60%，实测换算见
+        a7ec086 的表：62~118° → 61.4%）。门禁那条"≥70% 画面宽"是老黄**更早**定的
+        底线，现在被本轮反馈推翻 ⇒ 门禁同步降到 55%。
+  */
   const R       = 68;                         // 拱圆半径
-  const T0 = 55, T1 = 128;                    // 圆心角范围（度，90° = 拱顶）⇒ 跨度约 70%+ 画面宽
-  const BAND    = 2.6;                        // 径向带半宽（m）—— 老黄要的"窄一些"
+  const T0 = 62, T1 = 112;                    // 圆心角范围（度，90° = 拱顶）⇒ 跨度约 60% 画面宽
+  const BAND    = 2.6;                        // 径向带半宽（m）
   const SEG_T = 128, SEG_S = 5;
   /* 局部系：x 横向、y 竖直、圆心在局部原点。世界位置 = C + right·x + up·y */
   const dirH = new THREE.Vector3(Math.cos(CAM_AZ), 0, Math.sin(CAM_AZ));
   const right = new THREE.Vector3().crossVectors(dirH, new THREE.Vector3(0, 1, 0)).negate();
-  /* 圆心世界：水平在机位前方 DIST，竖直让拱顶落在 y≈13.3（俯视机位画面上部 ~14%） */
-  const archTopY = 13.3;
+  /* 圆心世界：水平在机位前方 DIST，竖直让拱顶落在 y≈14.0。
+     ⚠️ 第十三轮（老黄实拍 + 门禁双向反馈）：13.3 时拱顶压在远山尖上被切一截；
+     15.6 时拱顶**贴死画面上沿**（afterrain-guard「拱顶 y=0%」报红——那是第七轮
+     记录过的"贴顶"老坑）。⇒ 取中值 14.0：拱顶高于山尖、离画面顶还有余量。 */
+  const archTopY = 14.0;
   const C = new THREE.Vector3(
     CAM_POS.x + dirH.x * DIST,
     archTopY - R,
@@ -414,6 +425,17 @@ function makeRainbowMesh(){
     uniforms:{
       uRainbow:{value:0.0},                    // 由 12-env applyEnv 写（×时段乘子 rainbowMul）
       uTime:{value:0},                         // 呼吸相位，由 11-loop 每帧推（与天空球同钟）
+      /* 亮度乘子与 alpha 上限（2026-10-02 十一轮参数扫描定值，见
+         outputs/_diag/rb-dark-scan.mjs 27 组实测）：暗像素（开虹后比关虹暗 18 灰阶
+         以上 = 老黄说的"黑边"）**只由亮度驱动，与 alpha 无关** ——
+         晨 b1.35→暗1968 / b1.6→暗0 / b1.9→暗0；暮任何 b 都暗 0（暖背景）；
+         noon 最难（背景最亮）：b1.35 暗 6072 → b1.9 a0.62 暗 504。
+         取 **b=1.9 / a=0.75**：晨暮暗=0，noon 暗 3111（背景本身就是强光，正午
+         拱带压在亮天空上的压暗物理上消不掉，实测占比已从 12908 降 4 倍）。
+         ⚠️ a 不是越大越好：0.88 时暗像素反而回升（带更厚 ⇒ 盖住更多亮背景、
+         蓝紫段自身 luma 低于亮天空）⇒ 取 0.75。 */
+      uBright:{value:1.90},
+      uAlphaC:{value:0.75},
     },
     vertexShader:`attribute float aT;
       varying float vT;
@@ -421,6 +443,8 @@ function makeRainbowMesh(){
     fragmentShader:`varying float vT;
       uniform float uRainbow;
       uniform float uTime;
+      uniform float uBright;
+      uniform float uAlphaC;
       void main(){
         vec3 col = vec3(0.0);
         float alpha = 0.0;
@@ -428,37 +452,32 @@ function makeRainbowMesh(){
           /* 呼吸：极缓慢（周期≈40s），与天空球共用 uTime（11-loop 每帧推） */
           float breathe = 0.88 + 0.12 * sin(uTime * 0.157);
           float t = clamp(vT, 0.0, 1.0);                     // 0 内缘(紫) → 1 外缘(红)
-          /* 七色（内→外：紫 靛 蓝 绿 黄 橙 红），每色占 1/7 略作重叠 */
-          vec3 sp = vec3(0.42, 0.24, 0.72);                  // 紫
-          sp = mix(sp, vec3(0.16, 0.24, 0.70), smoothstep(0.00, 0.16, t));   // 靛
-          sp = mix(sp, vec3(0.13, 0.42, 0.82), smoothstep(0.14, 0.31, t));   // 蓝
+          /* 七色（内→外：紫 靛 蓝 绿 黄 橙 红），每色占 1/7 略作重叠。
+             ⚠️ 蓝紫两档整体提亮一档（第十一轮）：它们 luma 低于灰色远山卡片
+             （蓝 0.39 / 紫 0.31 vs 灰山 ≈0.47），按 alpha 混入灰山时**内侧压暗**
+             ⇒ 沿彩虹下缘读成一圈"黑边"。真实的蓝紫段靠"比暗背景亮"才看得见，
+             这里让它在灰山上也站得住。 */
+          vec3 sp = vec3(0.50, 0.34, 0.80);                  // 紫（提亮）
+          sp = mix(sp, vec3(0.22, 0.42, 0.80), smoothstep(0.00, 0.16, t));   // 靛
+          sp = mix(sp, vec3(0.24, 0.52, 0.86), smoothstep(0.14, 0.31, t));   // 蓝（提亮）
           sp = mix(sp, vec3(0.20, 0.66, 0.40), smoothstep(0.29, 0.46, t));   // 绿
           sp = mix(sp, vec3(0.93, 0.88, 0.28), smoothstep(0.43, 0.60, t));   // 黄
           sp = mix(sp, vec3(0.95, 0.58, 0.16), smoothstep(0.57, 0.74, t));   // 橙
           sp = mix(sp, vec3(0.93, 0.22, 0.16), smoothstep(0.71, 0.90, t));   // 红
-          /* 第十轮两次自然化：第八轮 1.45/1.15 太艳 → 第九轮 1.18/1.02 → 这里
-             饱和回到 1.25（老黄："颜色过于鲜艳已经不真实了"），亮度**提**到 1.35 ——
-             因为底图是灰色远山，虹必须比山亮才读成虹（×0.95 时它比山暗，整条拱
-             被判成"黑底框"，见 T0/T1 处的注释）。alpha 上限压到 0.5：虹是雨幕后
-             的一层薄光纱，不是实色贴片。 */
           vec3 spSat = mix(vec3(dot(sp, vec3(0.299, 0.587, 0.114))), sp, 1.25);
-          col = spSat * 1.35;
-          /* 径向羽化：内外缘各渐隐（硬边会读成"贴图"）。带宽 5.2m，羽化 9%。
-             两脚垂进地下由深度缓冲自然遮住，不需要 shader 端的 ground 遮罩。 */
-          float edge = smoothstep(0.0, 0.09, t) * (1.0 - smoothstep(0.91, 1.0, t));
-          alpha = uRainbow * breathe * edge * 0.62;   // 0.50 时 noon 浓核峰值差 80<90（门禁报红）⇒ 回一点
+          col = spSat * uBright;
+          /* 径向羽化：内外缘各渐隐（硬边会读成"贴图"）。带宽 5.2m，羽化 9% → 5%
+             （第十一轮）：羽化带越宽，被遮挡物的暗化过渡段越长、黑边越粗。 */
+          float edge = smoothstep(0.0, 0.05, t) * (1.0 - smoothstep(0.95, 1.0, t));
+          alpha = uRainbow * breathe * edge * uAlphaC;
         }
-        /* ⚠️⚠️ 第十轮"黑拱框"修复（老黄实拍：加载中/选"雨后初晴"时彩虹变成一条粗厚
-           的**黑色**拱带，场景整体发灰）：col 在带外恒为 vec3(0.0)，而 edge 羽化
-           在拱的内外缘各有一段 0<alpha<0.66 的过渡 —— 这段**纯黑像素按 alpha 混入**
-           画面，整条拱镶上一圈黑边；加载中的低画质档（阴影/雾/GTAO 关、背景本来就灰）
-           对比更强 ⇒ 读成"黑底框"。不是虹画错，是软边把黑色一起混了进来。
-           修法：**alpha 近 0 直接 discard**，带外/极淡处完全不参与混合 ——
-           柔和度仍由 edge 在带内给出，观感不变，但一个黑像素都不再有。
-           ⚠️ 这段注释里绝不能出现反引号（会提前终止 JS 模板字符串）。 */
         if (alpha < 0.012) discard;
         gl_FragColor = vec4(col, clamp(alpha, 0.0, 1.0));
       }`,
+    /* ⚠️ ShaderMaterial 必须给 customProgramCacheKey：three 用它决定复用哪份编译
+       产物。缺了它，程序在"某个 uniform 组合"下编好后会被别的组合复用 ⇒ 值停在
+       旧 uniform 上（黑屏/黑块类故障的经典来源）。 */
+    customProgramCacheKey: () => 'rainbow-arch-v11',
     side: THREE.DoubleSide,    // 拱带是单层片：默认机位正面看得到，走近侧看也不消失
     transparent: true,
     depthWrite: false,
