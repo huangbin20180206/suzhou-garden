@@ -77,6 +77,22 @@ const SELFTEST = process.env.LEGIBILITY_SELFTEST === '1';
       const resolve = (id, M) => {
         switch (id){
           case 'birds':  return [G.smallBirdMeshRef && G.smallBirdMeshRef.mesh];
+          /* 金刚鹦鹉（2026-10-02 第九轮，老黄："加几只金刚鹦鹉，这个好像更显眼一点"）：
+             不是走 smallBirdMeshRef（那 9 只是程序化小鸟），是自己 holder 里的 GLB。
+             认它靠"metalness 被压到 0.25 的高面数 Mesh"——008-assemble 里的注释记了
+             为什么压（Rodin 出的 GLB 金属度拉满、渲成黑块）。名字不能用来认：
+             它的 mesh.name = 'Mesh'（非空），而 mergedStatic 之类才是空名。 */
+          case 'macaw':  return (() => {
+            const r = [];
+            G.scene.traverse(o => {
+              if (!o.isMesh || !o.visible || !o.geometry) return;
+              const tri = (o.geometry.index ? o.geometry.index.count
+                                           : o.geometry.attributes.position.count) / 3;
+              const m = Array.isArray(o.material) ? o.material[0] : o.material;
+              if (m && m.metalness === 0.25 && tri > 3000) r.push(o);
+            });
+            return r;
+          })();
           case 'fly':    return [...G.dragonflies];
           case 'perch':  return [...G.perchingDragonflies];
           case 'koi':    return [G.koiGroup];
@@ -121,7 +137,7 @@ const SELFTEST = process.env.LEGIBILITY_SELFTEST === '1';
     }, { featIds });
   };
 
-  const r1 = await measure('clear', ['birds', 'fly', 'perch', 'koi']);
+  const r1 = await measure('clear', ['birds', 'macaw', 'fly', 'perch', 'koi']);
   /* ⚠️ 2026-10-02 起屋檐滴水退出本门的默认机位清单 —— 老黄明确改了形态：
      "滴水慢一点、密度低一些、随机几个瓦片下水处、体积小一点"⇒ 16 个固定滴点/
      半径减半/限速 2m/s，默认机位实测只贡献 4px —— 这是**他要的形态**，不是缺陷；
@@ -129,7 +145,7 @@ const SELFTEST = process.env.LEGIBILITY_SELFTEST === '1';
      （状态牙：16 滴点 + 空中 live>0；像素牙：檐下近景）。积水仍在此处量。 */
   const r2 = await measure('afterrain', ['puddle']);
   const all = { ...r1, ...r2 };
-  const NAME = { birds: '小鸟', fly: '游弋蜻蜓', perch: '停栖蜻蜓', koi: '锦鲤群',
+  const NAME = { birds: '小鸟', macaw: '金刚鹦鹉', fly: '游弋蜻蜓', perch: '停栖蜻蜓', koi: '锦鲤群',
                  puddle: '地面积水' };
   const fmt = (id) => all[id] ? `${all[id].px}px（${all[id].n} 个对象）` : '句柄缺失';
 
@@ -137,7 +153,7 @@ const SELFTEST = process.env.LEGIBILITY_SELFTEST === '1';
 
   /* 下限刻意低（15px）：只抓"几乎不可见"。SELFTEST 时抬到不可能的高度验证红门路径。 */
   const TH = SELFTEST ? 1e9 : 15;
-  for (const id of ['birds', 'fly', 'perch', 'koi', 'puddle']){
+  for (const id of ['birds', 'macaw', 'fly', 'perch', 'koi', 'puddle']){
     if (!all[id] || all[id].px < 0){ check(`默认机位能看到：${NAME[id]}`, false, '句柄缺失（探针坏）'); continue; }
     check(`默认机位能看到：${NAME[id]}（A/B 差分 > ${SELFTEST ? '∞(自检)' : '15px'}）`,
       all[id].px > TH, fmt(id));
