@@ -33,7 +33,15 @@
    GLB 与雷声 mp3 请求 URL 改走 assetUrl。SHELL 与 GLBS 清单未动；跨域 CDN 请求本就被
    fetch 分流第一行放行（不进 SW 缓存），本地回退路径照旧 cache-first。按交付规矩
    升一级，让已装 SW 的浏览器整体换缓存。 */
-const CACHE = 'suzhou-garden-v14';
+/* 2026-10-03 补鹦鹉批次 bump v14→v15：GLBS 预缓存清单补上 Macaw.glb。
+   ⚠️ 这是一个**存在了两个批次才被发现**的洞（2026-10-02 加鹦鹉时只改了 13-preload、
+   漏了这里），而它一直是静默的 —— check.mjs 的 PWA 判据只测"sw.js 里声明过的
+   cache-first 资产有没有比 sw.js 新"，**从不比对两份清单是否同一批**，所以哪怕
+   Macaw.glb 比 sw.js 新 22 小时也报不出来（它根本不在 GLBS 里、比对不到）。
+   后果分场景：在线首开一切正常（.glb 走 fetch 后会被运行时写进缓存），
+   **装成 PWA 后断网首开则拿不到鹦鹉**（required:false ⇒ 不阻塞开园 ⇒ 更静默）。
+   本轮同时新增 probe/preload-manifest-sync.mjs 把这一类钉住（双向差集 + bytes 核对）。 */
+const CACHE = 'suzhou-garden-v15';
 const SHELL = [
   './',
   './index.html',
@@ -48,6 +56,9 @@ const GLBS = [
   './assets/LotusPlant.glb',
   './assets/koi.glb',
   './assets/Turtle.glb',
+  /* 2026-10-03 补：金刚鹦鹉（2026-10-02 上峰顶时只改了 13-preload，漏了这里）。
+     这是"两份投影"里被漏掉的那一件 —— 见上方 CACHE 的 v15 沿革注释。 */
+  './assets/Macaw.glb',
 ];
 /* ⚠️ 2026-09-27 · 高精资产批次：上面这份 GLBS 与 src/13-preload.js 的
    PRELOAD_MANIFEST 是**同一批资产的两个投影**，加高精包时**两处都要改**。

@@ -46,8 +46,8 @@ npm install          # 只为本地开发（three + esbuild）；页面本身不
 npm run serve        # 静态服务器 → http://127.0.0.1:8935
 npm run check        # 语法门禁（src/*.js 逐个 node --check，1 秒）
 npm run audit        # 拆分守卫：漏 import / 给 import 绑定赋值 / 引用内联专有名（3 秒）
-npm test             # 无头回归 50 项（Playwright 加载真实页面做断言）
-npm run verify       # **一条命令串行跑全部三十道门**（≈15m，交付前必跑）
+npm test             # 无头回归 55 项（Playwright 加载真实页面做断言）
+npm run verify       # **一条命令串行跑全部 56 道门**（≈15m，交付前必跑）
 
 npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 ```
@@ -154,7 +154,9 @@ npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 **工程侧**
 启动失败兜底 UI · 几何合并前机器校验（属性计数 / 索引越界 / 非有限坐标）·
 WebGL 上下文恢复 · 移动端 320px 布局与 `aria-pressed` · `window.__garden` 调试口（供采集脚本与测试驱动）·
-无头回归门禁 **30 道**（`npm run verify` 串行跑通，≈15m；其中 `npm test` = smoke 单门 **52 项断言全绿**）。
+无头回归门禁 **56 道**（`npm run verify` 串行跑通，≈15m；其中 `npm test` = smoke 单门 **55 项断言全绿**）。
+（口径基准：**2026-10-03**。门数以 `verify-all.mjs` 的 `SUITES` 表为唯一真值 —— 想拿准数就数它，
+别信本文里的数字：这段话自己就漂过三次，30 → 52 → 56。）
 
 ---
 
@@ -258,23 +260,31 @@ RenderPass → GTAO(仅独显档) → UnrealBloom → GradeShader(对比/分离�
 ```
 suzhou-garden/
 ├─ index.html            559 行壳：CSS + DOM + `import` 装配 + 启动兜底（场景代码全在 src/，见「单文件拆模块」）
-├─ src/                  场景代码 15 个模块 / 11639 行，按原节号命名（00-config … 12-env + 2b-wind + app）
+├─ src/                  场景代码 16 个模块 / 约 11700 行，按原节号命名（00-config … 13-preload + 2b-wind + app）
 │                        ⚠️ 模块**顶层**代码在 import 时就会跑 —— 加东西前先读 README 里那两条破环通则
 ├─ vendor.js             esbuild 打包的 three r184 + addons 本地 ESM（零 CDN，含 Draco/KTX2/Meshopt 解码器）
 ├─ sw.js                 Service Worker：壳 stale-while-revalidate + GLB cache-first（PWA 离线）
 ├─ manifest.webmanifest  PWA 清单（独立窗口 / 主题色 / SVG 图标）
 ├─ build-entry.js        vendor 打包入口（新增 addon 时在这里补一行）
-├─ assets/               约 1.04 MB · 4 个 GLB（贴图已重编码压缩）：锦鲤 / 乌龟 / 睡莲 / 芭蕉（其余全部程序化生成）
+├─ assets/               约 2.7 MB · 5 个 GLB（贴图已重编码压缩）：锦鲤 / 龟 / 荷 / 芭蕉 / 金刚鹦鹉
+│                        ＋ thunder.mp3（懒加载的点缀音效）。其余全部程序化生成
 ├─ probe/                探针 85 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
 │                        ⚙️ 一次性诊断脚本归档在 `probe/_attic/<日期>/`（不入库，搬回原路径即复原）
-│  ├─ verify-all.mjs     **一条命令串行跑全部三十道门**（`npm run verify`，≈15m）
+│  ├─ verify-all.mjs     **一条命令串行跑全部 56 道门**（`npm run verify`，≈15m；门数以它的 SUITES 表为准）
 │  ├─ check.mjs          语法门禁：src/*.js 逐个 node --check
 │  ├─ codeonly-unit.mjs  语法判定单元门禁：`_codeonly.mjs` 的"什么算引用"契约（判宽=假红、判窄=假绿，两个方向都静默）
 │  ├─ import-audit.mjs   拆分守卫（4 条判据，见「单文件拆模块」）：漏 import / 给 import 绑定赋值 /
 │  │                     引用内联模块专有名字 —— 后两类都是**运行期才炸或完全静默**的
 │  ├─ _codeonly.mjs      ⚙️ 工具：check / import-audit / _extract-section 共用的"语法判定"单点（改它必跑 codeonly-unit）
 │  ├─ _extract-section.mjs ⚙️ 工具：按原节号把内联模块的一段抽成 src/NN-*.js（含依赖检测 / --auto 补 import / --trim）
-│  ├─ smoke.mjs          52 项无头回归（自带 http 服务 + Playwright）
+│  ├─ preload-manifest-sync.mjs **预载清单一致性（7 项判据 + 4 条负例自检）**：sw.js 的 GLBS
+│  │                     与 13-preload 的 PRELOAD_MANIFEST 必须**同一批**（双向差集 + bytes
+│  │                     对磁盘 + SHELL 完整性）。纯 node、<1s。守的是一条写在两个文件注释里、
+│  │                     此前**无人把守**的红线：2026-10-02 加金刚鹦鹉时只改了 13 漏了 sw.js，
+│  │                     而当时全套门禁全绿（check 遍历的就是清单本身 ⇒ 看不见"少了一件"），
+│  │                     危害是**装成 PWA 后断网首开少一只鹦鹉**（required:false ⇒ 更静默）
+│  ├─ pwa-cache.mjs      PWA 离线（缓存隔离 + **在线预热** + 9 项离线资源 + 断网重载 + 五类 GLB）
+│  ├─ smoke.mjs          55 项无头回归（自带 http 服务 + Playwright）
 │  ├─ wind-trajectory.mjs 风场轨迹门禁（6 项，纯数学）：轨迹是"细长条"还是"椭圆"（2026-09-18 的"植物打转"）
 │  ├─ shadow-cover.mjs   阴影视体覆盖门禁（16 项，纯几何）：园子地面网格点有多少落在 ortho 盒外
 │  │                     ⚠️ 判据**不能**用像素 —— 暴雨雨丝逐帧随机，任何像素差分都退化成噪点图
@@ -386,7 +396,7 @@ suzhou-garden/
 
 ## 代码地图
 
-`src/` 按**原节号**命名的 15 个模块（每个文件顶部带导航注释；`index.html` 只剩 CSS + DOM + `import` 装配）。
+`src/` 按**原节号**命名的 16 个模块（每个文件顶部带导航注释；`index.html` 只剩 CSS + DOM + `import` 装配）。
 
 ⚠️ 模块**没有**作用域隔离：`src/*.js` 顶层代码在 `import` 时就会跑，且模块之间**不共享词法世界** ——
 在 src 里引用内联脚本里定义的名字不会报错，只会静默 `undefined`（被 `.catch()` 吞掉就是"GLB 静默不加载"）。
@@ -414,11 +424,13 @@ suzhou-garden/
 
 | 门禁 | 命令 | 说明 |
 |---|---|---|
-| 语法 | `npm run check` | `src/*.js`（15 个模块）+ `build-entry.js` 逐个 `node --check`，1 秒出结果 |
+| 语法 | `npm run check` | `src/*.js`（16 个模块）+ `build-entry.js` + `sw.js` 逐个 `node --check`，1 秒出结果 |
 | 拆分 | `npm run audit` | `import-audit.mjs` 四条判据（漏 import / 给 import 绑定赋值 / 引用内联专有名），3 秒 |
 | 拆分 | `node probe/codeonly-unit.mjs` | `_codeonly.mjs` 的"什么算引用"契约单元测试，0.2 秒 |
-| 回归 | `npm test` | Playwright 无头加载真实页面，**52 项断言**，退出码即结论 |
-| 全量 | `npm run verify` | **一条命令串行跑全部三十道门**（check → codeonly-unit → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → postcard-guard → longexposure-guard → peach-guard → sound-guard → guide-guard → wind-audit → wisteria-color → koi-orbit → perch-dragonfly → stone-audit → stele-legibility → figure-audit → refract-guard → refract-coverage → weather-coverage → intro-guard → loading-guard → warmboot-guard → random-guard → lampvol-guard），任何一个红整体非零退出 |
+| 回归 | `npm test` | Playwright 无头加载真实页面，**55 项断言**，退出码即结论 |
+| 全量 | `npm run verify` | **一条命令串行跑全部 56 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
+| 分层 | `npm run verify:quick` | 8 道快门（≈2 分钟）：check / codeonly-unit / preload-manifest-sync / import-audit / smoke / pageerror / layout-fingerprint / random —— 日常改动后的兜底 |
+| 分层 | `node probe/verify-all.mjs --gates=mist-guard,hill-guard` | 只跑指定门（对 path 与 label 做子串匹配；**匹配不到就响亮报错**，不许"0 道门全绿"） |
 | 视觉 | 截图比对 | 新截图命名带版本号（`-v2`），与 `outputs/shots-*` 基线对比 |
 | 专项 | `node probe/willow-audit.mjs` | 柳冠俯视覆盖率（扇区 × 环带射线求交，不依赖软渲染像素） |
 | 专项 | `node probe/hero-shot.mjs [--isolate]` | 立峰样稿（隔离 / 近景 / 三态），并输出**漏透率**：材质临时改 DoubleSide，撒 90×90 平行射线，统计"穿过轮廓且穿墙"的格数占比 |
@@ -444,7 +456,17 @@ suzhou-garden/
 
 | 专项 | `node probe/figure-audit.mjs` | **人物服色 / 衣构件 / 步态 / 朝向 / 取景门禁（45 项）**：读**实际材质**验袍身没退回近黑剪影、与 `FIG_PALETTE` 接线一致、腰带与袍身有明度对比；**交领必须 2 条**（1 条＝少半边，读不出"交"）+ 下摆衣缘存在 + 与袍身明度对比；**手持道具不许被袍身吞掉**（射线只打人物自身子树）；同框角色（slot 重叠）服色必须拉开；机位落位距离不许被 `minDistance` 夹回 9m、**身上 9 点（3×3）采样被挡 ≤2 处**（候选环射线求解，环按人物朝向旋转以默认拍正脸）、**机位自身周围必须有净空**（10 向短射线，防"相机扎进草丛"，见决策 17）、**拍前重测目标仍在画面内**（NDC）；散步不许退回"站桩滑行"（均速 / 前倾 / 步相按位移推进 / 身体起伏 / **朝向跟行进方向**）。顺带出 3 张人物样张 |
 
-**当前状态：`npm run verify` 三十道门全绿（2026-09-22 复验，12m14s；mist-guard 单门 185~390s 波动）—— `check` PASS（`index.html` 559 行壳 + `src` 15 模块 / 11639 行）｜`codeonly-unit` PASS｜`import-audit` PASS｜`wind-trajectory` 6/6｜`shadow-cover` 16/16｜`smoke` 52/52（draw calls 296 / 三角形 1.51M）｜`pageerror-guard` 17/17｜`reel-guard` 16/16｜`lamp-guard` 11/11｜`mist-guard` 25/25｜`postcard-guard` 7/7｜`longexposure-guard` 6/6｜`peach-guard` 12/12｜`sound-guard` 22/22｜`guide-guard` 18/18｜`wind-audit` 25/25｜`wisteria-color` 5/5｜`koi-orbit` 9/9｜`perch-dragonfly` 14/14｜`stone-audit` 16/16｜`stele-legibility` 8/8｜`figure-audit` 45/45｜`refract-guard` 11/11｜`refract-coverage` 5/5｜`weather-coverage` 14/14｜`intro-guard` 22/22｜`loading-guard` 18/18｜`warmboot-guard` 9/9（首帧 46ms vs 老路径 4780ms）｜`random-guard` 14/14（600 抽）｜`lampvol-guard` 28/28（阳性对照 6.2σ）。**
+**当前状态（2026-10-03 局部复验）**：本轮改了 `sw.js`（GLBS 补 `Macaw.glb` + CACHE v15）、
+`src/08-assemble.js`（鹦鹉 holder 命名）与四支探针（新增 `preload-manifest-sync`、
+`pwa-cache` 补在线预热并入链、`smoke` GLB 名单补第五类）。
+已复验 **`check` PASS（`src` 16 模块）｜`preload-manifest-sync` 7/7 + 自检 4 变异全红｜
+`smoke` 55/55（draw calls 299 / 三角形 1,641,932）｜`hill-guard` 10/10｜`season-demo-guard` 18/18｜
+`pwa-cache` PASS（9 项离线资源 + 五类 GLB）｜`afterrain` 24/24｜`postrain` 14/14｜
+`legibility` 8/8｜`stele-legibility` 8/8｜`layout-fingerprint` PASS｜`mist-guard` 25/25**。
+⚠️ `12-env.js` 本轮**最终无净改动**（试改雾色钳制后按"收益 1 luma vs 打破白天观感保证"回退，
+见 P1-0）。剩余门待一次安静机器上的全量 `npm run verify` 收口。
+
+**历史基线：`npm run verify` 三十道门全绿（2026-09-22 复验，12m14s；mist-guard 单门 185~390s 波动）—— `check` PASS（`index.html` 559 行壳 + `src` 15 模块 / 11639 行）｜`codeonly-unit` PASS｜`import-audit` PASS｜`wind-trajectory` 6/6｜`shadow-cover` 16/16｜`smoke` 52/52（draw calls 296 / 三角形 1.51M）｜`pageerror-guard` 17/17｜`reel-guard` 16/16｜`lamp-guard` 11/11｜`mist-guard` 25/25｜`postcard-guard` 7/7｜`longexposure-guard` 6/6｜`peach-guard` 12/12｜`sound-guard` 22/22｜`guide-guard` 18/18｜`wind-audit` 25/25｜`wisteria-color` 5/5｜`koi-orbit` 9/9｜`perch-dragonfly` 14/14｜`stone-audit` 16/16｜`stele-legibility` 8/8｜`figure-audit` 45/45｜`refract-guard` 11/11｜`refract-coverage` 5/5｜`weather-coverage` 14/14｜`intro-guard` 22/22｜`loading-guard` 18/18｜`warmboot-guard` 9/9（首帧 46ms vs 老路径 4780ms）｜`random-guard` 14/14（600 抽）｜`lampvol-guard` 28/28（阳性对照 6.2σ）。**
 
 > 回到这一轮的五道新门：单门耗时 21.7s / 10.1s / 25.6s / 9.5s / 44.1s，合计 **+1m51s**。
 > ⚠️ 跑链期间**别做观感/帧率测试**：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。
@@ -542,8 +564,8 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
   （纯 node，各 <3s，紧跟 check 之后 —— 拆模块的错误在浏览器里要么"加载即炸"、要么更坏的静默）。
 - **验证**：`npm run verify` 二十一门全绿；smoke **50/50**；draw calls **693 < 800**（该项由性能优化 A 拿下，
   原 869 红已解除，见下）。
-  ⚠️ 以上是**当日**基线；门禁链其后长到**三十道**、smoke 到 **52 项**，draw calls 现读 **297**
-  （693 → 297 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
+  ⚠️ 以上是**当日**基线；门禁链其后长到 **56 道**、smoke 到 **55 项**，draw calls 现读 **299**
+  （693 → 299 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
 
 **拆模块暴露出的四类缺陷（都已修，且都已固化成门禁）** —— 这是本次最有价值的部分，
 因为其中三类**不报错、不崩、只有专门的判据看得见**：
@@ -585,6 +607,38 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 - **样张**：`outputs/hero/`（官方机位 / 隔离 / 近景 / 三态 / 假山）。探针支持 `--isolate`（隔离看石头）、`--rockery`（看南岸两座假山）、`--fast`（只出官方机位，调构图快 3 分钟）。
 - **机器量测**：漏透率 **17.4% / 21.5%** · 连通分量 **1** · 法线一致率 0.989 · 面数 20,436 · 立峰几何 ~300ms · `npm test` 34/34 全绿。
 - **仍可继续**：① 材质层（苔痕 / 水线分层 / 孔缘透光的假次表面散射）② 石矶与伴石的密度 ③ 导览补更多机位与字幕（P2-1）。
+
+### P1-0 「上幅白带 / 远山溶进天空」——已量证（成因锁定），**修法是美术取舍，待真屏拍板**
+
+- **现象**：默认机位（正午·夏·晴）画面上幅有一条读数很白的横带，远山看不出四层叠剪影的层次。
+- **量证**（`outputs/_diag/band-scan.mjs`，1400×800，逐行 + 按材质差分认身份）：
+  - 高亮带 `y 49~98`（50 行）：**天 100.0% · 园景 0.0% · 亮度 ≥200** ⇒ **属天端，不属山端**；
+  - 整片上幅（y 0~330）天空 193~206，而 `distant` 层 190~207、`distantFar` 层 176~207
+    ⇒ **后两层远山与天空同值**，剪影读不出来；
+  - 默认机位俯角 19.3° + 半 FOV 22.5° ⇒ 可见天空只有地平线以上 **0~3°**
+    ⇒ 整片可见天幕都落在天空 shader 的 `horizon` 色里，**本来就没有梯度**。
+- **机制**：`fogColor`(#DCE3E2, 0.884) 与 `skyHorizon`(#DCE7EC, 0.898) 只差 **1.4%**，
+  而 176m 处 Exp2 雾吃掉 **57%** ⇒ 最远那层远山被 57% 混进一个"与天空同值"的颜色。
+- **本轮结论：只量证，未改代码**（试改过、已回退）。试的修法是 `applyEnv()` 里
+  「雾色必须低于地平线天光」那条钳制从"仅暗环境"扩到全天候（亮 0.90）。
+  **实测收益只有约 1 luma**（`hill-guard` 脊线对比 −7.21 → −8.00）—— 因为 `lumOf` 算的是
+  **线性**空间亮度，0.90 的线性比只相当于约 0.955 的 sRGB 比，且 `multiplyScalar` 也发生在线性空间。
+  **代价却是打破 `mist-guard` §1「白天不该被钳位误伤」这条明确的设计保证**
+  （它断言"正午 scene 雾色 = 参数雾色"，当场报红；而那条判据守的是真意图、不是坏判据）。
+  收益 1 luma vs 打破既有白天观感保证、且无法在真屏上验收 ⇒ **回退**，
+  量证结论与机制留在 `12-env.js` 的注释里防止重复研究。
+- **真正要动的两处（需真屏拍板，别盲调）**：
+  - **A. 山体卡片环向覆盖不足（最直接）**：`makeRidge(78,11,…,14) / (104,17,…,12) / (138,24,…,10) / (176,30,…,8)`
+    —— 最远一层 8 张 × 卡片宽 26~54m ≈ 320m，对周长 2π·176 ≈ **1106m 只有 29% 覆盖**，
+    墙顶与山体之间必然留出纯天亮带。加密卡片可补上，但
+    ⚠️ **`makeRidge` 每张卡消耗全局 `rr()`/`rnd()`（4 + 1 + nOld+1 次，nOld 随机 8~11）**，
+    改 `count` 会让其后（假山/峰石/竹柳/点景人物…）全部前移 ⇒ **必须像"柱状树林"那样把旧序列抽干**，
+    并按纪律重出 `layout-fingerprint` 基线。
+  - **B. 天端配色**：把正午 `skyHorizon` 压深半档 / 拉开 `skyHorizon`↔`skyMid` 的差，
+    让 0~3° 那一小片天幕带上可见梯度。⚠️ 这是作者 F4/F7 三轮调过的值，
+    且影响 environmentIntensity 与低档水面假反射 ⇒ 要改就得在真屏上看过再定。
+- **验收**：改完跑 `hill-guard`（层间色阶 / 脊线对比）+ `mist-guard`（夜 山≤天）+
+  `band-scan` 前后对比 + 默认机位样张；改动布局则必跑 `layout-fingerprint --update-baseline`。
 
 ### P1-1 真机移动端验收（自动断言已覆盖，实机未验）
 
@@ -683,6 +737,16 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 ### 已结项（避免重复排期）
 
+- ❌ **「性能档关平面反射 ⇒ 池水偏黑」—— 前提被实测证伪（2026-10-03），不改代码**。
+  同机同位同时刻 A/B（`uReflMix` 0 → 1 = 假反射 → 真平面反射，取样掩码相同）：
+  **池水均色 (69.8, 91.5, 77.5) luma 85.9 → (67.7, 89.6, 75.4) luma 83.9**，
+  开了真反射反而**暗 2.3%**。与 shader 算术一致：默认机位俯角约 29° ⇒ `cosI≈0.49` ⇒
+  Schlick 菲涅尔 `0.02+0.98·(1−0.49)^5 ≈ 0.054` ⇒ **反射只占最终色 5.4%**，
+  所以"有没有真实反射"最多影响那一小块，且真反射映的是暗假山/暗堂屋、平均并不比假天空亮。
+  ⇒ 池水暗是**吸收 + 池底色 + 深度**的结果（`uAbsorb`/`uShallow`/`uDeep`），不是档位缺陷。
+  ⚠️ 谁再提这一项，先跑一次 A/B 再动手 —— 别去调 `uAbsorb` 把水"调亮"，
+  那会把「看得见水下」的设计（P2-5 真折射 + `nearview-clarity-guard`）一起改坏。
+  取证脚本：`outputs/_diag/pond-tier-ab.mjs`（未入库）。
 - ✅ **黄昏长影被阴影视锥截断（审计 B19）**：已在 `applyEnv()` 中按太阳仰角自适应放大视体（最多 2.2×，带 0.02 防抖）。
   残留观察项：黄昏 texel 密度由 110/m 降到约 73/m（阴影略软）—— 如需进一步优化，可考虑阴影贴图分辨率随时段分档或分片（cascade），不影响当前观感。
 - ✅ **README 配图**：4 张代表性截图（正午全景 / 私塾晨课 / 荷池生态 / 夜雾）压缩入库到 `docs/`，共约 320 KB。
@@ -694,7 +758,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 - 改动只允许落在 `index.html` / `build-entry.js` / `package.json` / `probe/*` / `src/*`；`vendor.js` 由 `npm run build:vendor` 重新生成，**不手改**。
 - 每次交付前必须自己先跑通 `npm run check` + `npm run audit` + `npm test`（当前基线：**smoke 52/52 ALL PASS**）；
-  凡动到跨模块引用 / 启动时序，再加 `npm run verify`（三十道门）。
+  凡动到跨模块引用 / 启动时序 / 资产 / `sw.js`，再加 `npm run verify`（56 道门）。
 - 任何新增依赖或资源必须本地化，禁止外部 CDN（国内网络为前提）。
 - 视觉改动用 `outputs/shots-*` 版本化截图做前后对比；新截图带 `-vN` 后缀。
 
@@ -716,4 +780,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 ## 许可
 
 代码以 `package.json` 中声明的 ISC 发布；内嵌依赖 three.js 为 MIT。
-`assets/` 下的 4 个 GLB 为 AI 生成资产，供本项目使用。
+`assets/` 下的 5 个 GLB（锦鲤 / 龟 / 荷 / 芭蕉 / 金刚鹦鹉）为 AI 生成资产，供本项目使用。
+⚠️ AI 生成的 GLB 常带 `metallicFactor=1` —— 低档位没有强环境反射时会渲染成**黑块**
+（金刚鹦鹉实测：假山顶上只看到一个小黑点）。挂载时必须把 `metalness/roughness` 压回合理区间，
+见 `src/08-assemble.js` 的 Macaw 段注释。

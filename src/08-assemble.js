@@ -1485,6 +1485,17 @@ const MACAW_SPOTS = [
 loadAssetOnce('assets/Macaw.glb', 1.1, (src) => {
   for (const s of MACAW_SPOTS){
     const holder = new THREE.Group();
+    /* ⚠️ 必须显式命名：Rodin 导出的这个 GLB **节点名就是泛用的 `Mesh`**
+       （`node -e` 解容器实测：nodes: ["Mesh"]、meshes 为空名），
+       于是"鹦鹉在不在场景里"这件事**任何门禁都问不出来** ——
+       与另外四类资产（KoiFish / Turtle / BananaPlant / LotusPlant 都有可辨识节点名）
+       相反。这是"清单漏了一件也全绿"的第二层成因：即便门禁想查它，也没有抓手。
+       ⇒ 这里给 Group 起名 'Macaw'（与四类资产同风格的大驼峰），
+         smoke 与 pwa-cache 即可用 `o.name.includes('Macaw')` 断言它到位。
+       ⚠️ 大小写敏感：命名与断言必须一致（'macaw' 匹配不上 'Macaw'）。
+       ⚠️ Group 不参与 mergeStatics（它只吃 Mesh），且鹦鹉是**迟到资产**、
+          attach 发生在合并之后 ⇒ 加名字不会改变任何几何合并行为。 */
+    holder.name = 'Macaw';
     holder.position.set(s[0], s[1], s[2]);
     /* ⚠️ 第十五轮：2.4 时三只**背对默认机位**（8× 放大图里只看到后背，读不出"鹦鹉"）。
        改 2.4+π≈5.54 后正对机位，红头/白脸/绿蓝翅都读得出来 —— 对照

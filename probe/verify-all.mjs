@@ -1,11 +1,22 @@
-// 一条命令验到底（2026-09-17；2026-09-21 增至 25 门；2026-09-22 回填缺口增至 30 门）：串行跑 check
-// → codeonly-unit → import-audit
+// 一条命令验到底（2026-09-17；2026-09-21 增至 25 门；2026-09-22 回填缺口增至 30 门；
+// 其后陆续加门，**当前 56 道**：2026-10-03 新增 preload-manifest-sync + 把 pwa-cache 入链）。
+// 串行跑 check
+// → codeonly-unit → **preload-manifest-sync** → import-audit
 // → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard
 // → postcard-guard → longexposure-guard → peach-guard → sound-guard → guide-guard → wind-audit
 // → wisteria-color → koi-orbit → perch-dragonfly → stone-audit → stele-legibility → figure-audit
 // → refract-guard → refract-coverage → weather-coverage → intro-guard → loading-guard
-// → warmboot-guard → random-guard → lampvol-guard，
-// 汇总三十个子门的结论，任何一个红整体就红。
+// → warmboot-guard → random-guard → lampvol-guard → …（完整清单见下面的 SUITES 表），
+// 汇总全部子门的结论，任何一个红整体就红。
+//
+// ⚠️ **门数以 SUITES 数组为准，别在本注释里写死**（这份注释已经漂过三次：30 → 实际 54）。
+//    想拿准数：`node -e "…"` 数 SUITES 里的 `probe/*.mjs`，或看运行首行的「跑 N 道」。
+// ⚠️ preload-manifest-sync（2026-10-03 加）守的是"sw.js 的 GLBS 与 13-preload 的
+//    PRELOAD_MANIFEST 是同一批"—— 这条红线**写在两个文件的注释里、此前无人把守**：
+//    2026-10-02 加金刚鹦鹉时只改了 13、漏了 sw.js，而当时全套门禁全绿
+//    （check.mjs 遍历的就是清单本身 ⇒ 从定义上看不见"少了一件"），
+//    危害是**装成 PWA 后断网首开少一只鹦鹉**（required:false ⇒ 不阻塞开园 ⇒ 更静默）。
+//    纯 node / <1s / 自带 4 条负例自检 ⇒ 与 codeonly-unit、import-audit 同排在最前面。
 //
 // codeonly-unit / import-audit（2026-09-20 加）守**拆模块**这个动作本身。它们全在纯 node 里跑、
 //  不启浏览器（各 <1s），所以紧跟在 check 后面：结构化错误（漏 import / 给 import 绑定赋值 /
@@ -88,15 +99,17 @@
 //    2026-09-19 加 pageerror-guard（+75s）→ reel/lamp（+42s）→ mist/postcard（+121s）
 //    → sound/guide（+77s）→ 2026-09-20 加 refract（+50s）→ 再加 refract-coverage（+20s）
 //    → 再加 weather-coverage（+80s）→ 2026-09-22 回填 R-1/2/3/5/8 再加 5 门（+111s）后，
-//    整套 **12m14s**（2026-09-22 三十门全绿那次实测；上一轮 25 门那次 16m28s —— 波动主要来自
-//    mist-guard，它 185s / 390s 都出现过）。
+//    整套 **12m14s**（2026-09-22 **三十门**全绿那次实测；上一轮 25 门那次 16m28s —— 波动主要来自
+//    mist-guard，它 185s / 390s 都出现过）。⚠️ 那之后门数已长到 55 道，**15 分钟**才是当前量级。
 //    浏览器探针一律走 `probe/_harness.mjs`（真 GPU / D3D11）；要复现历史基线用
 //    `GARDEN_SOFT=1`。单门耗时：shadow-cover 14s / smoke 22s / figure-audit 21s /
 //    pageerror-guard 69s / reel-guard 19s / lamp-guard 21s / mist-guard 185~390s /
 //    postcard-guard 19s / sound-guard 57s / guide-guard 20s / refract-guard 21s /
 //    refract-coverage 12s / weather-coverage 16s / **intro-guard 22s / loading-guard 10s /
 //    warmboot-guard 26s / random-guard 10s / lampvol-guard 44s / thunder-guard 64s**。
-// ⚠️ 跑链期间别做观感/帧率测试：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。
+// ⚠️ 跑链期间别做观感/帧率测试：每一道浏览器门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。
+//    （纯 node 门 —— check / codeonly-unit / preload-manifest-sync / import-audit /
+//      wind-trajectory 不启浏览器，但它们既短又在最前面，等它们跑完也不占 GPU。）
 // 用法: node probe/verify-all.mjs   （或 npm run verify）
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
@@ -108,6 +121,13 @@ const NODE = process.execPath;
 const SUITES = [
   ['语法门禁 check',         'probe/check.mjs'],
   ['语法判定单元 codeonly-unit','probe/codeonly-unit.mjs'],
+  /* ── 2026-10-03 · 预载清单一致性（纯 node / <1s）──
+     守的是"sw.js 的 GLBS 与 13-preload 的 PRELOAD_MANIFEST 是同一批"这条**写在注释里、
+     此前无人把守**的红线：2026-10-02 加金刚鹦鹉时只改了 13、漏了 sw.js，
+     而全套 55 道门全绿（check.mjs 遍历的就是清单本身 ⇒ 从定义上看不见"少了一件"）。
+     危害分场景静默：在线首开一切正常，**装成 PWA 后断网首开则少了鹦鹉**。
+     自带 4 条负例自检（探针自证能红），不入浏览器、不依赖 GPU。 */
+  ['预载清单一致性 preload-manifest-sync', 'probe/preload-manifest-sync.mjs'],
   ['拆分守卫 import-audit',   'probe/import-audit.mjs'],
   ['风场轨迹 wind-trajectory','probe/wind-trajectory.mjs'],
   ['阴影视体覆盖 shadow-cover','probe/shadow-cover.mjs'],
@@ -219,6 +239,15 @@ const SUITES = [
      ⚠️ 本门在**本地档**验不到下载段文案（零等待不让它写 DOM），那部分的证据在
         `basic-enter-guard` 的慢4G 臂。 */
   ['资产预载 preload', 'probe/preload-guard.mjs'],
+  /* ── 2026-10-03 入链：PWA 离线缓存（此前是"专项"、**不在链上，而它一直是红的**）──
+     「不在链上的门」= 没有门。它红在哪：本门先在假页上注册 SW 就断网，而
+     `src/*.js` 被 sw.js 刻意排除在 SHELL 之外走 network-first ⇒ 缓存只能由
+     **运行时**写入 ⇒ 从没在线加载过真页面时断网必炸（`index.html` 取得到、
+     它 import 的 16 个 src 全落空 ⇒ `.done` 推不到 ⇒ 90s 超时）。
+     已修：补上 `pwa-cold-restart` 一直有、本门漏掉的**在线预热**那一步；
+     并把离线资源清单补到 9 项（含 Macaw.glb）+ 五类 GLB 断言。
+     ⚠️ 它自己起临时端口（listen(0)），不与常驻 8935 冲突；耗时约 2~3 分钟。 */
+  ['PWA 离线缓存 pwa-cache', 'probe/pwa-cache.mjs'],
   /* ── 2026-09-28 · "先用基础版进入"静默入口 + 芭蕉程序化替身 ──
      两支职责（臂形状与 preload-guard 完全不同，故独立成门）：
       · 臂 D/D0：注入 `BananaPlant.glb` 404 ⇒ required:false 的资产**必须走程序化替身**
@@ -417,6 +446,7 @@ const SELFTEST = process.env.VERIFY_SELFTEST;
      + layout-fingerprint ~12s + random-guard 10s ≈ **2 分钟出头**。 */
 const QUICK = new Set([
   'probe/check.mjs', 'probe/codeonly-unit.mjs', 'probe/import-audit.mjs',
+  'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
 ]);

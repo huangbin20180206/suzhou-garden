@@ -114,8 +114,14 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   // ── 4. GLB 资产到齐且动起来 ──
   /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄要回"树立的荷花"）—— 名单同步加回
      （a08bde0 下线那笔把它删了；沿革见 08 的注释）。 */
+  /* ⚠️ 2026-10-03 名单补 **Macaw**：它是"五类"里的第五类，此前**不在名单上** ——
+     于是"鹦鹉到底挂上没有"这一门从定义上就看不见它。而它又同时是 `required:false`
+     ⇒ 失败既不阻塞开园、也无人报红，是**双重静默**。
+     可辨识的抓手由 08-assemble.js 的 `holder.name = 'Macaw'` 提供：
+     Rodin 导出的那个 GLB 自己的节点名就是泛用的 `Mesh`，本来没有名字可查
+     （见该处注释；大小写敏感，'macaw' 匹配不上）。 */
   const glb = await page.waitForFunction(() => {
-    const names = { KoiFish: 0, Turtle: 0, BananaPlant: 0, LotusPlant: 0 };
+    const names = { KoiFish: 0, Turtle: 0, BananaPlant: 0, LotusPlant: 0, Macaw: 0 };
     window.__garden.scene.traverse(o => {
       for (const k of Object.keys(names)) if (o.name && o.name.includes(k)) names[k]++;
     });
@@ -123,7 +129,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
       ? names : false;
   }, { timeout: 40000 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   /* ⚠️ **先断言前提，再判对错**（项目老教训：判据必须先断言前提）。
-     「四类 GLB 均已挂载」这条在**降级态**下天然为假：required:false 的项失败后
+     「五类 GLB 均已挂载」这条在**降级态**下天然为假：required:false 的项失败后
      走程序化替身（芭蕉叶片），场景里出现的是 `banana-leaf` 冠层而不是名字里
      带 "BananaPlant" 的 GLB 节点 —— 这不是 bug，是设计。
      早先直接 `check('四类 GLB 资产均已挂载', !!glb)`，于是任何一次资产失败都让
@@ -148,7 +154,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     check('芭蕉替身叶片已构造（≥3 片，不是空冠层/光杆）', sub.leaves >= 3,
       `替身冠层 ${sub.crowns} 个 / 叶片 ${sub.leaves} 片`);
   } else {
-    check('四类 GLB 资产均已挂载（未降级）', !!glb, glb ? JSON.stringify(glb) : '未挂载');
+    check('五类 GLB 资产均已挂载（未降级）', !!glb, glb ? JSON.stringify(glb) : '未挂载');
   }
   const fishMoving = await page.evaluate(async () => {
     const fs = window.__garden.scene.getObjectByName?.call ? null : null;
