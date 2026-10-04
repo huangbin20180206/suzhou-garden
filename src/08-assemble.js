@@ -1724,7 +1724,127 @@ const MACAW_SPOTS = [
      与 ① 在屏幕上拉开 27px（1208 → 1235）；③ 不动。
    ⚠️ 峰顶脊约 1.5m 宽、屏幕横向量程只有约 40px，三只不可能拉得很开：试过
    (10.4,16.6)（石面 4.92）与 (10.6,16.2)（石面 5.06）都会掉出"山顶"，不取。 */
-loadAssetOnce('assets/Macaw.glb', 1.1, (src) => {
+/* ══ 金刚鹦鹉的作息与动作（2026-10-05 第十六轮）══════════════════════════
+   老黄三条原话：①"鹦鹉无论白天黑夜还是刮风下雨都在假山上不动，这个不合理"
+   ②"这个鹦鹉做得太大了，和人物的体积大小比夸张了一些" ③"我还希望能给鹦鹉加一个
+   动作…最好不要我帮忙"。
+
+   ⚠️⚠️ 这个 GLB 是**单节点单网格**（实测 nodes:1 / meshes:1 / primitives:1 /
+   skins:0 / animations:0）—— 没有骨骼、没有动画轨道 ⇒ 做不出"只有翅膀动"，
+   所有动作只能施加在 holder（整只）的位移/旋转上。下面这套是按**远处一眼读得出**
+   挑的，不是按"像不像真鸟"挑的。
+   ① 作息：白天栖峰顶，**夜与雨雪天不在这里**（鹦鹉是日行性、雨里会进林子躲）。
+      判据用**连续的 ENV.hour**（不是离散的 ENV.time）⇒ 拖时辰滑杆时会自然归巢；
+      走/回都带"起飞抬升 + 振翅 / 落下来收翅"，不是"啪一下隐藏"。
+   ② 动作：呼吸起伏 / 缓慢张望 / 急张望 / 甩尾 / 抖翅 / 理羽 / 小跳换向。
+   ⚠️ 事件用逐鸟**确定性**伪随机 h01()，不消耗 rnd/rr ⇒ layout-fingerprint 不受影响、
+      探针可复现（运行时动效本来允许 Math.random，能用确定性就不用随机）。 */
+const MACAWS = [];
+const MACAW_LIFT = 2.4;                       // 起飞/落下时抬升的高度（m）
+const MACAW_DEPART = 0.55, MACAW_ARRIVE = 0.75;
+const MACAW_EV = { tail:0.38, flutter:0.42, preen:1.15, hop:0.52 };
+/* 确定性伪随机 ∈ [0,1)：与全局随机流无关 */
+function h01(a, b){
+  const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
+  return x - Math.floor(x);
+}
+/* 该不该栖在峰顶：白天 + 没在下雨下雪。导出是为了让门禁能直接断言"什么时候该在"。 */
+export function macawWantPerch(){
+  /* 6.5~18.2 时：晨 7.5 已经在、暮 17.5 还在、夜 21.5 已归林；日出前/日落后不在。 */
+  if (!(ENV.hour >= 6.5 && ENV.hour <= 18.2)) return false;
+  const w = ENV.weather, rain = (ENV.cur && ENV.cur.rainAmount) || 0;
+  if (w === 'snow' || w === 'storm' || w === 'thunder') return false;
+  return rain < 0.08;
+}
+/* 每帧推进：起飞/落地/栖停三态 + 栖停小动作。由 11-loop 调用（那里已经有 dt/t）。 */
+export function updateMacaws(dt, t){
+  if (!MACAWS.length) return;
+  const want = macawWantPerch();
+  for (const m of MACAWS){
+    const h = m.holder;
+    if (m.mode === 'perch' && !want){ m.mode = 'depart'; m.mt = 0; }
+    else if (m.mode === 'away' && want){ m.mode = 'arrive'; m.mt = 0; }
+    m.mt += dt;
+
+    if (m.mode === 'depart' || m.mode === 'arrive'){
+      const dur = m.mode === 'depart' ? MACAW_DEPART : MACAW_ARRIVE;
+      const u = Math.min(1, m.mt / dur);
+      const e = u * u;                                   // 起飞加速 / 落地是同一条曲线的反向
+      const lift = m.mode === 'depart' ? e : 1 - e;
+      h.visible = true;
+      h.position.set(m.base.x, m.base.y + lift * MACAW_LIFT, m.base.z);
+      /* 振翅：绕自机纵轴高频滚转 + 抬头；越在空中越平（俯仰按 lift 给） */
+      h.rotation.set(-0.34 * lift + 0.12 * Math.sin(m.mt * 42 + 1.1),
+                     m.yaw0 + Math.sin(m.mt * 0.7 + m.phase) * 0.12,
+                     Math.sin(m.mt * 42) * (0.26 + 0.34 * lift));
+      if (u >= 1){
+        if (m.mode === 'depart'){ m.mode = 'away'; h.visible = false; }
+        else {
+          m.mode = 'perch'; m.ev = 'rest'; m.c++;
+          m.evT = 1.2 + h01(m.i * 7 + 3, m.c) * 2.6;
+          m.yaw = m.yawT = m.yaw0;
+        }
+      }
+      continue;
+    }
+    if (m.mode === 'away'){ h.visible = false; continue; }
+
+    /* ── 栖停：事件驱动 ── */
+    h.visible = true;
+    m.evT -= dt;
+    if (m.evT <= 0){
+      const r = h01(m.i * 7 + 3, m.c * 5 + 1);
+      m.ev = r < 0.44 ? 'rest' : r < 0.62 ? 'look' : r < 0.74 ? 'tail'
+           : r < 0.87 ? 'flutter' : r < 0.95 ? 'preen' : 'hop';
+      m.c++;
+      const g = (k) => h01(m.i * 7 + 3, m.c * 11 + k);
+      if (m.ev === 'rest'){ m.evT = 2.4 + g(1) * 3.6; m.yawT = m.yaw0 + (g(2) - 0.5) * 0.9; }
+      else if (m.ev === 'look'){ m.evT = 0.5 + g(1) * 0.5; m.yawT = m.yaw0 + (g(2) - 0.5) * 1.6; }
+      else if (m.ev === 'preen'){ m.evT = MACAW_EV.preen; m.yawT = m.yaw0 + (g(2) - 0.5) * 0.5; }
+      else if (m.ev === 'tail'){ m.evT = MACAW_EV.tail; }
+      else if (m.ev === 'flutter'){ m.evT = MACAW_EV.flutter; }
+      else { m.evT = MACAW_EV.hop; m.yawT = m.yaw + (g(1) > 0.5 ? 1 : -1) * (1.2 + g(2) * 0.9); }
+    }
+    /* 偏航缓动（张望/转身共用）：急张望与小跳用更短的时间常数 —— 才是"急" */
+    let dy = m.yawT - m.yaw;
+    while (dy > Math.PI) dy -= Math.PI * 2;
+    while (dy < -Math.PI) dy += Math.PI * 2;
+    m.yaw += dy * (1 - Math.exp(-dt / (m.ev === 'look' || m.ev === 'hop' ? 0.10 : 0.34)));
+
+    let y = m.base.y + 0.010 * Math.sin(t * 2.2 + m.phase), pitch = 0, roll = 0;
+    if (m.ev === 'flutter'){
+      const u = 1 - Math.max(0, m.evT) / MACAW_EV.flutter, env = Math.sin(Math.PI * u);
+      roll = Math.sin(u * 34) * 0.42 * env;
+      pitch = -0.10 * env + Math.sin(u * 34 + 0.7) * 0.10 * env;
+      y += 0.035 * env;                                  // 抖翅时轻轻离枝
+    } else if (m.ev === 'preen'){
+      const u = 1 - Math.max(0, m.evT) / MACAW_EV.preen, env = Math.sin(Math.PI * u);
+      pitch = 0.62 * env; y -= 0.018 * env; roll = 0.10 * env * Math.sin(u * 9.0);
+    } else if (m.ev === 'tail'){
+      const u = 1 - Math.max(0, m.evT) / MACAW_EV.tail;
+      pitch = -0.22 * Math.sin(Math.PI * u);
+    } else if (m.ev === 'hop'){
+      const u = 1 - Math.max(0, m.evT) / MACAW_EV.hop;
+      y += 0.055 * Math.sin(Math.PI * u);
+      pitch = -0.12 * Math.sin(Math.PI * u);
+    }
+    h.position.set(m.base.x, y, m.base.z);
+    h.rotation.set(pitch, m.yaw, roll);
+  }
+}
+/* 显式暴露给门禁（按项目规矩：可判定的量不靠 traverse 猜）。 */
+export function macawState(){
+  return MACAWS.map((m) => ({
+    mode: m.mode, visible: m.holder.visible, ev: m.ev,
+    yaw: +m.holder.rotation.y.toFixed(3),
+    pitch: +m.holder.rotation.x.toFixed(3),
+    roll: +m.holder.rotation.z.toFixed(3),
+    lift: +(m.holder.position.y - m.base.y).toFixed(3),
+    at: [+m.base.x.toFixed(2), +m.base.y.toFixed(2), +m.base.z.toFixed(2)],
+  }));
+}
+
+loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
   for (const s of MACAW_SPOTS){
     const holder = new THREE.Group();
     /* ⚠️ 必须显式命名：Rodin 导出的这个 GLB **节点名就是泛用的 `Mesh`**
@@ -1753,6 +1873,21 @@ loadAssetOnce('assets/Macaw.glb', 1.1, (src) => {
     });
     holder.add(c);
     world.add(holder);
+    /* 注册进作息/动作系统。base = 落点（脚底石面），yaw0 = 出图标定过的正面朝向。
+       ⚠️ 相位与事件计数器必须**逐鸟不同**，否则三只整齐划一、读起来是机械玩具。
+       ⚠️ rotation.order 必须是 'YXZ'：先偏航再俯仰 —— 点头才绕**鸟自己**的横轴；
+         默认 XYZ 会让俯仰绕世界横轴，鸟会朝侧面栽。 */
+    const perch0 = macawWantPerch();
+    holder.rotation.order = 'YXZ';
+    holder.visible = perch0;
+    MACAWS.push({
+      holder, base: new THREE.Vector3(s[0], s[1], s[2]), yaw0: 5.54,
+      phase: (s[0] * 1.7 + s[2] * 2.3) % 6.2832,
+      c: 1 + (Math.abs(s[0] * 13 + s[2] * 7) | 0) % 97,
+      i: MACAWS.length,
+      mode: perch0 ? 'perch' : 'away', mt: 0,
+      ev: 'rest', evT: 0.4 + (s[2] * 3) % 2.1, yaw: 5.54, yawT: 5.54,
+    });
   }
   onAssetAttached();               // 迟到资产立刻拿到当前季节状态
 });

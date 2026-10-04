@@ -41,7 +41,9 @@
    后果分场景：在线首开一切正常（.glb 走 fetch 后会被运行时写进缓存），
    **装成 PWA 后断网首开则拿不到鹦鹉**（required:false ⇒ 不阻塞开园 ⇒ 更静默）。
    本轮同时新增 probe/preload-manifest-sync.mjs 把这一类钉住（双向差集 + bytes 核对）。 */
-const CACHE = 'suzhou-garden-v15';
+/* 2026-10-05 陈设（竹帘升降）批次 bump v15→v16：改了 SHELL 成员 index.html
+   （面板加"陈设·卷帘"一行）。src/*.js 不在 SW 缓存里，改它们不用 bump。 */
+const CACHE = 'suzhou-garden-v16';
 const SHELL = [
   './',
   './index.html',

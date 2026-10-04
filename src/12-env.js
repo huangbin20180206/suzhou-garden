@@ -1817,6 +1817,9 @@ export function festivalState(){
   }
   return {
     on: !!ENV.festival,
+    /* 退出机制用的"进来之前"快照（guard 断言"关灯会后回得去"读完就不用再猜 ENV.time）。 */
+    prevTime: _festPrev ? _festPrev.time : null,
+    prevHour: _festPrev ? _festPrev.hour : null,
     riverN: inst ? inst.count : 0, riverFull: inst ? _festRiver.data.length : 0,
     riverPos: inst && inst.count > 0
       ? _festRiver.data.map((d, i) => {
@@ -1837,11 +1840,28 @@ export function festivalState(){
   };
 }
 
-/* 一键切换灯会：开 = 切到夜再叠灯会层；关 = 只撤灯会层（留在夜里）。 */
+/* ⚠️ 退出机制（老黄 2026-10-05："灯会场景没有退出机制"）——
+   进入灯会时会**强切到「夜」21:30**，而旧版关掉灯会只撤灯会层、把人留在夜里：
+   用户没有"回到我刚进来的那个时段"的路，只能自己去拖动条里找回来。
+   ⇒ 进入时记下 (time, hour)，退出时恢复。
+   ⚠️ 只在"当前仍是灯会自己压的那一档（夜 + 21.5）"时才恢复 —— 若用户在灯会里
+   自己改过时段（比如点了「晨」），以**他的改动**为准，不要把他拽回去。 */
+let _festPrev = null;
+
+/* 一键切换灯会：开 = 记住当前时段 + 切到夜 + 叠灯会层；关 = 撤灯会层 + 回原时段。 */
 export function toggleFestival(force){
   const on = force === undefined ? !ENV.festival : !!force;
   if (on === !!ENV.festival) return;
-  if (on && ENV.time !== 'night'){ ENV.time = 'night'; ENV.hour = 21.5; }   // 灯会 = 夜的 plus 版
+  if (on){
+    _festPrev = { time: ENV.time, hour: ENV.hour };
+    if (ENV.time !== 'night'){ ENV.time = 'night'; ENV.hour = 21.5; }   // 灯会 = 夜的 plus 版
+  } else if (_festPrev && ENV.time === 'night' && Math.abs(ENV.hour - 21.5) < 0.05){
+    ENV.time = _festPrev.time;                       // 回到进来之前
+    ENV.hour = _festPrev.hour;
+    _festPrev = null;
+  } else {
+    _festPrev = null;                                // 用户自己改过时段：不抢，直接作废
+  }
   ENV.festival = on;
   ENV.from = cloneParams(ENV.cur);
   ENV.to = resolveEnv();
@@ -2382,6 +2402,13 @@ function syncEnvUI(){
       b.setAttribute('aria-pressed', ENV.festival ? 'true' : 'false');
       return;
     }
+    if (b.dataset.act === 'blind'){
+      const up = !!HOOKS.blindState?.();
+      b.classList.toggle('on', up);
+      b.setAttribute('aria-pressed', up ? 'true' : 'false');
+      b.textContent = up ? '放帘' : '卷帘';      // 标签写"下一步做什么"，比"当前是什么"好用
+      return;
+    }
     if (b.dataset.act === 'season-demo'){
       b.setAttribute('aria-pressed', SEASON_DEMO.on ? 'true' : 'false');
       return;
@@ -2426,6 +2453,7 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.act === 'reel'){ toggleReel(); return; }   // 时光流转（按钮态由 toggleReel 自己同步）
   if (b.dataset.act === 'random'){ seasonDemoUserTakeover(); HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
   if (b.dataset.act === 'festival'){ toggleFestival(); return; }   // 上元灯会：一键开关（按钮态由 toggleFestival 自己同步）
+  if (b.dataset.act === 'blind'){ HOOKS.blind?.(); syncEnvUI(); return; }   // 竹帘卷起/放下（状态在 14-props）
   if (b.dataset.act === 'season-demo'){ toggleSeasonDemo(); return; }
   /* P2-2 巡游开关：巡游中按任意导览/环境按钮都先停巡游（接管语义），再执行本意 */
   if (b.dataset.act === 'tour'){ seasonDemoUserTakeover(); TOUR.on ? tourStop() : tourStart(); return; }
@@ -2587,6 +2615,8 @@ addEventListener('keydown', (e)=>{
     if (sb) sb.classList.toggle('on', !!HOOKS.sound?.());
     return;
   }
+  /* 竹帘卷起/放下：C（Curtain，2026-10-05 老黄要的"升起和放下"） */
+  if (e.key === 'c' || e.key === 'C'){ HOOKS.blind?.(); syncEnvUI(); return; }
   const map  = { '1':'morning', '2':'noon', '3':'dusk', '4':'night' };
   const smap = { q:'spring', w:'summer', e:'autumn', r:'winter' };
   /* 2026-09-28：'阴霾暗沉'从菜单收起（老黄："和薄雾感官上太一致，保留薄雾"）——

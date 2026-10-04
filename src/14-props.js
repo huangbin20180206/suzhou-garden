@@ -11,9 +11,9 @@
 //      不进指纹；但**若将来改成 InstancedMesh，必须 --update-baseline**。
 //   ③ **天气/季节名单**：新材质若要在雪里变白/雨里变亮，必须 registerWeatherRoles 登记，
 //      否则"写了加成也不生效"（竹竿 0.85 加成曾是死代码的先例）。
-import { THREE } from '../vendor.js';
+import { THREE, mergeGeometries } from '../vendor.js';
 import { mesh, box } from './03-factory.js';
-import { MAT, registerWeatherRoles, makeInkWashTex, makeGoBoardTex } from './01-materials.js';
+import { MAT, registerWeatherRoles, makeGoBoardTex } from './01-materials.js';
 import { groundHeight } from './05-water.js';
 import { mulberry32 } from './00-config.js';
 
@@ -40,9 +40,11 @@ MAT.celadonVat = registerWeatherRoles(new THREE.MeshStandardMaterial({
    只给高 envMapIntensity 让它映天光 —— 低档位也有环境贴图，不会变黑。 */
 MAT.vatWater  = new THREE.MeshStandardMaterial({
   color: 0x2C4A3E, roughness: 0.10, metalness: 0.0, envMapIntensity: 1.20 });
-/* 竹帘：竹篾本色（暖黄），比 bambooA/B 的鲜绿更"干燥"—— 帘子是砍下来的竹，不该是活的绿。 */
-MAT.bambooBlind = registerWeatherRoles(new THREE.MeshStandardMaterial({
-  color: 0xC7A96B, roughness: 0.74, metalness: 0.0, envMapIntensity: 0.55 }), { snow: 1, wet: 1 });
+/* 竹帘材质 MAT.bambooBlind 定义在 01-materials.js。
+   ⚠️ 它登在 12-env 的 SEASON_PRESENCE 表里，而那张表在 12-env 的**模块求值期**就抓材质，
+   12-env 又先于本模块求值 ⇒ 定义写在这里会让建表那一刻抓到 undefined、竹帘的季节通道
+   静默失效（春不挂/冬不撤，实测过）。凡是要登进那张表的材质，一律放 01-materials.js，
+   理由与来龙去脉写在那边这三份的注释里。 */
 /* 香炉/铜器：铜绿斑驳（金属度给足才读得出"铜"，但不能高到低档无反射时发黑 ——
    同 Macaw 的教训，0.55 是"有金属感又能被漫反射托住"的档）。 */
 MAT.bronze    = registerWeatherRoles(new THREE.MeshStandardMaterial({
@@ -401,18 +403,63 @@ export function makeCenser(x, z, yaw = 0){
    （莲子/莲蓬踩过三次的老坑，这是第四次重申）。
    帘用**竹篾条**排出来而不是一块平板贴图：条与条之间的缝在侧光下自成明暗，
    近看才像"帘"；条宽 0.042、间距 0.055（远看读成横条纹，近看是一条条竹篾）。 */
+/* ── 竹帘升降（2026-10-05 · 老黄："右侧亭子里加的帘子…挡住了里面的人和景，
+   是不是加一个帘子可以升起和放下的按钮或者其它什么方式就更加人性化了"）──
+   ⚠️ 卷起**不是隐藏**：帘条子组按 Y 缩放（帘条本来就纵向通长，缩放即"变短"），
+   底部那捆**卷捆**跟着贴到剩余帘尾 —— 读作"卷上去了"，而不是"消失了"。
+   ⚠️ 卷捆是绕 Z 转 90° 放倒的圆柱（轴向 = 世界 X），所以"加粗"只能缩放它的
+   **局部 X/Z**，缩放局部 Y 会把帘子卷成一根超出两侧的长棍。 */
+const BLINDS = [];                            // { slats, roll, full }
+/* 帘子的卷放状态：cur = 画面上实际的位置，target = 目标（0 全垂 / 1 卷起）。
+   ── 默认**卷起**（2026-10-05 用户指着水榭那张截图："帘子挡住了里面的人和景"）──
+   进页面先看见亭内，要遮阳再按 C / 点「放帘」。
+   ⚠️ 默认值必须同时写进 cur：updateBlinds() 在 |target − cur| < 1e-3 时直接 return，
+   只设 target 会出现"状态是卷起、画面上却垂着"的假象 —— 所以建帘时必须按 cur 摆一次。 */
+const BLIND_ROLL0 = 1;
+const _roll = { cur: BLIND_ROLL0, target: BLIND_ROLL0 };
+export function setBlindsRoll(r){ _roll.target = Math.max(0, Math.min(1, r)); }
+export function toggleBlinds(){
+  _roll.target = _roll.target > 0.5 ? 0 : 1;
+  return _roll.target > 0.5;
+}
+export function blindsRolled(){ return _roll.target > 0.5; }
+export function blindsRoll(){ return +_roll.cur.toFixed(3); }
+/* 把一幅帘摆到卷起程度 r（0 全垂、1 卷到剩一成）。几何上的取舍见上面那段注释。 */
+function poseBlind(b, r){
+  const sy = 1 - r * 0.90;                    // 只卷到剩一成：全收起会读成"帘子拆了"
+  b.slats.scale.y = sy;
+  b.roll.position.y = -b.full * sy + 0.02;
+  const k = 1 + r * 1.1;
+  b.roll.scale.set(k, 1, k);
+}
+export function updateBlinds(dt){
+  const d = _roll.target - _roll.cur;
+  if (Math.abs(d) < 1e-3) return;
+  _roll.cur += d * Math.min(1, dt * 4.5);
+  for (const b of BLINDS) poseBlind(b, _roll.cur);
+}
+
 export function makeBambooBlind(len, drop, { yaw = 0, rolled = 0.25 } = {}){
   const g = new THREE.Group();
   g.rotation.y = yaw;
   const n = Math.max(3, Math.round(len / 0.055));
+  const full = drop * (1 - rolled * 0.5);     // 帘条通长（Y 缩放的基准）
+  /* ⚠️⚠️ 帘条必须**先合并成一个几何**再建网格，而且必须 noMerge。
+      本轮实测踩到的坑：43 根独立 Mesh ×5 幅 = 215 个网格，全被 mergeStatics
+      并进静态大网（按名字一颗都找不到）⇒ 帘子的世界矩阵被烘死，升降**静默失效**
+      （窗口里看不出任何异常，只是"按钮按了没反应"）。
+      合并成 1 个网格 + noMerge = 每幅帘多 1 个 draw call（5 幅共 +5），换"真的能卷"。 */
+  const slatGeos = [];
   for (let i = 0; i < n; i++){
     const x = -len / 2 + (i + 0.5) * (len / n);
-    const h = drop * (1 - rolled * 0.5);
-    const slat = mesh(box(len / n * 0.80, h, 0.014), MAT.bambooBlind, { name:'propBlindSlat', cast:false });
-    slat.position.set(x, -h / 2, jr(0.006));
-    g.add(slat);
+    const gg = box(len / n * 0.80, full, 0.014);
+    gg.translate(x, -full / 2, jr(0.006));
+    slatGeos.push(gg);
   }
-  /* 上轴（挂帘的横杆）+ 两端轴头 */
+  const slats = mesh(mergeGeometries(slatGeos, false), MAT.bambooBlind, { name:'propBlindSlats', cast:false });
+  slats.userData.noMerge = true;              // 要能卷 ⇒ 绝不进静态合并
+  g.add(slats);
+  /* 上轴（挂帘的横杆）+ 两端轴头 —— 这两件不参与升降，照旧交给 mergeStatics 省 draw call */
   const rod = mesh(new THREE.CylinderGeometry(0.028, 0.028, len + 0.12, 10), MAT.woodDark, { name:'propBlindRod' });
   rod.rotation.z = Math.PI / 2;
   rod.position.y = 0.02; g.add(rod);
@@ -420,10 +467,16 @@ export function makeBambooBlind(len, drop, { yaw = 0, rolled = 0.25 } = {}){
     const cap = mesh(new THREE.SphereGeometry(0.040, 8, 6), MAT.wood, { name:'propBlindRodCap', cast:false });
     cap.position.set(sx * (len / 2 + 0.06), 0.02, 0); g.add(cap);
   }
-  /* 卷起的那一捆（帘底）：把"可以卷、现在是垂下的"这件事说清楚 */
+  /* 卷起的那一捆（帘底）：把"可以卷、现在是垂下的"这件事说清楚；
+     它要跟着帘尾走 ⇒ 同样 noMerge。 */
   const roll = mesh(new THREE.CylinderGeometry(0.055, 0.055, len, 10), MAT.bambooBlind, { name:'propBlindRoll', cast:false });
   roll.rotation.z = Math.PI / 2;
-  roll.position.y = -drop * (1 - rolled * 0.5) + 0.02; g.add(roll);
+  roll.position.y = -full + 0.02;
+  roll.userData.noMerge = true;
+  g.add(roll);
+  const b = { slats, roll, full };
+  poseBlind(b, _roll.cur);                    // 建帘即按当前状态摆好（默认卷起，见 _roll 注释）
+  BLINDS.push(b);
   return g;
 }
 
@@ -525,9 +578,8 @@ export function makeStationery(x, y, z, yaw = 0){
      "存在性每帧重申"机制（GTAO 每帧会把 visible 改回 true，必须重申），
      不必在 applyEnv 里新增一条特殊分支。
      两片画心错开 0.008m 防过渡期同时可见时 z-fighting。 */
-const _inkTex = makeInkWashTex(mulberry32(20261006));   // ⚠️ 必须传私有流：模块级调用若吃全局流，全园布局漂
-MAT.scrollArtCool = new THREE.MeshStandardMaterial({ map: _inkTex, color: 0xBFD2D8, roughness: 0.90, metalness: 0.0 });
-MAT.scrollArtWarm = new THREE.MeshStandardMaterial({ map: _inkTex, color: 0xD8C39A, roughness: 0.90, metalness: 0.0 });
+/* 两套画心材质 MAT.scrollArtCool / MAT.scrollArtWarm 定义在 01-materials.js：
+   它们同样登在 SEASON_PRESENCE 表里，必须在该表建起来之前就存在（理由同上，竹帘那条）。 */
 export function makeHangingScroll(x, y, z, yaw = 0){
   const g = new THREE.Group();
   g.position.set(x, y, z);

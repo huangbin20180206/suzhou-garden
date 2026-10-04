@@ -8,10 +8,13 @@ import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, FOG_BANKS, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, geese, smallBirds, smallBirdMeshRef, GOOSE } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
 import { tickLightning, LIGHTNING, lightningStrikeNow } from './12-env.js';
+/* 竹帘升降：状态与动画都住在 14-props（它拿着帘条子组与卷捆的引用），
+   这里只负责每帧推进；UI 侧经 HOOKS.blind 转发（同音景/明信片的既有做法）。 */
+import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } from './14-props.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
@@ -345,6 +348,9 @@ export function queuePostcard(){ takePostcard(); }
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.sound = toggleSound;
+/* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
+HOOKS.blind = toggleBlinds;
+HOOKS.blindState = blindsRolled;
 HOOKS.thunder = (ev) => Snd.playThunder(ev);   // 电闪雷鸣：闪电事件 → 排队雷鸣（12-env 调）
 /* 反射按需更新：把"水面是否活跃"的判断放在这里（本模块已经 import 了 ENV / REEL / 涟漪状态），
    05-water 经 HOOKS 读 —— 它不能 import 06-vegetation / 12-env（会成环，见 05 的注释）。
@@ -1188,6 +1194,9 @@ function animate(){
         小鸟全季节都在，不需要季节门控。 */
   updateGooseFlock(dt, t);
   updateSmallBirds(dt, t);
+  /* 金刚鹦鹉：白天栖峰顶（带张望/甩尾/抖翅/理羽/小跳），夜与雨雪天起飞离场 —— 2026-10-05 */
+  updateMacaws(dt, t);
+  updateBlinds(dt);                      // 竹帘卷起/放下（到位的帧零成本直接 return）
 
   // 乌龟缓游（同轨道，速度更慢）
   for (const tw of swimTurtles){
@@ -1816,6 +1825,12 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      真光源没被加多、避开桥/汀步/立峰"—— 显式暴露，不靠 traverse 猜。
                      tickFestival 暴露是为了门禁做**负例自检**（冻结 t ⇒ 河灯不动 ⇒ 漂移判据必须报红）。 */
                   toggleFestival, festivalState, tickFestival, setFestivalFreeze,
+                  /* 金刚鹦鹉作息 + 动作（2026-10-05）：门禁要断言"夜里/雨雪天不在、
+                     白天在、且栖停时有动作"，靠 traverse 猜不可判 ⇒ 显式暴露状态。 */
+                  macawState, macawWantPerch,
+                  /* 竹帘升降（2026-10-05）：门禁要断言"按钮按下后帘条真的变短、卷捆跟着走"。 */
+                  blindState: () => ({ rolled: blindsRolled(), r: blindsRoll() }),
+                  setBlindsRoll,
                   /* 四季自动演示：专项门禁用加速参数跑完整顺序，用户默认仍为 7s 飞行 + 3.5s 停留。 */
                   startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, seasonDemoState, seasonDemoCaption,
                   /* 高度雾总闸（2026-09-26）：uEnabled 是 pass 自己的 uniform、**刻意没进**

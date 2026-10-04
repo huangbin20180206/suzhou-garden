@@ -895,6 +895,11 @@ export function makeDistantMat(hex, opacity, haze, relief, freqPerM, opts = {}){
    树形剪影"被整层下线（来龙去脉见 07-ground.js 的 makeDistantHills 顶部说明）。
    留这条注记是为了让后来者知道它是**故意删掉的**，不是漏删。 */
 
+/* 卷轴画心（MAT.scrollArtCool / scrollArtWarm）共用的一张水墨底纹。
+   ⚠️ 必须传**私有**随机流：本调用是模块级的，哪怕只多抽一次全局 rr()，其后所有抽样
+   （含延迟批的柳/竹/立峰/桃）都会整体前移 ⇒ 全园布局漂且不报错（layout-fingerprint 报警）。 */
+const _inkTex = makeInkWashTex(mulberry32(20261006));
+
 export const MAT = {
   // —— 建筑 ——
   wall:     new THREE.MeshStandardMaterial({ color:0xDCD8CF, roughness:0.95, metalness:0.0,  envMapIntensity:0.35 }),
@@ -1059,6 +1064,25 @@ export const MAT = {
      只要这层还在，堂前池北岸就会立着一棵淡色树形剪影（并被 Reflector 镜像进水里）。
      老黄第 3 次指认后明确要求"完全隐藏或者直接删除"，于是连材质带贴图一起下线。
      来龙去脉见 07-ground.js 的 makeDistantHills 顶部说明；这里留注记以示**故意删除**。 */
+  /* ── 陈设（物）—— ⚠️⚠️ 这三份**必须定义在本模块**，不能挪回 14-props ──
+     竹帘与两幅卷轴画的季节显隐走 12-env 的 SEASON_PRESENCE，而那张表是在 12-env 的
+     **模块求值期**就把材质抓进去的（`['blindShow',[MAT.bambooBlind]]` 这样的字面量）。
+     import 图里 12-env **先于** 14-props 求值（08-assemble 第 5 行 import 12-env、
+     第 19 行才 import 14-props），所以原先这三份写在 14-props 里时，建表那一刻取到的
+     全是 undefined —— 表里记的是"没有材质"：collectSeasonCaches 建的 presence 表键是
+     undefined，`presence.has(o.material)` 永远匹配不上，applyPresence 对它们彻底落空。
+     症状是**静默的**（不报错、不崩、状态全对）：竹帘"春未挂/冬撤下"、卷轴"随季换画"
+     全部失效 —— 实测四季 blindShow 春 0 / 冬 0，帘子却年年挂着（用户截图指认的那一幅）。
+     规则：凡要在 SEASON_PRESENCE 里登记名字的材质，一律定义在 01-materials.js。
+     （同族第 4 次 —— 紫藤花穗、莲蓬、莲子，加上本地这三份，根因都是
+      "材质没有在**所有引用方**之前存在"，而症状一律是静默的。） */
+  bambooBlind: new THREE.MeshStandardMaterial({
+    // 竹篾本色（暖黄），比 bambooA/B 的鲜绿更"干燥"—— 帘子是砍下来的竹，不该是活的绿。
+    color: 0xC7A96B, roughness: 0.74, metalness: 0.0, envMapIntensity: 0.55 }),
+  // 卷轴画心两套（同一张底纹、两种色调）：春/夏 = 青绿山水，秋/冬 = 秋山雪意。
+  // 用**存在性通道**换画而不是运行时换 map —— 复用"存在性每帧重申"机制，不必在 applyEnv 里加分支。
+  scrollArtCool: new THREE.MeshStandardMaterial({ map: _inkTex, color: 0xBFD2D8, roughness: 0.90, metalness: 0.0 }),
+  scrollArtWarm: new THREE.MeshStandardMaterial({ map: _inkTex, color: 0xD8C39A, roughness: 0.90, metalness: 0.0 }),
 };
 Object.values(MAT).forEach(m => registry.mats++);
 /* 竹叶基色快照（applyEnv 春提亮用，见该处注释） */
@@ -1133,6 +1157,11 @@ export function registerWeatherRoles(mat, { snow = 0, wet = 0 } = {}){
 registerWeatherRoles(MAT.leaf,     { snow: 1 });
 registerWeatherRoles(MAT.leafDeep, { snow: 1 });
 registerWeatherRoles(MAT.willowLeaf, { snow: 1 });   // 雪压柳帘
+/* 竹帘也是户外陈设：雪要积在竹篾上、雨要把它打亮（同 14-props 的 porcelain/celadon 那一批）。
+   ⚠️ 登记**只能在这里**、不能塞进上面的 MAT 字面量：registerWeatherRoles 会碰 SNOW_COVER_MATS，
+   而那张表声明在 MAT **之后** ⇒ 写在字面量里是 TDZ，启动即炸（本轮实测踩到：
+   "Cannot access 'SNOW_COVER_MATS' before initialization"）。 */
+registerWeatherRoles(MAT.bambooBlind, { snow: 1, wet: 1 });
 /* ⚠️ 竹竿此前**只配了 SNOW_BOOST 加成、没进雪表**（2026-09-20 补）：
    加成只是 shader 里的 uniform，材质不在表里就压根不会被注入 —— 竹竿那个 0.85
    （SNOW_BOOST 全表最高档，显然是想让雪压在竹竿上）从来没生效过。
