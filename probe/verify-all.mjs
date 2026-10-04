@@ -1,5 +1,6 @@
 // 一条命令验到底（2026-09-17；2026-09-21 增至 25 门；2026-09-22 回填缺口增至 30 门；
-// 其后陆续加门，**当前 56 道**：2026-10-03 新增 preload-manifest-sync + 把 pwa-cache 入链）。
+// 其后陆续加门，**当前 57 道**：2026-10-03 新增 preload-manifest-sync + 把 pwa-cache 入链，
+// 随后的 figure-foot-guard 让它到 57 —— 准数以 SUITES 数组为准，别在本注释里写死）。
 // 串行跑 check
 // → codeonly-unit → **preload-manifest-sync** → import-audit
 // → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard
