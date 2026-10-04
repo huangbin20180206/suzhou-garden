@@ -378,6 +378,10 @@ const check = (name, ok, detail = '') => {
   const fails = results.filter(r => !r.ok).length;
   console.log(`\n[wind-audit] ${fails === 0 ? 'ALL PASS' : fails + ' FAILED'}（${results.length} 项）`);
   fs.writeFileSync(path.join(OUT, 'wind-audit.json'),
-    JSON.stringify({ mats, lanterns: lan, swung, lotus, sched, results }, null, 2));
+    /* ⚠️ 2026-10-05 修：这里原来写的是裸 `lotus` —— 那个名字只活在**浏览器侧**的
+       waitForFunction 回调里，Node 侧根本没有 ⇒ 26 项断言全过、末尾却抛
+       ReferenceError、整门 exit=1（"全绿的红门"，排查时最容易被当成产品缺陷）。
+       GLB 计数在 Node 侧叫 `ready`（{lotus,banana}，超时未齐时为 null）。 */
+    JSON.stringify({ mats, lanterns: lan, swung, glbReady: ready, sched, results }, null, 2));
   process.exit(fails === 0 ? 0 : 1);
 })().catch(e => { console.error('[wind-audit] 探针自身异常：', e); process.exit(1); });

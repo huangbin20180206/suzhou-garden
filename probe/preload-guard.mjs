@@ -77,9 +77,10 @@ const INIT = () => {
 };
 
 /* 一臂 = 一个全新 browser（着色器缓存跨页面复用会让 A/B 失效）
-   slowM: 给该臂套慢4G 限速，让 4 个 GLB 在 warmBoot 跑起来时**还在飞**
-          —— 这是唯一能让"下载段"代码路径真正被执行到的办法。 */
-async function run(chromium, port, { strip, chunky, slowM }){
+   slowM: 给该臂套链路限速，让 4 个 GLB 在 warmBoot 跑起来时**还在飞** ——
+          这是唯一能让"下载段"代码路径真正被执行到的办法。
+          ⚠️ 带宽不是越低越好：负例臂的带宽直接决定 ⑥ 有没有牙（见文件末尾"负例刻度"）。 */
+async function run(chromium, port, { strip, chunky, slowM, mbps }){
   const browser = await launchChromium(chromium);
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.setDefaultTimeout(700000);
@@ -88,11 +89,17 @@ async function run(chromium, port, { strip, chunky, slowM }){
   page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text());
     if (m.text().includes('[启动分段]')) bootLog.push(m.text()); });
   if (slowM){
+    /* 链路受限（延迟固定 100ms = 保证 GLB 在 warmBoot 跑起来时**还在飞**）。
+       ⚠️ 带宽可调，而它决定 ⑥ 负例有没有牙 —— 见文件末尾"负例刻度"那段注释：
+       撤销合并后的中位间隔 ≈ 下载段时长 / 44（整数百分比去重把写入次数封在 ~45 次），
+       所以带宽太低（下载段 >11s）时中位间隔必然 ≥250ms，**负例永远红、且证明不了①有牙**。
+       1.5Mbps（原值，下载段 ~13s）实测中位 296ms 就是踩在这个上；6Mbps 实测 80ms，
+       3 倍余量。可用 PRELOAD_NEG_MBPS 覆盖以复测。 */
+    const mb = mbps ?? Number(process.env.PRELOAD_NEG_MBPS || 6);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Network.enable');
-    // 慢4G 1.5Mbps/100ms —— 第一段实测该档失真 1.0× 可用（100M 档失真 1.6× 已证伪不可用）
     await cdp.send('Network.emulateNetworkConditions',
-      { offline: false, latency: 100, downloadThroughput: 1.5e6 / 8, uploadThroughput: 1.5e6 / 8 });
+      { offline: false, latency: 100, downloadThroughput: mb * 1e6 / 8, uploadThroughput: mb * 1e6 / 8 });
   }
   if (strip || chunky){
     let src = fs.readFileSync(path.join(ROOT, 'src/11-loop.js'), 'utf8');
@@ -248,13 +255,23 @@ async function run(chromium, port, { strip, chunky, slowM }){
   check('零 pageerror / console error', A.errs.length === 0 && B.errs.length === 0,
     (A.errs[0] || B.errs[0]) || `${A.errs.length}/${B.errs.length} 条`);
 
-  /* ── 负例自检：必须跑在**慢4G**臂上 ──────────────────────────────────────────
-     ⚠️ 第一版把负例跑在不限速臂上，结果它没红（中位 1428ms vs 产品 1430ms）——
-        因为本地档 GLB 早就下完 ⇒ 走的是**零等待分支**，`setInterval` 根本没建起来，
-        coalesceMs 传 0 完全无效 ⇒ 负例是**永真**的（"注入没改到东西"也能过）。
-        教训与本项目铁律 4 同源：**负例必须先断言前提**——它得先证明自己真的
-        走进了被测代码路径。慢4G 臂才有在飞的资产，才会真正进入 tick 循环。 */
-  console.log('\n【臂 C：负例自检（慢4G）—— 撤掉 250ms 采样合并】');
+  /* ── 负例自检：必须跑在**链路受限、但数据快节奏到达**的臂上 ──────────────────
+     ⚠️ 两个刻度都踩过坑，缺一不可：
+     ① **不能跑在不限速臂上**（第一版）：本地档 GLB 早就下完 ⇒ 走的是**零等待分支**，
+        `setInterval` 根本没建起来，coalesceMs 传 0 完全无效 ⇒ 负例是**永真**的
+        （"注入没改到东西"也能过）。所以臂上必须有在飞的资产，才会真正进 tick 循环。
+     ② **也不能跑在太慢的链路上**（2026-10-05 修）：撤销合并后的中位间隔 ≈
+        **下载段时长 ÷ 44** —— 因为产品还有"同一整数百分比不重复写"这条去重，
+        下载段映射到 0~45%，写入次数封顶在 ~45 次，于是间隔完全由**下载时长**决定。
+        原值 1.5Mbps（下载段 ~13s）算出中位 296ms **仍在 250ms 之上** ⇒ ① 在该档
+        根本不区分"有没有合并"，负例永远红、且证明不了 ① 有牙。
+        ⚠️ 由此换算出**判据自己的适用边界**：① 只在"下载段短于 44×250ms ≈ 11s"的
+        链路上才有牙；比这更慢的链路，逐百分比写入本来就慢于 250ms，不加合并也不会
+        "每秒跳 20 次"。这不是产品缺陷，是 ① 的适用范围 —— 写在这里，别再回头去动
+        那个 250ms。
+        ⇒ 带宽改 6Mbps（下载段 ~3.5s ⇒ 预计中位 ~80ms，3 倍余量）。
+        标定脚本：outputs/_diag/preload-neg-sweep.mjs（扫 5 档，1.5Mbps 复现 296ms）。 */
+  console.log('\n【臂 C：负例自检（100ms 延迟 + 6Mbps）—— 撤掉 250ms 采样合并】');
   const C = await run(chromium, port, { chunky: true, slowM: true });
   const WC = C.pg.w.map(([t, w]) => [t, parseFloat(w)]).filter(([, v]) => !Number.isNaN(v));
   const gapsC = [];
@@ -262,10 +279,10 @@ async function run(chromium, port, { strip, chunky, slowM }){
   const gMedC = med(gapsC);
   // 前提：负例臂必须真的走进了下载段（宽度序列里要有 <45 的采样）
   const inDownloadPath = WC.some(([, v]) => v > 0 && v < 45);
-  check('⑥ 负例前提：慢4G 臂确实走进了下载段（否则注入无效、这条负例是永真）',
+  check('⑥ 负例前提：限速臂确实走进了下载段（否则注入无效、这条负例是永真）',
     inDownloadPath, `0~45 的采样 ${WC.filter(([, v]) => v > 0 && v < 45).length} 个`);
   check('⑥ 负例自检：撤掉 250ms 合并后，① 的中位间隔必然跌破 250ms（证明 ① 有牙）',
-    gMedC < 250, `注入后中位 ${gMedC?.toFixed(0)}ms（共 ${WC.length} 次更新）`);
+    gMedC < 250, `注入后中位 ${gMedC?.toFixed(0)}ms（共 ${WC.length} 次更新；≈ 下载段时长/44 ⇒ 链路须快于 ~11s 才判得出）`);
 
   const fail = results.filter(r => !r.ok).length;
   console.log(`\n[预载] ${results.length - fail}/${results.length} 项通过`);

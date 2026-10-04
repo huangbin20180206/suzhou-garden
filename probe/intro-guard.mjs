@@ -99,10 +99,31 @@ const snap = pg => pg.evaluate(() => {
     process.exit(1);
   }
 
+  /* ⚠️⚠️ 2026-10-05 修口径（全量链里"两跑红不同断言"里的第一条就是它）：
+     原取法是「等 introState().on === true → 再发一次 snap()」，中间隔着**一次 IPC
+     往返 + 若干帧**；而本运镜是 3 关键帧 5.4s 飞 53m ≈ **10 m/s** ⇒ 核显/负载高时
+     一帧就能走 1~2.5m，实测 距K0 在 1.2m 阈值上下翻飞（1.34m 红、单跑 0.4m 绿）。
+     ⇒ 拆成两条，各取所长：
+       (a) **精确值**：introStart() 是**同步**把相机拷到 K0 的（08-assemble L2415），
+           所以在**同一个任务里**读完就是精确值、与帧率无关；
+       (b) **自动播路径**仍要看一眼，但只断"确实跳到云外俯瞰"—— 阈值按**航程**给
+           （53m 的 ~1/10），不再拿单帧噪声当判据。 */
   const B0 = await snap(pB);
   const dK0 = dist(B0.cam, K0_POS), dT0 = dist(B0.tgt, K0_TGT);
-  check('起幅在 K0 云外俯瞰 (30,34,40)（不是直接给交付机位）', dK0 < 1.2, `距K0=${dK0.toFixed(2)}m`);
-  check('起幅目标点在 K0 注视点 (0,4.5,2)', dT0 < 1.2, `距K0tgt=${dT0.toFixed(2)}m`);
+  check('自动播起幅在云外俯瞰（距 K0 ≪ 航程，不是直接给交付机位 —— 交付机位离 K0 53m）',
+    dK0 < 5, `距K0=${dK0.toFixed(2)}m（航程 53m）`);
+  check('自动播起幅目标点朝 K0 注视点 (0,4.5,2)', dT0 < 5, `距K0tgt=${dT0.toFixed(2)}m`);
+
+  const EXACT = await pB.evaluate(() => {
+    const g = window.__garden;
+    g.introStart();                                  // 起幅瞬间同步跳到 K0（产品行为）
+    const c = g.camera.position, t = g.controls.target;
+    return { cam: [c.x, c.y, c.z], tgt: [t.x, t.y, t.z] };
+  });
+  check('起幅**精确**等于 K0 (30,34,40) / 注视点 (0,4.5,2)（同步取证，与帧率无关）',
+    dist(EXACT.cam, K0_POS) < 1e-6 && dist(EXACT.tgt, K0_TGT) < 1e-6,
+    `距K0=${dist(EXACT.cam, K0_POS).toFixed(4)}m 距K0tgt=${dist(EXACT.tgt, K0_TGT).toFixed(4)}m`);
+
   check('飞行期 controls 冻结（拖拽/阻尼不许与插值抢相机）', B0.enabled === false, `enabled=${B0.enabled}`);
   check('飞行期 minDistance 放开到 0.2（否则近景插值被夹）',
     Math.abs(B0.minDist - 0.2) < 1e-6, `minDist=${B0.minDist}`);
@@ -152,11 +173,20 @@ const snap = pg => pg.evaluate(() => {
   check('让位后 controls 立即解冻', aft.enabled === true, `enabled=${aft.enabled}`);
   check('让位后 minDistance 立即收回', Math.abs(aft.minDist - aft.camMinDist) < 1e-6, `minDist=${aft.minDist}`);
   const ov = last.overview || aft.overview;
-  const froze = dist(aft.cam, before.cam);
-  check('让位 = 就地冻结（不跳回起幅、也不跳到落位点）',
-    froze < 0.05 && dist(aft.cam, K0_POS) > 2 && (!ov || dist(aft.cam, ov.pos) > 5),
-    `让位前后位移=${froze.toFixed(4)}m 距K0=${dist(aft.cam, K0_POS).toFixed(1)}m` +
-    (ov ? ` 距落位点=${dist(aft.cam, ov.pos).toFixed(1)}m` : ''));
+  /* ⚠️⚠️ 2026-10-05 修口径（全量链"两跑红不同断言"里的第二条）：原来
+     `froze = dist(aft.cam, before.cam)` —— `before` 是**按 k 之前**那次快照，中间隔着
+     "按键往返 + 若干帧"，而运镜 5.4s 飞 53m ≈ **10 m/s** ⇒ 慢帧一帧就是 1~2.5m。
+     全量链里因此红成 2.5872m，单跑又是 0.0000m：典型的"阈值≈噪声×帧率"。
+     ⇒ 改成**先让位、再观察**：让位落地后再跨若干帧采两次样，看它有没有继续动 ——
+     这才是"就地冻结"的语义，且与帧率无关（旧量法只作参考打印，不再当判据）。 */
+  const f0 = await snap(pB);
+  await sleep(700);
+  const f1 = await snap(pB);
+  const froze = dist(f1.cam, f0.cam);
+  check('让位 = 就地冻结（让位后跨帧不再移动，也不跳回起幅/落位点）',
+    froze < 0.05 && dist(f1.cam, K0_POS) > 2 && (!ov || dist(f1.cam, ov.pos) > 5),
+    `让位落地后 700ms 内位移=${froze.toFixed(4)}m（按 k 前→后含按键延迟是 ${dist(aft.cam, before.cam).toFixed(3)}m，不作判据）` +
+    ` 距K0=${dist(f1.cam, K0_POS).toFixed(1)}m` + (ov ? ` 距落位点=${dist(f1.cam, ov.pos).toFixed(1)}m` : ''));
 
   /* 滚轮是另一条接管路径（listener 在 renderer.domElement 捕获阶段），只验"让位生效"。
      位置在这里不可判 —— 见上面那条注释。 */

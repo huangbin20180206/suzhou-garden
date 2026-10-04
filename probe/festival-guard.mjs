@@ -8,7 +8,8 @@
 //   ④ **draw calls 预算**：灯会态总 draw calls 仍 < 800（smoke 的上限）；非灯会态的
 //      河灯/烛焰/灯串/桃树挂灯必须全部 **count=0**（零提交）；
 //   ⑤ **bloom 不溢出死白**：灯会态的亮像素占比必须受控（灯芯亮而不糊成白饼）；
-//   ⑥ 一键开关的语义：开灯会 = 切到夜 + 灯会层；关灯会 = 撤灯会层但**留在夜里**。
+//   ⑥ 一键开关的语义：开灯会 = 记下当前时段 + 切到夜 + 灯会层；关灯会 = 撤灯会层 +
+//      **回到进来之前的时段**（老黄 2026-10-05："灯会场景没有退出机制"）。
 // 判据都有牙：桥/汀步/立峰的避让用**注入反例**自检（把河灯落点挪进桥体矩形 → 判据必须报红）。
 // 用法: node probe/festival-guard.mjs
 import http from 'node:http';
@@ -227,26 +228,55 @@ const check = (name, ok, detail = '') => {
   });
   check('⑤ bloom 未溢出成死白（近白像素 < 1.2%）', white.pct < 1.2, `近白像素 ${white.pct}%`);
 
-  /* ── ⑥ 关灯会：撤层、留夜、count 归 0 ── */
+  /* ── ⑥ 关灯会：撤层 + **回到进来之前的时段** + count 归 0 ──
+     ⚠️⚠️ 2026-10-05 改口径：旧版守的是"关灯会后**留在夜里**"（当年老黄问"为什么关了
+     灯会天还黑着"留下的）。但老黄 2026-10-05 又提"灯会场景没有退出机制" —— 进灯会会
+     强切到夜 21:30，关掉之后人留在夜里、没有回到进来前时段的路。产品已改成"退出时恢复
+     进来前的 (time, hour)"（12-env 的 _festPrev），**判据必须跟着改** —— 否则就是又一次
+     "判据把产品当时的样子固化成标准"、反过来罚用户明确要的效果。
+     ⚠️ 快照必须在**退出之前**读（festivalState().prevTime；退出时 _festPrev 会置空）。 */
   const back = await page.evaluate(async () => {
     const g = window.__garden;
+    const pick = (n) => { const m = window.__fg.findInst(n); return m ? m.count : -1; };
+    const before = g.festivalState();            // 退出前：这里应记着"进来之前 = noon"
     g.toggleFestival(false);
     await new Promise(r => requestAnimationFrame(r));
     const t0 = performance.now();
     while (performance.now() - t0 < 4500) await new Promise(r => requestAnimationFrame(r));
-    const pick = (n) => { const m = window.__fg.findInst(n); return m ? m.count : -1; };
     return { time: g.ENV.time, festival: g.ENV.festival, show: g.ENV.cur.festivalShow,
-             st: g.festivalState(),
+             prevTime: before.prevTime, prevHour: before.prevHour, st: g.festivalState(),
              riverCount: pick('riverLanterns'), flameCount: pick('riverLanternFlames'),
              stringCount: pick('corridorStringLights'), calls: window.__fg.calls() };
   });
-  check('⑥ 关灯会：撤掉灯会层但**留在夜里**（不是跳回白天）',
-    back.festival === false && back.show < 0.03 && back.time === 'night',
-    `time=${back.time} festival=${back.festival} festivalShow=${(+back.show).toFixed(2)}`);
+  check('⑥a 关灯会：回到**进来之前**的时段（不是留在夜里，也不是跳到别的时段）',
+    back.festival === false && back.show < 0.03 && back.prevTime === 'noon' && back.time === 'noon',
+    `time=${back.time}（进来前=noon · 退出前快照 prevTime=${back.prevTime}）festival=${back.festival} festivalShow=${(+back.show).toFixed(2)}`);
   check('④ 关灯会后河灯/烛焰/灯串/桃树挂灯 count 归 0（draw call 回落）',
     back.riverCount === 0 && back.flameCount === 0 && back.stringCount === 0
       && back.st.treeN === 0 && back.st.treeFull > 0,
     `river=${back.riverCount} flame=${back.flameCount} string=${back.stringCount} · tree=${back.st.treeN}/${back.st.treeFull} · draw calls=${back.calls}`);
+
+  /* ── ⑥b 另一半契约：灯会里**用户自己改过时段**时，退出不许把他拽回去 ──
+     产品注释写明"以他的改动为准，不要把他拽回去"；这条与 ⑥a 一起才有牙 ——
+     只守 ⑥a 的话，"无脑恢复快照"的实现也能全绿，而那是错的（会把用户在灯会里
+     特意调的时段吞掉）。 */
+  const back2 = await page.evaluate(async () => {
+    const g = window.__garden;
+    g.setEnv('time', 'noon');
+    await new Promise(r => setTimeout(r, 250));
+    g.toggleFestival(true);
+    await new Promise(r => requestAnimationFrame(r));
+    g.setEnv('time', 'morning');                 // 用户在灯会里自己把时段改成「晨」
+    await new Promise(r => setTimeout(r, 300));
+    const inside = g.ENV.time;
+    g.toggleFestival(false);
+    const t0 = performance.now();
+    while (performance.now() - t0 < 1500) await new Promise(r => requestAnimationFrame(r));
+    return { inside, time: g.ENV.time, festival: g.ENV.festival };
+  });
+  check('⑥b 灯会里用户自己改过时段 ⇒ 退出**以他的改动为准**（不拽回进来前的时段）',
+    back2.festival === false && back2.inside === 'morning' && back2.time === 'morning',
+    `他在灯会里改成 morning ⇒ 退出后 time=${back2.time}（被拽回去会是 noon）`);
 
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));
   await browser.close();
