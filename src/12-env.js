@@ -6,7 +6,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
    跑 `animate()` / `window.__garden` → 启动期 TDZ（实测 "Cannot access 'windClock
    before initialization"，渲染循环每帧重复）。这两处都只在**事件回调**里调用，
    回调触发时所有模块早已就绪 → 走 00-config 的 HOOKS 延迟绑定（见该文件注释）。 */
-import { MAT, waterSurface, DISTANT_MATS, SEASON_TINT_REGISTRY, addWind, wetUniform, WET_MATS, SNOW_COVER_MATS, SNOW_HOOK } from './01-materials.js';
+import { MAT, waterSurface, DISTANT_MATS, SEASON_TINT_REGISTRY, addWind, wetUniform, WET_MATS, SNOW_COVER_MATS, SNOW_HOOK, AUX_PASS_HIDDEN } from './01-materials.js';
 import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart,
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
          cancelCamFly, CAM_FLY, introActive, introCancel, geese, GOOSE } from './08-assemble.js';
@@ -2684,6 +2684,18 @@ function buildLightning(){
   streak.frustumCulled = false; streak.renderOrder = 7;
   g.add(bolt, streak);
   scene.add(g);
+  /* ⚠️ 天空视觉层必须排除在 GTAO 的法线/深度 pre-pass 之外 —— 与"天上一条大黑拱"
+     （虹拱，见 02 makeRainbowMesh / 10-post collectAOSkip）**同一根因**，2026-10-04 实测：
+     pre-pass 是拿 override 材质把整个场景重画一遍，本组闪时 visible=true ⇒ 被画进 AO
+     的深度缓冲 ⇒ 那片 AO 被算成 ≈0 再乘回画面，**把闪电自己的亮痕压暗**。
+     实测（冻结帧同任务 A/B，outputs/_diag/bolt-ao3.mjs / bolt-ao5.mjs）：
+       不排除时"bolt visible 切换"在画面上留下 120 px / 最大差 268 的压暗足迹
+       —— 注意那次测得 bolt 自身 opacity=0，可见这 120px 全是被 AO 压出来的黑痕；
+       排除后该足迹 = 0。
+     ⚠️ 本组是**懒建**的（首次落雷才 buildLightning），所以不能走 `userData.aoSkip` +
+     collectAOSkip（那张排除表只在装配期收，建晚了收不到）——
+     走 AUX_PASS_HIDDEN：GTAO wrapper 每帧按引用读它，建得再晚也生效。 */
+  AUX_PASS_HIDDEN.push(g);
   LIGHTNING._group = g; LIGHTNING._bolt = bolt; LIGHTNING._boltMat = boltMat;
   LIGHTNING._streak = streak; LIGHTNING._streakMat = streakMat;
 }

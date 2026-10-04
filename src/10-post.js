@@ -77,14 +77,23 @@ const AO_SKIP_MATS = new Set([ MAT.leaf, MAT.leafDeep, MAT.willow, MAT.willowLea
                                MAT.bambooA, MAT.bambooB, MAT.banana, MAT.wisteria,
                                MAT.lily, MAT.lotus, MAT.trunk ]);
 const aoSkipped = [];
+const _aoSeen = new Set();
 export function collectAOSkip(){
-  aoSkipped.length = 0;
+  aoSkipped.length = 0; _aoSeen.clear();
+  const add = (o) => { if (!_aoSeen.has(o)){ _aoSeen.add(o); aoSkipped.push(o); } };
   world.traverse(o => {
     /* userData.aoSkip：非标准材质的后加物件（夏夜萤火虫是 Points + ShaderMaterial，
        不在 MAT 表里）靠这个标记进隐藏名单；普通网格仍按材质身份认领。 */
-    if (o.userData.aoSkip) aoSkipped.push(o);
-    else if (o.isMesh && AO_SKIP_MATS.has(o.material)) aoSkipped.push(o);
+    if (o.userData.aoSkip) add(o);
+    else if (o.isMesh && AO_SKIP_MATS.has(o.material)) add(o);
   });
+  /* ② world **之外**的「场景级天空视觉层」（2026-10-04）——
+     虹拱是 `scene.add(rainbowMesh)`（见 02 的 makeRainbowMesh），world.traverse 收不到它。
+     这一步不改①的既有口径：只认**显式 userData.aoSkip**，不按材质身份全场景认领，
+     免得把世界之外的普通物件误收进来、平白改变既有 AO 观感。
+     Why 必须有：GTAO 的 pre-pass 用 override 材质重画整个场景，虹自己的 shader
+     （含 discard）不会执行 ⇒ 它进 AO 深度缓冲后那片 AO≈0 ⇒ 天上一条实心黑拱。 */
+  scene.traverse(o => { if (!_aoSeen.has(o) && o.userData.aoSkip) add(o); });
 }
 /* ⚠️ 这里**没有**顶层 `collectAOSkip()`：它读 `world`，而 world 定义在 08-assemble，
    08 反过来又 import 本模块的 collectAOSkip（延迟批跑完补收）→ 构成环，本模块先求值，

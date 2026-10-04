@@ -1,6 +1,7 @@
 // 一条命令验到底（2026-09-17；2026-09-21 增至 25 门；2026-09-22 回填缺口增至 30 门；
-// 其后陆续加门，**当前 57 道**：2026-10-03 新增 preload-manifest-sync + 把 pwa-cache 入链，
-// 随后的 figure-foot-guard 让它到 57 —— 准数以 SUITES 数组为准，别在本注释里写死）。
+// 其后陆续加门，**当前 58 道**：2026-10-04 新增 sky-layer-guard（天空视觉层不许进 GTAO）；
+// 2026-10-03 新增 preload-manifest-sync + 把 pwa-cache 入链，随后的 figure-foot-guard 让它到 57
+// —— 准数以 SUITES 数组为准，别在本注释里写死）。
 // 串行跑 check
 // → codeonly-unit → **preload-manifest-sync** → import-audit
 // → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard
@@ -347,6 +348,18 @@ const SUITES = [
      ⚠️ 判据机位必须**背对太阳**朝虹心看（第一版设在东北、整片虹在画外，判据报 0.000 差 ——
         那是机位选错不是产品没画；排查这类红先换机位复测，别急着改产品）。 */
   ['雨后初晴与彩虹 afterrain-guard', 'probe/afterrain-guard.mjs'],
+  /* ── 2026-10-04 · 天空视觉层不许进 GTAO（老黄"进门首个画面就是这个大黑框"）──
+     GTAO 的 pre-pass 用 override 材质把**整个场景再画一遍** ⇒ 被画进去的对象，
+     自己 shader 的 `discard`/`depthWrite:false`/`blending` 全部不作数。
+     虹拱（R=68m、带宽 5.2m、两侧都是天空）进了 AO 深度缓冲后，那片 AO 被算成 ≈0
+     再乘回画面 ⇒ 天上一条**实心黑拱**（实测 16.5% 暗像素 ↔ 修后 0）。姊妹案例：
+     闪电 bolt/streak 同样把自己的亮痕压暗（足迹 120px / 最大差 268）。
+     ⚠️⚠️ 本门**强制 `?tier=high`**：`AO_ENABLED` 只在均衡/高两档为真，本机无头
+     Chromium 常落 Intel Iris Xe（low）⇒ 其余门禁全在"没有 AO"的地基上跑 ——
+     这正是"我这边全绿、老黄一进游戏就是黑框"的全部原因。第 1 条前提断言就是地基。
+     自带两条负例：撤虹的 aoSkip ⇒ 暗拱必复现；把闪电组从 AUX_PASS_HIDDEN 摘掉
+     ⇒ 压暗足迹必复现（两条实测都能红）。 */
+  ['天空视觉层 sky-layer-guard', 'probe/sky-layer-guard.mjs'],
   /* ── 2026-09-30 · 大雁迁徙（春/秋）+ 鲜艳小鸟（石上休息 / 草上跳跃捕食）──
      守三件**曾经静默失效**的事：① 季节显隐（夏/冬必须 0 只雁，春/秋全可见）；
      ② **阵型切换不是摆设**：只断言 form 数字变过不够 —— 必须再断言两种阵型下

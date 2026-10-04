@@ -509,6 +509,19 @@ export const rainbowMesh = makeRainbowMesh();
    （2026-10-02 实测）；将来任何"视线是否被挡"类判定（点景人物 / 交互拾取）
    也一样会被它劫持。 */
 rainbowMesh.raycast = () => {};
+/* ⚠️⚠️ 天空视觉层必须显式排除在 GTAO 之外（2026-10-04 定案，老黄报"进门首个画面
+   就是这个大黑框"）——
+   GTAO 的法线+深度 pre-pass 是**用 override 材质把整个场景再画一遍**：虹网格在那一遍里
+   走的是 GTAO 的法线材质，**自己的 shader 根本不会执行**（`if (alpha<0.012) discard`
+   形同不存在）。于是它进了 AO 的深度缓冲，那片 AO 被算成 ≈0 再乘回画面 ⇒
+   天上一条**实心黑拱**（probe/sky-layer-guard.mjs 实测：负例态天上暗像素 16.5% ↔ 修后 0；
+   同一缺陷在"关 AO / AO 期间藏虹"两臂上分别掉到 0.47%）。
+   取证脚本 outputs/_diag/blackband3/4/5.mjs。
+   ⚠️ **只在开了 AO 的档位（均衡/高）看得见** —— 低画质档 `AO_ENABLED=false`，
+   所以核显/low 档跑的无头探针**永远复现不出来**：这正是"我这边全绿、老黄一进游戏
+   就是黑框"的原因。凡新增"挂在天上的大视觉层"（球壳/卡片/拱带），
+   一律照此打 userData.aoSkip（若挂在 world 之外，见 10-post collectAOSkip 的第 ② 步）。 */
+rainbowMesh.userData.aoSkip = true;
 scene.add(rainbowMesh);
 
 /* ── 环境贴图（PMREM）：按时段**按需烘焙 + 缓存**（2026-09-25）────────────────
