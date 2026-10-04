@@ -16,6 +16,7 @@ import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles } from './01-materials.js';
+import { buildProps } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
    8 · 组装场景
    ══════════════════════════════════════════════════════════════ */
@@ -2180,6 +2181,15 @@ export function tourUserTakeover(){
    为什么必须放在 08 的 body 里：两者操作的都是 world，而 world 定义在本模块顶部；
    09 又要 export mergeStatics / validateGeometry 给本模块用 —— 若把这两句留在 09 顶层，
    就构成"08 等 09 求值完 / 09 等 08 求值完"的环，ESM 直接给 TDZ。 */
+
+/* ── 园林陈设（物）：石桌石凳 / 古琴 / 盆景花几 / 缸 / 香炉 / 竹帘 / 文房 / 卷轴挂画 ──
+   落点全部**射线实测**（outputs/_diag/props-spot.mjs：从空中下打、看真实命中面，
+   不看地形公式 —— 台基/铺地/廊道都是浮在地形上的独立网格，用 groundHeight 会陷/悬）。
+   几何与落点表都在 14-props（本模块只负责"什么时候挂进 world"）：
+   ⚠️ 必须在下面那次小构件投影剔除**之前**挂进去 —— 那些 < 1.1m 的案上小件
+   （笔架/砚/茶盏/棋钵）正好靠这一遍把 castShadow 关掉，晚了就白进投射物集合、
+   把阴影视体撑大（shadow-cover 的既有取舍）。 */
+world.add(buildProps());
 
 // 性能：小尺寸构件在阴影里的贡献几乎不可见，关闭其投影以压低 shadow pass 的 draw call
 world.traverse(o=>{

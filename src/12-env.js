@@ -797,7 +797,8 @@ export const ENV_SEASON = {
        秋 0.43 ≈ 1.8 万片（微落）；冬 0.33 ≈ 1.4 万片（常绿稍疏） */
     bambooLeaf:0.28, koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 春：大雁北迁过境
     /* 春：先花后叶。花满树、叶始萌（15% 刚抽的嫩芽），落花初落 —— 桃是先花后叶树种 */
-    peachShow:0.15, peachBlossomShow:1, peachFruitShow:0, peachPetalShow:0.3 },
+    peachShow:0.15, peachBlossomShow:1, peachFruitShow:0, peachPetalShow:0.3,
+    blindShow:0, scrollCoolShow:1, scrollWarmShow:0 },      // 春：帘未挂；堂内青绿山水
   summer: { label:'夏',
     sunMul:1.00, ambMul:1.00, hemiMul:1.00, fogMul:1.00, satMul:1.00,
     tinGrass:0xFFFFFF, tinBamboo:0xA8C46A, tinLeaf:0x4E8C36, tinReed:0x3F6B34,
@@ -807,7 +808,8 @@ export const ENV_SEASON = {
     bambooLeaf:1.0,
     koiSpeed:1.0, dragonflyShow:1.0, turtleShow:1.0, gooseShow:0.0,   // 夏：无雁（盛夏非迁徙季）
     /* 夏：花落尽、桃结果（叶茂果生，落花也快被扫净只余淡痕） */
-    peachShow:1, peachBlossomShow:0, peachFruitShow:1, peachPetalShow:0.45 },  autumn: { label:'秋',
+    peachShow:1, peachBlossomShow:0, peachFruitShow:1, peachPetalShow:0.45,
+    blindShow:1, scrollCoolShow:1, scrollWarmShow:0 },  autumn: { label:'秋',   // 夏：帘垂下遮阳
     sunMul:0.97, ambMul:0.95, hemiMul:0.96, fogMul:1.18, satMul:1.06,
     /* 秋竹叶：0xD8A94E（绿度 −47，金黄）→ 0x93A656（绿度 +19，转暗的秋绿）。
        ⚠️ 与冬季同一处数据错误的**遗留副本**：当年只修了竹竿通道 tinBamboo
@@ -822,7 +824,8 @@ export const ENV_SEASON = {
     bambooLeaf:0.43,
     koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 秋：大雁南迁过境
     /* 秋：桃叶转黄（tinLeaf）、果渐疏（快被摘/落尽），花/落花早没了 */
-    peachShow:1, peachBlossomShow:0, peachFruitShow:0.7, peachPetalShow:0 },
+    peachShow:1, peachBlossomShow:0, peachFruitShow:0.7, peachPetalShow:0,
+    blindShow:0.35, scrollCoolShow:0, scrollWarmShow:1 },    // 秋：帘卷起；换秋山
   winter: { label:'冬',
     sunMul:0.88, ambMul:0.93, hemiMul:0.94, fogMul:1.28, satMul:0.70,
     /* ⚠️ 冬季植被色**必须比秋季更灰**，这是之前的数据错误：
@@ -843,7 +846,8 @@ export const ENV_SEASON = {
     bambooLeaf:0.33,   // 冬：竹常绿但疏（不落叶，只是密度回落）
     koiSpeed:0.42, dragonflyShow:0.0, turtleShow:0.0, gooseShow:0.0,   // 冬：无雁（越冬地不在此）
     /* 冬：桃树落叶，裸枝过冬（同冬柳）——叶落尽、无花无果无落花 */
-    peachShow:0, peachBlossomShow:0, peachFruitShow:0, peachPetalShow:0 },
+    peachShow:0, peachBlossomShow:0, peachFruitShow:0, peachPetalShow:0,
+    blindShow:0, scrollCoolShow:0, scrollWarmShow:1 },       // 冬：帘撤下；堂内雪意
 };
 
 /* 预设 → 可插值参数对象 */
@@ -1876,6 +1880,16 @@ const SEASON_PRESENCE = [
   ['peachFruitShow',[MAT.peachFruit]], ['peachPetalShow',[MAT.peachPetal]],
   /* 灯会内容也走同一套存在性通道：festivalShow>0.03 才提交。 */
   ['festivalShow',[riverLampMat, riverFlameMat, stringBulbMat]],
+  /* ── 2026-10-04 · 陈设（物）的季节通道 ──
+     竹帘：夏挂冬撤（用户要的"低垂遮阳"，冬天还挂着就假）。
+     卷轴挂画"随季节换画"：**两套画心 + 互补的存在性**，而不是运行时换 map ——
+     这样直接复用既有"存在性每帧重申"机制（GTAO 每帧会把 visible 改回 true），
+     不必在 applyEnv 里新增一条特殊分支。春/夏 = 青绿山水，秋/冬 = 秋山雪意。
+     ⚠️ 材质必须是**共享**的那两份（MAT.bambooBlind / scrollArtCool / scrollArtWarm）：
+     克隆一份就进不了这张表，冬天收不掉（莲子/莲蓬踩过三次，这是第四次重申）。 */
+  ['blindShow',[MAT.bambooBlind]],
+  ['scrollCoolShow',[MAT.scrollArtCool]],
+  ['scrollWarmShow',[MAT.scrollArtWarm]],
 ];
 const seasonMeshCache = new Map();
 /* 填充已并入 collectSeasonCaches()（见 willowLeafInsts 一段）：一次遍历同时收

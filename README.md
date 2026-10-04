@@ -260,8 +260,11 @@ RenderPass → GTAO(仅独显档) → UnrealBloom → GradeShader(对比/分离�
 ```
 suzhou-garden/
 ├─ index.html            559 行壳：CSS + DOM + `import` 装配 + 启动兜底（场景代码全在 src/，见「单文件拆模块」）
-├─ src/                  场景代码 16 个模块 / 约 11700 行，按原节号命名（00-config … 13-preload + 2b-wind + app）
+├─ src/                  场景代码 17 个模块 / 约 12300 行，按原节号命名（00-config … 13-preload + 14-props + 2b-wind + app）
 │                        ⚠️ 模块**顶层**代码在 import 时就会跑 —— 加东西前先读 README 里那两条破环通则
+│                        ⚠️ 14-props（园林陈设）模块**顶层**建材质/贴图时**不得消耗全局随机流**
+│                        （`makeInkWashTex(私有 mulberry32)` 就是为此加的形参），否则其后
+│                        所有抽样整体前移、全园布局漂且不报错（layout-fingerprint 会报"新增/消失"）
 ├─ vendor.js             esbuild 打包的 three r184 + addons 本地 ESM（零 CDN，含 Draco/KTX2/Meshopt 解码器）
 ├─ sw.js                 Service Worker：壳 stale-while-revalidate + GLB cache-first（PWA 离线）
 ├─ manifest.webmanifest  PWA 清单（独立窗口 / 主题色 / SVG 图标）

@@ -236,7 +236,13 @@ export function makeSteleTex(chars, sub){
   return t;
 }
 
-export function makeInkWashTex(){                        // 水墨山水（屏风背景）
+export function makeInkWashTex(R){                       // 水墨山水（屏风背景）
+  /* ⚠️ 可选随机源 R（返回 [0,1) 的函数，如 mulberry32 实例）：传了就用它，
+     **一个全局随机数都不抽**。14-props 的卷轴画心必须走这条 —— 它是在**模块级**
+     调用的，哪怕只多抽一次 rr()，其后所有抽样（含延迟批的柳/竹/立峰/桃）都会
+     整体前移 ⇒ 全园布局漂且不报错（layout-fingerprint 报"新增 41 / 消失 42"）。
+     不传则沿用全局 rr() ⇒ 04-buildings 的屏风背景逐位不变。 */
+  const rrT = R ? ((a, b) => a + R() * (b - a)) : rr;
   const W = 1024, H = 768;
   const c = document.createElement('canvas'); c.width = W; c.height = H;
   const g = c.getContext('2d');
@@ -274,12 +280,53 @@ export function makeInkWashTex(){                        // 水墨山水（屏�
   for (let i = 0; i < 14; i++){
     const t = i / 14;
     const bx = W * (0.14 + 0.14 * t), by = H * (0.86 - 0.26 * t);
-    g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + rr(-16, 16), by - rr(8, 22)); g.stroke();
+    g.beginPath(); g.moveTo(bx, by); g.lineTo(bx + rrT(-16, 16), by - rrT(8, 22)); g.stroke();
   }
   g.globalAlpha = 1;
   g.fillStyle = '#A8352A'; g.fillRect(W - 76, H - 76, 44, 44);   // 印章
   g.fillStyle = '#EDE6D6'; g.font = 'bold 24px "KaiTi","SimSun",serif'; g.textAlign = 'center';
   g.fillText('園', W - 54, H - 44);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+
+export function makeGoBoardTex(){                        // 围棋盘面：19 路棋路 + 九星
+  /* ⚠️ 本函数**不碰全局 rnd()/rr()** —— 木纹的随机性走自带的局部 LCG。
+     上面那些模块级贴图工厂都会消耗全局随机流，而"全局随机流守恒"是红线：
+     在 14-props 的模块级新增哪怕一次 rr() 调用，其后所有抽样整体前移、
+     全园布局漂且不报错。木纹用局部流就够，没必要动全局。 */
+  const W = 512, H = 490;                                // ≈ 45.4 : 42.4（真实棋盘的纵横比）
+  const c = document.createElement('canvas'); c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  let s = 20261005 >>> 0;                                // 局部 LCG（Numerical Recipes）
+  const lr = () => { s = (Math.imul(s, 1664525) + 1013904223) >>> 0; return s / 4294967296; };
+  const r2 = (a, b) => a + lr() * (b - a);
+  g.fillStyle = '#D8B072'; g.fillRect(0, 0, W, H);       // 楸木本色：比桌面石材暖、比 MAT.wood 亮
+  g.globalAlpha = 0.16;                                  // 木纹：几十道纵向深浅纹
+  for (let i = 0; i < 90; i++){
+    g.strokeStyle = lr() < 0.5 ? '#A9782F' : '#EFD3A2';
+    g.lineWidth = r2(1, 4.5);
+    const x = lr() * W;
+    g.beginPath(); g.moveTo(x, 0);
+    g.bezierCurveTo(x + r2(-14, 14), H * 0.33, x + r2(-14, 14), H * 0.66, x + r2(-10, 10), H);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+  /* 19 路：边框各留 1/22 边距 ⇒ 18 道间隔等分内区（真实棋盘就是等距） */
+  const px = W / 22, st = (W - px * 2) / 18;
+  const py = H / 22, sy = (H - py * 2) / 18;
+  g.strokeStyle = '#2A1A0C'; g.lineWidth = 2.2; g.lineCap = 'round';
+  for (let i = 0; i < 19; i++){
+    const x = px + i * st;
+    g.beginPath(); g.moveTo(x, py); g.lineTo(x, H - py); g.stroke();
+    const y = py + i * sy;
+    g.beginPath(); g.moveTo(px, y); g.lineTo(W - px, y); g.stroke();
+  }
+  g.fillStyle = '#2A1A0C';                               // 九星（四角 4-4 / 四边中星 / 天元）
+  for (const [ix, iy] of [[3,3],[3,9],[3,15],[9,3],[9,9],[9,15],[15,3],[15,9],[15,15]]){
+    g.beginPath(); g.arc(px + ix * st, py + iy * sy, 3.6, 0, TAU); g.fill();
+  }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
   return t;
