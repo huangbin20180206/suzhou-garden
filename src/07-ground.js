@@ -511,5 +511,173 @@ export function makeSmallBirdGeo(){
   return g;
 }
 
+/* ══ 池中水禽：绿头鸭 / 鸳鸯（2026-10-04）══════════════════════════════════════
+   动机（计划书 §6「再下一批 · 人/景」第一条）：**池面除荷叶外是空的** —— 锦鲤在水下、
+   泳龟贴着水面滑，水面上没有任何活物。江南园林的池塘本来就有水禽。
+   ── 为什么程序化而不是 GLB：本项目「全程序化」已拍板（计划书 §4）；且要做
+      两种鸟 × 雌雄四套羽色，GLB 反而更贵（还要过预载清单 / PWA / smoke 资产表）。
+   ── 为什么**不挂涟漪尾迹**（重要）：水面涟漪事件额度是用户拍板过的
+      （锦鲤链 + 泳龟链 ≈30 次/分 —— KOI_BREACH 与 TURTLE_WAKE 两条链各有门禁水位）。
+      水禽再挂第三条链会把水面推回「机关水车」那种密度。改成**随鸭移动的常驻小尾涡圈**
+      （08 里每只挂一个 mesh，不进涟漪池）—— 这也是真鸭子的样子：一边划水一边拖一圈
+      常驻波纹，而不是一圈圈扩散出去。⇒ 涟漪配额**一位不动**。
+   ⚠️⚠️ 尺度：这条**返工过一次，量错了一版**，把教训记在这（2026-10-04）。
+      真实绿头鸭体长 ~0.35m，默认机位看池面在 36~46m 外 ⇒ 真鸭不到 8px，必然读不出。
+      「为远观可读而放大」与 BIRD_SCALE=5.0（石上小鸟 0.58m ≈ 默认机位 13px）是同一条取舍线。
+      ⚠️ 第一版倍率定 1.8，依据是"默认机位量到 22~32px" —— **那个数是假的**：
+         当时用 Box3.setFromObject 量尺寸，而它取的是**世界轴对齐盒**。鸭每帧绕 Y 转，
+         盒子按"转到最外"撑开 ⇒ 正对/背对机位（也就是屏幕上最窄、最该被抓住的那一帧）
+         会被量成 ~28px，而实际只有 11px。**测量口径把最坏情况整帧抹掉了**，
+         比"高估 2 倍"更糟：门禁绿着、鸭子其实是个点。
+      ⇒ 现取 2.4：默认机位逐相位实测最窄 14.2px、最宽 33.6px（见 probe/duck-guard.mjs ①），
+        与小鸟那条线对齐，且留出余量 —— 鸭每帧还有 ±9° 的慢速张望，
+        最窄那一帧会再抖 ~10%，贴着线取值会让门禁飘。
+      ⚠️ 量尺寸**必须逐顶点投影**（Box3 的世界轴对齐盒会把旋转吃成虚胖，
+         实测同帧虚胖 1.31~1.52×，且**最窄的那一帧被撑得最狠**），
+         probe/duck-guard.mjs 用的就是窄口径，判据 ≥12px。
+   ⚠️ 顶点色与小鸟同源：部位分区烘进顶点色、存**线性**空间、材质 vertexColors:true。
+      每个物种一份几何（四份不共用）—— 羽色差异（绿头 / 栗胸 / 橙帆羽 / 白眉）
+      正是"一眼认出是什么鸟"的主体，省不得。 */
+const DUCK_SCALE = 2.4;
+/* 部位 → 调色键。几何里每个部件打一个 tag，烘色时按 tag 查物种调色板。 */
+const DUCK_ZONE = { body:'body', breast:'breast', neck:'neck', head:'head',
+                    bill:'bill', tail:'tail', wing:'wing', sail:'sail' };
+/* 四套羽色（sRGB 十六进制）。
+   ⚠️⚠️ **配色第一原则：默认机位是俯视的（pitch ≈ −19°），玩家看到的是鸭子的"背"，
+   不是"侧面"** —— 第一版把色彩重心放在体侧（栗胸 / 蓝翼镜 / 折翅），实测默认机位下
+   整只读成"水上一团深色"，与小鸟那次"灰调融进灰石头"同一类错。
+   ⇒ 识别色必须放在**俯视能看到的部位**：头（绿头 / 暗紫头）、颈环（白）、背（体色）、
+      鸳鸯的橙帆羽；体侧的折翅改成"比体色略深一点点"，不做硬色块。 */
+const DUCK_PAL = {
+  /* 绿头鸭 ♂：暗绿头 + 白颈环 + 灰背（俯视下"绿头 + 白环"就是身份） */
+  mallardM:  { head:0x1F7A46, neck:0xEFF3EC, breast:0x6E3B22, body:0xA6ACA8,
+               wing:0x8A918E, sail:0x8A918E, bill:0xD9C24B, tail:0x33332F },
+  /* 绿头鸭 ♀：通体褐斑（与 ♂ 一眼分雌雄；雌鸟本来就该"不起眼"） */
+  mallardF:  { head:0x9C8A66, neck:0xAC9F80, breast:0x8A7A5A, body:0x998C6C,
+               wing:0x847A5E, sail:0x847A5E, bill:0xC08A3A, tail:0x413B31 },
+  /* 鸳鸯 ♂：白眉 + 暗紫头 + **橙色帆羽**（俯视下最抢眼的一件）+ 金褐背 + 红喙。
+     ⚠️ 背色 0xC2A472 → 0xCFB183：实测整只对水面的平均亮度差 −26（比水还暗），
+        帆羽改成薄片后更缺亮部；抬一档让它读成"水上的一块暖色"而不是暗块。 */
+  mandarinM: { head:0x4A2E52, neck:0xF2ECDC, breast:0x7A2E46, body:0xCFB183,
+               wing:0xA98A5E, sail:0xE4782A, bill:0xC4422E, tail:0x2E2A24 },
+  /* 鸳鸯 ♀：灰褐（头给亮一档，俯视下读作"白眼圈"）。
+     ⚠️ 背色 0x9E9688 → 0xB3AB9D、颈环提到近白：实测这只对水面的亮度差 ≈ 0
+        （灰褐贴灰绿水，与小鸟那次"灰调融进灰石头"是同一类错）——
+        得给它至少一处高反差地标，白颈圈就是那处。 */
+  mandarinF: { head:0xC0B8AA, neck:0xEDE6D8, breast:0xA89E8E, body:0xB3AB9D,
+               wing:0x8A8274, sail:0x8A8274, bill:0x8A8A88, tail:0x413D35 },
+};
+/* 腿脚一律同一份暗橙（浮在水里基本看不见，但近景低头时要有） */
+const DUCK_FOOT = 0xC4762E;
+
+export function makeDuckGeo(kind){
+  const S = DUCK_SCALE;
+  const L = 0.170 * S, R = 0.108 * S, H = 0.086 * S;   // 体：半长 / 半宽 / 半高
+  const parts = [], tagged = [];
+  const add = (geo, tag) => { parts.push(geo.toNonIndexed()); tagged.push(tag); };
+
+  /* 体：纺锤。⚠️ 组的原点 y=0 就是**水面线** —— 体的中心压到 y≈0 附近，
+     下半身没入水中（真鸭子吃水约体高的一半，读作"浮着"而不是"漂着"；
+     当前 DUCK_SCALE=2.4 下 refract-coverage 反扫实测下探水面 0.26m）。 */
+  const body = new THREE.SphereGeometry(1, 12, 9);
+  body.scale(R, H, L);
+  body.translate(0, H * 0.06, 0);
+  add(body, 'body');
+  /* 胸：体前下方一小块凸起（绿头鸭的栗胸 / 鸳鸯的紫胸都落在这里） */
+  const breast = new THREE.SphereGeometry(1, 9, 7);
+  breast.scale(R * 0.88, H * 0.82, L * 0.36);
+  breast.translate(0, -H * 0.06, L * 0.66);
+  add(breast, 'breast');
+  /* 尾：短楔、略上翘（鸭尾比雁尾短而翘） */
+  const tail = new THREE.ConeGeometry(R * 0.62, L * 0.74, 5);
+  tail.rotateX(-Math.PI / 2);
+  tail.scale(1, 0.42, 1);                       // 压扁成尾羽片
+  tail.translate(0, H * 0.46, -L * 1.12);
+  add(tail, 'tail');
+  /* 颈：短而斜 —— 鸭颈明显比雁颈短，这是远观分辨"鸭 vs 雁"的第一特征 */
+  const neck = new THREE.CylinderGeometry(R * 0.30, R * 0.40, L * 0.50, 6);
+  neck.rotateX(-0.72);
+  neck.translate(0, H * 0.84, L * 0.72);
+  add(neck, 'neck');
+  /* 头 */
+  const head = new THREE.SphereGeometry(1, 9, 7);
+  head.scale(R * 0.46, R * 0.42, R * 0.54);
+  head.translate(0, H * 1.52, L * 0.92);
+  add(head, 'head');
+  /* 喙：**扁铲**（鸭喙是扁的，与雁的尖喙不同 —— 这是鸭最好认的特征之一）。
+     ⚠️ 第一版只探出头 0.04m，比喙还短 ⇒ 远看那条"扁喙"根本不存在。现在探出 ~0.08m。 */
+  const bill = new THREE.CylinderGeometry(R * 0.21, R * 0.16, L * 0.46, 6);
+  bill.rotateX(Math.PI / 2);
+  bill.scale(1, 0.42, 1);
+  bill.translate(0, H * 1.38, L * 1.30);
+  add(bill, 'bill');
+  /* 折翅：体侧两片（绿头鸭/鸳鸯的蓝翼镜落在这里） */
+  for (const sx of [-1, 1]){
+    const w = new THREE.SphereGeometry(1, 8, 6);
+    w.scale(R * 0.30, H * 0.62, L * 0.60);
+    w.translate(sx * R * 0.86, H * 0.14, -L * 0.04);
+    add(w, 'wing');
+  }
+  /* 背上的"帆羽"位。
+     ⚠️⚠️ 2026-10-04 返工：第一版这里给的是**球体**，隔离剪影放大一看就露馅 ——
+     默认机位下整只读成"背上驮着两个橙球"，像摆件不像鸟（放大 5× 见
+     outputs/_diag/ducks/read-grid.png 下排 d2）。改成**薄片三角帆、向后掠、微微外张**。
+     · 只有鸳鸯 ♂ 立这对帆（真鸳鸯的帆羽就是立起来的）；
+     · 其余物种这处只留一道**很扁的背棱**（翼色），撑一点背部体积，不做立件 ——
+       给绿头鸭立两片帆会读成"长角"。 */
+  if (kind === 'mandarinM'){
+    for (const sx of [-1, 1]){
+      const sail = new THREE.ConeGeometry(R * 0.30, H * 1.25, 4);
+      sail.scale(0.40, 1, 1);                    // 压薄成羽片
+      sail.rotateX(0.45);                        // 尖端向后掠
+      sail.rotateZ(-sx * 0.20);                  // 微微外张
+      sail.translate(sx * R * 0.56, H * 0.72, -L * 0.10);
+      add(sail, 'sail');
+    }
+  } else {
+    for (const sx of [-1, 1]){
+      const ridge = new THREE.SphereGeometry(1, 8, 5);
+      ridge.scale(R * 0.30, H * 0.24, L * 0.54);
+      ridge.translate(sx * R * 0.50, H * 0.88, -L * 0.18);
+      add(ridge, 'sail');
+    }
+  }
+  /* 脚：一对小蹼（水面下，近景低头才看得见） */
+  for (const sx of [-1, 1]){
+    const foot = box(R * 0.30, H * 0.10, L * 0.30);
+    foot.translate(sx * R * 0.42, -H * 0.72, L * 0.16);
+    parts.push(foot.toNonIndexed()); tagged.push('foot');
+  }
+
+  const g = mergeGeometries(parts, false);
+  const PAL = DUCK_PAL[kind] || DUCK_PAL.mallardM;
+  const col = new Float32Array(g.attributes.position.count * 3);
+  const C = new THREE.Color();
+  let vi = 0;
+  for (let k = 0; k < tagged.length; k++){
+    const n = parts[k].attributes.position.count;
+    const hex = tagged[k] === 'foot' ? DUCK_FOOT : PAL[DUCK_ZONE[tagged[k]]];
+    C.set(hex).convertSRGBToLinear();          // 顶点色进着色器是线性空间（小鸟同款坑）
+    for (let j = 0; j < n; j++, vi++){
+      col[vi * 3] = C.r; col[vi * 3 + 1] = C.g; col[vi * 3 + 2] = C.b;
+    }
+  }
+  g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+  parts.forEach(p => p.dispose());
+  return g;
+}
+/* 常驻尾涡圈的几何：一个扁环（水面上的"鸭子顶出来的那圈"）。
+   与涟漪池里的 RingGeometry 同量级，但**只画一圈、不扩散、不占配额**。 */
+export function makeDuckWakeGeo(){
+  /* 第一个数是最内圈、第二个是最外圈。**跟着 DUCK_SCALE 走**，保持"外径 ≈ 体长 1.6 倍"
+     —— 否则改了鸭子倍率而环不动，鸭子一大就把环撑破、或一小就整只缩进环里。
+     ⚠️ 第一版给了 0.42~0.92（外径 1.84m ≈ 体长 3 倍），默认机位下那圈水纹比鸭子
+     本身还大、把整只鸭读成"水面上一个环"，而且测"鸭子多大"时 bbox 全被它占满。 */
+  const K = DUCK_SCALE / 1.8;
+  const g = new THREE.RingGeometry(0.22 * K, 0.48 * K, 24, 1);
+  g.rotateX(-Math.PI / 2);
+  return g;
+}
+
 
 bootMark('§7 地面围墙');

@@ -47,7 +47,7 @@ npm run serve        # 静态服务器 → http://127.0.0.1:8935
 npm run check        # 语法门禁（src/*.js 逐个 node --check，1 秒）
 npm run audit        # 拆分守卫：漏 import / 给 import 绑定赋值 / 引用内联专有名（3 秒）
 npm test             # 无头回归 55 项（Playwright 加载真实页面做断言）
-npm run verify       # **一条命令串行跑全部 58 道门**（≈15m，交付前必跑）
+npm run verify       # **一条命令串行跑全部 59 道门**（≈15m，交付前必跑）
 
 npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 ```
@@ -154,9 +154,9 @@ npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 **工程侧**
 启动失败兜底 UI · 几何合并前机器校验（属性计数 / 索引越界 / 非有限坐标）·
 WebGL 上下文恢复 · 移动端 320px 布局与 `aria-pressed` · `window.__garden` 调试口（供采集脚本与测试驱动）·
-无头回归门禁 **58 道**（`npm run verify` 串行跑通，≈15m；其中 `npm test` = smoke 单门 **55 项断言全绿**）。
+无头回归门禁 **59 道**（`npm run verify` 串行跑通，≈15m；其中 `npm test` = smoke 单门 **55 项断言全绿**）。
 （口径基准：**2026-10-04**。门数以 `verify-all.mjs` 的 `SUITES` 表为唯一真值 —— 想拿准数就数它，
-别信本文里的数字：这段话自己就漂过五次，30 → 52 → 56 → 57 → 58。）
+别信本文里的数字：这段话自己就漂过六次，30 → 52 → 56 → 57 → 58 → 59。）
 
 ---
 
@@ -273,7 +273,7 @@ suzhou-garden/
 │                        ＋ thunder.mp3（懒加载的点缀音效）。其余全部程序化生成
 ├─ probe/                探针 85 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
 │                        ⚙️ 一次性诊断脚本归档在 `probe/_attic/<日期>/`（不入库，搬回原路径即复原）
-│  ├─ verify-all.mjs     **一条命令串行跑全部 58 道门**（`npm run verify`，≈15m；门数以它的 SUITES 表为准）
+│  ├─ verify-all.mjs     **一条命令串行跑全部 59 道门**（`npm run verify`，≈15m；门数以它的 SUITES 表为准）
 │  ├─ check.mjs          语法门禁：src/*.js 逐个 node --check
 │  ├─ codeonly-unit.mjs  语法判定单元门禁：`_codeonly.mjs` 的"什么算引用"契约（判宽=假红、判窄=假绿，两个方向都静默）
 │  ├─ import-audit.mjs   拆分守卫（4 条判据，见「单文件拆模块」）：漏 import / 给 import 绑定赋值 /
@@ -438,7 +438,7 @@ suzhou-garden/
 | 拆分 | `npm run audit` | `import-audit.mjs` 四条判据（漏 import / 给 import 绑定赋值 / 引用内联专有名），3 秒 |
 | 拆分 | `node probe/codeonly-unit.mjs` | `_codeonly.mjs` 的"什么算引用"契约单元测试，0.2 秒 |
 | 回归 | `npm test` | Playwright 无头加载真实页面，**55 项断言**，退出码即结论 |
-| 全量 | `npm run verify` | **一条命令串行跑全部 58 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
+| 全量 | `npm run verify` | **一条命令串行跑全部 59 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
 | 分层 | `npm run verify:quick` | 9 道快门（≈2 分钟）：check / codeonly-unit / preload-manifest-sync / import-audit / smoke / pageerror / **figure-foot-guard** / layout-fingerprint / random —— 日常改动后的兜底 |
 | 分层 | `node probe/verify-all.mjs --gates=mist-guard,hill-guard` | 只跑指定门（对 path 与 label 做子串匹配；**匹配不到就响亮报错**，不许"0 道门全绿"） |
 | 视觉 | 截图比对 | 新截图命名带版本号（`-v2`），与 `outputs/shots-*` 基线对比 |
@@ -452,6 +452,7 @@ suzhou-garden/
 | 专项 | `node probe/palette-ref.mjs <image>` | 参考图调色板：headless canvas 解码，按 HSV 色相分出"花（紫）/叶（绿）"，沿花穗竖直三等分报均值/受光 25%/背光 25% —— 配色校准拿数，不靠肉眼 |
 | 专项 | `node probe/glb-profile.mjs [file]` | GLB 顶点高度剖面：分桶统计顶点数与水平半径，辨别"花瓣簇（半径小、密集）"与"叶盘（半径大）" —— 定位花位靠它，不靠猜 |
 | 专项 | `node probe/koi-orbit.mjs` | **锦鲤轨道越界门禁（9 项）**：按池多边形逐点判内外 + 量点到岸线的最短距离，扫全周期 × 全抖动区间（含凹岸）；并自检"旧写法必须被判出池"，保证判据有牙 |
+| 专项 | `node probe/duck-guard.mjs [--selfcheck]` | **池中水禽门禁（14 项）**：守的是**测量口径** —— 第一版用 `Box3.setFromObject` 量鸭子尺寸，那是**世界轴对齐盒**，鸭每帧绕 Y 转、盒子按"转到最外"撑开 ⇒ **屏幕上最窄的那一帧（正对机位）被量成 ~28px、实际 11px**：门禁绿着而鸭子是个点。现改**逐顶点投影 + 逐相位取最小值**（同帧虚胖实测 1.31~1.52×）。另守：整圈 24 相位全在池内 / 贴水面线 ±0.02m / 20s 内真在游 / **不占涟漪配额**（只挂常驻尾涡圈，spawn 计数落在 koi+turtle 水位内；若加了第三条涟漪链会 ~240 次/分当场爆）/ 本体在折射层而尾涡圈不在（吃水约体高一半＝半浸物；**这条第一版写反了，正是 refract-coverage 的反扫把它抓出来的**）/ 不投影·不并进静态网。🔧 `--selfcheck` 把倍率缩回 1.8 ⇒ 尺寸判据必须报红（实测 9.9px < 12） |
 | 专项 | `node probe/perch-dragonfly.mjs` | **停栖蜻蜓门禁（14 项）**：锚点世界坐标是否乘过 instanceMatrix（不塌成一点）、贴锚点精度、手动步进 10 秒不漂走、连做 3 次转场且换了停点、冬季同口径隐藏 |
 | 专项 | `node probe/stone-audit.mjs` | **立峰·题名石审计（16 项）**：欧拉示性数数真透孔（χ=2C−2g−b，要数**边界环**不是边界边，否则 g 为负）、连通分量、瘦/收分/悬挑、题名石长高比与朝向与墨迹 |
 | 专项 | `node probe/stele-legibility.mjs` | **题名石可读性门禁（8 项）**：从 `stele`（云根近观）机位打射线**硬判**"首个命中=题名石且正面度 < −0.2"；另断言 `gotoViewpoint` 确实把机位自带的 `minDist` 交给 `flyTo`（OrbitControls 每帧夹半径，漏传就被静默弹回 9m —— 方位对、行程走完、不报错） |
@@ -574,7 +575,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
   （纯 node，各 <3s，紧跟 check 之后 —— 拆模块的错误在浏览器里要么"加载即炸"、要么更坏的静默）。
 - **验证**：`npm run verify` 二十一门全绿；smoke **50/50**；draw calls **693 < 800**（该项由性能优化 A 拿下，
   原 869 红已解除，见下）。
-  ⚠️ 以上是**当日**基线；门禁链其后长到 **58 道**、smoke 到 **55 项**，draw calls 现读 **299**
+  ⚠️ 以上是**当日**基线；门禁链其后长到 **59 道**、smoke 到 **55 项**，draw calls 现读 **299**
   （693 → 299 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
 
 **拆模块暴露出的四类缺陷（都已修，且都已固化成门禁）** —— 这是本次最有价值的部分，
@@ -772,7 +773,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 - 改动只允许落在 `index.html` / `build-entry.js` / `package.json` / `probe/*` / `src/*`；`vendor.js` 由 `npm run build:vendor` 重新生成，**不手改**。
 - 每次交付前必须自己先跑通 `npm run check` + `npm run audit` + `npm test`（当前基线：**smoke 52/52 ALL PASS**）；
-  凡动到跨模块引用 / 启动时序 / 资产 / `sw.js`，再加 `npm run verify`（58 道门）。
+  凡动到跨模块引用 / 启动时序 / 资产 / `sw.js`，再加 `npm run verify`（59 道门）。
 - 任何新增依赖或资源必须本地化，禁止外部 CDN（国内网络为前提）。
 - 视觉改动用 `outputs/shots-*` 版本化截图做前后对比；新截图带 `-vN` 后缀。
 

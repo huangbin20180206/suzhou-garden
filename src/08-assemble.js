@@ -11,11 +11,11 @@ import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
    两位点景人物的呼吸相位 —— 都是**建场**性质，必须与加载时序无关。 */
 const jr = mulberry32(20260924);
 import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makePondPads } from './06-vegetation.js';
-import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly, makeGoose, makeSmallBirdGeo } from './07-ground.js';
+import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGeo } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater, groundHeight } from './05-water.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
 import { mesh } from './03-factory.js';
-import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles } from './01-materials.js';
+import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles, makeDuckWakeTex } from './01-materials.js';
 import { buildProps } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
    8 · 组装场景
@@ -1584,6 +1584,78 @@ loadAssetOnce('assets/Turtle.glb', 0.46, (src)=>{
   }
   onAssetAttached();
 });
+
+/* ══ 池中水禽：绿头鸭 ×2 + 鸳鸯 ×2（2026-10-04）══════════════════════════════
+   与泳龟同一套做法（同轨道、每帧推进、挂 world、**进折射层**），两处**刻意不同**：
+     ① **不 spawnRipple** —— 每只挂一个**常驻小尾涡圈**（几何随鸭平移），不占涟漪池配额。
+        理由见 07-ground makeDuckGeo 头注释：水面涟漪额度是用户拍板过的 ≈30 次/分
+        （锦鲤链 + 泳龟链各有一条门禁水位），水禽再挂第三条链会把水面推回"机关水车"。
+     ② **独立种子流 duckRnd** —— 位置/速度全由私有 mulberry32 抽，一次全局流都不碰
+        （铁律 1：鸭子若吃全局流，其后全园布局整体前移且**不报错**）。
+   ⚠️⚠️ 折射层（2026-10-04 返工，这条是**被门禁抓出来的**）：
+      第一版**不进层**，理由是"鸭浮在水上，写进去会让它从折射贴图里冒出来"。
+      那是错的 —— refract-coverage 判据 ②（反扫"池内越水面的几何没打标记"）一跑就报：
+      `duckBody 下探水面 0.26m 却不在层里`。鸭吃水约体高一半 ⇒ **它是半浸物**，
+      按本项目自己的口径（"任何'半浸在水里却忘了打标记'的几何，都会在水面处被齐刷刷切断"）
+      就该进层。不进层的实际效果不是"更干净"，而是
+      **透过水面看到的不是鸭肚皮、而是池底**（水面是半透的，鱼正是这样被看见的）。
+      "会冒出来"那条担心只对**出水部分**成立；而鸭出水部分由主通道完整绘制、自己占住那些像素，
+      与汀步石那次的实测结论（进层只把俯视顶面写进池底贴图、画面变化在噪声内）是同一回事。
+      ⚠️ 只给**本体**打标记，尾涡圈不打：环躺在 +0.014m，是**水面上的贴花**，
+         写进"水下贴图"才是真错。
+   ⚠️ 与小鸟/泳龟同口径不投影（castShadow=false）：移动投射物会在静态阴影盒里留下
+      "冻结在半路的影子"，比没有影子更假。
+   ⚠️ 四套羽色 = 四份几何（见 07-ground DUCK_PAL），不共用 —— 绿头/栗胸/橙帆羽/白眉
+      正是"一眼认出是什么鸟"的主体。 */
+export const swimDucks = [];
+const DUCK_KIND = ['mallardM', 'mallardF', 'mandarinM', 'mandarinF'];
+const duckRnd = mulberry32(20261006);
+const DUCK_DRAW = DUCK_KIND.map(() => ({
+  t:       duckRnd() * TAU,
+  /* 比泳龟（0.03~0.07 rad/s）更慢：鸭子是"浮着沲"而不是"游"。
+     最慢的轨道 半轴 ~1.9~3.1 ⇒ 一圈约 4~8 分钟，是园林该有的悠闲。 */
+  speed:   0.020 + duckRnd() * 0.022,
+  jitter:  0.94 + duckRnd() * 0.06,
+  phase:   duckRnd() * TAU,
+  yawOff:  (duckRnd() - 0.5) * 0.6,
+}));
+/* 用哪条轨道。**不是随手 i % 7** —— 默认机位到 7 条椭圆的距离实测差得很远
+   （最近的中位 36.4m，最远的 44.1m ≈ 屏幕上小三成）。第一版按顺序取 o0~o3，
+   其中 o1 中位 **44.1m**，是全场最远的一只，还正好被桥挡住（探测：视线在
+   40.4m 处撞 mergedStatic，鸭子 45.6m ⇒ 整只不可见）。
+   ⇒ 取中位距离最短的四条：[o0 36.8m, o6 39.7m, o2 40.3m, o3 36.4m]。
+   （距离表见 outputs/_diag/ducks-read.mjs 的"轨道体检"段；改轨道不动随机流，铁律 1 安全。） */
+const DUCK_ORBITS = [0, 6, 2, 3];
+{
+  const duckMat = new THREE.MeshStandardMaterial({
+    color: 0xFFFFFF, roughness: 0.74, metalness: 0.0, envMapIntensity: 0.85,
+    flatShading: true, vertexColors: true });
+  const wakeMat = new THREE.MeshBasicMaterial({
+    map: makeDuckWakeTex(), transparent: true, depthWrite: false,
+    opacity: 0.42, color: 0xFFFFFF });
+  const wakeGeo = makeDuckWakeGeo();
+  DUCK_KIND.forEach((kind, i) => {
+    const h = new THREE.Group();
+    h.name = 'duck' + i;
+    const bodyMesh = mesh(makeDuckGeo(kind), duckMat, { name: 'duckBody' + i, cast: false });
+    h.add(bodyMesh);
+    /* 本体进折射层（半浸物，理由见上）；尾涡圈不进。 */
+    markUnderwater(bodyMesh);
+    /* 常驻尾涡圈：挂在鸭身上 ⇒ 随鸭平移；鸭只绕 Y 转、环是对称的 ⇒ 转不转一样。
+       y 抬 0.014m 压在涟漪环之上一点点，避开与水面对平面的 z-fighting。 */
+    const wake = mesh(wakeGeo, wakeMat, { name: 'duckWake' + i, cast: false });
+    wake.position.y = 0.014;
+    h.add(wake);
+    /* ⚠️ 鸭子每帧都在动 —— 必须挡掉 mergeStatics，否则会被并进静态大网、
+       之后再也动不了（点景人物/泳龟同一道标记）。 */
+    h.traverse(o => { if (o.isMesh){ o.userData.noMerge = true; o.castShadow = false; o.receiveShadow = false; } });
+    const d = DUCK_DRAW[i];
+    h.userData = { orbit: DUCK_ORBITS[i], t: d.t, speed: d.speed,
+                   jitter: d.jitter, phase: d.phase, yawOff: d.yawOff, wake, kind };
+    world.add(h);
+    swimDucks.push(h);
+  });
+}
 /* 柳（P1-4 延迟装配）：七件套叶幕的实例化 + 骨架 Tube 是组装段最贵的几块之一，
    柳又都在墙根/水际，首帧远处看只是"绿团"，晚半秒入画无感。
    willowOrigins（随机风源登记）仍在这里同步做 —— updateWind 首帧就要读它。 */

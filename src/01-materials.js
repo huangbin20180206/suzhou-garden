@@ -131,6 +131,34 @@ export function makeGroundTex(){                        // 草地：多尺度变
   return t;
 }
 
+/* ══ 水禽的常驻尾涡圈贴图（2026-10-04）══════════════════════════════════════
+   鸭子划水时在水面顶出的一圈**常驻**波纹（不扩散、不进涟漪池 —— 理由见 07-ground
+   makeDuckGeo 头注释：水面涟漪事件额度是用户拍板过的 ≈30 次/分，水禽不再加一条链）。
+   ⚠️ **确定性**：整张图不抽任何随机数 —— 本模块的 makeGroundTex 等走的是**全局流**
+   rnd()/rr()，这里若也抽流，等于把它之后所有消费者的抽样整体前移（铁律 1）。 */
+export function makeDuckWakeTex(){
+  const S = 256, mid = S / 2;
+  const c = document.createElement('canvas'); c.width = c.height = S;
+  const g = c.getContext('2d');
+  g.clearRect(0, 0, S, S);
+  /* 一组同心细环叠出"水被顶起来"的柔和感：越靠外越淡、最外缘收干净 ——
+     出现一根硬边圈会读成"贴在鸭子身上的贴纸"。 */
+  for (let i = 0; i < 26; i++){
+    const r = mid * (0.40 + i * 0.023);
+    const a = 0.20 * (1 - i / 26) * (i < 3 ? 0.35 : 1);
+    g.strokeStyle = `rgba(255,255,255,${a.toFixed(3)})`;
+    g.lineWidth = S * 0.010 + i * 0.05;
+    g.beginPath(); g.arc(mid, mid, r, 0, Math.PI * 2); g.stroke();
+  }
+  /* 鸭身周围那一圈稍亮的水线（水被身体抓开的地方） */
+  g.strokeStyle = 'rgba(255,255,255,0.30)';
+  g.lineWidth = S * 0.022;
+  g.beginPath(); g.arc(mid, mid, mid * 0.36, 0, Math.PI * 2); g.stroke();
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
 export function makePondBedTex(){                       // 池底：淤泥 + 藻斑 + 卵石
   const S = 1024;
   const c = document.createElement('canvas'); c.width = c.height = S;

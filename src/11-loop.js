@@ -8,7 +8,7 @@ import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE, FOG_BANKS, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, geese, smallBirds, smallBirdMeshRef, GOOSE } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, geese, smallBirds, smallBirdMeshRef, GOOSE } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
 import { tickLightning, LIGHTNING, lightningStrikeNow } from './12-env.js';
@@ -1211,6 +1211,29 @@ function animate(){
     tw.rotation.y = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
   }
 
+  /* 池中水禽（绿头鸭 / 鸳鸯，2026-10-04）：与泳龟同轨道、同季节系数，
+     但**不落涟漪** —— 每只挂的是常驻尾涡圈（几何随鸭走，见 08 的装配注释）。
+     水面涟漪事件额度是用户拍板过的（锦鲤链 + 泳龟链 ≈30 次/分），水禽不再加一条链。 */
+  for (const dk of swimDucks){
+    const d = dk.userData;
+    d.t += dt * d.speed * (ENV.cur.koiSpeed || 1);
+    const o = KOI_ORBITS[d.orbit];
+    const j = d.jitter + Math.sin(t * 0.18 + d.phase) * 0.03;
+    dk.position.x = koiGroup.position.x + o.cx + Math.cos(d.t) * o.a * j;
+    dk.position.z = koiGroup.position.z + o.cz + Math.sin(d.t) * o.b * j;
+    /* ⚠️ 几何原点 y=0 **就是水面线**（吃水约体高 45%，见 07-ground makeDuckGeo）。
+       这里只加一点随水起伏 —— 幅度必须小，大了就读成"在水里上下窜"。 */
+    dk.position.y = CFG.water + Math.sin(t * 1.15 + d.phase) * 0.011;
+    /* 朝向取轨道切向，再叠一个很慢的左右张望（±0.16rad ≈ ±9°）：
+       纯切向朝向有"编队感"，而真鸭子是一边沲一边偏头的。 */
+    const head = Math.atan2(-(o.b * Math.cos(d.t)), -(o.a * Math.sin(d.t)));
+    dk.rotation.y = head + d.yawOff + Math.sin(t * 0.31 + d.phase * 1.7) * 0.16;
+    if (d.wake){                                   // 尾涡圈随划水节奏轻微呼吸（不扩散）
+      const s = 1 + Math.sin(t * 0.9 + d.phase) * 0.07;
+      d.wake.scale.set(s, 1, s);
+    }
+  }
+
   // 人物日程（第十四轮）：天气门禁 + 时段 + 散步缓行
   // ⚠️ 大事：**有效天气**取 effectiveWeather()（冬+storm=winterrain），不要只查 ENV.weather
   const effW = effectiveWeather();
@@ -1658,7 +1681,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      靠 traverse 猜对象会漏（灯笼那次就踩过"引用没暴露 → found:false"）。 */
                   figures, FIG_PALETTE, FIG_HAIR,
                   GLB_LOTUS_STEM_H,          // 杆高设计常量（wind-audit 断言"杆顶盖住花底"，防花悬空）
-                  koiGroup, swimTurtles, KOI_ORBITS, insidePond, POND_RADII, POND_PTS,
+                  koiGroup, swimTurtles, swimDucks, KOI_ORBITS, insidePond, POND_RADII, POND_PTS,
                   /* 电闪雷鸣（2026-09-30）：门禁要断言"闪电网格先出现、照亮随之"的时序、
                      flash 归零、非 thunder 天气零触发 —— 显式暴露（本项目范式：不靠 traverse 猜）。
                      lightningStrikeNow() = 下一次 tick 立刻打一条闪电（探针定时用）。 */
@@ -1752,6 +1775,10 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   introStart, introCancel, introActive,
                   introState: () => ({ on: INTRO.on, seg: INTRO.seg, t: INTRO.t }),
                   camMinDist: () => CAM_MIN_DIST,
+                  /* 水位（2026-10-04）：水禽门禁要判"整圈都贴着水面线"（浮空/沉底都读得出）——
+                     探针拿不到 CFG（不是每个门都该去 import 一次配置），
+                     按本项目范式在这里显式暴露真值，别让探针去猜。 */
+                  waterY: () => CFG.water,
                   /* 偶得随机景色：门禁要能抽取并读回三轴结果；TIME_ANCHORS 用于验 hour 的 ±0.6h 抖动幅度 */
                   randomScene: () => HOOKS.randomScene(),
                   TIME_ANCHORS,
