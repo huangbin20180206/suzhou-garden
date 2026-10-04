@@ -1824,7 +1824,9 @@ loadAssetOnce('assets/Turtle.glb', 0.46, (src)=>{
          写进"水下贴图"才是真错。
    ⚠️ 与小鸟/泳龟同口径不投影（castShadow=false）：移动投射物会在静态阴影盒里留下
       "冻结在半路的影子"，比没有影子更假。
-   ⚠️ 四套羽色 = 四份几何（见 07-ground DUCK_PAL），不共用 —— 绿头/栗胸/橙帆羽/白眉
+   ⚠️ 四套羽色 = 四份几何（见 07-ground DUCK_PAL），不共用 —— 绿头/栗胸/橙帆羽/蓝翼镜
+   （2026-10-05 起识别色从"白颈环"移到"背棱"：那圈白在俯视下读成了"白领"，鸭子被当成人，
+      详见 07-ground DUCK_SCALE 上方）
       正是"一眼认出是什么鸟"的主体。 */
 export const swimDucks = [];
 const DUCK_KIND = ['mallardM', 'mallardF', 'mandarinM', 'mandarinF'];

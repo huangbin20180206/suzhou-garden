@@ -581,7 +581,26 @@ export function makeSmallBirdGeo(){
    ⚠️ 顶点色与小鸟同源：部位分区烘进顶点色、存**线性**空间、材质 vertexColors:true。
       每个物种一份几何（四份不共用）—— 羽色差异（绿头 / 栗胸 / 橙帆羽 / 白眉）
       正是"一眼认出是什么鸟"的主体，省不得。 */
-const DUCK_SCALE = 2.4;
+/* ⚠️⚠️ 2026-10-05 上调 2.4 → 2.6，并**同时把体形拉长收窄**。起因是老黄实拍
+   "有两人跑池子里面去了"：他红框里那"两个人"经复现确认就是**鸳鸯 ♂ + 一只雌鸭**
+   （按默认机位逐只裁 8× 对照：outputs/_diag/duckid/mandarinM-8x.png 与他截图同形）——
+   鸭子被读成了人。两个成因，**分开看每个都"没错"，合起来才出事**：
+     · **配色与人同构**：鸳鸯 ♂ 的**白颈环**（0xF2ECDC）恰好夹在**暗紫头**与**金褐背**之间，
+       而本项目点景人物的配色正是"FIG_HAIR 0x1C2029 黑发 + trim 0xE8E0CC 近白领缘 + 彩色袍身"
+       ⇒ 俯视下读成"发髻 + 白领 + 袍子"。
+     · **体形太圆**：宽/长 = 0.518 / 0.816 = 0.63（真鸭俯视 ≈ 0.45），
+       一坨圆体 + 一个圆头 = "坐着的人"。
+   ⇒ 三处一起改（只改一处，仍在"像人"的那一侧）：
+     ① **颈段不再给白色**（见下方 DUCK_PAL）：真鸳鸯的白在**眉纹**上、不在脖子上，
+        而这个环状颈段把眉纹做成了"一圈白领"。高反差识别色改挂**背棱**（sail 分区）——
+        绿头鸭给蓝翼镜、鸳鸯 ♀ 给白背斑，都是"背上一道鸟羽纹"，离头远、读不成领子。
+     ② **体拉长收窄**：L 0.170→0.185（长 +18%）、R 0.108→0.100、H 0.086→0.078
+        ⇒ 宽/长 0.63→0.54、高/长 0.51→0.42。
+     ③ **头缩小放低**（z 半轴 0.54R→0.44R、y 1.52H→1.34H）+ **喙往前多探**
+        （扁喙是俯视下最硬的一条"这是鸟"证据；旧值只探出头 0.11m，几乎埋在头里）。
+   ⚠️ ② 会缩小屏幕尺寸，所以 DUCK_SCALE 同步 2.4→2.6 把它补回来 ——
+      窄口径不许低于 12px（来历见 probe/duck-guard.mjs ①）。 */
+const DUCK_SCALE = 2.6;
 /* 部位 → 调色键。几何里每个部件打一个 tag，烘色时按 tag 查物种调色板。 */
 const DUCK_ZONE = { body:'body', breast:'breast', neck:'neck', head:'head',
                     bill:'bill', tail:'tail', wing:'wing', sail:'sail' };
@@ -592,30 +611,30 @@ const DUCK_ZONE = { body:'body', breast:'breast', neck:'neck', head:'head',
    ⇒ 识别色必须放在**俯视能看到的部位**：头（绿头 / 暗紫头）、颈环（白）、背（体色）、
       鸳鸯的橙帆羽；体侧的折翅改成"比体色略深一点点"，不做硬色块。 */
 const DUCK_PAL = {
-  /* 绿头鸭 ♂：暗绿头 + 白颈环 + 灰背（俯视下"绿头 + 白环"就是身份） */
-  mallardM:  { head:0x1F7A46, neck:0xEFF3EC, breast:0x6E3B22, body:0xA6ACA8,
-               wing:0x8A918E, sail:0x8A918E, bill:0xD9C24B, tail:0x33332F },
-  /* 绿头鸭 ♀：通体褐斑（与 ♂ 一眼分雌雄；雌鸟本来就该"不起眼"） */
-  mallardF:  { head:0x9C8A66, neck:0xAC9F80, breast:0x8A7A5A, body:0x998C6C,
-               wing:0x847A5E, sail:0x847A5E, bill:0xC08A3A, tail:0x413B31 },
+  /* 绿头鸭 ♂：绿头绿颈 + **蓝翼镜**（颈色 = 头色，白环撤掉：那圈白正是"白领"的来源） */
+  mallardM:  { head:0x1F7A46, neck:0x1F7A46, breast:0x6E3B22, body:0xA6ACA8,
+               wing:0x8A918E, sail:0x2E5FA8, bill:0xD9C24B, tail:0x33332F },
+  /* 绿头鸭 ♀：通体褐斑（与 ♂ 一眼分雌雄；雌鸟本来就该"不起眼"），但保留蓝翼镜 */
+  mallardF:  { head:0x9C8A66, neck:0x9C8A66, breast:0x8A7A5A, body:0x998C6C,
+               wing:0x847A5E, sail:0x44639B, bill:0xC08A3A, tail:0x413B31 },
   /* 鸳鸯 ♂：白眉 + 暗紫头 + **橙色帆羽**（俯视下最抢眼的一件）+ 金褐背 + 红喙。
      ⚠️ 背色 0xC2A472 → 0xCFB183：实测整只对水面的平均亮度差 −26（比水还暗），
         帆羽改成薄片后更缺亮部；抬一档让它读成"水上的一块暖色"而不是暗块。 */
-  mandarinM: { head:0x4A2E52, neck:0xF2ECDC, breast:0x7A2E46, body:0xCFB183,
+  mandarinM: { head:0x4A2E52, neck:0x4A2E52, breast:0x7A2E46, body:0xCFB183,
                wing:0xA98A5E, sail:0xE4782A, bill:0xC4422E, tail:0x2E2A24 },
   /* 鸳鸯 ♀：灰褐（头给亮一档，俯视下读作"白眼圈"）。
      ⚠️ 背色 0x9E9688 → 0xB3AB9D、颈环提到近白：实测这只对水面的亮度差 ≈ 0
         （灰褐贴灰绿水，与小鸟那次"灰调融进灰石头"是同一类错）——
         得给它至少一处高反差地标，白颈圈就是那处。 */
-  mandarinF: { head:0xC0B8AA, neck:0xEDE6D8, breast:0xA89E8E, body:0xB3AB9D,
-               wing:0x8A8274, sail:0x8A8274, bill:0x8A8A88, tail:0x413D35 },
+  mandarinF: { head:0xC0B8AA, neck:0xC0B8AA, breast:0xA89E8E, body:0xB3AB9D,
+               wing:0x8A8274, sail:0xEFE9DC, bill:0x8A8A88, tail:0x413D35 },
 };
 /* 腿脚一律同一份暗橙（浮在水里基本看不见，但近景低头时要有） */
 const DUCK_FOOT = 0xC4762E;
 
 export function makeDuckGeo(kind){
   const S = DUCK_SCALE;
-  const L = 0.170 * S, R = 0.108 * S, H = 0.086 * S;   // 体：半长 / 半宽 / 半高
+  const L = 0.185 * S, R = 0.100 * S, H = 0.078 * S;   // 体：半长 / 半宽 / 半高（2026-10-05 拉长收窄，见 DUCK_SCALE 上方）
   const parts = [], tagged = [];
   const add = (geo, tag) => { parts.push(geo.toNonIndexed()); tagged.push(tag); };
 
@@ -637,22 +656,27 @@ export function makeDuckGeo(kind){
   tail.scale(1, 0.42, 1);                       // 压扁成尾羽片
   tail.translate(0, H * 0.46, -L * 1.12);
   add(tail, 'tail');
-  /* 颈：短而斜 —— 鸭颈明显比雁颈短，这是远观分辨"鸭 vs 雁"的第一特征 */
-  const neck = new THREE.CylinderGeometry(R * 0.30, R * 0.40, L * 0.50, 6);
+  /* 颈：短而斜 —— 鸭颈明显比雁颈短，这是远观分辨"鸭 vs 雁"的第一特征。
+     ⚠️ 2026-10-05：颜色一律取**头色**（原来是白颈环 ⇒ 俯视下读成"白领"，
+     是本轮"鸭子像人"的主因，见 DUCK_SCALE 上方）；同时压低贴住体背，别让头"浮"在上方。 */
+  const neck = new THREE.CylinderGeometry(R * 0.30, R * 0.40, L * 0.46, 6);
   neck.rotateX(-0.72);
-  neck.translate(0, H * 0.84, L * 0.72);
+  neck.translate(0, H * 0.72, L * 0.68);
   add(neck, 'neck');
-  /* 头 */
+  /* 头（2026-10-05 缩小并放低：原来是 0.54R 的 z 半轴 + 1.52H 的高位 ⇒ 俯视下
+     "一个圆头架在圆身上"，与"坐着的人"同构。真鸭的头只占体长 1/5 左右。） */
   const head = new THREE.SphereGeometry(1, 9, 7);
-  head.scale(R * 0.46, R * 0.42, R * 0.54);
-  head.translate(0, H * 1.52, L * 0.92);
+  head.scale(R * 0.42, R * 0.38, R * 0.44);
+  head.translate(0, H * 1.34, L * 0.88);
   add(head, 'head');
   /* 喙：**扁铲**（鸭喙是扁的，与雁的尖喙不同 —— 这是鸭最好认的特征之一）。
-     ⚠️ 第一版只探出头 0.04m，比喙还短 ⇒ 远看那条"扁喙"根本不存在。现在探出 ~0.08m。 */
-  const bill = new THREE.CylinderGeometry(R * 0.21, R * 0.16, L * 0.46, 6);
+     ⚠️ 第一版只探出头 0.04m，比喙还短 ⇒ 远看那条"扁喙"根本不存在。现在探出 ~0.08m。
+     ⚠️ 2026-10-05：头缩小后若不同步前推，喙会被头吞掉（只剩头前一个小凸点）⇒
+        中心提到 L*1.22、半长仍 0.40L，实际探出头前缘 ~0.15m，俯视下才读得出"鸭子嘴"。 */
+  const bill = new THREE.CylinderGeometry(R * 0.24, R * 0.19, L * 0.40, 6);
   bill.rotateX(Math.PI / 2);
   bill.scale(1, 0.42, 1);
-  bill.translate(0, H * 1.38, L * 1.30);
+  bill.translate(0, H * 1.20, L * 1.22);
   add(bill, 'bill');
   /* 折翅：体侧两片（绿头鸭/鸳鸯的蓝翼镜落在这里） */
   for (const sx of [-1, 1]){
@@ -666,7 +690,9 @@ export function makeDuckGeo(kind){
      默认机位下整只读成"背上驮着两个橙球"，像摆件不像鸟（放大 5× 见
      outputs/_diag/ducks/read-grid.png 下排 d2）。改成**薄片三角帆、向后掠、微微外张**。
      · 只有鸳鸯 ♂ 立这对帆（真鸳鸯的帆羽就是立起来的）；
-     · 其余物种这处只留一道**很扁的背棱**（翼色），撑一点背部体积，不做立件 ——
+     · 其余物种这处只留一道**很扁的背棱**（**翼镜色**，2026-10-05 起：白颈圈撤掉后，
+       高反差识别色就挂在这里 —— 蓝翼镜/白背斑都是"背上一道鸟羽纹"，离头远、读不成领子），
+       撑一点背部体积，不做立件 ——
        给绿头鸭立两片帆会读成"长角"。 */
   if (kind === 'mandarinM'){
     for (const sx of [-1, 1]){

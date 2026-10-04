@@ -268,10 +268,12 @@ const finish = () => {
   check('⑤ 已挡掉 mergeStatics（否则鸭子会被并进静态大网、之后再也动不了）',
     flags.every(f => f.noMerge), flags.map(f => f.noMerge).join('/'));
 
-  /* ══ 🔧 自检：缩回旧倍率 1.8 ⇒ ① 必须报红 ═════════════════════════════ */
+  /* ══ 🔧 自检：缩回旧倍率 1.8 ⇒ ① 必须报红 ═════════════════════════════
+     ⚠️ 2026-10-05：分母跟着 DUCK_SCALE 一起改了（2.4 → **2.6**，见 07-ground 那里
+     "鸭子被读成人"的整改）。这里的 1.8 是**绝对倍率**（历史值），不是相对值。 */
   if (SELFCHECK){
     await page.evaluate(() => {
-      window.__garden.swimDucks.forEach(d => d.scale.setScalar(1.8 / 2.4));
+      window.__garden.swimDucks.forEach(d => d.scale.setScalar(1.8 / 2.6));
     });
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     const scaled = [];
