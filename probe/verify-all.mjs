@@ -437,6 +437,26 @@ const SUITES = [
      动态 import 的 await 会让出事件循环、中间跑 rAF ⇒ A/B 全是被污染的垃圾
      （自检 178、六个元素全报 ~17.8k px 雷同数）；必须是自检先绿再信数字。 */
   ['默认机位可读性 legibility', 'probe/legibility-guard.mjs'],
+  /* ── 2026-10-04 · 「不在链上的门 = 没有门」收官：5 道**结论门**收回链 ─────
+     这五道此前都是"专项/结论门"：写在 probe/ 里、能跑、也一直是绿的，但**没注册进
+     本链** —— 于是它们守的结论谁退了化都没人知道（同 2026-10-03 把 pwa-cache 收回
+     链的理由：那道门当时就是"链外红门"，红着没人看见）。
+     本轮全部先单跑复核（本机 Intel Iris Xe / low 档）：PMREM 8/8 · 定步长 6/6 ·
+     水面 Fresnel 7/7 · 桃形态 26/26 · 夜空 14/14。单项 19~69s，与既有快门同量级。
+     各门守的结论：PMREM 按时段烘一次并缓存（切回零重烘）· 仿真固定步长累加器
+     （风钟与物理共用同一时间线）· 水面 Schlick Fresnel（旧公式中角度就泛白）·
+     桃的四季形态与晴午波光 · 夜空月轮仰角/月相/星点（与远山山高上限物理互斥）。 */
+  ['PMREM 按时段缓存 pmrem-env', 'probe/pmrem-env-guard.mjs'],
+  ['固定步长仿真 fixed-timestep', 'probe/fixed-timestep-guard.mjs'],
+  ['水面 Fresnel water-fresnel', 'probe/fresnel-guard.mjs'],
+  ['桃·形态 peach-form', 'probe/peach-form-guard.mjs'],
+  ['夜空与月相 night-sky', 'probe/night-sky-guard.mjs'],
+  ['锦鲤行为层 koi-behavior', 'probe/koi-behavior-guard.mjs'],
+  ['桌面画质档 desktop-quality', 'probe/desktop-quality-guard.mjs'],
+  /* ── 本门 ~5 分钟（观察窗 120s + 冬季 30s + 负例 60s + 关闭 30s），与 mist-guard 同属
+     "长门"，已在下面的长门预算表里单独放宽。守的是用户 2026-09-28 拍板的水面涟漪水位：
+     龟链 12~24 次/分（实测 17.0），且带**两条有牙负例**（旧间隔 55.0/分必红、关掉必归零）。 */
+  ['泳龟尾迹节流 turtle-wake', 'probe/turtle-wake-guard.mjs'],
 ];
 
 /* ── T7.1（2026-09-23）三条改进 + T7.4（2026-09-24）④ ────────────────────
@@ -484,6 +504,11 @@ const QUICK = new Set([
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
   'probe/figure-foot-guard.mjs',       // 纯射线 ~17s + 零覆盖的缺陷类（人物陷进台基/走在水上）
+  /* 2026-10-04：三道 <30s 的结论门进 quick（都满足 quick 的两条门槛：≤1 分钟 + 覆盖面广）——
+     它们此前**不在链上**，等于没人守：PMREM 时段缓存（切回零重烘）、仿真固定步长
+     （风钟与物理同一时间线）、水面 Schlick Fresnel（旧公式中角度就泛白）。
+     桃·形态(68s)/夜空(69s) 超 1 分钟，按 quick 自己的规矩留在全量链。 */
+  'probe/pmrem-env-guard.mjs', 'probe/fixed-timestep-guard.mjs', 'probe/fresnel-guard.mjs',
 ]);
 /* ── `--gates=a,b,c`：只跑指定的几道门（2026-10-02 加，评审 P2「分层验证」的第二半）──
    用途：交接文档里那种「晨间单跑复核三道疑似伪红」的活，一条命令就能干，
@@ -500,6 +525,10 @@ const QUICK = new Set([
 const GATE_TIMEOUT = new Map([
   ['probe/mist-guard.mjs', 900000],
   ['probe/koi-ripple-guard.mjs', 900000],
+  /* 2026-10-04：turtle-wake 与 koi-ripple 是**同一类**（长采样 + 稳态等待），
+     单跑实测 ~300s（观察窗 120s + 冬季 30s + 负例 60s + 关闭 30s + 启动）。
+     按上面那条 1.7× 散热降速的经验，热机器上就贴到 600s 默认预算 ⇒ 同样放宽。 */
+  ['probe/turtle-wake-guard.mjs', 900000],
 ]);
 const timeoutFor = (rel) => GATE_TIMEOUT.get(rel) || 600000;
 const GATES_ARG = (process.argv.find(a => a.startsWith('--gates=')) || '').slice(8);
