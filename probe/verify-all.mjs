@@ -148,6 +148,13 @@ const SUITES = [
   ['立峰·题名石 stone-audit','probe/stone-audit.mjs'],
   ['题名石可读性 stele-legibility','probe/stele-legibility.mjs'],
   ['人物服色与步态 figure-audit','probe/figure-audit.mjs'],
+  /* ── 2026-10-04 · 人物落脚（纯射线 / ~17s）──
+     守"人物有没有站在他脚下那个面上"。这类缺陷此前**零覆盖**：figure-audit 查服色/道具/
+     取景，不查脚底；layout-fingerprint 不哈希人物（noMerge）。当天实测抓到两例：
+     品茗的人陷进水榭台基 0.62m（y 写死 0，台基顶面 0.62）、夜步的人有 2.5m 走在池面上
+     （散步区间越过游廊那条腿的端点）。自带负例自检（把人按回 y=0 且还原旧散步区间
+     ⇒ 两条判据都必须报红）。 */
+  ['人物落脚 figure-foot-guard','probe/figure-foot-guard.mjs'],
   ['水面真折射 refract-guard','probe/refract-guard.mjs'],
   ['折射层覆盖度 refract-coverage','probe/refract-coverage.mjs'],
   ['天气覆盖度 weather-coverage','probe/weather-coverage.mjs'],
@@ -449,6 +456,7 @@ const QUICK = new Set([
   'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
+  'probe/figure-foot-guard.mjs',       // 纯射线 ~17s + 零覆盖的缺陷类（人物陷进台基/走在水上）
 ]);
 /* ── `--gates=a,b,c`：只跑指定的几道门（2026-10-02 加，评审 P2「分层验证」的第二半）──
    用途：交接文档里那种「晨间单跑复核三道疑似伪红」的活，一条命令就能干，

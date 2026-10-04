@@ -12,7 +12,7 @@ import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
 const jr = mulberry32(20260924);
 import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makePondPads } from './06-vegetation.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly, makeGoose, makeSmallBirdGeo } from './07-ground.js';
-import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater } from './05-water.js';
+import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater, groundHeight } from './05-water.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles } from './01-materials.js';
@@ -282,10 +282,23 @@ function profR(prof, y){
   }
   return prof[prof.length - 1].x;
 }
+/* ⚠️⚠️ 2026-10-04：人物**落脚高度**必须显式给 —— 原来 makeScholar/makeChildScholar
+   一律 `root.position.set(x, 0, z)`，而全园地形不是 y=0（草地上是 −0.14~−0.21），
+   水榭台基顶面更是 y=0.62 ⇒ 三个人浮在地面上 0.13~0.20m（看着像"飘"），
+   品茗那位直接**陷进台基 0.62m**（1.61m 的人只剩 1.0m 露在外面，读作"半截
+   身子插在台基里"）。实测（outputs/_diag/fig-foot.mjs 射线）：read gap +0.186、
+   child +0.202/+0.131、tea −0.62（相对台基顶面）。
+   ⇒ 默认取 `groundHeight(x, z)`（与地面网格**同一个函数**，不会两处漂）；
+     站在建筑台基上的那位显式给 y（水榭台基顶面 0.62，见 makeWaterPavilion：
+     台基 box 高 0.9 中心 y=0.10 ⇒ 顶 0.55，加 0.12 厚压边石 ⇒ **0.62**）。
+   ⚠️ 光改这里不生效：11-loop 的散步段每帧写 `f.position.y`（起伏/清零），
+     必须把 `userData.baseY` 一起带过去（那里的注释写了为什么）。 */
+const PAV_FLOOR_Y = 0.62;                  // 水榭台基顶面（= 人物脚底应站的高度）
 export const figures = [];
-function makeScholar({ x = 0, z = 0, yaw = 0, s = 1, pose = 'observe', skin = 'indigo' } = {}){
+function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin = 'indigo' } = {}){
   const root = new THREE.Group();
-  root.position.set(x, 0, z);
+  root.position.set(x, y === undefined ? groundHeight(x, z) : y, z);
+  root.userData.baseY = root.position.y;     // 11-loop 的散步/站立分支据此恢复脚底高度
   root.rotation.y = yaw;
   root.rotation.z = 0.03;                     // 重心微偏：负手的站姿不该是旗杆
   root.scale.setScalar(s);
@@ -487,15 +500,23 @@ const D_SCHEDULES = [
     // 坐标与两书童的朝向表达式绑死（童子的 atan2 参数就是按这个点算的），挪位必须同步改。
     h0: 7.5, h1: 12.0,
     stroll: null },
-  { pose:'tea',   skin:'moss',    x: 15.3, z: 5.4, yaw: Math.atan2(-15.3, -2.4), s: 1.02,   // 面朝池心赏鱼（水榭平台，非草坪 → 可用绿色系）
-    h0: 12.0, h1: 18.0,
+  { pose:'tea',   skin:'moss',    x: 15.3, z: 5.4, y: PAV_FLOOR_Y, yaw: Math.atan2(-15.3, -2.4), s: 1.02,   // 面朝池心赏鱼（水榭平台，非草坪 → 可用绿色系）
+    h0: 12.0, h1: 18.0,                                                          // ⚠️ 站在**水榭台基**上 ⇒ 脚底抬到台基顶面
     stroll: null },
-  { pose:'observe', skin:'lily',  x: 13.4, z: 1.0, yaw: Math.PI * 0.5, s: 1.0,
+  /* ⚠️ 夜步路线的 z 区间原来写 [1.3, −3.8]，而游廊这条腿只到 z=−1.8（折线顶点
+     (13.2,−9.6)→(13.2,−1.8)→(24,−1.8)）⇒ 他有 **2.5m 是在池面上走的**。
+     实测（outputs/_diag/walk-lane.mjs / fig-foot.mjs / fig-path.mjs）：x=13.4 上
+     z∈[−1.2, 1.3] 向下打射线首个命中就是 waterSurface(0.06)，起点 (13.4,1.0) 正好
+     压在池子东缘；而近端 z>−3.0 与远端都另有构件（z≈−2.4 处有 1.17m 高的栏/凳）。
+     ⇒ 收进廊道取 z∈[−8.8, −3.0]（实测该段 |脚底−铺装| ≤ 0.08）。
+     ⚠️ y 显式给 0、不吃默认的 groundHeight：他走的是**廊道铺装**，铺装是平的，
+       与地形公式不是一回事（实测该段铺装面 −0.081~+0.069，取 0 比跟地形更准）。 */
+  { pose:'observe', skin:'lily',  x: 13.4, z: -4.6, y: 0, yaw: Math.PI * 0.5, s: 1.0,
     h0: 18.0, h1: 23.0,
-    stroll: { a: 13.4, b: 13.4, z0: 1.3, z1: -3.8, sp: 0.027 } },   // 沿游廊 z 缓行（0.55 m/s）
+    stroll: { a: 13.4, b: 13.4, z0: -3.0, z1: -8.8, sp: 0.027 } },   // 沿游廊 z 缓行（0.55 m/s）
 ];
 D_SCHEDULES.forEach((d, i)=>{
-  const fg = makeScholar({ x: d.x, z: d.z, yaw: d.yaw, s: d.s, pose: d.pose, skin: d.skin });
+  const fg = makeScholar({ x: d.x, z: d.z, y: d.y, yaw: d.yaw, s: d.s, pose: d.pose, skin: d.skin });
   fg.userData.slot = { h0: d.h0, h1: d.h1, stroll: d.stroll };
   fg.userData.skin = d.skin;                 // 供 probe/figure-audit.mjs 读角色服色做门禁
   fg.userData.poseName = d.pose;
@@ -505,9 +526,10 @@ D_SCHEDULES.forEach((d, i)=>{
 /* 私塾孩童（第十六轮：用户要求"2 孩童 + 1 教书先生"场景）。
    makeChildScholar 是先生剪影的子集 —— 矮约 0.72 倍、头更大（孩童头身比 ~3.5:1）、
    袍身更短圆、无簪、无负手垂布，只剩简单垂袖。陪先生晨课，面向先生。 */
-function makeChildScholar({ x = 0, z = 0, yaw = 0, s = 1, skin = 'moss' } = {}){
+function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss' } = {}){
   const root = new THREE.Group();
-  root.position.set(x, 0, z);
+  root.position.set(x, y === undefined ? groundHeight(x, z) : y, z);
+  root.userData.baseY = root.position.y;     // 同 makeScholar：站立分支靠它贴地
   root.rotation.y = yaw;
   root.scale.setScalar(s);
   const g = new THREE.Group();                // 躯干层：椭圆截面（同成人，头不参与）

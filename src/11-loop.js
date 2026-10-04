@@ -1281,11 +1281,15 @@ function animate(){
       }
       f.userData.stepPhase = (f.userData.stepPhase || 0) + dist / 0.42 * Math.PI;
       const st = f.userData.stepPhase;
-      f.position.y = Math.abs(Math.sin(st)) * 0.028;   // 迈步起伏
+      /* ⚠️ 2026-10-04：脚底高度必须回到 `userData.baseY`，不能写死 0 ——
+         人物不全站在 y=0 的平地上：草地上是 −0.14~−0.21，水榭台基顶面是 0.62。
+         原来这里每帧把 y 清零/归到 0，08 里就算算对了落脚高度也会被当场抹掉
+         （典型的"改了一处、被另一处每帧覆盖"）。 */
+      f.position.y = (f.userData.baseY || 0) + Math.abs(Math.sin(st)) * 0.028;   // 迈步起伏
       f.rotation.x = 0.05;                             // 前进时躯干微前倾
       f.rotation.z = 0.03 + Math.sin(st) * 0.035;      // 左右轻摆（含原本的重心微偏 0.03）
     } else {
-      f.position.y = 0; f.rotation.x = 0; f.rotation.z = 0.03;
+      f.position.y = f.userData.baseY || 0; f.rotation.x = 0; f.rotation.z = 0.03;
     }
   }
 
