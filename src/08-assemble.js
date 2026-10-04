@@ -16,7 +16,7 @@ import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles, makeDuckWakeTex } from './01-materials.js';
-import { buildProps } from './14-props.js';
+import { buildProps, SEAT_SPOTS, QIN_SEAT } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
    8 · 组装场景
    ══════════════════════════════════════════════════════════════ */
@@ -264,6 +264,19 @@ export const FIG_PALETTE = {
   ochre:   { robe:0xA8804E, trim:0xE8DFC8, sash:0x5A4224 },   // 秋香 · 书童（草坪）
   moss:    { robe:0x5F8467, trim:0xDDD6C2, sash:0x2F4634 },   // 松绿 · 午后品茗（水榭平台，不在草坪）
   lily:    { robe:0x7E6FA6, trim:0xE0D6C8, sash:0x39305A },   // 藕荷 · 夜步（游廊）
+  /* 坐姿二人（对弈 · 东草坪石桌）：**必须新开两个色相**，不能复用现役那三个。
+     figure-audit 的"同框可区分"只约束 **slot 重叠**的角色对，而现役五色恰恰卡在这里：
+     坐姿取 12.5~18 只与 moss(午后品茗 12~18) 同框，而 moss↔indigo 只有 61、moss↔ochre 88 ——
+     复用 indigo/ochre 会直接进"同框"那组、且 indigo 只剩 1 点余量（阈值 60）。
+     下面两色对现役五色的最小距离：绛紫 68（vs ochre）、藏青 52（vs indigo，两者 slot 不重叠、
+     不参与判定，故可取）。两色对**草坪绿 #457441** 分别是 92 / 72，都过 LAWN_D 60。 */
+  plum:    { robe:0x8B4A6B, trim:0xE2D6C8, sash:0x4A2C3E },   // 绛紫 · 对弈（东草坪石桌）
+  navy:    { robe:0x2F4E7A, trim:0xDDD8C6, sash:0x1C2C44 },   // 藏青 · 对弈（东草坪石桌）
+  /* 石青 · 抚琴（水榭临水）。它和上面两色同在 12.5~18 档、又与该档的 moss 同框，
+     所以要求 ≥60 的伙伴是 {moss, plum, navy}：实测 67 / 94 / 100，全部有余量。
+     与 indigo/lily 只差 50/33，但那两色分别属 7.5~12 / 18~23 档，**永不与它同框**
+     （figure-audit 的"同框可区分"只约束 slot 重叠的对，这是该判据的既定口径）。 */
+  slate:   { robe:0x6E8CA8, trim:0xE4DED0, sash:0x2E4257 },   // 石青 · 抚琴（水榭，临水）
 };
 const figMat = (color, rough) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.0, envMapIntensity: 0.3 });
 /* 躯干截面不是正圆（2026-09-18 第六轮 · 老黄选 B）。
@@ -617,6 +630,212 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss' } = {
     ch.userData.poseName = 'child';
     world.add(ch);
   });
+
+/* ══ 坐姿人物（2026-10-05 · 计划书 §6「人」批第一件，与 14-props 的 #1 石桌石凳棋盘配套）══
+   ⚠️ 为什么不复用 makeScholar：站姿的袍身是一根**落地回转体**（y 0→1.31），而坐下的
+   三处都不在这根回转体上 —— ① 腰从 0.82 降到 0.51、② 大腿**水平前伸**、③ 小腿在膝前
+   垂直落下。硬套站姿得到的不是"矮一点的站姿"，而是"半截插进地里的立人"。
+   ⇒ 坐姿由四段拼：躯干裙（lathe，腰以下略收 → 悬在凳腰之上）+ 大腿团（水平 tube）
+     + 膝前垂布（tube，落到地面）+ 上身（腰以上与站姿同形）+ 头（与站姿同一套构件尺寸）。
+   ⚠️ 与站姿**必须逐字对齐的两个比例**（否则两种姿势同框一眼看出"不是一套做的"）：
+     躯干长（腰→肩）0.370、头心在颈顶上方 0.135 —— 与 makeScholar 的 prof 同源。
+   ⚠️ SEAT_H 与 14-props 石凳坐面（stoolProf 顶面 0.452）是**同一个数**：改石凳要同步。
+   ⚠️ 裙底**不收到底**（0.392）而是悬在凳腰之上：收到底会把整张鼓凳吞掉，
+     读成"坐在一个圆锥里"；留出凳子下半截，"坐在鼓凳上"才成立。 */
+const SEAT_H = 0.452;        // 石凳坐面高（= 14-props stoolProf 顶面）
+const SEAT_SUP = 0.058;      // 坐骨压在坐面之上的量（屁股不该浮在凳面上）
+function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go', skin = 'indigo' } = {}){
+  const root = new THREE.Group();
+  root.position.set(x, y === undefined ? groundHeight(x, z) : y, z);
+  root.userData.baseY = root.position.y;     // 同站姿：11-loop 每帧会写 position.y
+  root.rotation.y = yaw;
+  root.rotation.z = 0.015;                   // 坐姿的重心微偏比站姿（0.03）小
+  root.scale.setScalar(s);
+  const g = new THREE.Group();               // 躯干层：只它吃椭圆截面缩放（头不跟着压扁）
+  g.scale.set(FIG_EW, 1, FIG_ED);
+  root.add(g);
+  /* 腿/垂布层：⚠️ **只吃横向加宽、不吃前后压扁** —— 大腿与小腿的长度是它们自己的形状，
+     再乘一次 FIG_ED(0.82) 会让前伸量凭空短 18%（要按压缩比反算 z 才能对上桌子，太脆）。 */
+  const gl = new THREE.Group();
+  gl.scale.set(FIG_EW, 1, 1);
+  root.add(gl);
+  const P = FIG_PALETTE[skin] || FIG_PALETTE.indigo;
+  const ink      = figMat(P.robe, 0.92);
+  const inkLight = figMat(P.trim, 0.85);
+  const hair     = figMat(FIG_HAIR, 0.90);
+  const sashMat  = figMat(P.sash, 0.88);
+
+  /* 关键高度：全部由坐面推出 + 与站姿同源的两段长度
+       腰 HIP_Y = 0.510 · 肩 SHO_Y = 0.880 · 颈顶 NECK_Y = 1.000 · 头心 1.135 */
+  const HIP_Y = SEAT_H + SEAT_SUP, SHO_Y = HIP_Y + 0.370, NECK_Y = SHO_Y + 0.120;
+
+  const prof = [
+    new THREE.Vector2(0.001, 0.392),          // 裙底（悬在凳腰之上，露出鼓凳下半截）
+    new THREE.Vector2(0.214, 0.408),
+    new THREE.Vector2(0.228, 0.455),
+    new THREE.Vector2(0.206, 0.492),
+    new THREE.Vector2(0.164, HIP_Y),          // 0.510 腰（同站姿 0.150 略放）
+    new THREE.Vector2(0.172, HIP_Y + 0.220),  // 0.730 胸
+    new THREE.Vector2(0.186, SHO_Y),          // 0.880 肩（同站姿 0.186）
+    new THREE.Vector2(0.062, NECK_Y - 0.030), // 0.970 颈
+    new THREE.Vector2(0.001, NECK_Y),         // 1.000
+  ];
+  const robe = mesh(new THREE.LatheGeometry(prof, 18), ink, { name:'seatRobe' });
+  g.add(robe);
+
+  /* 大腿团：水平前伸。半径 0.128、中心线 0.446~0.470 ⇒ 顶面 0.598 < 桌面下沿 0.62，
+     即"膝能伸到桌沿下"而不顶穿桌面（石桌桌面是 y 0.62~0.72 的圆盘，见 14-props）。 */
+  gl.add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0.470, -0.015),
+    new THREE.Vector3(0, 0.458, 0.135),
+    new THREE.Vector3(0, 0.446, 0.285),
+  ]), 8, 0.128, 8, false), ink, { name:'seatThigh' }));
+  /* 膝前垂布：从膝落到地面（坐姿剪影的"竖笔"），上端接大腿、下端略后收。
+     z 取 0.295：与大腿前缘（0.285+0.128=0.413）搭上，不留缝。 */
+  const shin = mesh(new THREE.CylinderGeometry(0.126, 0.104, 0.455, 12), ink, { name:'seatShin' });
+  shin.position.set(0, 0.228, 0.295);
+  gl.add(shin);
+
+  /* 腰带（坐姿的腰比站姿低 0.31，必须跟着走；半径按 y=0.585 处的袍半径 0.167 外放 9mm）
+     ⚠️ 腰带/衣缘/交领的**网格名沿用 `scholar*`**（不是 `seat*`）：
+     probe/figure-audit.mjs 按 `/^(scholar|child)(Sash|Lapel|Hem)$/` 数件数，
+     改名会让它报"腰带不存在 / 交领 0 条 / 下摆衣缘 0 个"——**判据滞后于产品**那一类假红。
+     语义上也成立：坐姿穿的就是同一套直裰（腰带/衣缘/交领），只是身子坐下了。 */
+  const sashBand = mesh(new THREE.CylinderGeometry(0.174, 0.178, 0.060, 16, 1, true), sashMat, { name:'scholarSash' });
+  sashBand.position.y = 0.585;
+  g.add(sashBand);
+  const sashKnot = mesh(new THREE.SphereGeometry(0.036, 8, 7), sashMat, { name:'scholarSashKnot' });
+  sashKnot.position.set(0, 0.585, 0.150);
+  sashKnot.scale.set(1.1, 0.8, 0.65);
+  g.add(sashKnot);
+  /* 下摆衣缘：给坐姿的裙底一条终止线（同站姿"花瓶轮廓"的那道缘，位置改到裙底 0.428） */
+  const hem = mesh(new THREE.CylinderGeometry(0.232, 0.222, 0.048, 18, 1, true), inkLight, { name:'scholarHem' });
+  hem.position.y = 0.428;
+  g.add(hem);
+  /* 立领（与站姿同款，位置 = 肩 + 0.06） */
+  const collar = mesh(new THREE.CylinderGeometry(0.066, 0.072, 0.075, 10), ink, { name:'seatCollar' });
+  collar.position.y = SHO_Y + 0.060;
+  g.add(collar);
+  const collarEdge = mesh(new THREE.CylinderGeometry(0.0665, 0.0665, 0.012, 10), inkLight, { name:'seatCollarEdge' });
+  collarEdge.position.y = SHO_Y + 0.092;
+  g.add(collarEdge);
+  /* 后领中缝：只画到腰背（坐姿的下摆在后腰断开，往下是凳子） */
+  const seam = mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, SHO_Y + 0.080, -0.075),
+    new THREE.Vector3(0, SHO_Y, -0.196),
+    new THREE.Vector3(0, HIP_Y + 0.220, -0.182),
+    new THREE.Vector3(0, HIP_Y, -0.164),
+  ]), 12, 0.011, 5), inkLight, { name:'seatSeam' });
+  g.add(seam);
+  /* 交领：点列 = 站姿那组整体下移 0.31（腰以上同形） */
+  for (const side of [-1, 1]){
+    const pts = [[0.050, 0.925], [0.030, 0.790], [0.005, 0.640], [-0.028, 0.568]];
+    const lapel = new THREE.CatmullRomCurve3(pts.map(([ax, y]) => {
+      const x = side * ax, r = profR(prof, y) + 0.012;
+      return new THREE.Vector3(x, y, Math.sqrt(Math.max(r * r - x * x, 0.0004)));
+    }));
+    g.add(mesh(new THREE.TubeGeometry(lapel, 12, 0.016, 5, false), inkLight, { name:'scholarLapel' }));
+  }
+  /* 双袖：坐姿的手位与**道具高度绑死**（同站姿"姿态决定手在哪里"这条纪律）——
+     · 'go'  对弈：右手落到**桌面**上（桌面 y 0.72 / 盘面 0.763，见 14-props 石桌），
+                 左手搭在自己的大腿上（大腿顶面 0.574）
+     · 'qin' 抚琴：双手落到琴弦上方（弦高 0.7905，见 14-props makeQinSet；桌面已抬到 0.72）
+     ⚠️ 末点 z 会再乘 FIG_ED(0.82)：0.548 → 实际前伸 0.449。
+        凳心离桌心 1.02、桌面半径 0.62 ⇒ 手落在离桌心 0.57（= 桌面边缘内侧 5cm）。
+        **这是这套几何的极限**：再往里就要么脱凳、要么手臂长过身体。真实的"落子在盘上"
+        在这张 1.24m 石桌上够不到（盘心离凳心 1.10m，人的前伸只有 ~0.70）——
+        所以取"手撑在棋盘这一侧的桌沿"，而不是硬把手拉长到 1.1m。
+     ⚠️ y 必须**单调下降**（0.862→0.800→0.782→0.774）：第一版中段反翘 0.034 ⇒ 肘部
+        折出一个 V 形拐点，近景里读成"胳膊断了"（出图复核后改直）。 */
+  const SLEEVE = {
+    /* ⚠️ 点列一律给**正 x**，左右由 side 镜像（与站姿同一套约定）。
+       第一版把 R/L 两臂各自带符号写死、外面又乘了一次 side ⇒ 左臂被翻到右边，
+       两条胳膊叠在一处、左边完全空着（只有近景出图才看得出来）—— 这类"镜像乘两次"
+       不报错、不影响任何数值判据，只让画面少一条胳膊。 */
+    go: {
+      reach: [[0.180, 0.862, 0.028], [0.272, 0.800, 0.180], [0.230, 0.782, 0.368], [0.176, 0.774, 0.548]],
+      /* ⚠️ 末点 y 0.566 → **0.616**（2026-10-05）：手是"搭在腿上"的，而大腿（半径 0.128、
+         中心线 0.470→0.446）在 z 0.30 处的**顶面只有 0.574** —— 0.566 的手心落在大腿
+         **里面**，近景里读成"前臂插进大腿、只剩一截袖口环悬在膝上"。改到 0.616
+         （= 腿面 + 掌高），手才真正压在腿上。同一次复核把肘点也从 0.726/0.088 收进来
+         （旧值让前臂斜着穿过袍身）。 */
+      rest:  [[0.180, 0.862, 0.028], [0.268, 0.720, 0.070], [0.172, 0.652, 0.150], [0.088, 0.600, 0.252]],
+    },
+    /* ⚠️ 末点 y 0.800 → **0.826**（2026-10-05）：琴身顶面 0.748+0.0275、七弦 0.7905，
+       手心 0.800 ⇒ 掌底 0.760 **正好穿在弦和琴面里**。抬到 0.826 后掌底 0.786，
+       压在弦上（差 1.5cm），才是"手悬在弦上"。 */
+    qin: [[0.180, 0.862, 0.028], [0.268, 0.828, 0.170], [0.216, 0.820, 0.360], [0.150, 0.826, 0.525]],
+  };
+  for (const side of [-1, 1]){
+    const A = pose === 'go' ? (side > 0 ? SLEEVE.go.reach : SLEEVE.go.rest) : SLEEVE.qin;
+    const V = ([ax, ay, az]) => new THREE.Vector3(side * ax, ay, az);
+    /* 袖：⚠️ 必须拆成**上臂（宽）/ 前臂（窄）**两段。单段 TubeGeometry 的半径是**常数**，
+       整条胳膊从肩到腕一样粗（0.065），而真手只有 0.05 ⇒ 手**怎么摆都露不出来**，
+       远端永远只能读到管口的平截面 —— 用户那张顶视图里的"紫色平口圆管"就是它。
+       直裰的宽袖本来就是"肩肘宽、腕口收"，拆段既合物理，也让"腕 → 掌"读得出来。
+       两段在肘球里搭接：缝落在球内，外面看到的是一段圆肘。*/
+    const UPPER = 0.068, FORE = 0.046;
+    g.add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(A.slice(0, 2).map(V)), 6, UPPER, 7, false),
+      ink, { name:'seatSleeveUpper' }));
+    g.add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(A.slice(1).map(V)), 9, FORE, 7, false),
+      ink, { name:'seatForearm' }));
+    const elbow = mesh(new THREE.SphereGeometry(0.070, 9, 7), ink, { name:'seatElbow' });
+    elbow.position.set(side * A[1][0], A[1][1], A[1][2]);
+    g.add(elbow);
+    /* 手：掌（压扁的球）+ 沿**前臂轴向**推到袖口之外 0.030 ⇒ 袖 → 腕 → 掌三段分明。
+       ⚠️ 掌 0.050 比前臂 0.046 大一圈、比旧袖管 0.065 小一圈 —— 这才是手的比例。 */
+    const [hx, hy, hz] = A[3];
+    const [px, py, pz] = A[2];
+    const ux = hx - px, uy = hy - py, uz = hz - pz;
+    const uL = Math.hypot(ux, uy, uz) || 1;        // 前臂轴向（局部坐标；g 的椭圆缩放另算）
+    const OUT = 0.030;                              // 掌心推到腕口之外的距离
+    const palm = mesh(new THREE.SphereGeometry(0.050, 9, 7), ink, { name:'seatClump' });
+    palm.position.set(side * (hx + ux / uL * OUT), hy + uy / uL * OUT, hz + uz / uL * OUT);
+    palm.scale.set(1.10, 0.80, 1.15);               // 压扁成"掌"，不是球
+    g.add(palm);
+    /* 袖口环：**套在手腕上**（= 腕口那一点）、轴向前臂。
+       旧版按屏幕方向硬写 rotation.x = 1.2 —— 那是给"负手"那条胳膊配的角度，
+       坐姿一换姿态，环就斜着切开袖子。改用 setFromUnitVectors 由轴向定姿，与姿态无关。
+       半径 0.052 略大于前臂 0.046：不这样它整体缩在袖里，等于没画。 */
+    const cuff = mesh(new THREE.TorusGeometry(0.052, 0.008, 5, 12), inkLight, { name:'seatCuff' });
+    cuff.position.set(side * hx, hy, hz);
+    cuff.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1),
+      new THREE.Vector3(side * ux, uy, uz).normalize());
+    g.add(cuff);
+  }
+  /* 头 + 发髻 + 簪（与站姿同一套尺寸/构件；坐姿低头角度按姿态给：
+     对弈要盯着盘面 ⇒ 0.40；抚琴盯着弦 ⇒ 0.30；其余 0.24 同站姿） */
+  const headG = new THREE.Group();
+  headG.position.set(0, NECK_Y + 0.135, 0.03);
+  headG.rotation.x = pose === 'go' ? 0.40 : (pose === 'qin' ? 0.30 : 0.24);
+  headG.add(mesh(new THREE.SphereGeometry(0.086, 14, 11), hair, { name:'seatHead' }));
+  const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'seatKnot' });
+  knot.position.set(0, 0.098, -0.020);
+  headG.add(knot);
+  const pinMat = new THREE.MeshStandardMaterial({ color:0xC9CDB8, roughness:0.6, metalness:0.0, envMapIntensity:0.5 });
+  const pin = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.132, 5), pinMat, { name:'seatPin' });
+  pin.rotation.order = 'ZYX';
+  pin.rotation.set(0, 0.55, Math.PI / 2 + 0.14);
+  pin.position.set(0.008, 0.096, -0.022);
+  headG.add(pin);
+  const pinAxis = new THREE.Vector3(-0.824, -0.122, 0.505);
+  for (const e of [-1, 1]){
+    const bead = mesh(new THREE.SphereGeometry(0.010, 6, 5), pinMat, { name:'seatPinBead' });
+    bead.position.set(0.008 + pinAxis.x * 0.066 * e, 0.096 + pinAxis.y * 0.066 * e, -0.022 + pinAxis.z * 0.066 * e);
+    headG.add(bead);
+  }
+  root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不参与躯干椭圆缩放（同站姿）
+  root.userData.breathPhase = jr() * TAU;
+  root.userData.robe = robe;
+  /* ⚠️ 坐姿的"接地面"不是脚底（= baseY），而是**坐面**：人物原点在凳心、正下方就是石凳，
+     probe/figure-foot-guard.mjs 从天上往下打射线拿到的第一个面是**凳面**。
+     所以这里显式声明"身体从 baseY + contactY 处落在支撑面上"，门禁照此比对 ——
+     它同时也把"人真的坐在凳子上"这件事变成了一条可判定的断言（而不是只看脚底贴不贴地）。 */
+  root.userData.contactY = SEAT_H;
+  root.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
+  figures.push(root);
+  return root;
+}
 
 // 睡莲叶（程序化）+ 锦鲤 + 水草
 /* ⚠️ 这里原来 nLotus = 0 —— 我们自己那套**带完整花梗**的荷花一直关着，
@@ -2262,6 +2481,43 @@ export function tourUserTakeover(){
    （笔架/砚/茶盏/棋钵）正好靠这一遍把 castShadow 关掉，晚了就白进投射物集合、
    把阴影视体撑大（shadow-cover 的既有取舍）。 */
 world.add(buildProps());
+
+/* ── 坐姿人物：对弈二人（计划书 §6「人」批第一件，与上面的石桌石凳棋盘配套）──
+   ⚠️ 必须放在 `world.add(buildProps())` **之后**：座位表 SEAT_SPOTS 是在 buildProps
+   里面（makeStoneTableSet 内）填的，提前读只会拿到空数组。
+   ⚠️ 座位取 SEAT_SPOTS 的**真实世界落位**（含 14-props 的 jr 抖动），不在本模块按
+   "45°/225° × r=1.02"重算 —— 重算会跟真凳子差到 7cm，近景里就是"人坐在凳子边沿外"。
+   选**对径的一对**（i 与 i+2，夹角 180°）：同侧相邻那两张不是"对弈"。
+   ⚠️ 服色避开绿族：这张桌子在**草坪**上，而草坪是绿底（站姿那批的血泪：松绿袍与草坪
+   ΔRGB 只有 49，人一放上去就没了）⇒ 用宝蓝 / 秋香两个非绿色相。 */
+{
+  const SKINS = ['plum', 'navy'];
+  [0, 2].forEach((si, k) => {
+    const st = SEAT_SPOTS[si];
+    if (!st) return;
+    const fg = makeSeatedScholar({ x: st.x, z: st.z, y: st.y, yaw: st.yaw, s: 1.0, pose: 'go', skin: SKINS[k] });
+    /* 时段取 12.5~18：**只为避开"同框可区分"的硬约束**（figure-audit 要求 slot 重叠的角色
+       服色距离 ≥60）。7.5~12 那一档挤着先生（indigo）+ 两书童（celadon/ochre），
+       新开的plum/navy 与 indigo 只差 52；而 12.5~18 只与午后品茗（moss）同框，
+       两色对 moss 分别是 73 / 108。风雨雪由 11-loop 的 goodWeather 挡（同全体现役人物）。 */
+    fg.userData.slot = { h0: 12.5, h1: 18.0, stroll: null };
+    fg.userData.skin = SKINS[k];
+    fg.userData.poseName = 'go';
+    world.add(fg);
+  });
+  /* 抚琴人（计划书 §6「人」批 · 与 14-props #2 古琴琴桌配套）：坐在 14-props 新补的琴凳上，
+     面朝池面（临水抚琴）。座位同样读 QIN_SEAT —— 不在这里按
+     "琴桌 13.4,8.2 加个偏移"重算，理由同上面 SEAT_SPOTS 那段。
+     时段取 12.5~18（与午后品茗同框 ＝「品茗 + 抚琴」一场小聚），服色石青。 */
+  const qs = QIN_SEAT[0];
+  if (qs){
+    const fg = makeSeatedScholar({ x: qs.x, z: qs.z, y: qs.y, yaw: qs.yaw, s: 1.0, pose: 'qin', skin: 'slate' });
+    fg.userData.slot = { h0: 12.5, h1: 18.0, stroll: null };
+    fg.userData.skin = 'slate';
+    fg.userData.poseName = 'qin';
+    world.add(fg);
+  }
+}
 
 // 性能：小尺寸构件在阴影里的贡献几乎不可见，关闭其投影以压低 shadow pass 的 draw call
 world.traverse(o=>{

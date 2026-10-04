@@ -61,6 +61,23 @@ MAT.goBoardFace = registerWeatherRoles(new THREE.MeshStandardMaterial({
    尺寸按真实江南园林石桌推：桌面径 1.24m、高 0.72m（坐面 0.42m，凳面到桌面 0.30m）。
    ⚠️ 全套用**同一批材质**（MAT.stone / stoneDark / woodDark / porcelain）
    ⇒ mergeStatics 会把它们并进那几个材质桶，只增加个位数 draw call。 */
+/* 四张石凳的**坐面世界落位**（由 makeStoneTableSet 填），供 08 的坐姿人物精确落座。
+   ⚠️ 必须在函数**里面**记，不能在 08 里按"45°/225° × r=1.02"重算 —— 下面那两行 jr 抖动
+   （±0.07rad / ±0.04m）会让重算的位置与真凳子差到 7cm，近景里就是"人坐在凳子边沿外"。
+   每项 yaw = "面朝桌心"的朝向（人物正面约定为 +z，与 08 的 makeScholar 一致）。 */
+export const SEAT_SPOTS = [];
+/* 石凳的坐面世界落位（琴凳另见 QIN_SEAT）。坐面高 = STOOL_PROF 的顶面 0.452，
+   与 08 里坐姿人物的 SEAT_H 是**同一个数**：改轮廓必须同步改 SEAT_H。 */
+export const QIN_SEAT = [];
+/* 鼓凳轮廓（石桌四张 + 水榭琴凳共用一份）——顶面 y = 0.452。
+   ⚠️ LatheGeometry 是一张**开口的旋转壳**：轮廓首尾必须落到轴心（r=0）才能封底/封顶。
+   第一版轮廓从 r=0.145 起到 r=0.212 止，上下都是敞口 —— 从上方看进去，单面材质的背面
+   被剔除，直接穿透到草地，凳面就成了"黑窟窿"，四张凳子读成一排白碗（2026-10-04 出图复核）。 */
+const STOOL_PROF = [
+  [0.000, 0.000], [0.145, 0.000], [0.200, 0.030], [0.222, 0.115], [0.228, 0.210],
+  [0.221, 0.310], [0.204, 0.385], [0.196, 0.425], [0.212, 0.445],
+  [0.150, 0.452], [0.000, 0.452],
+].map(([r, h]) => new THREE.Vector2(r, h));
 export function makeStoneTableSet(x, z, yaw = 0){
   const g = new THREE.Group();
   const y = groundHeight(x, z);
@@ -80,15 +97,7 @@ export function makeStoneTableSet(x, z, yaw = 0){
   /* 四张**鼓凳**：方位给 45° 起手 + 逐张微抖（真实园林的凳子不会摆成正南北）。
      ⚠️ 形状必须是"鼓腹"而不是直筒 —— 直筒 + 顶板 + 底板在近景里读成"柱础"而不是凳子
      （2026-10-04 复核）。鼓凳的两个识别特征：① 腰腹外鼓、上下收口；② 腰间一圈鼓钉。 */
-  /* ⚠️ LatheGeometry 是一张**开口的旋转壳**：轮廓首尾必须落到轴心（r=0）才能封底/封顶。
-     第一版轮廓从 r=0.145 起到 r=0.212 止，上下都是敞口 —— 从上方看进去，单面材质的背面
-     被剔除，直接穿透到草地，凳面就成了"黑窟窿"，四张凳子读成一排白碗（2026-10-04 出图复核）。 */
-  const stoolProf = [
-    [0.000, 0.000], [0.145, 0.000], [0.200, 0.030], [0.222, 0.115], [0.228, 0.210],
-    [0.221, 0.310], [0.204, 0.385], [0.196, 0.425], [0.212, 0.445],
-    [0.150, 0.452], [0.000, 0.452],
-  ].map(([r, h]) => new THREE.Vector2(r, h));
-  const stoolGeo = new THREE.LatheGeometry(stoolProf, 20);   // 四张共用一份几何
+  const stoolGeo = new THREE.LatheGeometry(STOOL_PROF, 20);   // 四张共用一份几何（轮廓见模块级 STOOL_PROF）
   const nailGeo  = new THREE.SphereGeometry(0.024, 8, 6);
   for (let i = 0; i < 4; i++){
     const a = Math.PI / 4 + i * Math.PI / 2 + jr(0.07);
@@ -96,6 +105,18 @@ export function makeStoneTableSet(x, z, yaw = 0){
     const sx = Math.cos(a) * r, sz = Math.sin(a) * r;
     const st = mesh(stoolGeo, MAT.stone, { name:'propStool' });
     st.position.set(sx, 0, sz); g.add(st);
+    /* 记下这张凳子的坐面世界落位（含上面的抖动）—— 见文件上方 SEAT_SPOTS 的说明。
+       映射：点 (sx,sz) 经 rotation.y=yaw ⇒ 世界偏移 (sx·cy+sz·sy, −sx·sy+sz·cy)；
+       朝向取"凳子→桌心"（局部 (−cos a, −sin a)）旋转到世界。 */
+    {
+      const cy = Math.cos(yaw), sy = Math.sin(yaw);
+      const fdx = (-Math.cos(a)) * cy + (-Math.sin(a)) * sy;
+      const fdz = -(-Math.cos(a)) * sy + (-Math.sin(a)) * cy;
+      SEAT_SPOTS.push({ x: +(x + sx * cy + sz * sy).toFixed(4),
+                        z: +(z - sx * sy + sz * cy).toFixed(4),
+                        y: +y.toFixed(4),
+                        yaw: +Math.atan2(fdx, fdz).toFixed(4) });
+    }
     /* 鼓钉：腰腹最鼓处（h 0.215、r 0.228）一圈 8 颗小圆钮。
        用小球而不是扁圆盘 —— 盘要按径向定向（圆柱轴从 +Y 转到水平要多绕两道），
        小球不用定向、近景同样是"一粒粒"，省下的复杂度换不到观感。 */
@@ -161,35 +182,52 @@ export function makeQinSet(x, z, y, yaw = 0){
   g.position.set(x, y, z);
   g.rotation.y = yaw;
 
-  /* 琴桌：条案式（面板 + 四腿 + 前后枨）。高 0.62 —— 与琴的弹奏高度一致。 */
+  /* 琴桌：条案式（面板 + 四腿 + 前后枨）。桌面高 **0.72**（台基面以上）——
+     ⚠️ 2026-10-05 从 0.62 抬到 0.72：0.62 是照"站在桌前"配的，而抚琴**必须坐着**，
+     坐姿的大腿顶面在 0.598（见 08 makeSeatedScholar），而 0.62 桌面下沿只有 0.55
+     ⇒ 膝盖整个穿进桌面里。0.72 与石桌同高、也是正常书案高度（椅面 0.45 配桌面 0.72），
+     改后桌面下沿 0.65、离大腿顶 0.052。**08 里抚琴的手位按 0.7905 的弦高算，必须同步。** */
   const top = mesh(box(1.42, 0.070, 0.46), MAT.wood, { name:'propQinTableTop' });
-  top.position.y = 0.585; g.add(top);
+  top.position.y = 0.685; g.add(top);
   const topEdge = mesh(box(1.46, 0.022, 0.50), MAT.woodDark, { name:'propQinTableEdge', cast:false });
-  topEdge.position.y = 0.548; g.add(topEdge);
+  topEdge.position.y = 0.648; g.add(topEdge);
   for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]){
-    const leg = mesh(box(0.058, 0.545, 0.058), MAT.wood, { name:'propQinTableLeg' });
-    leg.position.set(sx * 0.62, 0.2725, sz * 0.16); g.add(leg);
+    const leg = mesh(box(0.058, 0.650, 0.058), MAT.wood, { name:'propQinTableLeg' });
+    leg.position.set(sx * 0.62, 0.325, sz * 0.16); g.add(leg);
   }
   for (const sz of [-1, 1]){
     const st = mesh(box(1.20, 0.045, 0.045), MAT.wood, { name:'propQinTableStretcher', cast:false });
-    st.position.set(0, 0.16, sz * 0.16); g.add(st);
+    st.position.set(0, 0.26, sz * 0.16); g.add(st);
   }
 
   /* 古琴：通长 1.22m、额宽 0.20 尾宽 0.14、厚 0.055。做成"尾端收窄"的两截，
      不是一块方板 —— 收窄是琴最好认的剪影特征（远看就是一个"束腰的长条"）。 */
   const body = mesh(box(0.86, 0.055, 0.20), MAT.woodDark, { name:'propQinBody' });
-  body.position.set(-0.18, 0.648, 0); g.add(body);
+  body.position.set(-0.18, 0.748, 0); g.add(body);
   const tail = mesh(box(0.36, 0.052, 0.15), MAT.woodDark, { name:'propQinTail' });
-  tail.position.set(0.43, 0.6465, 0); g.add(tail);
+  tail.position.set(0.43, 0.7465, 0); g.add(tail);
   /* 岳山/龙龈（两端承弦的木条）+ 七弦。弦在 15m 外不足 1px，但近景特写要能读出"弦"。 */
   const yue = mesh(box(0.030, 0.020, 0.20), MAT.wood, { name:'propQinYue', cast:false });
-  yue.position.set(-0.575, 0.685, 0); g.add(yue);
+  yue.position.set(-0.575, 0.785, 0); g.add(yue);
   const yin = mesh(box(0.030, 0.018, 0.15), MAT.wood, { name:'propQinYin', cast:false });
-  yin.position.set(0.588, 0.682, 0); g.add(yin);
+  yin.position.set(0.588, 0.782, 0); g.add(yin);
   for (let i = 0; i < 7; i++){
     const s = mesh(box(1.16, 0.004, 0.004), MAT.porcelain, { name:'propQinString', cast:false });
-    s.position.set(0.006, 0.6905, -0.072 + i * 0.024);
+    s.position.set(0.006, 0.7905, -0.072 + i * 0.024);
     g.add(s);
+  }
+  /* 琴凳（2026-10-05 补）：抚琴必须**坐**着，而琴桌原来只有桌、没有座。
+     用与石桌四张**同一个鼓凳轮廓**做，摆在琴桌的 +z 侧（本组 yaw=π/2 ⇒ 世界 −x 侧），
+     即"人朝池面坐、琴在人与池之间"—— 临水抚琴。坐面高仍 0.452，落在水榭台基面 y 上。
+     落位记进 QIN_SEAT 供 08 的坐姿人物精确落座（同 SEAT_SPOTS 的纪律：不在外面重算）。 */
+  const qstool = mesh(new THREE.LatheGeometry(STOOL_PROF, 20), MAT.stone, { name:'propQinStool' });
+  qstool.position.set(0, 0, 0.48);
+  g.add(qstool);
+  {
+    const cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const fdx = -sy, fdz = -cy;                 // 局部"凳→桌心" = (0,−1) 旋转到世界
+    QIN_SEAT.push({ x: +(x + 0.48 * sy).toFixed(4), z: +(z + 0.48 * cy).toFixed(4),
+                    y: +y.toFixed(4), yaw: +Math.atan2(fdx, fdz).toFixed(4) });
   }
   return g;
 }
@@ -575,7 +613,7 @@ export function buildProps(){
 
   const qn = PROP_SPOTS.qin;
   g.add(makeQinSet(qn.x, qn.z, qn.y, qn.yaw));
-  reg('古琴琴桌', qn.x, qn.y, qn.z, 0.85, 0.75);
+  reg('古琴琴桌', qn.x, qn.y, qn.z, 0.85, 0.85);   // top = 桌面 0.72 + 琴厚（2026-10-05 桌面抬高 0.10）
 
   PROP_SPOTS.stands.forEach((s, i) => {
     g.add(makeFlowerStand(s.x, s.z, groundHeight(s.x, s.z), i % 2 ? 0.35 : -0.25, i % 2));

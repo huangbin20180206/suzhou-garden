@@ -48,7 +48,7 @@ const SELFTEST = process.env.FIGURE_FOOT_SELFTEST === '1';
 /* 脚下面与脚底的允许偏差。标定：静态人物实测 0.003~0.006；散步者沿全程实测 ≤0.11
    （他走的是**廊道铺装**，比地形公式平，取常数 y 比跟地形更准）。0.15 留约 1.4 倍余量。 */
 const TOL = Number(process.env.FIGURE_FOOT_TOL || 0.15);
-const EXPECT_FIGS = 5;                      // 先生 + 2 书童 + 品茗 + 夜步
+const EXPECT_FIGS = 8;                      // 先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴（坐姿 3）
 
 (async () => {
   const t0 = Date.now();
@@ -118,7 +118,13 @@ const EXPECT_FIGS = 5;                      // 先生 + 2 书童 + 品茗 + 夜�
         const s = surfaceAt(x, z);
         /* 脚底：baseY 是权威值（渲染循环每帧就写它）；散步时另有 ≤0.028 的迈步起伏，
            这里取 baseY，起伏当噪声不予计入（0.028 远小于 TOL）。 */
-        const foot = f.userData.baseY + 0;   // eslint-disable-line no-unused-vars
+        /* ⚠️ 接地面高度 = baseY + contactY。站姿人物 contactY 未定义（= 0，脚底即接地面）；
+           坐姿人物（对弈二人）的**原点在凳心、正下方就是石凳**，它声明 contactY = 坐面高 0.452
+           ⇒ 这条判据对它实际断言的是"**人真的坐在凳面上**"。
+           不这么做的话，坐姿会拿 baseY（= 地面高度 0.099）去比它射到的凳面（0.551），
+           报一个 gap −0.452 的假红。 */
+        const contactY = f.userData.contactY || 0;
+        const foot = f.userData.baseY + contactY;
         return { x: +x.toFixed(2), z: +z.toFixed(2),
                  surf: s ? +s.y.toFixed(3) : null, name: s ? s.name : '—', isWater: !!(s && s.isWater),
                  gap: s ? +(foot - s.y).toFixed(3) : null };
@@ -130,7 +136,7 @@ const EXPECT_FIGS = 5;                      // 先生 + 2 书童 + 品茗 + 夜�
     return out;
   }, SELFTEST);
 
-  check(`点景人物数量 = ${EXPECT_FIGS}（先生 + 2 书童 + 品茗 + 夜步）`,
+  check(`点景人物数量 = ${EXPECT_FIGS}（先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴）`,
     data.length === EXPECT_FIGS, `实测 ${data.length} 个：${data.map(d => d.pose).join('、')}`);
 
   let worstGap = 0, worstWhere = '', waterHits = [];
