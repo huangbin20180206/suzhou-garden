@@ -240,6 +240,34 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   await sleep(900);
 
   /* ── ④ 阳性对照：只改光团 uLamp ── */
+  /* ⚠️⚠️ 隔离前提（2026-10-05 补，本门因此从 25/29 恢复到全绿）：**先把烟花关掉**。
+     本门的取样场景是「冬·夜·晴」—— 而这正是**春节烟花**的开启条件（379a275 落地后），
+     每发绽放都会给全场打一记光（sun/amb/hemi/曝光乘系数 + amb 染色），实测：
+       · 冬·夜·晴（烟花默认开）：取样框 σ = 19.15、全幅极差 51 luma；
+       · 夏·夜·晴（烟花自然关）或 冬·夜·晴+强制关：σ = 0.06、极差 0.12。
+     而本门要测的信号只有 ~2.3 luma ⇒ 全场打光把信号整片淹掉，判据红成"阳性对照 0.1σ"。
+     这与"风要冻住"是同一条纪律：**测什么就把无关的全局效果关掉**，用产品自己的权威开关
+     （setFireworksForce，与 fireworks-guard 同一个后门），不要靠统计去压。
+     ⚠️ 副作用要说清：本门此后的画面**没有烟花**，所以它测的是"灯笼体积光本身"而不是
+     "烟花夜里的灯笼"；要看两者共存的效果由 fireworks-guard 负责。 */
+  if (process.env.LAMPVOL_NO_ISOLATE === '1'){
+    check('隔离前提：烟花已强制关（冬·夜·晴 本该开烟花，它的全场打光会把本门 2.3 luma 的信号淹掉）',
+      false, '按 LAMPVOL_NO_ISOLATE=1 故意不隔离（负例自检用）');
+  } else {
+    const missing = await page.evaluate(() =>
+      typeof window.__garden.setFireworksForce === 'function' ? null : 'setFireworksForce 未暴露');
+    if (!missing) await page.evaluate(() => window.__garden.setFireworksForce(false));
+    /* ⚠️ 必须**等渲染循环翻面**再回读：`fireworksState().on` 是 tickFireworks 每帧算出来的 F.on，
+       刚调完 setFireworksForce 就在同一个 evaluate 里读，拿到的还是上一帧的 true（实测踩过）。 */
+    await sleep(600);
+    const fwOn = await page.evaluate(() => {
+      const g = window.__garden; const s = g.fireworksState ? g.fireworksState() : { on: null }; return s.on;
+    });
+    check('隔离前提：烟花已强制关（冬·夜·晴 本该开烟花，它的全场打光会把本门 2.3 luma 的信号淹掉）',
+      missing === null && fwOn === false, missing || `fireworksState().on=${fwOn}`);
+  }
+  await sleep(900);
+
   const shot = () => page.screenshot();
   const box = { x: view.sx, y: view.sy, r: rWin };
   const loc = (img) => boxLuma(img, box.x, box.y, box.r);
