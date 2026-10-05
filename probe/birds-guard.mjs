@@ -1,9 +1,12 @@
-// 一次性诊断（不入库）：大雁迁徙 + 鲜艳小鸟的常驻判据
+// 大雁迁徙的常驻判据 + **小鸟已整层下线**的防复活判据
 // ① 季节：春/秋 13 只可见、夏/冬 0（老黄："春天和秋天增加大雁迁徙的场景"）
 // ② 阵型：飞行中真的会切换，且两种阵型都出现过（老黄："变换阵型（人字和八字）"）
-// ③ 大雁在高空（24~31m）且成队（不是散飞）
-// ④ 小鸟：石上组必须**停在实测石面上**（不能悬空）、草上组必须在**跳跃**（位置随帧变化）
-// ⑤ 小鸟颜色是亮色（线性分量足够大，不能是灰）
+// ③ 大雁在高空且成队（不是散飞）
+// ④ 小鸟：**2026-10-05 起整层下线**（老黄："去掉……草皮上的小鸟以及假山上的小鸟，
+//    保留金刚鹦鹉"）—— 本节从"守行为"翻成"守它不再出现"：只数 0 + 网格仍在
+//    （容量 9）+ 探针自检。旧的四组行为/配色判据（贴石面 / 跳跃抛物线 / 羽色自然 /
+//    理羽侧偏）留在 git 历史里；恢复 = 把 08-assemble 的 N_ROCK_BIRD / N_GRASS_BIRD
+//    改回 3 / 6，并把那四组判据取回。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -258,71 +261,40 @@ const check = (name, ok, detail = '') => {
     const cols = [];
     for (let i = 0; i < im.count; i++)
       cols.push([im.instanceColor.getX(i), im.instanceColor.getY(i), im.instanceColor.getZ(i)]);
-    return { count: im.count, rock, grass, cols, nan: nanWorst,
+    return { count: im.count, cap: im.instanceMatrix.count,
+             counts: G.smallBirdMeshRef.counts,
+             rock, grass, cols, nan: nanWorst,
              stateNan, preenSeen, preenMax: +preenMax.toFixed(2) };
   });
 
-  /* ⚠️ 数量 2026-10-01 按老黄要求改：石上 5 → **3**（"做两三只停在最高的假山上"），
-     草上仍是 6。总数 11 → 9。 */
-  check('小鸟：总数 = 石上 3 + 草上 6', birds.count === 9, `${birds.count} 只`);
-  /* ⚠️ 新增（老黄："停在**最高的假山**上"）：三只必须都在**同一处**假山、
-     且高度明显高于另一处（实测东假山最高 5.09m、西假山 4.08m）。
-     量法：取三只石上鸟的 y，要求极差 ≤1.2m（同一座山）且最低那只 >2.5m（山顶量级）。 */
-  {
-    const ys = birds.rock.map(r => r.y).sort((a, b) => a - b);
-    const spread = ys.length ? +(ys[ys.length - 1] - ys[0]).toFixed(2) : 99;
-    check('小鸟（石上）：两三只都在**最高的假山**顶上（高度极差 ≤1.2m、最低 >2.5m）',
-      birds.rock.length === 3 && spread <= 1.2 && ys[0] > 2.5,
-      `高度 ${ys.join(' / ')}m（极差 ${spread}m）`);
-  }
-  const rockBad = birds.rock.filter(r => r.gap === null || r.gap < -0.05 || r.gap > 0.45);
-  check('小鸟（石上）：站在石面上（脚底与石面差 0.45m 内，不悬空不陷进去）',
-    rockBad.length === 0,
-    rockBad.length ? `越界 ${rockBad.map(r => `#${r.i} gap=${r.gap}`).join(', ')}`
-                   : birds.rock.map(r => `#${r.i} 高${r.y}/石面${r.ground}`).join(' '));
-  /* ⚠️ 2026-10-01 反转：老黄"这些鸟都是不动的……这个鸟反而不能'灵动'起来？"
-      —— 而这条判据当时写的恰恰是"**在休息**（20 秒累计位移 <0.4m）"，
-      **强制了静止**。石上的鸟现在会踱步/转头/抖翅，20 秒累计位移应 >0.4m。 */
-  const rockStill = birds.rock.every(r => r.path < 0.4);
-  check('小鸟（石上）：虽在休息但**有持续小动作**（20 秒累计位移 ≥0.25m，不读作静止）',
-    !rockStill || birds.rock.filter(r => r.path >= 0.25).length >= birds.rock.length - 1,
-    `路径 ${birds.rock.map(r => r.path).join(', ')}m`);
-  /* ⚠️ 门槛用"多数"而不是写死只数：2026-10-01 石上从 5 改 3 之后，
-     草上仍是 6 只，但索引分类曾经错位导致"4/4 只"这种读数 ——
-     写死 `>= 5` 会在只数变化时误报。改成"至少 4 只且过半"。 */
-  const grassHop = birds.grass.filter(g => g.path > 1.5);
-  check('小鸟（草上）：在跳跃捕食（20 秒累计路径 >1.5m）',
-    grassHop.length >= 4 && grassHop.length * 2 >= birds.grass.length,
-    `${grassHop.length}/${birds.grass.length} 只，路径 ${birds.grass.map(g => g.path).join(', ')}m`);
-  const grassSwing = birds.grass.filter(g => g.ySwing > 0.06);
-  check('小鸟（草上）：跳跃是抛物线（高度有起伏，不是平移滑行）',
-    grassSwing.length >= 4 && grassSwing.length * 2 >= birds.grass.length,
-    `起伏 ${birds.grass.map(g => g.ySwing).join(', ')}m`);
-  /* ⚠️⚠️ **判据方向反转**（2026-10-01）：老黄明确否掉了原判据 ——
-      "颜色不对，自然界很难找到这种纯色的鸟"。而这条判据当时写的是
-      **饱和度 ≥0.9**、"不是灰扑扑"，实测 11 只饱和度 0.98~1.00 全"达标"
-      —— 它**正在强制那个缺陷**。纯色上限就是 1.0，0.9 以上等于纯色。
-      真实鸟羽的饱和度大致 0.15~0.65（橄榄褐、黄绿、石青蓝、栗棕），
-      靠**分区**（背/腹/头/翼）而不是"整体纯色"才鲜艳。
-      现在改成**双侧**判据：既不许灰（饱和度 ≥0.15），也不许纯色（≤0.65）。
-      ⚠️ 教训与 09-28 那条同源：**判据会把产品当时的样子固化成"标准"**，
-         用户提出反面意见时要先回头看这条判据是不是在强制缺陷。 */
-  const satOf = c => { const mx = Math.max(...c), mn = Math.min(...c); return mx > 0 ? (mx - mn) / mx : 0; };
-  const sats = birds.cols.map(satOf);
-  const natural = birds.cols.filter(c => satOf(c) >= 0.15 && satOf(c) <= 0.65).length;
-  check('小鸟：羽色自然（饱和度 0.15~0.65：既不灰、也不是纯色塑料鸟）',
-    natural >= birds.cols.length - 1,
-    `${natural}/${birds.cols.length} 只达标，饱和度 ${sats.map(s => s.toFixed(2)).join(',')}`);
-
-  check('小鸟：实例矩阵无 NaN（姿态整体不能被算坏）', birds.nan === 0,
-    birds.nan ? `窗口内最多 ${birds.nan} 个非有限元素` : '20 秒窗口内全程有限');
-  /* ⚠️ 这条才是有牙的那条（见上方注释：`|| 0` 会掩盖 NaN，矩阵/位移/颜色都抓不到）。
-     老黄点名要的三个动作之一"转头啄毛"，其可测量形态就是
-     **低头期间头部朝身侧偏 ≥0.5rad**；typo 版本这条恒为 0。
-     负例对照：把 `b.preen` 改回 `b.peen` ⇒ stateNan>0 且 preenMax=0 ⇒ 必红。 */
-  check('小鸟（石上）：理羽动作真的发生（低头期间侧偏 ≥0.5rad，状态无 NaN）',
-    birds.stateNan === 0 && birds.preenSeen > 0 && birds.preenMax >= 0.5,
-    `状态 NaN ${birds.stateNan} 处 · 理羽采样 ${birds.preenSeen} 次 · 最大侧偏 ${birds.preenMax}rad`);
+  /* ══ ③ 小鸟：**2026-10-05 整层下线** ═════════════════════════════════
+     老黄："去掉……草皮上的小鸟以及假山上的小鸟，保留金刚鹦鹉"。
+     本段从"守行为"翻成"**守它不再出现**" —— 与 2026-10-01 大雁、以及 far-tree
+     那次同款处理。⚠️ 下线一个功能时必须**一起改门禁**：旧判据留着要么一片恒假红，
+     要么更糟 —— 改法不当（比如把 `count===9` 松成 `count>=0`）会变成一堆
+     **恒绿的空判据**，那比没有门禁更坏。
+     三条牙：
+       ① 只数 = 0（两类都从产品侧读，不写死）；
+       ② 网格**还在、容量还是 9** —— 这是"只关数量、不删网格"的契约，
+          layout-fingerprint 的稳定性靠它（删掉网格反而会动指纹）；
+       ③ **探针自检**：把 count 临时改成 1，本门必须读到 1 ⇒ 证明"读到 0"不是探针坏了
+          （项目铁律：探针自己也要先证伪）。 */
+  const birdSelf = await page.evaluate(() => {
+    const G = window.__garden, im = G.smallBirdMeshRef.mesh;
+    const keep = im.count;
+    im.count = 1;                                   // 临时"复活"一只
+    const seen = im.count;
+    im.count = keep;
+    return { seen, restored: im.count };
+  });
+  check('小鸟：已整层下线（石上 0 + 草上 0）',
+    birds.count === 0 && birds.counts.rock === 0 && birds.counts.grass === 0,
+    `count=${birds.count}（石上 ${birds.counts.rock} / 草上 ${birds.counts.grass}）`);
+  check('小鸟：网格仍在、容量保持 9（只关数量不删网格 ⇒ layout-fingerprint 不漂）',
+    birds.cap === 9, `容量 ${birds.cap}`);
+  check('小鸟：探针自检（临时 count=1 时本门必须读到 1，复位回 0）',
+    birdSelf.seen === 1 && birdSelf.restored === 0,
+    `读到 ${birdSelf.seen}，复位后 ${birdSelf.restored}`);
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');

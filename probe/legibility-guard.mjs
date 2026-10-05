@@ -137,7 +137,36 @@ const SELFTEST = process.env.LEGIBILITY_SELFTEST === '1';
     }, { featIds });
   };
 
-  const r1 = await measure('clear', ['birds', 'macaw', 'fly', 'perch', 'koi']);
+  /* ⚠️ 2026-10-05：`birds` 退出本门清单 —— 老黄"去掉草皮上的小鸟以及假山上的小鸟"
+     （整层下线，count=0）。留着它必然报 0px 假红：**判据要跟产品形态一起改**。
+     resolve() 里的 `case 'birds'` 保留（句柄还在、随时可恢复），只是不再被请求。 */
+  const MIN_PX = 15;          // 判据线（原来内联在下面的 TH 里；提上来给"补采样"用）
+  const clearIds = ['macaw', 'fly', 'perch', 'koi'];
+  const mergeMax = (a, b) => {          // 逐元素取较大者；__self 取最大（任一次非零都要报出来）
+    const o = { __self: Math.max(a.__self ?? 0, b.__self ?? 0) };
+    for (const k of Object.keys({ ...a, ...b })){
+      if (k === '__self') continue;
+      const x = a[k], y = b[k];
+      if (!x){ o[k] = y; continue; }
+      if (!y){ o[k] = x; continue; }
+      o[k] = (y.px > x.px) ? y : x;
+    }
+    return o;
+  };
+  let r1 = await measure('clear', clearIds);
+  /* ⚠️⚠️ 只对**贴线**的元素补采样（2026-10-05 加）——「游弋蜻蜓」5 只绕着池子飞，
+     单帧采样同代码连跑实测 **12 / 19 / 45 / 33px**，而判据线是 15px ⇒ 红绿完全由
+     "开测那一瞬它们飞到哪儿"决定（同 2026-10-01 大雁那条"采样窗口 < 运动周期"的教训）。
+     稳定的语义不是"某一帧有多少像素"，而是"**这一窗口里到底能不能看到**"：
+     贴线的元素再采两次、取 max。真看不见的三次都低 ⇒ 判据照样红，
+     判据线 15px 一个字没动；正常情况（一帧就过）零额外开销。 */
+  for (let k = 0; k < 2; k++){
+    const weak = clearIds.filter(id => r1[id] && r1[id].px >= 0 && r1[id].px <= MIN_PX);
+    if (!weak.length) break;
+    console.log(`  · 补采样（单帧贴线：${weak.join(', ')}）`);
+    await page.waitForTimeout(1000);
+    r1 = mergeMax(r1, await measure('clear', clearIds));
+  }
   /* ⚠️ 2026-10-02 起屋檐滴水退出本门的默认机位清单 —— 老黄明确改了形态：
      "滴水慢一点、密度低一些、随机几个瓦片下水处、体积小一点"⇒ 16 个固定滴点/
      半径减半/限速 2m/s，默认机位实测只贡献 4px —— 这是**他要的形态**，不是缺陷；
@@ -145,15 +174,15 @@ const SELFTEST = process.env.LEGIBILITY_SELFTEST === '1';
      （状态牙：16 滴点 + 空中 live>0；像素牙：檐下近景）。积水仍在此处量。 */
   const r2 = await measure('afterrain', ['puddle']);
   const all = { ...r1, ...r2 };
-  const NAME = { birds: '小鸟', macaw: '金刚鹦鹉', fly: '游弋蜻蜓', perch: '停栖蜻蜓', koi: '锦鲤群',
+  const NAME = { macaw: '金刚鹦鹉', fly: '游弋蜻蜓', perch: '停栖蜻蜓', koi: '锦鲤群',
                  puddle: '地面积水' };
   const fmt = (id) => all[id] ? `${all[id].px}px（${all[id].n} 个对象）` : '句柄缺失';
 
   check('自检：同状态连渲两次画面不变（不是量的场景漂移）', all.__self === 0, `最大差 ${all.__self}`);
 
   /* 下限刻意低（15px）：只抓"几乎不可见"。SELFTEST 时抬到不可能的高度验证红门路径。 */
-  const TH = SELFTEST ? 1e9 : 15;
-  for (const id of ['birds', 'macaw', 'fly', 'perch', 'koi', 'puddle']){
+  const TH = SELFTEST ? 1e9 : MIN_PX;
+  for (const id of ['macaw', 'fly', 'perch', 'koi', 'puddle']){
     if (!all[id] || all[id].px < 0){ check(`默认机位能看到：${NAME[id]}`, false, '句柄缺失（探针坏）'); continue; }
     check(`默认机位能看到：${NAME[id]}（A/B 差分 > ${SELFTEST ? '∞(自检)' : '15px'}）`,
       all[id].px > TH, fmt(id));

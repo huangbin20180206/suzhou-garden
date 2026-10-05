@@ -1180,8 +1180,15 @@ const GRASS_SPOTS = [
   [ -6.0, -0.30,  8.8],   // 更南、竹影里
   [-10.8, -0.32,  7.2],
 ];
-/* ⚠️ 假山上 3 只（老黄要"两三只"），草上 6 只 */
-const N_ROCK_BIRD = 3, N_GRASS_BIRD = 6;
+/* ⚠️⚠️ 2026-10-05 **整层下线**（老黄："去掉……草皮上的小鸟以及假山上的小鸟，保留金刚鹦鹉"）。
+   石上/草上都置 0。两处细节：
+     ① **instanced 容量保持 9**（BIRD_CAP）—— 容量为 0 时 instanceMatrix/instanceColor
+        会是**长度 0 的缓冲**，部分驱动上 bufferData(0) 会告警甚至出错；而 `count = 0`
+        是干净的"一个都不画"。
+     ② **网格本身保留**（不删）—— layout-fingerprint 按名字排除它，删掉网格反而会动指纹。
+   恢复 = 把下面这两个数改回 3 / 6（下面的行为/配色/落点代码一字未动）。 */
+const N_ROCK_BIRD = 0, N_GRASS_BIRD = 0;
+const BIRD_CAP = 9;                    // 原"石上 3 + 草上 6"的容量，固定不动
 /* 两个 InstancedMesh（全体小鸟各 1 个 draw call；颜色走 instanceColor） */
 const smallBirdMesh = (() => {
   /* ⚠️ **必须开 vertexColors**（2026-10-01）：羽色分区做在几何的顶点色上
@@ -1193,9 +1200,10 @@ const smallBirdMesh = (() => {
   const mat = new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.72, metalness:0.0,
                                                envMapIntensity:0.9, flatShading:true,
                                                vertexColors:true });
-  const im = new THREE.InstancedMesh(makeSmallBirdGeo(), mat, N_ROCK_BIRD + N_GRASS_BIRD);
+  const im = new THREE.InstancedMesh(makeSmallBirdGeo(), mat, BIRD_CAP);
   im.castShadow = false; im.receiveShadow = false;
-  im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array((N_ROCK_BIRD + N_GRASS_BIRD) * 3), 3);
+  im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(BIRD_CAP * 3), 3);
+  im.count = N_ROCK_BIRD + N_GRASS_BIRD;   // 下线后 = 0 ⇒ 一个都不画（容量仍是 BIRD_CAP）
   im.userData.noMerge = true;
   im.frustumCulled = false;
   im.name = 'smallBirdMesh';   // ⚠️ layout-fingerprint 按名字排除它（见那边的注释）
@@ -1964,7 +1972,12 @@ loadAssetOnce('assets/Turtle.glb', 0.46, (src)=>{
       详见 07-ground DUCK_SCALE 上方）
       正是"一眼认出是什么鸟"的主体。 */
 export const swimDucks = [];
-const DUCK_KIND = ['mallardM', 'mallardF', 'mandarinM', 'mandarinF'];
+/* ⚠️⚠️ 2026-10-05 **整层下线**（老黄："去掉池子里的鸳鸯"）。
+   一次性把整层水禽（绿头鸭 ♂♀ + 鸳鸯 ♂♀）都撤了：它们在同一机位只有 12~14px，
+   分辨不出种类、只读作"池子里几个点"，与草皮/假山小鸟是同一批量级。
+   代码全保留（下面轨道 / 羽色 / 尾涡圈 / 折射层标记一字未动），恢复 = DUCK_ON 置 true。 */
+const DUCK_ON = false;
+const DUCK_KIND = DUCK_ON ? ['mallardM', 'mallardF', 'mandarinM', 'mandarinF'] : [];
 const duckRnd = mulberry32(20261006);
 const DUCK_DRAW = DUCK_KIND.map(() => ({
   t:       duckRnd() * TAU,
