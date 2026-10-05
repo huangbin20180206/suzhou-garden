@@ -59,7 +59,8 @@ const check = (name, ok, detail = '') => {
   const info = await page.evaluate(async () => {
     const G = window.__garden, T = G.THREE;
     const P = await import('/src/14-props.js');
-    const M = await import('/src/06-vegetation.js');
+    /* 2026-10-05：香炉白烟（含 CENSER_SMOKE 句柄）已随"雾团+白烟"整块搬进 06b-atmos.js。 */
+    const M = await import('/src/06b-atmos.js');
     const reg = P.PROP_REGISTRY.find(r => r.name === '香炉');
     let im = null; G.scene.traverse(o => { if (o.name === 'censerSmoke') im = o; });
     if (!reg || !im) return { reg: !!reg, im: !!im };
