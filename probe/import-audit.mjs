@@ -162,6 +162,42 @@ for (const [file] of exportsByFile){
   }
 }
 
+// ⑤ 从 src 模块 import 的名字，**对面必须真的导出它**。
+//    这一类缺陷的症状最重：ESM 解析 import 时就失败 ⇒ 整个模块图加载不起来 ⇒
+//    **整页停在加载页（白屏）**，而 `npm run check`（语法 + no-undef）看不见
+//    （import 语句本身语法合法、名字也没"裸用"），①②③④ 也全都看不见
+//    （它们查的是"用了没导入 / 给导入赋值 / 引用内联专有名"）。
+//    实测 2026-10-05 拆灯会时踩到：12-env `import { ..., applyFestivalTo } from './12c-festival.js'`，
+//    而 12c 里那个函数忘了加 `export` ⇒ 本门当时报 PASS、页面却永远加载不出来，
+//    最后是 smoke/pageerror 的超时 + outputs/_diag/boot-error.mjs 抓出来的。
+//    ⚠️ 只查 src ↔ src；vendor.js 与其它非 src 目标不查（它们的导出面不在本门的登记表里）。
+//    ⚠️⚠️ 这里**不能**用 codeOnly()：它连字符串字面量一起涂白（那是它的本职：防"注释/字符串里的
+//       裸名字"误报），而 import 语句的模块路径恰恰是字符串 ⇒ 涂白后整条 import 都匹配不到
+//       （实测：codeOnly 后本文件能匹配到的 import 数 = 0，负例自检当场报"门是假的"）。
+//       所以只去注释、保留字符串（`(^|[^:])` 那半截是为了别把 `https://` 当成行注释）。
+const stripComments = s => s.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+function importedNamesOf(src){
+  const out = [];
+  for (const r of stripComments(src).matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/([^'"]+)['"]/g)){
+    const names = r[1].split(',').map(s => s.trim()).filter(Boolean)
+                       .map(s => s.split(/\s+as\s+/)[0].trim());
+    out.push({ from: r[2], names });
+  }
+  return out;
+}
+for (const [file] of exportsByFile){
+  const src = fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
+  for (const { from, names } of importedNamesOf(src)){
+    const have = exportsByFile.get(from);
+    if (!have) continue;                     // 目标不是 src 模块（vendor / 其它）⇒ 不查
+    for (const n of names){
+      if (have.has(n)) continue;
+      problems.push(`${file} import 了 ./${from} 的 ${n}，但那个模块没有导出它`
+                  + `（模块图加载会失败 → 整页停在加载页；注意 import 与 export 都要写）`);
+    }
+  }
+}
+
 if (problems.length){
   console.error('import-audit: FAIL');
   for (const p of problems) console.error('  ✗ ' + p);

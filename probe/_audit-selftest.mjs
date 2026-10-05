@@ -43,6 +43,19 @@ try {
   ok &= caught;
   console.log((caught ? '✓' : '✗') + ' 负例B（删掉真被使用的 import 名）必须报红 —— '
                + (caught ? '报红 ✓ 有牙' : '没报红 ⇒ 门是假的！\n' + (r3.stdout + r3.stderr).slice(0, 400)));
+
+  /* ④ 负例 C（2026-10-05 加，对应新增的 ⑤ 段）：import 一个**对面没导出**的名字。
+     这是"整页白屏"那一类：ESM 解析 import 就失败 ⇒ 模块图加载不起来、页面永远停在加载页，
+     而 npm run check / ①②③④ 全都看不见。实测拆灯会时踩到（applyFestivalTo 忘 export）。 */
+  const BROKEN3 = ORIG.replace('import { tickLightning, LIGHTNING, lightningStrikeNow,',
+                               'import { tickLightning, LIGHTNING, lightningStrikeNow, bogusNameForSelftest,');
+  if (BROKEN3 === ORIG){ console.error('自检：没找到 tickLightning 片段（代码已变？）'); process.exit(2); }
+  fs.writeFileSync(P, BROKEN3);
+  const r4 = run();
+  const caught2 = r4.status !== 0 && /bogusNameForSelftest/.test(r4.stdout + r4.stderr);
+  ok &= caught2;
+  console.log((caught2 ? '✓' : '✗') + ' 负例C（import 了对面没导出的名字）必须报红 —— '
+               + (caught2 ? '报红 ✓ 有牙' : '没报红 ⇒ ⑤ 段是假的！\n' + (r4.stdout + r4.stderr).slice(0, 400)));
 } finally {
   fs.writeFileSync(P, ORIG);      // 无论中途怎么炸都还原
 }
