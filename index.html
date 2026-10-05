@@ -473,6 +473,10 @@
       <button data-view="hall">远香堂</button>
       <button data-view="pavilion">荷风四面</button>
       <button data-view="overview">全园</button>
+      <!-- 春节烟花（2026-10-05）：这个机位是**必需品**不是锦上添花 ——
+           OrbitControls.maxPolarAngle=88.6°（限制俯仰、避免钻入地面）⇒ 镜头抬不起来，
+           默认俯视机位物理上看不到天上的花（只能看到"庭院被染亮"）。 -->
+      <button data-view="fireworks">看烟花</button>
       <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
       <span class="hint">Z 巡览 / T 巡游 / Y 四季</span>

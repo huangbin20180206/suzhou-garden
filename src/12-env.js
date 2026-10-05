@@ -2927,6 +2927,254 @@ function lnApply(tau){
 /* 探针用：下一次 tick 立刻打一条闪电 */
 export function lightningStrikeNow(){ LIGHTNING.next = -1e9; }
 
+/* ══ 春节烟花（2026-10-05 · 老黄："增加一个盛大的场景：春节烟花（冬季限定），五彩斑斓的
+   烟花在天空绽放，和明月星空形成壮美景观，烟花的光彩照应整个庭院，和庭院相映成趣"）══
+   ⚠️⚠️ 先说清一条**几何必然**（本轮实测，不是猜）：默认机位是俯视的（俯角 −19.3°、fov 46）
+   ⇒ 画面纵向只覆盖仰角 −42.3°~+3.7°，实测（outputs/_diag/sky-band.mjs）**只有画面顶部
+   ndc.y ≥ 0.8 那一条才是天**，再往下就被远山（mergedStatic r=156/196）挡住。也就是说
+   **高空烟花在默认俯视机位里必然出框** —— 与闪电（按世界仰角摆 ⇒ 贡献 0 像素）、
+   彩虹踩过的是同一个坑。所以本系统**分两半交付，各管一件事**：
+     · **天上的花**：放园子上空（y 44~76m）。抬头/抬平镜头就能看全（抬平后上半个画面是天），
+       另给了「看烟花」机位；默认俯视机位看不到它。
+     · **照亮庭院**：每发绽放按自己的颜色给全场打一记光（amb/hemi/sun 乘系数 + **amb 染色**），
+       这一半**在任何机位都成立** —— 正是"烟花的光彩照应整个庭院、和庭院相映成趣"。
+   ⚠️ 边界如实声明：默认机位只看到"庭院被染亮"，看不到天上的花；这是机位几何决定的，
+      不是摆放没摆好（和彩虹"必须抬头看"同一条账）。
+   ⚠️ 三条项目规矩：① 弹道/配色/相位全走**私有** mulberry32 流（铁律 1：绝不吃全局 rnd/rr，
+      否则其后全园布局整体前移且不报错）；② `raycast = () => {}`（别挡"视线是否被挡"类判定）；
+      ③ `userData.aoSkip = true`（不进 GTAO 法线 pass —— 同闪电/彩虹：亮片被当成实体会
+      写成一块黑）。 */
+const FW_SHELLS = 4;                 // 同时在空的弹数（错峰升空）
+const FW_SPARKS = 190;               // 每发火星数 ⇒ 4×190 = 760 个点，**1 个 draw call**
+const FW_RISE = 1.15;                // 升空时长（s）
+const FW_LIFE = 2.7;                 // 绽放后存活（s）
+const FW_GRAV = 4.6;                 // 火花重力（m/s²，比真重力小 ⇒ 更有"飘"感）
+const FW_PAL = [0xFFD24A, 0xFF4A3A, 0xFF4AD0, 0x38E0C8, 0x4A78FF, 0x9A5AFF, 0xFFF0C0, 0x8CFF5A];
+/* 绽放空域（世界坐标）—— **按"用户真能摆出的机位"反推**，不是拍脑袋：
+   ⚠️⚠️ `OrbitControls.maxPolarAngle = 88.6°`（"限制俯仰，避免钻入地面"）⇒ **镜头永远抬不起来**
+   （实测：我设的抬头机位被强行钳回 [0, 31.3, 31.5]，爆点全落在 NDC.y 1.8~2.5 **出框**）。
+   所以"放高一点、抬头就能看"这条路**物理上不存在**。可用的窗口是：把镜头拉到接近平视
+   （φ≈88.6°）时，画面的仰角范围约 −24°~+22° ⇒ **爆点相对相机必须落在 ~20° 仰角以内**。
+   取机位 (0, 6, 34) 看 (0, 12, −18) 反推：距离 ~90~150m、高度 26~52m ⇒ 仰角 15~21° ✓ 在框内。
+   ⚠️ 默认俯视机位（俯角 −19.3°、可见天空只有顶部 ndc.y≥0.8 那一条）**仍然看不到天上的花** ——
+   这是机位几何，不是摆放问题；默认机位交付的是"庭院被染亮"那一半（见 tickFireworks）。 */
+const FW_VOL = { x0: -38, x1: 38, y0: 26, y1: 52, z0: -72, z1: -26 };
+export const FIREWORKS = {
+  force: null,          // 产品侧**权威开关**：null=按季节/时辰自动；true/false=强制（探针用）
+  on: false, t: 0, next: 1.2, shots: 0, flash: 0, lastCol: null,
+};
+const _fwr = mulberry32(20261008);                       // 私有流（铁律 1）
+const _fwStart = new Float32Array(FW_SHELLS).fill(-1e9);  // 每发的**发射**时刻
+const _fwPos = new Float32Array(FW_SHELLS * 3);           // 爆点
+const _fwLaunch = new Float32Array(FW_SHELLS * 3);        // 发射点（地面）
+const _fwCol = new Float32Array(FW_SHELLS * 3);           // 这一发的主色
+let _fwCursor = 0;
+/* 灯基准色：模块期就抓（applyEnv 只调强度、不动颜色 ⇒ 抓一次即可，且必须自己存，
+   否则"染色"会逐帧累积、越闪越白） */
+const FW_AMB0 = amb.color.clone(), FW_HS0 = hemiLight.color.clone(), FW_HG0 = hemiLight.groundColor.clone();
+const FW_FILL0 = fill.color.clone(), FW_FILL_I0 = fill.intensity;   // fill = 烟花打光的主力（方向光）
+let _fwAmbSeeded = false;
+export function setFireworksForce(v){ FIREWORKS.force = v === null ? null : !!v; }
+export function fireworksState(){
+  return { on: FIREWORKS.on, force: FIREWORKS.force, t: +FIREWORKS.t.toFixed(2),
+           shots: FIREWORKS.shots, flash: +FIREWORKS.flash.toFixed(3),
+           lastCol: FIREWORKS.lastCol,
+           shells: [..._fwStart].filter(v => FIREWORKS.t - v < FW_RISE + FW_LIFE + 0.1).length };
+}
+const _fwOn = () => {
+  if (FIREWORKS.force !== null) return FIREWORKS.force;
+  /* 冬季限定 + 真的入夜（starAmount 是本项目现成的"夜色深度"通道）+ 天上没有雨雪雷暴
+     （明月星空要被看见；雪/雨里放花既看不见也不合物理） */
+  if (ENV.season !== 'winter') return false;
+  if ((ENV.cur.starAmount || 0) < 0.5) return false;
+  const w = ENV.weather || '';
+  if (w === 'storm' || w === 'thunder' || w === 'snow') return false;
+  return ((ENV.cur.rainAmount || 0) < 0.05);
+};
+{
+  const n = FW_SHELLS * FW_SPARKS;
+  const dir = new Float32Array(n * 3), col = new Float32Array(n * 3);
+  const spd = new Float32Array(n), siz = new Float32Array(n), sed = new Float32Array(n), shl = new Float32Array(n);
+  for (let i = 0; i < n; i++){
+    const si = (i / FW_SPARKS) | 0;
+    /* 球面均匀采样 + 一点"上扬"：纯球面看着像一坨，微扬读作"炸开" */
+    const u = _fwr() * 2 - 1, th = _fwr() * TAU, r = Math.sqrt(1 - u * u);
+    dir[i*3+0] = Math.cos(th) * r; dir[i*3+1] = u * 0.86 + 0.30; dir[i*3+2] = Math.sin(th) * r;
+    const c = new THREE.Color(FW_PAL[(_fwr() * FW_PAL.length) | 0]);
+    col[i*3+0] = c.r; col[i*3+1] = c.g; col[i*3+2] = c.b;
+    spd[i] = 6.5 + _fwr() * 7.0;
+    siz[i] = 0.75 + _fwr() * 0.85;
+    sed[i] = _fwr();
+    shl[i] = si;
+  }
+  /* ⚠️ 用 **InstancedMesh + billboard 片**，不是 THREE.Points。
+     理由不是偏好：本机实测 Points 那版**连"固定坐标 + 60px 纯红"的自包含着色器
+     都画不出来**（换着色器、放大点尺寸 10 倍、绕过 composer 直接 renderer.render
+     全部 0 像素，见 outputs/_diag/fw-why.mjs / fw-tiny.mjs / fw-tiny2.mjs 的判别链），
+     而同一份 shader 数学换到 InstancedMesh 片上就正常 —— 与本项目其它 billboard
+     （雾团 / 香炉白烟）同一条已被证明能渲染的路径。少一个未知变量。 */
+  const geo = new THREE.PlaneGeometry(1, 1);
+  geo.setAttribute('aDir', new THREE.InstancedBufferAttribute(dir, 3));
+  geo.setAttribute('aCol', new THREE.InstancedBufferAttribute(col, 3));
+  geo.setAttribute('aSpeed', new THREE.InstancedBufferAttribute(spd, 1));
+  geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(siz, 1));
+  geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(sed, 1));
+  geo.setAttribute('aShell', new THREE.InstancedBufferAttribute(shl, 1));
+  const u = {
+    uT: { value: 0 }, uStart: { value: _fwStart }, uPos: { value: _fwPos },
+    uLaunch: { value: _fwLaunch }, uCol: { value: _fwCol },
+    uRise: { value: FW_RISE }, uLife: { value: FW_LIFE }, uGrav: { value: FW_GRAV },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms: u, transparent: true, depthWrite: false, depthTest: true,
+    blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide,
+    vertexShader: `
+      attribute vec3 aDir; attribute vec3 aCol; attribute float aSpeed;
+      attribute float aSize; attribute float aSeed; attribute float aShell;
+      uniform float uT, uStart[${FW_SHELLS}], uRise, uLife, uGrav;
+      uniform vec3 uPos[${FW_SHELLS}], uLaunch[${FW_SHELLS}], uCol[${FW_SHELLS}];
+      varying vec2 vUv; varying vec3 vCol; varying float vA;
+      void main(){
+        vUv = uv;
+        int i = int(aShell + 0.5);
+        float age = uT - uStart[i];
+        float tot = uRise + uLife;
+        if (age < 0.0 || age > tot){          // 没轮到 / 已经灭了：丢到画外（不占填充率）
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vA = 0.0; vCol = vec3(0.0); return;
+        }
+        vec3 base; float env; float rad;
+        if (age < uRise){
+          /* ── 升空：一条加速上冲的亮点，火星暂时收束成"一条尾巴" ── */
+          float k = age / uRise;
+          base = mix(uLaunch[i], uPos[i], k * k);
+          base.y -= aSeed * 2.2 * (1.0 - k);
+          env = 0.85; rad = 0.26;
+        } else {
+          /* ── 绽放：球面炸开 + 空气阻力 + 重力 + 逐星闪烁 ── */
+          float e = age - uRise;
+          float drag = 1.0 - 0.34 * (e / uLife);
+          vec3 d = aDir * (aSpeed * e * max(0.15, drag));
+          d.y -= uGrav * e * e * 0.5;
+          base = uPos[i] + d;
+          env = pow(max(0.0, 1.0 - e / uLife), 1.5);
+          env *= 0.62 + 0.38 * sin(aSeed * 47.0 + e * 19.0) * (1.0 - e / uLife) + 0.38 * (1.0 - e / uLife);
+          /* 火星片的半宽：0.20m 太小（5px，糊成小方块且看不出放射），0.95 又太大
+             （30px，190 片叠成一团过曝白斑）。0.34 ⇒ 90m 外约 8px，既不糊团也读得出颗粒。 */
+          rad = 0.34;
+        }
+        /* ⚠️ 变量别叫 half —— GLSL ES 3.0 里 half 是**保留字**（留给半精度），
+           用它当普通标识符会编译失败：实测报 "VERTEX: 0:105 'half' ..."，
+           而在门禁里表现为"这层画不出来"。 */
+        float hw = rad * aSize;                            // 世界半宽（米，自动透视）
+        vec3 toCam = cameraPosition - base;
+        vec3 dir = toCam / max(length(toCam), 1e-4);
+        vec3 cr = cross(vec3(0.0, 1.0, 0.0), dir);
+        float lr = length(cr);
+        vec3 right = lr > 1e-4 ? cr / lr : vec3(1.0, 0.0, 0.0);
+        vec3 upv = normalize(cross(dir, right));
+        vec3 pos = base + right * (position.x * hw * 2.0) + upv * (position.y * hw * 2.0);
+        gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
+        vCol = mix(uCol[i], aCol, 0.55);
+        vA = env;
+      }`,
+    fragmentShader: `
+      varying vec2 vUv; varying vec3 vCol; varying float vA;
+      void main(){
+        vec2 p = vUv - 0.5;
+        float d = length(p);
+        if (d > 0.5 || vA <= 0.004) discard;               // 圆形软边（同雾团/白烟的写法）
+        float a = smoothstep(0.5, 0.03, d) * vA;
+        gl_FragColor = vec4(vCol, a);
+      }`,
+  });
+  const im = new THREE.InstancedMesh(geo, mat, n);
+  const MI = new THREE.Matrix4();
+  for (let i = 0; i < n; i++) im.setMatrixAt(i, MI);      // shader 不读 instanceMatrix；补上只为包围球不退化
+  im.instanceMatrix.needsUpdate = true;
+  im.frustumCulled = false;                 // 顶点位置在 shader 里算，CPU 侧包围球是错的
+  im.raycast = () => {};                    // 与雾团/闪电同因
+  im.castShadow = false; im.receiveShadow = false;
+  im.userData.aoSkip = true;                // 不进 GTAO 法线 pass
+  im.renderOrder = 7;
+  im.name = 'fireworks';
+  FIREWORKS._pts = im; FIREWORKS._u = u;
+  scene.add(im);
+}
+function fwFlash(a){                        // 绽放闪光的包络：快起、慢落
+  if (a < 0 || a > 1.15) return 0;
+  return a < 0.06 ? a / 0.06 : Math.pow(1 - (a - 0.06) / 1.09, 2.1);
+}
+export function tickFireworks(dt){
+  const F = FIREWORKS, u = F._u;
+  F.on = _fwOn();
+  if (!F.on){                                // 关：清干净（别留半截花挂在空中）
+    if (F.shots){ _fwStart.fill(-1e9); F.shots = 0; }
+    F.flash = 0;
+  } else {
+    F.t += dt;
+    u.uT.value = F.t;
+    if (F.t >= F.next){
+      const i = _fwCursor % FW_SHELLS; _fwCursor++;
+      const bx = FW_VOL.x0 + _fwr() * (FW_VOL.x1 - FW_VOL.x0);
+      const by = FW_VOL.y0 + _fwr() * (FW_VOL.y1 - FW_VOL.y0);
+      const bz = FW_VOL.z0 + _fwr() * (FW_VOL.z1 - FW_VOL.z0);
+      const c = new THREE.Color(FW_PAL[(_fwr() * FW_PAL.length) | 0]);
+      _fwPos[i*3] = bx; _fwPos[i*3+1] = by; _fwPos[i*3+2] = bz;
+      _fwLaunch[i*3] = bx * 0.72 + (_fwr() - 0.5) * 6;
+      _fwLaunch[i*3+1] = 2.0;
+      _fwLaunch[i*3+2] = bz + 10 + (_fwr() - 0.5) * 8;
+      _fwCol[i*3] = c.r; _fwCol[i*3+1] = c.g; _fwCol[i*3+2] = c.b;
+      _fwStart[i] = F.t;
+      F.lastCol = '#' + c.getHexString();
+      F.shots++;
+      F.next = F.t + 1.5 + _fwr() * 2.4;      // 1.5~3.9s 一发，偶尔连放
+      _fwr() < 0.28 && (F.next = F.t + 0.35);
+    }
+    u.uStart.value = _fwStart; u.uPos.value = _fwPos;
+    u.uLaunch.value = _fwLaunch; u.uCol.value = _fwCol;
+  }
+  /* 取当前最强的那一发做主色（没有在闪的就归零） */
+  let f = 0, ci = 0, best = -1;
+  for (let i = 0; i < FW_SHELLS; i++){
+    const e = fwFlash(F.t - _fwStart[i] - FW_RISE);
+    if (e > f){ f = e; best = i; }
+  }
+  F.flash = f;
+  /* ── 照亮庭院：取当前最强的那一发做主色（"烟花的光彩照应整个庭院"）──
+     ⚠️ 必须**每帧从 ENV.cur 的基准重算**（同 lnApply）：否则一帧帧乘上去指数发散。
+     ⚠️⚠️ 分工（2026-10-05 出图复核后改）：**方向光当主力、环境光只补一点点**。
+        第一版把 amb 抬 12 倍 —— 出图判读是"整片下半部均匀糊成一层肉粉、没有方向、
+        像套了滤镜"，那正是环境光的性质（无方向、平）。改成把 `fill`（现成的方向光）
+        挪到**爆点方向**、染成爆点色、按包络抬强度 ⇒ 墙/石/桥被同一方向的光照亮，
+        亮面朝爆点、暗面背离，才有"被天上那朵花打亮"的读感。 */
+  sun.intensity        = ENV.cur.sunIntensity  * (1 + f * 1.2);
+  amb.intensity        = ENV.cur.ambIntensity  * (1 + f * 2.6);
+  hemiLight.intensity  = ENV.cur.hemiIntensity * (1 + f * 3.2);
+  fill.intensity       = FW_FILL_I0 * (1 + f * 8.0);
+  renderer.toneMappingExposure = ENV.cur.exposure * (1 + f * 0.18);
+  if (!_fwAmbSeeded){ _fwAmbSeeded = true; }
+  if (best >= 0){
+    ci = best;
+    const t = Math.min(1, f * 1.6);
+    /* 方向光从爆点照向园子：DirectionalLight 的方向 = position → target（默认原点），
+       所以把 position 放到爆点即可 ⇒ 亮面自然朝上方那朵花。 */
+    fill.position.set(_fwPos[ci*3], _fwPos[ci*3+1], _fwPos[ci*3+2]);
+    fill.color.setRGB(FW_FILL0.r + (_fwCol[ci*3]   - FW_FILL0.r) * t,
+                      FW_FILL0.g + (_fwCol[ci*3+1] - FW_FILL0.g) * t,
+                      FW_FILL0.b + (_fwCol[ci*3+2] - FW_FILL0.b) * t);
+    amb.color.setRGB(FW_AMB0.r + (_fwCol[ci*3]   - FW_AMB0.r) * t * 0.7,
+                     FW_AMB0.g + (_fwCol[ci*3+1] - FW_AMB0.g) * t * 0.7,
+                     FW_AMB0.b + (_fwCol[ci*3+2] - FW_AMB0.b) * t * 0.7);
+    hemiLight.color.setRGB(FW_HS0.r + (_fwCol[ci*3]   - FW_HS0.r) * t * 0.6,
+                           FW_HS0.g + (_fwCol[ci*3+1] - FW_HS0.g) * t * 0.6,
+                           FW_HS0.b + (_fwCol[ci*3+2] - FW_HS0.b) * t * 0.6);
+    hemiLight.groundColor.copy(FW_HG0);
+  } else {
+    fill.intensity = FW_FILL_I0; fill.color.copy(FW_FILL0);
+    amb.color.copy(FW_AMB0); hemiLight.color.copy(FW_HS0); hemiLight.groundColor.copy(FW_HG0);
+  }
+}
+
 export function initEnvScene(){
   makeLanterns();
   makeFestivalLights();               // 河灯/烛焰/灯串（须在 collectSeasonCaches 前；桃树挂灯由延迟批后置显隐）

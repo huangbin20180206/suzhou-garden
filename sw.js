@@ -43,7 +43,8 @@
    本轮同时新增 probe/preload-manifest-sync.mjs 把这一类钉住（双向差集 + bytes 核对）。 */
 /* 2026-10-05 陈设（竹帘升降）批次 bump v15→v16：改了 SHELL 成员 index.html
    （面板加"陈设·卷帘"一行）。src/*.js 不在 SW 缓存里，改它们不用 bump。 */
-const CACHE = 'suzhou-garden-v16';
+/* 2026-10-05 春节烟花批次 bump v16→v17：又改了 SHELL 成员 index.html（导览行加"看烟花"机位按钮）。 */
+const CACHE = 'suzhou-garden-v17';
 const SHELL = [
   './',
   './index.html',

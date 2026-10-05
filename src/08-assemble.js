@@ -10,6 +10,11 @@ import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
    本模块两处用途：假山埋脚"75% 补石"（条件里还会抽 rr ⇒ 直接改全局流消费次数）与
    两位点景人物的呼吸相位 —— 都是**建场**性质，必须与加载时序无关。 */
 const jr = mulberry32(20260924);
+/* ── 看烟花的一家（2026-10-05）专用流：只用于**建场**（各人朝向微差 / 跳跃周期与相位 / 仰头角）。
+   ⚠️ 另起一条流而不是接着 jr 抽：再建一条私有流对 jr 的消费序列一位不动
+   （铁律 1 的实质是"别改既有流的消费位置"），而 updateWatchers 逐帧**一次随机都不取** ——
+   否则帧数会改写这条流的消费点，延迟批里那些还要 jr() 的 job 布局会整体漂。 */
+const WR = mulberry32(20261009);
 import { rippleInst, makeMistField, makeFogBanks, makeCenserSmoke, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makePondPads } from './06-vegetation.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGeo } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater, groundHeight } from './05-water.js';
@@ -277,6 +282,17 @@ export const FIG_PALETTE = {
      与 indigo/lily 只差 50/33，但那两色分别属 7.5~12 / 18~23 档，**永不与它同框**
      （figure-audit 的"同框可区分"只约束 slot 重叠的对，这是该判据的既定口径）。 */
   slate:   { robe:0x6E8CA8, trim:0xE4DED0, sash:0x2E4257 },   // 石青 · 抚琴（水榭，临水）
+  /* 朱红 · 看烟花的三童之末（2026-10-05 · 与 12-env 的春节烟花配套）。
+     为什么必须新开一色、不能复用现役五色：这五个人的 slot 全是 18~23（与"夜步"同档），
+     **必然互相同框** ⇒ figure-audit 的"同框可区分"要求两两 ΔRGB ≥ 60。现役非绿色相里
+     只剩 moss（67~79 勉强过、但它对草坪绿只有 49 —— 站草坪等于隐身，见本表开头的血泪），
+     所以取春节的一抹红开新色。实测（口径同 figure-palette 的 RGB 欧氏距离）：
+       · 与同框四人：plum 84.8 / navy 166.5 / celadon 178.4 / ochre 82.7（最小 82.7）
+       · 与**重叠时段**的"夜步"lily(18~23) 149.7（最小 62.1 是 celadon，见上）
+       · 与草坪绿 #457441 = 138.2（LAWN_D 60 的 2.3 倍，站草坪读得出来）
+       · L=84.7 ≥ 70（非近黑剪影）；与 trim 差 136.9、与 sash 差 53.5（都 ≥ 25）
+     取色理由：朱红是"年"的颜色，夜里的篝火色相在冷月夜里也立得住（与月光/雪意的青蓝互补）。 */
+  vermilion:{ robe:0xC0392B, trim:0xEBDCC6, sash:0x4A1410 },   // 朱红 · 看烟花的孩童
 };
 const figMat = (color, rough) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.0, envMapIntensity: 0.3 });
 /* 躯干截面不是正圆（2026-09-18 第六轮 · 老黄选 B）。
@@ -398,9 +414,17 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
              drape: false },
     take:  { pts: [[0.180, 1.15, 0.030], [0.240, 1.035, 0.030], [0.198, 0.975, 0.100], [0.150, 0.960, 0.128]],
              drape: false },
+    /* point 抬臂指天（2026-10-05 · 看烟花的那位大人）：只换点列 —— 袖管/肘球/袖口环/拢手球
+       全是同一套构件，"姿态决定手在哪里"这条纪律不破。肩→手 = (−0.06, 0.59, 0.15) 长 0.61，
+       与直裰的臂长一致；手落在 y=1.74 / 头心 1.445 + 头半径 0.086 ⇒ **高过头顶 21cm**，
+       "指天"在剪影上读得出来。⚠️ drape 必须 false：垂布是"负手"那条胳膊的配件。 */
+    point: { pts: [[0.180, 1.150, 0.030], [0.262, 1.330, 0.060], [0.200, 1.560, 0.120], [0.120, 1.740, 0.180]],
+             drape: false, cuffAxis: true },
   };
   for (const side of [-1, 1]){
-    const A = SLEEVE[pose === 'read' ? 'read' : (pose === 'tea' && side > 0 ? 'take' : 'back')];
+    const A = SLEEVE[pose === 'read' ? 'read'
+                   : (pose === 'point' && side > 0) ? 'point'
+                   : (pose === 'tea' && side > 0) ? 'take' : 'back'];
     const V = ([ax, ay, az]) => new THREE.Vector3(side * ax, ay, az);
     const sl = new THREE.CatmullRomCurve3(A.pts.map(V));
     g.add(mesh(new THREE.TubeGeometry(sl, 9, 0.065, 6, false), ink, { name:'scholarSleeve' }));
@@ -425,8 +449,18 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
     g.add(clump);
     const cuff = mesh(new THREE.TorusGeometry(0.040, 0.007, 5, 10), inkLight, { name:'scholarCuff' });
     cuff.position.set(side * hx, hy - 0.028, hz - 0.006);
-    cuff.rotation.y = Math.PI / 2;
-    cuff.rotation.x = A.drape ? 0.4 : 1.2;
+    /* 袖口环的朝向：老姿态（负手/捧卷/持盏）用的是"绕 Y 转 90°"的固定写法（法线 = 局部 +x），
+       那对**向前伸**的胳膊够用；但抬臂指天那条胳膊是**向上**伸的，同一个环就变成斜切手臂。
+       所以带 cuffAxis 的姿态改由**前臂轴向**定姿（与坐姿 makeSeatedScholar 同一手法），
+       老姿态逐字不动 —— 不去碰别的角色的既有观感。 */
+    if (A.cuffAxis){
+      const [qx, qy, qz] = A.pts[2];
+      cuff.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1),
+        new THREE.Vector3(side * (hx - qx), hy - qy, hz - qz).normalize());
+    } else {
+      cuff.rotation.y = Math.PI / 2;
+      cuff.rotation.x = A.drape ? 0.4 : 1.2;
+    }
     g.add(cuff);
   }
   // 头 + 发髻 + 簪（低头回调 14°：20° 在俯拍机位读作"俯身"）
@@ -539,8 +573,11 @@ D_SCHEDULES.forEach((d, i)=>{
 
 /* 私塾孩童（第十六轮：用户要求"2 孩童 + 1 教书先生"场景）。
    makeChildScholar 是先生剪影的子集 —— 矮约 0.72 倍、头更大（孩童头身比 ~3.5:1）、
-   袍身更短圆、无簪、无负手垂布，只剩简单垂袖。陪先生晨课，面向先生。 */
-function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss' } = {}){
+   袍身更短圆、无簪、无负手垂布，只剩简单垂袖。陪先生晨课，面向先生。
+   ⚠️ 2026-10-05 加 `arms`（'down' 垂袖 | 'up' 举袖欢呼，给"看烟花的孩子"用）：
+      只换**同一条 tube 的点列**，几何管线（CatmullRomCurve3 + TubeGeometry + 同一材质）逐字不动，
+      不新写一套手臂几何。 */
+function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms = 'down' } = {}){
   const root = new THREE.Group();
   root.position.set(x, y === undefined ? groundHeight(x, z) : y, z);
   root.userData.baseY = root.position.y;     // 同 makeScholar：站立分支靠它贴地
@@ -574,13 +611,15 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss' } = {
   const cHem = mesh(new THREE.CylinderGeometry(0.152, 0.143, 0.05, 14, 1, true), figMat(P.trim, 0.85), { name:'childHem' });
   cHem.position.y = 0.055;
   g.add(cHem);
-  // 简单垂袖（孩童的袖子贴垂，不拢后）
+  // 简单垂袖（孩童的袖子贴垂，不拢后）；arms:'up' = 举袖欢呼（两条胳膊举到头顶两侧成 V 形）
+  /* 举袖的点列：肩 (0.115, 0.80) → 肘外张 (0.200, 0.92) → 手 (0.215, 1.12)。
+     手高 1.12 而头心 1.02 + 头半径 0.075 ⇒ 手在**头顶之上**、横向 0.215*FIG_EW=0.25 之外
+     （头半径 0.086）：两条胳膊在剪影上分得开，不会与头糊成一团。 */
+  const CHILD_SLEEVE = arms === 'up'
+    ? [[0.115, 0.80, 0.020], [0.200, 0.920, 0.045], [0.215, 1.120, 0.000]]
+    : [[0.115, 0.80, 0.020], [0.105, 0.550, 0.000], [0.080, 0.340, -0.020]];
   for (const side of [-1, 1]){
-    const sl = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(side * 0.115, 0.80, 0.02),
-      new THREE.Vector3(side * 0.105, 0.55, 0.0),
-      new THREE.Vector3(side * 0.080, 0.34, -0.02),
-    ]);
+    const sl = new THREE.CatmullRomCurve3(CHILD_SLEEVE.map(([ax, ay, az]) => new THREE.Vector3(side * ax, ay, az)));
     g.add(mesh(new THREE.TubeGeometry(sl, 5, 0.042, 5, false), ink, { name:'childSleeve' }));
   }
   /* 童交领（第六轮）：与先生同款构件 —— 童装也是交领，缺了同框会看出"两种衣服" */
@@ -2541,6 +2580,18 @@ export const VIEWPOINTS = (()=>{
          target 按"pos + 40 × 默认机位视线方向"给（方向一致 ⇒ 虹的取景与默认机位相同）。 */
       target: new THREE.Vector3(2 + 0.486 * 40, 2.4 - 0.331 * 40, 12 - 0.809 * 40),
       minDist: 2.0 },
+    /* 春节烟花（2026-10-05 · 老黄要的"盛大场景"）：
+       ⚠️ **这个机位是必需品，不是锦上添花** —— `OrbitControls.maxPolarAngle = 88.6°`
+       （"限制俯仰，避免钻入地面"）⇒ **镜头永远抬不起来**（实测：我设的抬头机位被静默钳回
+       (0,31.3,31.5)、爆点全落在 NDC.y 1.8~2.5 出框）。所以默认俯视机位**物理上**看不到
+       天上的花，只能看到"庭院被染亮"那一半。
+       这里给的是**合法位姿**（相机略高于注视点、polar 87.8° < 88.6°，不会被钳）：
+       接近平视 ⇒ 画面仰角 −25°~+21°，而爆点空域（12-env FW_VOL：距离 90~150m、高 26~52m）
+       正好落在仰角 15~21°。 */
+    { id:'fireworks', label:'看烟花',
+      pos: new THREE.Vector3(0, 14, 34),
+      target: new THREE.Vector3(0, 13, -18),
+      minDist: 2.0 },
   ];
 })();
 export function gotoViewpoint(id, dur = 1.4, owner = 'manual'){
@@ -2694,6 +2745,168 @@ world.add(buildProps());
     fg.userData.skin = 'slate';
     fg.userData.poseName = 'qin';
     world.add(fg);
+  }
+}
+
+/* ══ 看烟花的人（2026-10-05 · 计划书 §6「人」批第二件，与 12-env 的「春节烟花（冬季限定）」配套）══
+   老黄：「大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃」。
+   2 大人 + 3 孩童，站在**画面左侧那块西草坪**上（默认俯视机位下 ndc.x ≈ −0.6~−0.8 那一片），
+   面朝园子上空偏北的烟花空域。冬季夜里烟花亮起时才出现；孩子们原地雀跃。
+
+   ── 落点怎么定的（三样都是射线实测，没有一个是手填的）─────────────────────────
+   ① 位置：老黄给的两条反投影（ndc(−0.85,−0.35)→(−22.8,−7.6)、(−0.6,−0.35)→(−17,−4.8)）
+      圈出的是西草坪，但**那一带不是空场**：古井 (−20.4,−6.1)、花街铺地 (−20.4,−3.5)
+      （14-props 的 PROP_SPOTS.well / .lane）占着东北角，x=−15~−16 与 −17 那两条竖带
+      还被默认机位**挡死**（outputs/_diag/watchers-map.mjs 的 0.5m 可见性地图：那一列 3/3 射线
+      全被挡 ⇒ 人站进去等于没画）。所以往西挪到 x∈[−21.2,−19.3]、z∈[−12.0,−9.9]：
+      地图上整块都是"地面 + 默认机位 0~1 处遮挡"，离古井最近 3.4m、离花街铺地北端 4.4m。
+   ② 地面高：一律走 `groundHeight(x,z)`（与地面网格同一个函数，不手填、不与 07-ground 两处漂）；
+      figure-foot-guard 会用向下射线复核"脚底就踩在它脚下那个面上"。
+   ③ 朝向：由**烟花空域中心**算 atan2，不手填 yaw（见 FW_AIM）。
+
+   ── 三条铁律（这个项目在这里各栽过一次，照抄既有做法）───────────────────────
+   ① 逐帧动画全写在**新加的 pivot 层**上，不动 root 的 position.y / rotation.x / rotation.z /
+      visible：那四个量 11-loop 的人物循环**每帧都在写**（`f.position.y = baseY`、
+      `rotation.x = 0`、`rotation.z = 0.03`、`f.visible = goodWeather && inSlot`）。
+      写在 root 上就是"两处互相覆盖"，而且谁后跑谁赢 —— 改完看不见效果、也不报错。
+      ⚠️ 所以**不要**动 11-loop.js；本模块只导出 updateWatchers，由调用方接一行。
+   ② 相位/朝向微差全部吃**本模块的私有流**（WR = mulberry32(20261009)，铁律 1）；
+      而**逐帧**动画一次随机都不取（只吃 dt/t）—— 否则帧数会改写私有流的消费位置，
+      延迟批（runDeferredBoot 里那些还要 jr() 的 job）布局整体前移且不报错。
+   ③ 人物网格 noMerge：由 makeScholar / makeChildScholar 内部 `root.traverse(...)` 统一打，
+      本块不碰 —— 少了它会被 mergeStatics 并进静态大网，之后再也动不了。 */
+/* 烟花的绽放空域中心（= 12-env 的 FW_VOL { x:[−38,38], y:[26,52], z:[−72,−26] } 的中点）。
+   ⚠️ 只抄这个**常量**、不 import 那边的 FW_VOL：12-env 被本模块 import，反向取值成环
+   （见本文件顶部与 02-scene 的 world 那条注释）。12-env 那边留了"改 FW_VOL 要看这里"的锚点。 */
+const FW_AIM = new THREE.Vector3(0, 39, -49);
+/* 站位的朝向 = 从本人位置指向空域中心的水平方位（模型正面 = +z、rotation.y = ry ⇒
+   前向量 = (sin ry, cos ry)，所以方位角就是 atan2(dx, dz)）。 */
+const watchYaw = (x, z) => Math.atan2(FW_AIM.x - x, FW_AIM.z - z);
+
+const WATCHERS = [];                 // 逐帧要驱动的（外面经 fig.userData.watcher 也读得到）
+/* ⚠️ pivot 是插在 root 与人体几何之间的**一层空组**（见上面铁律 ①）。
+   搬迁用 while 而不是 forEach：three 的 add() 会把节点从原父级摘掉，边遍历边改数组会漏节点。
+   root.userData.robe（呼吸）与 headG 的引用都还在 —— 它们只是父级换了一层。 */
+function wrapWatcher(root){
+  const pivot = new THREE.Group();
+  pivot.name = 'watcherPivot';
+  pivot.visible = false;             // 未接 updateWatchers 之前不露面（默认季节/时辰本来也不该出现）
+  while (root.children.length) pivot.add(root.children[0]);
+  root.add(pivot);
+  return pivot;
+}
+/* 一家人（服色全部避开绿族：站的是草坪，见 FIG_PALETTE 开头那段的血泪）。
+   服色与时段的口径：5 人同档、必然同框 ⇒ 两两 ΔRGB 必须 ≥60（figure-audit 的 B 段），
+   实际：plum↔navy 93 / ↔celadon 114 / ↔ochre 68 / ↔vermilion 85、navy↔celadon 131 /
+   ↔ochre 138、celadon↔ochre 104、ochre↔vermilion 83（最小 68）。
+   时段 18~23 与"夜步"（lily 18~23）重叠 ⇒ 再核一遍对他们：70.8 / 96.3 / 62.1 / 99.0 / 149.7
+   （最小 62.1 是 celadon —— 余量确实不大，但**不去动那条判据**，如实记在这儿）。
+   ⚠️ 站位的 x/z 是上面那份可见性地图里挑的实测点；微差只动朝向（各转 8~10°），
+      因为"三个朝向各不相同才像一群人"（同 06 那批晨课三人的结论）。 */
+const WATCH_SPOTS = [
+  { kind:'adult', skin:'plum',  x:-20.9, z:-11.4, s:1.02, yawOff:+0.10, pose:'point'   }, // 父亲：抬手指天
+  { kind:'adult', skin:'navy',  x:-19.7, z:-11.9, s:0.97, yawOff:-0.13, pose:'observe' }, // 母亲：负手同看
+  { kind:'child', skin:'celadon', x:-20.2, z: -9.9, s:0.92, yawOff:+0.16 },   // 孩童甲（举袖）
+  { kind:'child', skin:'ochre',   x:-19.3, z:-10.6, s:0.86, yawOff:-0.19 },   // 孩童乙
+  { kind:'child', skin:'vermilion', x:-21.1, z:-10.6, s:0.96, yawOff:+0.28 }, // 孩童丙（转身看的那位）
+];
+WATCH_SPOTS.forEach((sp, i) => {
+  const yaw = watchYaw(sp.x, sp.z) + sp.yawOff;
+  const root = sp.kind === 'adult'
+    ? makeScholar({ x: sp.x, z: sp.z, yaw, s: sp.s, pose: sp.pose, skin: sp.skin })
+    : makeChildScholar({ x: sp.x, z: sp.z, yaw, s: sp.s, skin: sp.skin, arms: 'up' });
+  root.userData.skin = sp.skin;
+  root.userData.poseName = sp.kind === 'adult' ? 'watchAdult' : 'watchChild';
+  /* 时段 18~23：与"夜步"同一档（本项目"夜"的人物统一口径，锚点 21.5 落在里面）。
+     ⚠️ 它**不是**这道门的主判据 —— 出现与否由 updateWatchers 里那扇"与 FIREWORKS 同口径"的
+     门控决定（冬 + starAmount>0.5 + 无雨雪雷暴）。留着 slot 还有一层用：
+     figure-audit 的"同框可区分"只判定 slot 重叠的对 —— 没 slot 等于把这 5 人从那条判据里摘出去。
+     边界如实声明：本项目的"夜"跨午夜（19.5~次日 4.5），而 slot 是个不跨午夜的 [h0,h1) ——
+     23 点后烟花还会放，看烟花的人按 18~23 收工（与"夜步"一致）。 */
+  root.userData.slot = { h0: 18, h1: 23, stroll: null };
+  const pivot = wrapWatcher(root);
+  let head = null;
+  root.traverse(o => { if (!head && o.isMesh && /^(scholar|child)Head$/.test(o.name)) head = o.parent; });
+  const wd = {
+    pivot, head, idx: i, kind: sp.kind, skin: sp.skin, yawOff: sp.yawOff,
+    /* 相位/微差只在这里取一次随机（建场性质）；下面逐帧一个随机都不取。 */
+    ph: WR() * TAU,
+    hop:  sp.kind === 'child' ? (0.16 + WR() * 0.05) : 0,   // 跳多高（m）
+    per:  sp.kind === 'child' ? (0.95 + WR() * 0.30) : 0,   // 一跳多久（s/跳）
+    turnAmp: sp.kind === 'child' ? (0.22 + WR() * 0.26) : (0.06 + WR() * 0.06),
+    turnW:   sp.kind === 'child' ? (0.55 + WR() * 0.45) : (0.30 + WR() * 0.20),
+    /* 仰头：袍身没有下颌、颈也是立领，抬太多会把后脑勺露成"看星星的球"。
+       14°~22° 是实测读得出"在往天上看"又不穿帮的区间（孩子的头大、角度给得更大）。 */
+    tilt: sp.kind === 'child' ? -(0.30 + WR() * 0.12) : -(0.20 + WR() * 0.08),
+    /* 可判定量（探针/门禁直接读 fig.userData.watcher 里这几个）：*/
+    on: false, clock: 0, hopH: 0, air: 0, footUp: 0, latX: 0, lean: 0, turn: 0,
+  };
+  /* 建场即摆到"门关着"的姿态：万一这一帧 updateWatchers 还没被接上，画面里也只是
+     "一家人抬头站着"，不会是一个低着头、y=0 的替身。 */
+  if (head) head.rotation.x = wd.tilt;
+  root.userData.watcher = wd;
+  pivot.userData.noMerge = true;
+  WATCHERS.push(root);
+  world.add(root);
+});
+/* 逐帧驱动（由 11-loop 接一行调用；本模块**不动** 11-loop.js）。
+   dt = 本帧仿真步长（与风/水/散步者同一口径：60fps 下 ≡ 墙钟，软渲染下慢放且可复现），
+   t  = 计时器的仿真时间（这里只用来给成年人一点极慢的摆动，不参与雀跃的相位）。 */
+export function updateWatchers(dt, t){
+  /* ── 门控：与 12-env 的 FIREWORKS._fwOn() **同一口径**（冬 + 夜色深度 + 无雨雪雷暴 + 无明显降水）。
+     自己读 ENV 算，而不是 import 那边的开关：_fwOn 没有导出，而 12-env 被本模块 import
+     —— 反向取值成环（本文件里 02/05/06/14 的几处 import 注释都记着这条）。两处口径要一起改。 */
+  const w = ENV.weather || '';
+  const on = ENV.season === 'winter'
+          && (ENV.cur.starAmount || 0) >= 0.5
+          && w !== 'storm' && w !== 'thunder' && w !== 'snow'
+          && (ENV.cur.rainAmount || 0) < 0.05;
+  for (const f of WATCHERS){
+    const d = f.userData.watcher;
+    d.on = on;
+    /* ⚠️ 挂在 pivot 上，不写 f.visible：11-loop 每帧都在写 f.visible（时段 + 天气）。 */
+    d.pivot.visible = on;
+    if (!on) continue;                     // 关着时不推进相位：切回来是接着跳，不会瞬跳
+    d.clock += dt;
+    const c = d.clock;
+    if (d.kind === 'child'){
+      /* ── 雀跃：一跳 = 一个周期 ──────────────────────────────────────────────
+         uu ∈ [0,1) 是"这一跳"的相位；air = sin(π·uu) 是**离地量**（0 落地 → 1 腾空 → 0 落地）。
+         ① 上下起伏：y = hop·air − 0.035·max(0, cos 2π·uu)。后半项是**落地缓冲**（起跳/落地的
+            那一刻蹲一下）—— 纯 sin 曲线在落地瞬间速度最大，看着像"被弹起来"，加了缓冲才像蹲着蓄力。
+            地面高度由 baseY 保证（root 不动），所以"跳起来"不会变成"悬空的人"。
+         ② 换脚小跳：每跳换一次重心脚 footUp = 第几跳 % 2（0/1 交替）——
+            落地缓冲那一相里，重心偏向踩地的那只脚：身体侧倾 + 横向让开 5cm。
+            左一下右一下地跳，才是"雀跃"而不是"原地蹦"。（袍身只有裙摆没有腿，
+            所以只能靠"重心侧倾 + 横向位移"表达换脚 —— 与散步者"起伏+左右摆+前倾"同一套手法。）
+         ③ 转身看：yaw 慢摆 ±turnAmp（1.6~3.5s 半周期），孩子跳着跳着回头看一眼家人/身后。  */
+      const u = c / d.per, hopIdx = Math.floor(u), uu = u - hopIdx;
+      const air = Math.sin(Math.PI * uu);
+      const crouch = Math.max(0, Math.cos(TAU * uu)) * 0.035;
+      d.air = air;
+      d.hopH = d.hop * air;
+      d.footUp = hopIdx % 2;
+      d.lean = (d.footUp ? 1 : -1) * 0.085 * (1 - air);
+      d.latX = (d.footUp ? 1 : -1) * 0.05 * (1 - air);
+      d.turn = d.turnAmp * Math.sin(c * d.turnW + d.ph);
+      d.pivot.position.set(d.latX, d.hopH - crouch, 0);
+      d.pivot.rotation.set(0, d.turn, d.lean);
+      /* 头：仰头看天 + 一点跟着转身的回望（头是球，y 向摆动比躯干更安全） */
+      if (d.head){
+        d.head.rotation.x = d.tilt - 0.06 * air;            // 跳到最高点再抬一点
+        d.head.rotation.y = Math.sin(c * d.turnW * 0.9 + d.ph) * 0.22;
+      }
+    } else {
+      /* ── 大人：脚不动（y ≡ 0），只有极慢的重心微摆 —— 大人是"看"，情绪由孩子承担。
+         摆动幅度刻意压在 2cm / 2.5° 以内：超过就变成"也在蹦"，与孩子抢戏。 */
+      d.turn = d.turnAmp * Math.sin(c * d.turnW + d.ph);
+      d.latX = Math.sin(c * d.turnW * 0.8 + d.ph * 1.3) * 0.02;
+      d.lean = Math.sin(c * d.turnW * 0.7 + d.ph * 0.7) * 0.025;
+      d.hopH = 0; d.air = 0;
+      d.pivot.position.set(d.latX, 0, 0);
+      d.pivot.rotation.set(0, d.turn, d.lean);
+      if (d.head) d.head.rotation.x = d.tilt + Math.sin(t * 0.5 + d.ph) * 0.02;
+    }
   }
 }
 
