@@ -2460,7 +2460,17 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.view || b.dataset.axis) seasonDemoUserTakeover();
   if (TOUR.on && (b.dataset.view || b.dataset.axis)) tourStop();
   if (REEL.on && b.dataset.axis === 'time') toggleReel();   // 手动选时段 = 接管，停时光流转
-  if (b.dataset.view){ gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return; }
+  if (b.dataset.view){
+    /* ⚠️⚠️ 2026-10-05：「看烟花」必须**一键成立**。这个机位只在「冬 + 夜 + 无降水」下才有东西
+       可看 —— 烟花绽放、星辰、池南看花的一家人**全都是这个门控**。而默认状态是 夏·正午，
+       用户点它本意是"我要看烟花"，不是"我只想挪相机" ⇒ 只挪相机的结果就是
+       "点了看烟花没有任何效果"（老黄 2026-10-05 的实测反馈）。所以先把场景设成那个状态再飞。
+       其余机位不动 —— 它们不依赖时段/季节（不再顺手改）。 */
+    if (b.dataset.view === 'fireworks'){
+      setEnv('season', 'winter'); setEnv('time', 'night'); setEnv('weather', 'clear');
+    }
+    gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return;
+  }
   /* 选"狂风暴雨"自动开启音景 —— 合并后暴雨带闪电，而闪电的核心观感之一就是雷鸣，
      没有声音等于没做一半。浏览器要求音频必须由用户手势创建，这次点击正好是手势。
      （雨后初晴不需要：它的彩虹是视觉，不需要开音景。） */
@@ -3100,9 +3110,16 @@ const _fwOn = () => {
   FIREWORKS._pts = im; FIREWORKS._u = u;
   scene.add(im);
 }
-function fwFlash(a){                        // 绽放闪光的包络：快起、慢落
-  if (a < 0 || a > 1.15) return 0;
-  return a < 0.06 ? a / 0.06 : Math.pow(1 - (a - 0.06) / 1.09, 2.1);
+function fwFlash(a){                        // 绽放闪光的包络：**与"花散开"对齐**
+  /* ⚠️⚠️ 峰值必须**晚于**花开，不能一炸就最亮。第一版 0.06s 到峰、1.15s 衰减：
+     那一刻火星还挤在 ~0.5m 的点里（花还没散开）⇒ 出图判读是
+     "庭院被强烈的粉紫光完全照亮，但天上根本没有烟花 —— 这显然是渲染错误"
+     （光与"看得见的那朵花"脱节 = 读作 bug）。
+     现在 0.28s 到峰（此时火星已散到 ~2.5m 半径、形状已成）、之后 1.42s 衰减 ——
+     "看见花"与"庭院被点亮"同时发生，才读作**同一件事**。 */
+  if (a < 0 || a > 1.7) return 0;
+  if (a < 0.28) return a / 0.28;
+  return Math.pow(1 - (a - 0.28) / 1.42, 1.9);
 }
 export function tickFireworks(dt){
   const F = FIREWORKS, u = F._u;
@@ -3149,8 +3166,12 @@ export function tickFireworks(dt){
         亮面朝爆点、暗面背离，才有"被天上那朵花打亮"的读感。 */
   sun.intensity        = ENV.cur.sunIntensity  * (1 + f * 1.2);
   amb.intensity        = ENV.cur.ambIntensity  * (1 + f * 2.6);
-  hemiLight.intensity  = ENV.cur.hemiIntensity * (1 + f * 3.2);
-  fill.intensity       = FW_FILL_I0 * (1 + f * 8.0);
+  hemiLight.intensity  = ENV.cur.hemiIntensity * (1 + f * 4.5);
+  /* ⚠️ 方向光是"把庭院照亮"的**主力**，倍数要给够：第一版只给 8 倍 +
+     环境光 2.6 倍，出图在"冬夜本来就极暗"的底子上仍是**一片黑剪影**
+     （判读："建筑、山、墙几乎全是黑剪影，看不出烟花投下的亮面与暗面"）。
+     现在方向光 8→18 倍、半球光 3.2→4.5 —— 环境光**不抬**（它是无方向的，抬它只会变回"粉色滤镜"）。 */
+  fill.intensity       = FW_FILL_I0 * (1 + f * 18.0);
   renderer.toneMappingExposure = ENV.cur.exposure * (1 + f * 0.18);
   if (!_fwAmbSeeded){ _fwAmbSeeded = true; }
   if (best >= 0){
