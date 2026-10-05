@@ -24,7 +24,10 @@ import { TAU, CFG, mulberry32, rnd } from './00-config.js';
 let ENV = null;
 let willowLeafInsts = [];
 let worldLights = [];
-let syncEnvUI = null, resolveEnv = null, cloneParams = null;
+let syncEnvUI = null;
+let resolveEnv = null;
+let cloneParams = null;   // ⚠️ 三个分开写：合并成一条多变量 let 的话，probe/import-audit 的
+                          //    topLevelDecls 只认第一个名字，另外两个会被判成"用了别的模块的导出但没 import"
 export function bindFestival(env, host){
   ENV = env;
   willowLeafInsts = host.willowLeafInsts;
@@ -522,16 +525,4 @@ export function toggleFestival(force){
   ENV.to = resolveEnv();
   ENV.t = 0;
   syncEnvUI();                              // 夜按钮、时辰滑杆、灯会按钮必须同帧落位
-}
-
-/* 灯会的"look"层：叠在时段/季节/天气之上的**第 4 层**（乘性/单键修改既有通道 ⇒
-   关灯会时 mixInto 自动把这些键插值回原值，不需要反向代码）。 */
-const _FEST_WARM = new THREE.Color(0xFFC890);
-const _FEST_FOG  = new THREE.Color(0x3A2A20);
-export function applyFestivalTo(p){
-  p.exposure *= 1.08;                                   // 暖光曝光提升（计划书原文）
-  p.bloomStrength = Math.min(0.68, p.bloomStrength * 1.12);   // 辉光加一档（阈值 0.90 不动 ⇒ 不炸死白）
-  p.grade.split = Math.min(0.55, p.grade.split + 0.05);
-  p.grade.warm.lerp(_FEST_WARM, 0.55);                  // 高光更暖（灯笼红光弥漫）
-  p.fogColor.lerp(_FEST_FOG, 0.45);                     // 夜雾里带一点灯会的暖
 }
