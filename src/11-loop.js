@@ -11,7 +11,7 @@ import { MIST, MIST_WHITE, FOG_BANKS, CENSER_SMOKE, KOI_ORBITS, spawnRipple, upd
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
-import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksState, setFireworksForce } from './12-env.js';
+import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksState, setFireworksForce, fireworksFinaleNow } from './12-env.js';
 /* 竹帘升降：状态与动画都住在 14-props（它拿着帘条子组与卷捆的引用），
    这里只负责每帧推进；UI 侧经 HOOKS.blind 转发（同音景/明信片的既有做法）。 */
 import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } from './14-props.js';
@@ -1848,7 +1848,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 春节烟花（2026-10-05 · 冬季限定）：门禁要断言"冬季夜里有花 / 别的季节或
                      白天没有"、以及"绽放真的把庭院照亮了"，并要能**强制开关**做对照
                      ⇒ 显式暴露状态 + 产品侧权威开关（不在探针里重调产品函数）。 */
-                  fireworksState, setFireworksForce,
+                  fireworksState, setFireworksForce, fireworksFinaleNow,
                   /* 金刚鹦鹉作息 + 动作（2026-10-05）：门禁要断言"夜里/雨雪天不在、
                      白天在、且栖停时有动作"，靠 traverse 猜不可判 ⇒ 显式暴露状态。 */
                   macawState, macawWantPerch,

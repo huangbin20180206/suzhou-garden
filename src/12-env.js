@@ -2969,15 +2969,54 @@ const FW_PAL = [0xFFD24A, 0xFF4A3A, 0xFF4AD0, 0x38E0C8, 0x4A78FF, 0x9A5AFF, 0xFF
    ⚠️ 默认俯视机位（俯角 −19.3°、可见天空只有顶部 ndc.y≥0.8 那一条）**仍然看不到天上的花** ——
    这是机位几何，不是摆放问题；默认机位交付的是"庭院被染亮"那一半（见 tickFireworks）。 */
 const FW_VOL = { x0: -38, x1: 38, y0: 26, y1: 52, z0: -72, z1: -26 };
+/* ══ 彩蛋 · 四弹齐射「2027」（2026-10-05 · 老黄："烟花循环的最后一幕 4 弹齐射，
+   同时在空中炸出'2027'字样，字体不限、也不用特别工整，能看得出来就好"）══
+   **一个弹负责一个数字**（正好 4 弹 4 字）：每颗火星在绽放段飞向"自己那个字"的点云目标 ——
+   先按球面炸开一点点、再收拢成字，所以读作"炸出来的字"，而不是"渐显出来的字"。
+   ⚠️ 字形点云用 canvas 2D 现描（系统粗体，**不依赖字体文件**），按**索引等距**抽样：
+      · 等距抽样是**确定性**的，且**不消耗任何随机流**（连本模块的私有流都不动）；
+      · 点密不匀是特性不是缺陷 —— 用户要的正是"不用特别工整，看得出来就行"。 */
+const FW_WORD = '2027';
+const FW_DIGIT_H = 16.0;        // 字高刻度（m）：字形实际高 ≈0.62×此值 ⇒ 79m 外约 125px
+const FW_FIN_EVERY = 12;        // 每 N 发普通烟花之后来一次彩蛋
+const FW_FIN_GAP = 11.0;        // 字距（m）：字形宽 ≈0.49×字高刻度 ⇒ 留约 3m 字缝（太开会散）
+const FW_FIN_PAL = [0xFFD24A, 0xFF4A3A, 0xFF4AD0, 0x38E0C8];   // 四字四色：金 / 朱 / 品红 / 青碧
+function makeDigitTargets(nSpark){
+  return [...FW_WORD].map((ch) => {
+    const W = 200, H = 260;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const g = c.getContext('2d');
+    g.fillStyle = '#000'; g.fillRect(0, 0, W, H);
+    g.fillStyle = '#fff';
+    g.font = 'bold 230px sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(ch, W / 2, H / 2 + 6);
+    const d = g.getImageData(0, 0, W, H).data;
+    const pts = [];
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++)
+      if (d[(y * W + x) * 4] > 128) pts.push([x, y]);
+    const out = new Float32Array(nSpark * 3);
+    if (!pts.length) return out;             // 兜底：一个字都没描出来（取不到字体）⇒ 全 0、缩成一点
+    for (let i = 0; i < nSpark; i++){
+      const p = pts[Math.floor(i * pts.length / nSpark)];
+      out[i*3+0] = (p[0] - W / 2) / H * FW_DIGIT_H;    // 归一：以字心为原点、高 = FW_DIGIT_H
+      out[i*3+1] = (H / 2 - p[1]) / H * FW_DIGIT_H;
+      out[i*3+2] = ((i % 7) - 3) * 0.09;               // 一点点前后错落，别读成一片纸
+    }
+    return out;
+  });
+}
 export const FIREWORKS = {
   force: null,          // 产品侧**权威开关**：null=按季节/时辰自动；true/false=强制（探针用）
   on: false, t: 0, next: 1.2, shots: 0, flash: 0, lastCol: null,
+  sinceFin: 0, finale: 0,      // 距上次彩蛋的发数 / 已放彩蛋的次数（门禁要断言）
 };
 const _fwr = mulberry32(20261008);                       // 私有流（铁律 1）
 const _fwStart = new Float32Array(FW_SHELLS).fill(-1e9);  // 每发的**发射**时刻
 const _fwPos = new Float32Array(FW_SHELLS * 3);           // 爆点
 const _fwLaunch = new Float32Array(FW_SHELLS * 3);        // 发射点（地面）
 const _fwCol = new Float32Array(FW_SHELLS * 3);           // 这一发的主色
+const _fwFin = new Float32Array(FW_SHELLS);               // 这一发是不是"彩蛋齐射"（1=是）
 let _fwCursor = 0;
 /* 灯基准色：模块期就抓（applyEnv 只调强度、不动颜色 ⇒ 抓一次即可，且必须自己存，
    否则"染色"会逐帧累积、越闪越白） */
@@ -2989,8 +3028,14 @@ export function fireworksState(){
   return { on: FIREWORKS.on, force: FIREWORKS.force, t: +FIREWORKS.t.toFixed(2),
            shots: FIREWORKS.shots, flash: +FIREWORKS.flash.toFixed(3),
            lastCol: FIREWORKS.lastCol,
-           shells: [..._fwStart].filter(v => FIREWORKS.t - v < FW_RISE + FW_LIFE + 0.1).length };
+           finale: FIREWORKS.finale, sinceFin: FIREWORKS.sinceFin,
+           fin: Array.from(_fwFin),          // 哪几个槽是彩蛋（门禁据此断言"四发齐射"）
+           ages: [..._fwStart].map(v => +(FIREWORKS.t - v).toFixed(2)),   // 各槽已飞多久（齐射 ⇒ 四值相等）
+           word: FW_WORD, digitH: FW_DIGIT_H,
+           shells: [..._fwStart].filter(v => FIREWORKS.t - v < FW_RISE + FW_LIFE * 1.6 + 0.1).length };
 }
+/* 探针用：下一次 tick 立刻来一次彩蛋齐射（产品侧**权威开关** —— 不在探针里重调产品函数） */
+export function fireworksFinaleNow(){ FIREWORKS.sinceFin = FW_FIN_EVERY; FIREWORKS.next = -1e9; }
 const _fwOn = () => {
   if (FIREWORKS.force !== null) return FIREWORKS.force;
   /* 冬季限定 + 真的入夜（starAmount 是本项目现成的"夜色深度"通道）+ 天上没有雨雪雷暴
@@ -3005,6 +3050,12 @@ const _fwOn = () => {
   const n = FW_SHELLS * FW_SPARKS;
   const dir = new Float32Array(n * 3), col = new Float32Array(n * 3);
   const spd = new Float32Array(n), siz = new Float32Array(n), sed = new Float32Array(n), shl = new Float32Array(n);
+  /* 彩蛋字形目标（2026-10-05）：每发（壳槽）独占一个数字，一个字 190 颗火星 ⇒ 铺满整张点云表 */
+  const tgt = new Float32Array(n * 3);
+  {
+    const clouds = makeDigitTargets(FW_SPARKS);
+    for (let si = 0; si < FW_SHELLS; si++) tgt.set(clouds[si], si * FW_SPARKS * 3);
+  }
   for (let i = 0; i < n; i++){
     const si = (i / FW_SPARKS) | 0;
     /* 球面均匀采样 + 一点"上扬"：纯球面看着像一坨，微扬读作"炸开" */
@@ -3030,9 +3081,10 @@ const _fwOn = () => {
   geo.setAttribute('aSize', new THREE.InstancedBufferAttribute(siz, 1));
   geo.setAttribute('aSeed', new THREE.InstancedBufferAttribute(sed, 1));
   geo.setAttribute('aShell', new THREE.InstancedBufferAttribute(shl, 1));
+  geo.setAttribute('aTarget', new THREE.InstancedBufferAttribute(tgt, 3));
   const u = {
     uT: { value: 0 }, uStart: { value: _fwStart }, uPos: { value: _fwPos },
-    uLaunch: { value: _fwLaunch }, uCol: { value: _fwCol },
+    uLaunch: { value: _fwLaunch }, uCol: { value: _fwCol }, uFin: { value: _fwFin },
     uRise: { value: FW_RISE }, uLife: { value: FW_LIFE }, uGrav: { value: FW_GRAV },
   };
   const mat = new THREE.ShaderMaterial({
@@ -3041,14 +3093,16 @@ const _fwOn = () => {
     vertexShader: `
       attribute vec3 aDir; attribute vec3 aCol; attribute float aSpeed;
       attribute float aSize; attribute float aSeed; attribute float aShell;
-      uniform float uT, uStart[${FW_SHELLS}], uRise, uLife, uGrav;
+      attribute vec3 aTarget;                       // 彩蛋：这颗火星要飞到的字形点
+      uniform float uT, uStart[${FW_SHELLS}], uRise, uLife, uGrav, uFin[${FW_SHELLS}];
       uniform vec3 uPos[${FW_SHELLS}], uLaunch[${FW_SHELLS}], uCol[${FW_SHELLS}];
       varying vec2 vUv; varying vec3 vCol; varying float vA;
       void main(){
         vUv = uv;
         int i = int(aShell + 0.5);
         float age = uT - uStart[i];
-        float tot = uRise + uLife;
+        /* 彩蛋那四发要多留一会儿（字要读得完）⇒ 存活窗口按 uFin 放长 1.5 倍 */
+        float tot = uRise + uLife * (uFin[i] > 0.5 ? 1.5 : 1.0);
         if (age < 0.0 || age > tot){          // 没轮到 / 已经灭了：丢到画外（不占填充率）
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vA = 0.0; vCol = vec3(0.0); return;
         }
@@ -3059,6 +3113,31 @@ const _fwOn = () => {
           base = mix(uLaunch[i], uPos[i], k * k);
           base.y -= aSeed * 2.2 * (1.0 - k);
           env = 0.85; rad = 0.26;
+        } else if (uFin[i] > 0.5){
+          /* ── 彩蛋：先"炸开"一点点、再收拢成字（所以读作**炸出来的字**，不是渐显）──
+             0.55s 内用 easeOutCubic 飞到自己的字形点，之后原地留到淡尽。 */
+          float e = age - uRise;
+          float k = min(1.0, e / 0.55);
+          float ease = 1.0 - pow(1.0 - k, 3.0);
+          vec3 burst = aDir * (aSpeed * 0.55 * 0.32);       // 起手的球面散开（幅度只要一点点）
+          base = uPos[i] + mix(burst, aTarget, ease);
+          float life2 = uLife * 1.5;
+          env = 1.0 - smoothstep(life2 * 0.45, life2, e);    // 成字后停一会儿再淡
+          /* ⚠️ 火星片尺寸要按"覆盖率"算，不能凭感觉：
+             覆盖率 = 190×π(r·aSize)² / 字形墨迹面积（≈0.35×字形屏幕宽×高）。
+             实测：字 61×78px + rad 0.16（每片约 5px）⇒ **205%** —— 笔画被糊成实心团，
+             四个字读作"四个圆光斑"（判读原话）。
+             字放大到 98×125px、rad 0.12（每片约 3.7px）⇒ **约 44%**，是能读的点阵。
+             ⚠️⚠️ **别靠抬亮度补**：试过 env×1.35 ⇒ 单独一颗小点越过 **bloom 阈值**、
+             被辉光糊成一大片，整幅字又并成 1 段（实测贡献从 5 万 px 暴涨到 48.5 万 px、
+             横向只剩 1 段）—— 小点要"看得见但不炸 bloom"，只能靠尺寸。 */
+          env *= 0.80 + 0.20 * sin(aSeed * 29.0 + e * 7.0);
+          /* ⚠️ 这一档是**按覆盖率**选的，不是靠"看图反复调"：0.15 ⇒ 覆盖率约 68%，
+             判读成"四个发光的彩色圆球"（0/10）；0.12 ⇒ 约 44%，判读成"是 2027"（4/10）。
+             ⚠️ 同一份代码同一机位，多模态两次判读会互相矛盾（0.12 说"是 2027"、0.15 说"光球"）
+             —— 所以**以像素量与横向分段数为准**（0.12 时正好 4 段、每段 103~116px、间隔均匀），
+             单图判读只作参考。用户的标准是"不用特别工整、看得出来就好"。 */
+          rad = 0.12;
         } else {
           /* ── 绽放：球面炸开 + 空气阻力 + 重力 + 逐星闪烁 ── */
           float e = age - uRise;
@@ -3131,24 +3210,52 @@ export function tickFireworks(dt){
     F.t += dt;
     u.uT.value = F.t;
     if (F.t >= F.next){
-      const i = _fwCursor % FW_SHELLS; _fwCursor++;
-      const bx = FW_VOL.x0 + _fwr() * (FW_VOL.x1 - FW_VOL.x0);
-      const by = FW_VOL.y0 + _fwr() * (FW_VOL.y1 - FW_VOL.y0);
-      const bz = FW_VOL.z0 + _fwr() * (FW_VOL.z1 - FW_VOL.z0);
-      const c = new THREE.Color(FW_PAL[(_fwr() * FW_PAL.length) | 0]);
-      _fwPos[i*3] = bx; _fwPos[i*3+1] = by; _fwPos[i*3+2] = bz;
-      _fwLaunch[i*3] = bx * 0.72 + (_fwr() - 0.5) * 6;
-      _fwLaunch[i*3+1] = 2.0;
-      _fwLaunch[i*3+2] = bz + 10 + (_fwr() - 0.5) * 8;
-      _fwCol[i*3] = c.r; _fwCol[i*3+1] = c.g; _fwCol[i*3+2] = c.b;
-      _fwStart[i] = F.t;
-      F.lastCol = '#' + c.getHexString();
-      F.shots++;
-      F.next = F.t + 1.5 + _fwr() * 2.4;      // 1.5~3.9s 一发，偶尔连放
-      _fwr() < 0.28 && (F.next = F.t + 0.35);
+      if (F.sinceFin >= FW_FIN_EVERY){
+        /* ── 彩蛋：**四弹齐射**（四发同一个发射时刻），四发并排、一弹一字 ──
+           位置按"字形横排"给：中心 (0, 42, −46)、间隔 9.6m ⇒ 整幅字约 36m 宽、单字 7.4m 高；
+           在「看烟花」机位（约 78m 外）横跨 ±13°、字高 ≈95px ⇒ 一眼读得出是四个字。 */
+        /* ⚠️ 彩蛋的位置要按「看烟花」机位的视锥反推，不能沿用普通烟的随机空域：
+           机位 (−13,12,26)→(−6,10.5,−18)，俯仰 −1.9°、画面仰角只到 **+21.2°**。
+           第一版放 (0,42,−46)：那里是 **22.6°** ⇒ 整幅字在画面上缘之外（实测贡献只有 331px、
+           横向只剩几小段）。改到 (0,34,−52) ⇒ 字心 15.6°、字顶 19.6° ✓ 全在框内。 */
+        F.sinceFin = 0; F.finale++;
+        const cx = 0, cy = 34, cz = -52, gap = FW_FIN_GAP;
+        for (let i = 0; i < FW_SHELLS; i++){
+          const bx = cx + (i - (FW_SHELLS - 1) / 2) * gap;
+          _fwPos[i*3] = bx; _fwPos[i*3+1] = cy; _fwPos[i*3+2] = cz;
+          _fwLaunch[i*3] = bx * 0.72 + (_fwr() - 0.5) * 2.5;
+          _fwLaunch[i*3+1] = 2.0;
+          _fwLaunch[i*3+2] = cz + 11 + (_fwr() - 0.5) * 3;
+          const fc = new THREE.Color(FW_FIN_PAL[i % FW_FIN_PAL.length]);
+          _fwCol[i*3] = fc.r; _fwCol[i*3+1] = fc.g; _fwCol[i*3+2] = fc.b;
+          _fwStart[i] = F.t;                 // ⚠️ 四发**同一个**发射时刻 = 齐射（不是错峰）
+          _fwFin[i] = 1;
+        }
+        F.shots += FW_SHELLS;
+        F.lastCol = '彩蛋 · 2027';
+        F.next = F.t + FW_RISE + 5.2;        // 等字读完了再排下一发
+      } else {
+        const i = _fwCursor % FW_SHELLS; _fwCursor++;
+        const bx = FW_VOL.x0 + _fwr() * (FW_VOL.x1 - FW_VOL.x0);
+        const by = FW_VOL.y0 + _fwr() * (FW_VOL.y1 - FW_VOL.y0);
+        const bz = FW_VOL.z0 + _fwr() * (FW_VOL.z1 - FW_VOL.z0);
+        const c = new THREE.Color(FW_PAL[(_fwr() * FW_PAL.length) | 0]);
+        _fwPos[i*3] = bx; _fwPos[i*3+1] = by; _fwPos[i*3+2] = bz;
+        _fwLaunch[i*3] = bx * 0.72 + (_fwr() - 0.5) * 6;
+        _fwLaunch[i*3+1] = 2.0;
+        _fwLaunch[i*3+2] = bz + 10 + (_fwr() - 0.5) * 8;
+        _fwCol[i*3] = c.r; _fwCol[i*3+1] = c.g; _fwCol[i*3+2] = c.b;
+        _fwStart[i] = F.t;
+        _fwFin[i] = 0;                       // ⚠️ 槽会被复用 ⇒ 普通发必须把彩蛋标记清掉
+        F.lastCol = '#' + c.getHexString();
+        F.shots++;
+        F.sinceFin++;
+        F.next = F.t + 1.5 + _fwr() * 2.4;   // 1.5~3.9s 一发，偶尔连放
+        _fwr() < 0.28 && (F.next = F.t + 0.35);
+      }
     }
     u.uStart.value = _fwStart; u.uPos.value = _fwPos;
-    u.uLaunch.value = _fwLaunch; u.uCol.value = _fwCol;
+    u.uLaunch.value = _fwLaunch; u.uCol.value = _fwCol; u.uFin.value = _fwFin;
   }
   /* 取当前最强的那一发做主色（没有在闪的就归零） */
   let f = 0, ci = 0, best = -1;

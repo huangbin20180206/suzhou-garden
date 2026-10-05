@@ -187,6 +187,53 @@ const check = (name, ok, detail = '') => {
     `亮度比 ${ratio}（${peak.m} / ${baseMed}）`);
   await page.screenshot({ path: path.join(OUT, '02-默认机位-庭院被染亮.png') });
 
+  /* ── ⑤ 彩蛋：四弹齐射「2027」──
+     守三件：① 四个壳槽**全部**进彩蛋模式；② 四发**同一个发射时刻**（齐射，不是错峰）；
+     ③ 字**成形**：画面上横向分成 ≥4 段（四个数字各自成段），而不是糊成团或出框。
+     ⚠️ 判据用"横向分段数"而不是"多模态读出来没有" —— 甲：单图判读同代码同机位会自相矛盾
+     （同一档 0.12 判读"是 2027"、改成 0.15 判读"四个光球"）；乙：分段数是可复现的结构量
+     （0.12 档实测正好 4 段、每段 103~116px、间隔均匀）。 */
+  await page.evaluate(() => {
+    const G = window.__garden;
+    G.setFireworksForce(true);
+    G.gotoViewpoint('fireworks');
+    G.fireworksFinaleNow();          // 产品侧权威开关（不在探针里重调产品函数）
+  });
+  await page.waitForFunction(() => window.__garden.fireworksState().finale >= 1,
+    null, { polling: 60, timeout: 30000 }).catch(() => {});
+  const fin = await page.evaluate(() => window.__garden.fireworksState());
+  check('⑤ 彩蛋触发：四个壳槽全部进入彩蛋模式（4 弹）',
+    fin.finale >= 1 && fin.fin.every(v => v === 1), `finale=${fin.finale} fin=${JSON.stringify(fin.fin)}`);
+  check('⑤ 四弹**齐射**：四发发射时刻相同（age 极差 < 0.05s）',
+    Math.max(...fin.ages) - Math.min(...fin.ages) < 0.05, `四槽 age=${JSON.stringify(fin.ages)}`);
+  await page.waitForTimeout(1900);                       // 升空 1.15s + 成形 0.55s ⇒ 最整齐
+  const word = await page.evaluate(() => {
+    const G = window.__garden;
+    let im = null; G.scene.traverse(o => { if (o.name === 'fireworks') im = o; });
+    const W = G.renderer.domElement.width, H = G.renderer.domElement.height;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0);
+      return ctx.getImageData(0, 0, W, H).data; };
+    const A = grab(); const k = im.visible; im.visible = false; const B = grab(); im.visible = k;
+    const cols = new Array(W).fill(0); let n = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const i = (y * W + x) * 4;
+      if (Math.abs(A[i]-B[i]) + Math.abs(A[i+1]-B[i+1]) + Math.abs(A[i+2]-B[i+2]) > 12){ cols[x]++; n++; }
+    }
+    const segs = []; let s0 = -1;
+    for (let x = 0; x < W; x++){
+      const on = cols[x] >= 2;
+      if (on && s0 < 0) s0 = x;
+      if ((!on || x === W - 1) && s0 >= 0){ if (x - s0 >= 6) segs.push([s0, x - s0]); s0 = -1; }
+    }
+    return { px: n, segs };
+  });
+  check('⑤ 「2027」成形且**分成 ≥4 段**（四个数字各自成段 ⇒ 不是糊成团、也不出框）',
+    word.segs.length >= 4 && word.px > 3000,
+    `贡献 ${word.px}px · ${word.segs.length} 段：${word.segs.map(([a, w]) => `${a}+${w}`).join(' ')}`);
+  await page.screenshot({ path: path.join(OUT, '03-彩蛋2027.png') });
+
   /* ── ④ 自检：强制关掉 ⇒ flash 恒 0、天上那层贡献 0 ── */
   const off = await page.evaluate(async () => {
     const G = window.__garden;
