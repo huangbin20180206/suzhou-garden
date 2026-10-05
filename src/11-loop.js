@@ -1336,7 +1336,12 @@ function animate(){
       f.rotation.x = 0.05;                             // 前进时躯干微前倾
       f.rotation.z = 0.03 + Math.sin(st) * 0.035;      // 左右轻摆（含原本的重心微偏 0.03）
     } else {
-      f.position.y = f.userData.baseY || 0; f.rotation.x = 0; f.rotation.z = 0.03;
+      /* ⚠️ 2026-10-05：`rotation.x` 不再写死 0 —— 观鱼人（前俯看水）/仕女（俯身汲水）要一个
+         静态前倾角，而这条支路每帧都会把它清零（"改一处被另一处每帧覆盖"的老坑）。
+         角度由 08 的 makeScholar 写进 `userData.leanX`；没给就是 0（其余角色逐字不变）。 */
+      f.position.y = f.userData.baseY || 0;
+      f.rotation.x = f.userData.leanX || 0;
+      f.rotation.z = 0.03;
     }
   }
 

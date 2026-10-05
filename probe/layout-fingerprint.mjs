@@ -105,7 +105,13 @@ async function sample(page, { poke = false } = {}){
      它只吃自己的私有 mulberry32(20261007) 流，全局随机流一位没动
      （那次红是**新实例网格让网格计数 +1**，不是随机流漂 —— 别用 --update-baseline
      去盖它：那会把一个"没有布局变化"的东西写进基线里）。 */
-  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke']);
+  /* ⚠️ 2026-10-05 加第四个：`fireworks`（春节烟花，4 发 × 190 颗 = **760** 片）——
+     与 mistField / censerSmoke 同族：顶点位置在 shader 里按 uT/相位算、实例矩阵是**占位**，
+     不是"建场时一次写定"的布局。它只吃自己的私有 mulberry32(20261008) 流，全局随机流没动
+     （那条红是"新实例网格让网格计数 +1"，不是随机流漂）。
+     ⚠️ 教训：换渲染载体（Points→InstancedMesh）之后**必须复跑这条门** —— 我当时只跑了 check
+     与 fireworks-guard，漏了它，于是这个红一直挂到下一次跑 verify:quick 才暴露。 */
+  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke', 'fireworks']);
     const EXCLUDE_GEOM = new Set(['RingGeometry']);
     const rows = [];
     let global = 0;

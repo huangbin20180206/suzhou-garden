@@ -293,6 +293,17 @@ export const FIG_PALETTE = {
        · L=84.7 ≥ 70（非近黑剪影）；与 trim 差 136.9、与 sash 差 53.5（都 ≥ 25）
      取色理由：朱红是"年"的颜色，夜里的篝火色相在冷月夜里也立得住（与月光/雪意的青蓝互补）。 */
   vermilion:{ robe:0xC0392B, trim:0xEBDCC6, sash:0x4A1410 },   // 朱红 · 看烟花的孩童
+  /* ── 2026-10-05 · 观鱼人 / 仕女：两人都取 **7.5~12 晨档** —— 这是全天最空的一档，
+     与之重叠的现役色只有 indigo(先生)、celadon(书童甲)、ochre(书童乙)。
+     ⚠️ 两人彼此也同框 ⇒ 它们之间也要 ≥60。
+     实测（口径同 figure-palette 的 RGB 欧氏距离，对**同档四色**取最小值）：
+       · 月白 vs indigo 181 / celadon 106 / ochre 169 / 丁香 88 ⇒ 最小 88
+       · 丁香 vs indigo 106 / celadon  61 / ochre 113 / 月白 88 ⇒ 最小 61
+     两色对草坪绿 #457441 分别是 228 / 162（LAWN_D 60 的 3.8 / 2.7 倍）。
+     ⚠️ 月白偏亮（L=213），所以它的 **trim 必须取深色**（0x4E5866）—— 照别的角色那样用
+     浅玉色衣缘的话，与袍身明度差只有个位数、交领读不出来（figure-audit 会红）。 */
+  moonwhite:{ robe:0xCFD6DA, trim:0x4E5866, sash:0x2A3550 },   // 月白 · 观鱼人（拱桥）
+  lilac:   { robe:0xA98BBF, trim:0xE0D6C8, sash:0x4A3A5E },   // 丁香 · 仕女（井边）
 };
 const figMat = (color, rough) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.0, envMapIntensity: 0.3 });
 /* 躯干截面不是正圆（2026-09-18 第六轮 · 老黄选 B）。
@@ -325,15 +336,32 @@ function profR(prof, y){
      必须把 `userData.baseY` 一起带过去（那里的注释写了为什么）。 */
 const PAV_FLOOR_Y = 0.62;                  // 水榭台基顶面（= 人物脚底应站的高度）
 export const figures = [];
-function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin = 'indigo' } = {}){
+function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin = 'indigo',
+                       lady = false, leanX = 0, headDown = 0.24 } = {}){
   const root = new THREE.Group();
   root.position.set(x, y === undefined ? groundHeight(x, z) : y, z);
   root.userData.baseY = root.position.y;     // 11-loop 的散步/站立分支据此恢复脚底高度
+  root.rotation.order = 'YXZ';
+  /* ⚠️⚠️ 必须 'YXZ'（**先偏航、后俯仰**）—— 与金刚鹦鹉那条同源：
+     默认的 'XYZ' 里 rotation.x 是**最后**作用的、绕的是**世界横轴**，
+     于是"前俯"会随朝向变成后仰/侧栽（实测：观鱼人 yaw=2.96、leanX=0.30 时，
+     头相对脚底在**人体前向**上的投影是 **−0.391m**（后退），而不是 +0.45m）。
+     成 'YXZ' 后俯仰绕人体自己的横轴，前俯才真的往前。
+     ⚠️ 这条不改会影响所有角色的既有效果：rotation.x 为 0 的角色（绝大多数）
+       两种序等价；只有散步者（rotation.x=0.05 + z 摆）与观鱼/仕女会变，都是变对。 */
   root.rotation.y = yaw;
   root.rotation.z = 0.03;                     // 重心微偏：负手的站姿不该是旗杆
+  /* 前俯（观鱼人弯腰看水、仕女俯身汲水）：⚠️ **必须同时写进 userData** ——
+     11-loop 的"非散步"分支每帧把 rotation.x 清零，只静态设在这里会被当场抹掉。
+     那边已改成读 `f.userData.leanX`（同一个坑：改一处被另一处每帧覆盖）。 */
+  root.rotation.x = leanX;
+  root.userData.leanX = leanX;
   root.scale.setScalar(s);
   const g = new THREE.Group();                // 躯干层：只它吃椭圆截面缩放（头不跟着压扁）
-  g.scale.set(FIG_EW, 1, FIG_ED);
+  /* 仕女：整体收窄 10% —— 肩宽 2×0.186=0.37m 配 0.172m 的头是"肩 2.15 个头宽"的文人比例，
+     女子要更窄才读得出；连下摆一起收，裙形更收束（本项目人物只有裙摆没有腿，
+     轮廓就是全部信息）。 */
+  g.scale.set(FIG_EW * (lady ? 0.90 : 1), 1, FIG_ED * (lady ? 0.90 : 1));
   root.add(g);
   const P = FIG_PALETTE[skin] || FIG_PALETTE.indigo;
   const ink      = figMat(P.robe, 0.92);      // 袍身主色（原为墨蓝近黑单色 0x1A2233）
@@ -420,9 +448,26 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
        "指天"在剪影上读得出来。⚠️ drape 必须 false：垂布是"负手"那条胳膊的配件。 */
     point: { pts: [[0.180, 1.150, 0.030], [0.262, 1.330, 0.060], [0.200, 1.560, 0.120], [0.120, 1.740, 0.180]],
              drape: false, cuffAxis: true },
+    /* draw 双手前下（2026-10-05 · 仕女俯身汲水）：两臂**对称**向前下方伸，手落在
+       y≈0.84 / z≈0.25 —— 与井圈（外径 0.72、台面高 0.42）在视线上正好是"扶着井绳"的位置。
+       与 point 一样只换点列，袖管/肘球/袖口环/拢手球共用同一套构件。 */
+    /* draw 双手前下（2026-10-05 · 仕女俯身汲水）：两臂**对称**向前下方伸。
+       ⚠️ 关键是**手相对肩的方向**，不是手的绝对位置：第一版给 (0.84, 0.245) 相对肩 (1.15,0.03)
+       只是"前 0.22 / 下 0.31" ⇒ 离垂直只有 35°，出图判读三次都是"手垂在身侧、略前"。
+       现在改成前 0.43 / 下 0.18（离垂直 ~68°）—— 这才是"伸手够井"的形态。
+       手落在 y≈0.975 / z≈0.455，与井圈（外径 0.72、台面高 0.42）在视线上正好扶着井绳。 */
+    draw:  { pts: [[0.180, 1.150, 0.030], [0.235, 1.090, 0.180], [0.210, 1.020, 0.330], [0.180, 0.975, 0.455]],
+             drape: false, cuffAxis: true },
+    /* down 单手前伸下指（2026-10-05 · 观鱼人）：**只用右侧那条胳膊**（左侧仍是负手）——
+       与 point 同一套写法。⚠️ 同上：手相对肩要"前 0.49 / 下 0.19"（离垂直 ~69°），
+       第一版"前 0.21 / 下 0.36"（30°）读出来是"手垂在身侧"。 */
+    down:  { pts: [[0.180, 1.150, 0.030], [0.230, 1.075, 0.175], [0.205, 1.010, 0.360], [0.175, 0.965, 0.520]],
+             drape: false, cuffAxis: true },
   };
   for (const side of [-1, 1]){
     const A = SLEEVE[pose === 'read' ? 'read'
+                   : pose === 'draw' ? 'draw'
+                   : (pose === 'pointDown' && side > 0) ? 'down'
                    : (pose === 'point' && side > 0) ? 'point'
                    : (pose === 'tea' && side > 0) ? 'take' : 'back'];
     const V = ([ax, ay, az]) => new THREE.Vector3(side * ax, ay, az);
@@ -463,15 +508,52 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
     }
     g.add(cuff);
   }
-  // 头 + 发髻 + 簪（低头回调 14°：20° 在俯拍机位读作"俯身"）
+  /* 披帛（仕女的标志物，2026-10-05）：一条窄帛绕过双肩、向腰侧垂落 —— 只在轮廓上添两道斜线，
+     却是"这是位女子"最省成本的信号（文人直裰没有这一件）。用浅色 trim 做，压在袍色上读得出来。
+     ⚠️ 曲线点必须**落在袍身椭球之外**：第一版点列按"贴着袍面"给，实测 (0.150,1.165,0.060)
+     满足 (0.150/0.186)²+(0.060/0.133)²=0.85 < 1 ⇒ **整条埋在袍子里**，出图判读"没有披帛"。
+     现在把 x/z 各外放 12%（贴着表面），管径 0.026→0.030。 */
+  if (lady){
+    /* ⚠️ 披帛要用**与交领/衣缘不同的色**：第一版也用 inkLight（与交领同为奶白），
+       出图判读成"衣服的一部分"、认不出是一条帛带。改成一抹更亮的丝白 0xF2EDE4，
+       压在丁香袍上就是一道清楚的斜带。 */
+    const stoleMat = figMat(0xF2EDE4, 0.72);
+    const stole = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(-0.213, 1.185, 0.056),
+      new THREE.Vector3(-0.062, 1.238, 0.110),
+      new THREE.Vector3( 0.168, 1.165, 0.067),
+      new THREE.Vector3( 0.244, 0.940, -0.022),
+      new THREE.Vector3( 0.199, 0.760, -0.103),
+    ]);
+    g.add(mesh(new THREE.TubeGeometry(stole, 16, 0.030, 5, false), stoleMat, { name:'ladyStole' }));
+  }
+  // 头 + 发髻 + 簪（低头回调 14°：20° 在俯拍机位读作"俯身"；观鱼/汲水要更低，由 headDown 给）
   const headG = new THREE.Group();
   headG.position.set(0, 1.445, 0.03);
-  headG.rotation.x = 0.24;
+  headG.rotation.x = headDown;
   headG.add(mesh(new THREE.SphereGeometry(0.086, 14, 11), hair, { name:'scholarHead' }));
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'scholarKnot' });
   knot.position.set(0, 0.098, -0.020);
   knot.scale.set(1, 0.95, 1);
   headG.add(knot);
+  /* 仕女的发髻（2026-10-05）：在小圆髻之上再加一圈**盘髻**（水平环）—— 头是俯拍机位里
+     最容易被读到的部位，一圈盘髻在剪影上就与文人的单髻分开了（成本 1 个 torus）。 */
+  if (lady){
+    /* ⚠️ 发髻要**明显高出头球轮廓**、且形状是**圆头**的。
+       三次实测的教训：① 环半径 0.034+管径 0.012 ⇒ 外缘 0.046 整个埋在头球（半径 0.086）里；
+       ② 把小圆髻放大到 0.040，量 AABB 只比头顶高 1.5cm ⇒ 读作"一个黑球"；
+       ③ 换成**圆柱**高髻 ⇒ 被读作"头顶一个小礼帽"（平顶）——形状不对。
+       最终取"球体纵向拉长 1.5 倍"（半径 0.046、y=0.136 ⇒ 跨 0.067~0.205，高出头顶约 0.12m），
+       再加底下那圈盘环 —— 圆头的髻 + 一圈盘，才是发髻。 */
+    knot.geometry.dispose();
+    knot.geometry = new THREE.SphereGeometry(0.046, 12, 9);
+    knot.position.set(0, 0.136, -0.022);
+    knot.scale.set(1, 1.5, 1);
+    const coil = mesh(new THREE.TorusGeometry(0.046, 0.013, 5, 12), hair, { name:'ladyCoil' });
+    coil.position.set(0, 0.088, -0.023);
+    coil.rotation.x = Math.PI / 2;
+    headG.add(coil);
+  }
   /* 簪（第五轮根因：4mm 簪径在 1.5m 视距只有 2px，被抗锯齿吃掉 —— 不是变换问题）。
      加粗到 16mm（风格化簪）+ 两端簪头珠（0.02m，4~5px 可读），"常见机位一头可见"达标 */
   const pinMat = new THREE.MeshStandardMaterial({ color:0xC9CDB8, roughness:0.6, metalness:0.0, envMapIntensity:0.5 });
@@ -562,9 +644,30 @@ const D_SCHEDULES = [
   { pose:'observe', skin:'lily',  x: 13.4, z: -4.6, y: 0, yaw: Math.PI * 0.5, s: 1.0,
     h0: 18.0, h1: 23.0,
     stroll: { a: 13.4, b: 13.4, z0: -3.0, z1: -8.8, sp: 0.027 } },   // 沿游廊 z 缓行（0.55 m/s）
+  /* 观鱼人（2026-10-05）：**池南岸**上看水里的锦鲤 —— 落点射线实测 (1.3, 8.0) 命中岸地
+     y=−0.282，±0.35m 见方的高差 0.138m（岸坡的常态）。
+     ⚠️ 第一版放在拱桥上（桥面 y=2.00）：**桥栏板把下半身挡住**，前倾被吃掉一半。
+     ⚠️ 第二版放 (0.4,7.7) 的"水边石"：那是一堆**岸边石**，±0.35m 内高差 **1.679m** ⇒
+        袍摆（0.42m 宽）探出石沿，出图判读成"悬空/嵌进石头" —— 站位必须先量平整度，
+        不能只看"往下打第一个命中"（第一次测到 0.093、第二次同一点 0.576，就是因为
+        那不是一块平台而是石头堆）。
+     前俯 0.30rad + 低头 0.58rad（小于 15° 的俯身在这套简笔人物上读不出来），右手前下指水。 */
+  { pose:'pointDown', skin:'moonwhite', x: 1.3, z: 8.0, y: -0.282,
+    yaw: Math.atan2(-1.3, -5.0),
+    s: 1.0, leanX: 0.30, headDown: 0.58,
+    h0: 7.5, h1: 12.0, stroll: null },
+  /* 仕女（2026-10-05）：**井边汲水** —— 落点射线实测 (−19.2,−5.2) 命中 ground y=−0.174，
+     与古井（PROP_SPOTS.well = −20.4,−6.1）相距 1.2m，朝向井心；俯身 + 双手前下（SLEEVE.draw）。
+     ⚠️ y 显式给实测值：这块草地不在 y=0（是 −0.174）。
+     ⚠️ 前俯 0.34rad（≈19°）而不是 0.22：同观鱼人那条教训 —— 小于 15° 读不出"俯身"。 */
+  { pose:'draw', skin:'lilac', x: -19.2, z: -5.2, y: -0.174,
+    yaw: Math.atan2(-20.4 + 19.2, -6.1 + 5.2),
+    s: 0.97, lady: true, leanX: 0.34, headDown: 0.55,
+    h0: 7.5, h1: 12.0, stroll: null },
 ];
 D_SCHEDULES.forEach((d, i)=>{
-  const fg = makeScholar({ x: d.x, z: d.z, y: d.y, yaw: d.yaw, s: d.s, pose: d.pose, skin: d.skin });
+  const fg = makeScholar({ x: d.x, z: d.z, y: d.y, yaw: d.yaw, s: d.s, pose: d.pose, skin: d.skin,
+                           lady: d.lady, leanX: d.leanX, headDown: d.headDown });
   fg.userData.slot = { h0: d.h0, h1: d.h1, stroll: d.stroll };
   fg.userData.skin = d.skin;                 // 供 probe/figure-audit.mjs 读角色服色做门禁
   fg.userData.poseName = d.pose;
