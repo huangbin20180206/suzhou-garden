@@ -386,6 +386,9 @@ let _fwCursor = 0;
 const FW_AMB0 = amb.color.clone(), FW_HS0 = hemiLight.color.clone(), FW_HG0 = hemiLight.groundColor.clone();
 const FW_FILL0 = fill.color.clone(), FW_FILL_I0 = fill.intensity;   // fill = 烟花打光的主力（方向光）
 let _fwAmbSeeded = false;
+/* 上一帧烟花有没有抬过 sun/amb/hemi（见 tickFireworks 里那段"只在闪的时候才写灯"的注释）：
+   用来在闪光结束的那一帧把基准写回一次，之后就不再碰这几盏灯 —— 否则会每帧覆写闪电的照亮。 */
+let _fwLit = false;
 export function setFireworksForce(v){ FIREWORKS.force = v === null ? null : !!v; }
 export function fireworksState(){
   return { on: FIREWORKS.on, force: FIREWORKS.force, t: +FIREWORKS.t.toFixed(2),
@@ -634,15 +637,32 @@ export function tickFireworks(dt){
         像套了滤镜"，那正是环境光的性质（无方向、平）。改成把 `fill`（现成的方向光）
         挪到**爆点方向**、染成爆点色、按包络抬强度 ⇒ 墙/石/桥被同一方向的光照亮，
         亮面朝爆点、暗面背离，才有"被天上那朵花打亮"的读感。 */
-  sun.intensity        = ENV.cur.sunIntensity  * (1 + f * 1.2);
-  amb.intensity        = ENV.cur.ambIntensity  * (1 + f * 2.6);
-  hemiLight.intensity  = ENV.cur.hemiIntensity * (1 + f * 4.5);
+  /* ⚠️⚠️ 只在「有闪光量」或「上一帧在闪（需要收尾一次）」时才写这三盏灯 ——
+     原版是**每帧无条件**从 ENV.cur 重写基准值，而 animate 里 tickFireworks 排在
+     tickLightning **之后**（11-loop 的 944 → 948）⇒ 闪电的"照亮整体"会被整帧覆写成基准：
+     实测 2026-10-05 thunder-guard 的"照亮整体"三条全红（sun 峰值 0.061 = 基准、被照亮帧 0、
+     下半部只 +0.3），而 flash 明明到了 0.95 —— 与拆分无关，是烟花那批带进来的（stash 对照已证伪拆分）。
+     烟花与闪电**不会同时出现**（烟花要无降水、闪电要雷雨），所以"不闪就完全不碰"即可互不干扰；
+     仍然每帧从 ENV.cur 基准重算 ⇒ 不会指数发散（下面那条注释的担忧依然成立）。 */
+  if (f > 0.0001){
+    sun.intensity        = ENV.cur.sunIntensity  * (1 + f * 1.2);
+    amb.intensity        = ENV.cur.ambIntensity  * (1 + f * 2.6);
+    hemiLight.intensity  = ENV.cur.hemiIntensity * (1 + f * 4.5);
+    _fwLit = true;
+  } else if (_fwLit){
+    /* 收尾：写回基准**一次**，然后彻底松手（别再去覆写闪电/别的效果） */
+    sun.intensity        = ENV.cur.sunIntensity;
+    amb.intensity        = ENV.cur.ambIntensity;
+    hemiLight.intensity  = ENV.cur.hemiIntensity;
+    renderer.toneMappingExposure = ENV.cur.exposure;
+    _fwLit = false;
+  }
   /* ⚠️ 方向光是"把庭院照亮"的**主力**，倍数要给够：第一版只给 8 倍 +
      环境光 2.6 倍，出图在"冬夜本来就极暗"的底子上仍是**一片黑剪影**
      （判读："建筑、山、墙几乎全是黑剪影，看不出烟花投下的亮面与暗面"）。
      现在方向光 8→18 倍、半球光 3.2→4.5 —— 环境光**不抬**（它是无方向的，抬它只会变回"粉色滤镜"）。 */
   fill.intensity       = FW_FILL_I0 * (1 + f * 18.0);
-  renderer.toneMappingExposure = ENV.cur.exposure * (1 + f * 0.18);
+  if (f > 0.0001) renderer.toneMappingExposure = ENV.cur.exposure * (1 + f * 0.18);
   if (!_fwAmbSeeded){ _fwAmbSeeded = true; }
   if (best >= 0){
     ci = best;
