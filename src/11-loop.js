@@ -7,7 +7,7 @@ import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-material
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
-import { MIST, MIST_WHITE, FOG_BANKS, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
+import { MIST, MIST_WHITE, FOG_BANKS, CENSER_SMOKE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, makeFireflies, makeLensWeather, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
@@ -990,6 +990,13 @@ function animate(){
      与枝叶/水面/雾同一个坑：软渲染一帧 8.4s，墙钟每帧跳 8.4s → 云不是"飘"而是"瞬移"，
      探针低帧率下云影采样也不稳定。真机 60fps 两者等价。 */
   skyMesh.material.uniforms.uTime.value = windClock;
+  /* 堂前香炉的袅袅白烟（2026-10-05 · 老黄："正堂前既然加了铜炉，是不是应该有袅袅白烟"）：
+     与天空/云/雾**同一个仿真时钟**（相位跟风走；不用墙钟 —— 软渲染一帧 8.4s，用墙钟烟会"瞬移"），
+     并按天气收一下：暴雨/雷雨里香炉基本是灭的（那一缕白烟既不合物理、又抢眼）。
+     放在这一行（而不是雾团那个 if 块里）是因为**雾团那段在条件分支里**（低档位不进），
+     烟不该跟着一起消失。 */
+  CENSER_SMOKE.uTime.value = windClock;
+  CENSER_SMOKE.uAlpha.value = (ENV.weather === 'storm' || ENV.weather === 'thunder') ? 0.06 : 0.40;
   // 彩虹独立层同钟（第七轮搬出天空球，呼吸的相位要跟天空动画一致）
   rainbowMesh.material.uniforms.uTime.value = windClock;
 

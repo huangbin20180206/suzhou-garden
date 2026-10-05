@@ -2109,6 +2109,100 @@ export function makeFogBanks(){
   return g;
 }
 
+/* ══ 堂前香炉的袅袅白烟（2026-10-05 · 老黄："正堂前既然加了铜炉，是不是应该有袅袅白烟"）══
+   与上面雾团**同一套范式**（billboard 片 + makeMistSpriteTex + 风偏移 + NormalBlending；
+   理由也相同：片之间不写深度、被建筑正常遮挡、不吃 scene.fog），只在**运动**上换一种：
+     · 雾团是原地漂移；烟是**上升柱** —— 每片按自己的相位走 0→1 的循环（fract），
+       沿高度长大、两头收 α ⇒ 读作"一缕缕往上飘、越飘越淡"；
+     · **越往上越受风**：横向偏移取 h²（炉口几乎不偏、飘到高处才被吹斜）—— 这才是"袅袅"。
+   ⚠️ 三条项目硬规矩：
+     ① 相位/速度/尺寸全走本函数**私有**的 mulberry32 流（铁律 1：绝不吃全局 rnd/rr，
+        否则其后全园布局整体前移、且不报错）；
+     ② `raycast = () => {}` —— 与雾团同因，别挡"视线是否被挡"这类判定；
+     ③ `userData.aoSkip = true` —— 不进 GTAO 法线 pass（同萤火/钓饵/灯笼：这些片是软的，
+        被当成实体会写成一块 AO ≈ 一团黑）。
+   ⚠️ uTime 由 11-loop 用 **windClock（仿真时钟）** 驱动，与雾团/风共用同一条时间线
+      （本项目规矩：仿真与风必须同一时间线，否则会出现"风在吹但相位不走"且不报错）。 */
+export const CENSER_SMOKE = { uTime:{ value:0 }, uAlpha:{ value:0.40 } };   // 11-loop 每帧写
+export function makeCenserSmoke(x, y, z){
+  const sr = mulberry32(20261007);
+  const N = 14;                                   // 14 片：够读成"一缕"，仍只占 1 个 draw call
+  const geo = new THREE.PlaneGeometry(1, 1);
+  const par = new Float32Array(N * 4);            // phase, speed(圈/秒), 尺寸倍率, 水平错开
+  for (let i = 0; i < N; i++){
+    par[i*4+0] = i / N + sr() * 0.05;             // 相位均匀铺开 ⇒ 任何一帧都"有烟"，不是一起冒
+    par[i*4+1] = 0.15 + sr() * 0.07;              // 0.15~0.22 圈/秒 ⇒ 一缕约 4.5~6.7s 走完全程
+    par[i*4+2] = 0.80 + sr() * 0.50;              // 尺寸倍率（个体有别）
+    par[i*4+3] = (sr() - 0.5) * 0.10;             // 出烟口的水平错开（不然读成一根柱子）
+  }
+  geo.setAttribute('aPar', new THREE.InstancedBufferAttribute(par, 4));
+  const u = {
+    uTime: CENSER_SMOKE.uTime, uAlpha: CENSER_SMOKE.uAlpha,
+    uColor:{ value:new THREE.Color(0xF3F4F1) }, uMap:{ value:null },
+    uWindVec: WIND.uWindVec, uOrigin:{ value:new THREE.Vector3(x, y, z) },
+    uRise:{ value:1.85 }, uLean:{ value:0.34 }, uSize:{ value:0.155 },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms: u,
+    vertexShader: `
+      attribute vec4 aPar;
+      uniform float uTime, uRise, uLean, uSize;
+      uniform vec2  uWindVec;
+      uniform vec3  uOrigin;
+      varying vec2  vUv;
+      varying float vAlpha;
+      void main(){
+        vUv = uv;
+        /* 本片的寿命 0..1：相位错开、速度各异 ⇒ 同一帧里同时存在"刚冒出的/正飘的/快散的" */
+        float life = fract(uTime * aPar.y + aPar.x);
+        float h    = life * uRise;                  // 已经升多高
+        float grow = 1.0 + life * 2.4;              // 越高越散
+        vec3  c    = uOrigin + vec3(aPar.w, h, aPar.w * 0.6);
+        c.xz += uWindVec * (h * h * uLean);         // 风：近口笔直、高处被吹斜
+        vec3 toCam = cameraPosition - c;
+        vec3 dir   = toCam / max(length(toCam), 1e-4);
+        vec3 cr    = cross(vec3(0.0, 1.0, 0.0), dir);
+        float lr   = length(cr);
+        vec3 right = lr > 1e-4 ? cr / lr : vec3(1.0, 0.0, 0.0);
+        vec3 upv   = normalize(cross(dir, right));
+        float halfS = uSize * aPar.z * grow;
+        vec3 pos = c + right * (position.x * halfS * 2.0) + upv * (position.y * halfS * 2.0);
+        /* 两头收：起手 0.18 淡入（否则会看到"凭空出现一个圆片"），0.35 之后一路淡到顶 */
+        vAlpha = smoothstep(0.0, 0.18, life) * (1.0 - smoothstep(0.35, 1.0, life));
+        gl_Position = projectionMatrix * viewMatrix * vec4(pos, 1.0);
+      }`,
+    fragmentShader: `
+      uniform sampler2D uMap;
+      uniform vec3  uColor;
+      uniform float uAlpha;
+      varying vec2  vUv;
+      varying float vAlpha;
+      void main(){
+        float a = texture2D(uMap, vUv).a * vAlpha * uAlpha;
+        if (a < 0.004) discard;                     // 与雾团同阈值：别让几乎全透明的片占填充率
+        gl_FragColor = vec4(uColor, a);
+      }`,
+    transparent: true,
+    depthWrite:  false,
+    depthTest:   true,
+    blending: THREE.NormalBlending,
+    side: THREE.DoubleSide,
+    fog: false,
+  });
+  u.uMap.value = makeMistSpriteTex();
+  const im = new THREE.InstancedMesh(geo, mat, N);
+  const MI = new THREE.Matrix4();
+  for (let i = 0; i < N; i++) im.setMatrixAt(i, MI);  // shader 不读 instanceMatrix；补上只为包围球不退化
+  im.instanceMatrix.needsUpdate = true;
+  im.frustumCulled = false;                           // 实例位置在 shader 里算，CPU 侧包围球是错的
+  im.raycast = () => {};
+  im.castShadow = false; im.receiveShadow = false;
+  im.renderOrder = 6;
+  im.name = 'censerSmoke';
+  im.userData.aoSkip = true;
+  return im;
+}
+
 /* 点到线段距离 —— 挖洞管道（胶囊）的基元 */
 function segDist(px, py, pz, ax, ay, az, bx, by, bz){
   const abx = bx - ax, aby = by - ay, abz = bz - az;

@@ -1,6 +1,7 @@
 // 14-props: 园林陈设（物）—— 石桌石凳 / 古琴 / 盆景花几 / 缸 / 香炉 / 竹帘 / 文房 / 卷轴挂画
+//            / 古井 / 花街铺地（后两件 = 2026-10-05「③ 景」批：低调、不抢构图的两件"有人住过"）
 //
-// 为什么单独一个模块：这八件与「建筑 / 植被 / 水体 / 地面」是并列的一类（陈设），
+// 为什么单独一个模块：这十件与「建筑 / 植被 / 水体 / 地面」是并列的一类（陈设），
 // 塞进 08-assemble 会让那个文件继续膨胀（已 2200 行）。本模块只导出**几何工厂**，
 // 落点与摆放由 08 调 buildProps() 一次性完成 —— 与 04-buildings / 06-vegetation 同构。
 //
@@ -56,6 +57,25 @@ MAT.bronze    = registerWeatherRoles(new THREE.MeshStandardMaterial({
    一张贴图既干净又只多一个 draw call。棋盘是户外陈设，照旧登记天气角色。 */
 MAT.goBoardFace = registerWeatherRoles(new THREE.MeshStandardMaterial({
   map: makeGoBoardTex(), roughness: 0.62, metalness: 0.0, envMapIntensity: 0.55 }), { snow: 1, wet: 1 });
+
+/* ── 古井 / 花街铺地的四份专用材质（2026-10-05 ·「③ 景」批）──
+   一律**新建**而不是就地改共享材质（理由同上面 MAT.celadonVat 那条注释：改 MAT.stone
+   会把石桌/香炉座/缸纹带一起改掉），四份全部 registerWeatherRoles 登记 ——
+   井台井圈是石头、铺装是铺地，雨里该亮、雪里该白（铁律 3）。
+   用量都很小（各 1~2 个网格），代价是个位数 draw call。 */
+/* 井圈石：青石（比 MAT.stone 冷、比 stoneDark 略偏绿），刻意压暗一点 ——
+   井是"看不必看、余光里有"的东西，不该比旁边的石桌更亮。 */
+MAT.wellStone = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0x87897F, roughness: 0.92, metalness: 0.03, envMapIntensity: 0.45 }), { snow: 1, wet: 1 });
+/* 花街铺地的底灰：卵石之间的灰浆。**必须比卵石暗**，暗了才读得出"一粒粒嵌在灰里"；
+   底灰与卵石同明度时，整条铺地在近景里就是一块带麻点的平板。 */
+MAT.paveBed = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0x5E6058, roughness: 0.96, metalness: 0.02, envMapIntensity: 0.35 }), { snow: 1, wet: 1 });
+/* 卵石两色（暖 / 冷）—— 花街的"拼花"全靠这两色交替，各占一个材质桶。 */
+MAT.pebbleWarm = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0xB8AE9A, roughness: 0.80, metalness: 0.02, envMapIntensity: 0.45 }), { snow: 1, wet: 1 });
+MAT.pebbleCool = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0x7E847C, roughness: 0.80, metalness: 0.02, envMapIntensity: 0.45 }), { snow: 1, wet: 1 });
 
 /* ══════════════════════════════════════════════════════════════
    ① 石桌 + 石凳 + 棋盘 + 茶具
@@ -616,6 +636,170 @@ export function makeHangingScroll(x, y, z, yaw = 0){
 }
 
 /* ══════════════════════════════════════════════════════════════
+   ⑨ 古井（井台 + 井圈石）—— 西草坪芭蕉丛西侧的静角
+   ══════════════════════════════════════════════════════════════
+   ⚠️ 尺度是**刻意克制**的（用户要求"不抢构图、不占视觉重心"）：
+   井台外径 1.52m、井圈外径 0.72m、通高 0.42m —— 在 34~41m 外的默认机位下只占十几像素，
+   是"有人住过"的痕迹，不是画面里的一件家具。凡是想把它做大/加井栏/加辘轳的，
+   请先回到这条要求：旱船与六角亭已被用户明确砍掉，理由同一条。
+   ⚠️ y 与 makeQinSet / makeWaterVat 同构：**显式给**（射线实测的地面高），不吃 groundHeight ——
+   井台底面要比地面低 0.04 埋进草里，在坡上才不会露出缝。
+   结构三层：两级八角矮台（下宽上窄）→ 一整块车出来的环形青石（井圈）→ 井口暗面 + 一汪井水
+   （复用 MAT.winCore / MAT.vatWater，不新增材质桶）。
+   ⚠️ 井圈那一段轮廓必须**从外壁绕到内壁**（不是一段圆筒）：LatheGeometry 只在轮廓两端开口，
+   做成圆筒就从井口看进去会见穿堂。轮廓首尾都落在台面上 ⇒ 两个开口都被井台盖住。 */
+export function makeWell(x, z, y, yaw = 0){
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.rotation.y = yaw;
+
+  /* 井台：两级八角矮台。底面 −0.04 ⇒ 埋进草里（toFixed 掉的坡差全被它吸收） */
+  const plinthLow = mesh(new THREE.CylinderGeometry(0.72, 0.76, 0.10, 8), MAT.wellStone, { name:'propWellPlinthLow' });
+  plinthLow.position.y = 0.01;                 // 跨 −0.04 ~ +0.06
+  g.add(plinthLow);
+  const plinthTop = mesh(new THREE.CylinderGeometry(0.58, 0.64, 0.10, 8), MAT.wellStone, { name:'propWellPlinthTop' });
+  plinthTop.position.y = 0.065;                // 跨 +0.015 ~ +0.115
+  g.add(plinthTop);
+
+  /* 井圈石：整块青石车出来的环（外壁 → 圆顶 → 内壁），台面以上 0.115~0.42 */
+  const R_OUT = 0.360, R_IN = 0.255, Y0 = 0.115, Y1 = 0.420;
+  const prof = [
+    [R_OUT,          Y0],            // 外壁下沿（压在井台面上）
+    [R_OUT + 0.012,  Y0 + 0.055],    // 微鼓：石圈凿出来不会是笔直的圆柱
+    [R_OUT + 0.012,  Y1 - 0.085],
+    [R_OUT,          Y1 - 0.018],
+    [R_OUT - 0.042,  Y1],            // 圆顶
+    [R_IN + 0.018,   Y1],
+    [R_IN,           Y1 - 0.028],
+    [R_IN,           Y0],            // 内壁下沿（井壁）
+  ].map(([r, h]) => new THREE.Vector2(r, h));
+  const curb = mesh(new THREE.LatheGeometry(prof, 20), MAT.wellStone, { name:'propWellCurb' });
+  g.add(curb);
+
+  /* 井口：暗面 + 一汪井水。压在井壁下沿之上一点点（0.16）——
+     从俯视机位看下去，读作"一圈青石中间一个黑洞"，井的"深"就靠这两片。 */
+  const mouth = mesh(new THREE.CircleGeometry(R_IN - 0.004, 20), MAT.winCore, { name:'propWellMouth', cast:false });
+  mouth.rotation.x = -Math.PI / 2;
+  mouth.position.y = Y0 + 0.045;
+  g.add(mouth);
+  const water = mesh(new THREE.CircleGeometry(R_IN - 0.022, 20), MAT.vatWater, { name:'propWellWater', cast:false });
+  water.rotation.x = -Math.PI / 2;
+  water.position.y = Y0 + 0.050;
+  g.add(water);
+  return g;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑩ 花街铺地（卵石 + 瓦片镶边的一小段铺装）
+   ══════════════════════════════════════════════════════════════
+   ⚠️⚠️ 这一件与 ⑦⑧ 那些"摆在已有构件上"的陈设不同：它是**铺在草地上的**，而草地不是平面
+   （实测这一段 3.9m 内的 terrain 起伏有 0.10m）。所以整段铺装**逐点采样 groundHeight**
+   （26×10 网格）—— 拿一个常数 y 铺一块平板，必然一头翘起、一头陷下去。
+   ⚠️ 边缘不另做裙边：面层在**边沿 0.10m 内下潜到地面以下 0.09m**（磨边沉进草里）⇒
+   边缘自然消失在草皮里，既不露缝、也不出现一圈"路缘石"。地面上那 2.8cm 的高差是真实铺装
+   本来就有的（花街铺地是砌在灰土上、比土面略高的），不是浮起来。
+   ⚠️ 拼花：卵石两色交替成一圈**菱环**（每 0.95m 一个单元），四边压一行竖立的**瓦片**（青瓦）
+   —— "卵石 + 瓦片"正是花街铺地最经典的一种做法。
+   ⚠️ 不用 InstancedMesh（铁律 2）：layout-fingerprint 只哈希 InstancedMesh 的实例矩阵，
+   凭空多一份实例网格就**必须重出基线**。这里 ~270 颗卵石 + ~108 片瓦按材质各并成**一个** Mesh，
+   随 mergeStatics 并进静态大网 ⇒ 指纹一位不动。 */
+export function makeFlowerLane(x, z, y, len, wid, yaw = 0){
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.rotation.y = yaw;
+  const cy = Math.cos(yaw), sy = Math.sin(yaw);
+  /* 局部 (lx,lz) → 世界 (wx,wz)：绕 Y 轴 yaw 的标准旋转；
+     gy() 把世界地面高换算回**组局部坐标**（组原点 y = 射线实测的落点地面高）。 */
+  const wx0 = (lx, lz) => x + lx * cy + lz * sy;
+  const wz0 = (lx, lz) => z - lx * sy + lz * cy;
+  const gy = (lx, lz) => groundHeight(wx0(lx, lz), wz0(lx, lz)) - y;
+
+  const LIFT = 0.028;        // 面层高出草地
+  const EDGE = 0.10;         // 磨边宽（这一段之内面层下潜）
+  const RAMP = 0.118;        // 下潜深度（= LIFT + 0.09 ⇒ 边沿落到地面以下 0.09m）
+  const BW = 0.26;           // 卵石区距边沿的内缩（把瓦片镶边让出来）
+  const inLen = len - 2 * BW, inWid = wid - 2 * BW;
+
+  /* ── ① 面层（底灰）：PlaneGeometry 走 rotateX(−π/2) ⇒ 顶点天然是"XZ 平面 + 法线朝上 +
+     索引绕序正确"，只把每个顶点的 y 换成该点地形高即可。
+     ⚠️ 不手工拼 BufferGeometry：绕序写反 = 法线朝下 = 单面材质直接看不见，
+     而"看不见"在这里只表现为"这条铺装好像没建成"，很难联想到是绕序。── */
+  const NX = Math.max(8, Math.round(len / 0.15));
+  const NZ = Math.max(6, Math.round(wid / 0.05));
+  const surfGeo = new THREE.PlaneGeometry(len, wid, NX, NZ);
+  surfGeo.rotateX(-Math.PI / 2);
+  {
+    const p = surfGeo.attributes.position;
+    for (let i = 0; i < p.count; i++){
+      const lx = p.getX(i), lz = p.getZ(i);
+      const e = Math.min(len / 2 - Math.abs(lx), wid / 2 - Math.abs(lz));   // 到最近的边有多远
+      const t = Math.min(1, Math.max(0, e / EDGE));
+      p.setY(i, gy(lx, lz) + LIFT - RAMP * (1 - t));
+    }
+    p.needsUpdate = true;
+    surfGeo.computeVertexNormals();
+  }
+  g.add(mesh(surfGeo, MAT.paveBed, { name:'propLaneBed', cast:false }));
+
+  /* ── ② 卵石：隔行错半格的梅花点，两色按**菱环**交替（拼花）
+     每颗 = 一份 IcosahedronGeometry(1,0)（20 面）克隆 + 烘进局部矩阵，最后按颜色各并成一个几何。── */
+  const baseGeo = new THREE.IcosahedronGeometry(1, 0);
+  const MOTIF = 0.95;                      // 拼花单元长（沿路）
+  const warm = [], cool = [];
+  const nU = Math.max(4, Math.round(inLen / 0.088));
+  const nV = Math.max(3, Math.round(inWid / 0.088));
+  const du = inLen / nU, dv = inWid / nV;
+  const _v = new THREE.Vector3(), _q = new THREE.Quaternion(), _s = new THREE.Vector3(), _e = new THREE.Euler();
+  for (let iv = 0; iv < nV; iv++){
+    for (let iu = 0; iu < nU; iu++){
+      const lx = -inLen / 2 + (iu + 0.5 + (iv % 2 ? 0.5 : 0)) * du;
+      const lz = -inWid / 2 + (iv + 0.5) * dv;
+      if (Math.abs(lx) > inLen / 2 - du * 0.3) continue;      // 错半格后越界的丢掉（保住直边）
+      /* 菱环判定：把 (沿路, 横向) 归一化到各自的半对角，L1 距离落在 0.72~1.0 的带内 = 环 */
+      const uu = ((lx % MOTIF) + MOTIF) % MOTIF - MOTIF / 2;
+      const dd = Math.abs(uu) / 0.30 + Math.abs(lz) / 0.22;
+      const isMotif = dd > 0.72 && dd < 1.0;
+      const r = 0.030 + jr(0.006);
+      _e.set(jr(0.10), jr(1.2), jr(0.10));
+      _q.setFromEuler(_e);
+      _v.set(lx, gy(lx, lz) + LIFT + r * 0.30, lz);
+      _s.set(r * (1 + jr(0.14)), r * 0.72, r * (1 + jr(0.14)));   // 压扁 ⇒ 读作"嵌入灰里的卵石"而不是"一堆球"
+      const m = new THREE.Matrix4().compose(_v, _q, _s);
+      (isMotif ? warm : cool).push(baseGeo.clone().applyMatrix4(m));
+    }
+  }
+  if (warm.length) g.add(mesh(mergeGeometries(warm, false), MAT.pebbleWarm, { name:'propLanePebbleWarm', cast:false }));
+  if (cool.length) g.add(mesh(mergeGeometries(cool, false), MAT.pebbleCool, { name:'propLanePebbleCool', cast:false }));
+
+  /* ── ③ 瓦片镶边：四边各压一排**侧立**的青瓦片。
+     用 box 而不是半圆筒瓦：半圆筒（开口壳体）单面渲染时从侧面能看穿，而 box 四面都是正面。
+     瓦片中心放在距边沿 0.165m 处（> EDGE=0.10）⇒ 整排都落在"已抬平"的面层上，不会一脚踩空。 */
+  const IN = 0.165, STEP = 0.082;
+  const tiles = [];
+  const nLong = Math.max(2, Math.round((len - 2 * IN) / STEP));
+  const nShort = Math.max(2, Math.round((wid - 2 * IN) / STEP));
+  for (let i = 0; i < nLong; i++){
+    const lx = -(len / 2 - IN) + 2 * (len / 2 - IN) * (i + 0.5) / nLong;
+    tiles.push([lx, wid / 2 - IN, 0], [lx, -(wid / 2 - IN), 0]);
+  }
+  for (let i = 0; i < nShort; i++){
+    const lz = -(wid / 2 - IN) + 2 * (wid / 2 - IN) * (i + 0.5) / nShort;
+    tiles.push([len / 2 - IN, lz, Math.PI / 2], [-(len / 2 - IN), lz, Math.PI / 2]);
+  }
+  const tileGeos = [];
+  for (const [lx, lz, ry] of tiles){
+    const h = 0.046 + jr(0.010);
+    _s.set(0.048, h, 0.105);                       // 沿边 0.048 / 高 h / 横向 0.105（横跨镶边带）
+    _e.set(0, ry + jr(0.07), 0);
+    _q.setFromEuler(_e);
+    _v.set(lx, gy(lx, lz) + LIFT + h / 2 - 0.012, lz);   // 埋进面层 1.2cm ⇒ 不悬空
+    tileGeos.push(box(1, 1, 1).applyMatrix4(new THREE.Matrix4().compose(_v, _q, _s)));
+  }
+  g.add(mesh(mergeGeometries(tileGeos, false), MAT.stoneDark, { name:'propLaneTile', cast:false }));
+  return g;
+}
+
+/* ══════════════════════════════════════════════════════════════
    落点表 + 组装
    ══════════════════════════════════════════════════════════════
    ⚠️ 所有落点都是**射线实测**定的（outputs/_diag/props-spot.mjs：从空中下打、
@@ -646,6 +830,18 @@ export const PROP_SPOTS = {
   stationery: { x: 0, y: 2.24, z: -14.15, yaw: Math.PI },
   /* 堂内后檐墙内表面（z=−16.64）；屏风在 x∈[−1.45,1.45] ⇒ 四轴挂在 ±3.6 / ±5.8 */
   scrolls:    [{ x: -5.8, z: -16.60 }, { x: -3.6, z: -16.60 }, { x: 3.6, z: -16.60 }, { x: 5.8, z: -16.60 }],
+  /* ── 2026-10-05 ·「③ 景」两件（详见 outputs/_diag/props-spot-well-path.mjs 的实测记录）── */
+  /* 古井：西草坪、芭蕉丛西侧的静角。实测 (−20.4,−6.1) 从 y=30 下打**只命中 ground −0.131**
+     （地形公式 −0.128，差 3mm）；4m 内无他物（最近的是芭蕉 (−18.6,−3.2)，距 3.4m）；
+     局部坡度 Δx(±1m)=−0.099、Δz(±1m)=+0.042 ⇒ 近水平，井台底面再下沉 0.04 就完全埋实。 */
+  well:       { x: -20.4, z: -6.1, y: -0.131, yaw: 0.22 },
+  /* 花街铺地：从南侧草坪通到井台南缘的一小段，沿**世界 Z** 铺 3.9m × 1.15m
+     （yaw=π/2 ⇒ 局部 +X 映射到世界 −Z）。实测九点（四角 + 两长边中点 + 心 + 两端中线）
+     全部只命中 ground：z=−5.45 一线 地形 −0.087~−0.144、z=−1.55 一线 −0.042~−0.094、
+     中心 (−20.4,−3.5) 命中 −0.085；铺装逐点采样地形（见 makeFlowerLane），
+     北端 (−5.45) 正好压到井台外缘 (−5.32) 之外 0.13m ⇒ 两者咬合、不留缝。
+     ⚠️ y 记的是**中心**那一点的实测地面高（registry 的判据拿它跟中心射线比）。 */
+  lane:       { x: -20.4, z: -3.5, y: -0.085, len: 3.9, wid: 1.15, yaw: Math.PI / 2 },
 };
 const SCROLL_Y = 3.30;          // 挂画中心高度（后墙 1.24~5.69，取中偏上）
 
@@ -705,6 +901,16 @@ export function buildProps(){
     g.add(makeHangingScroll(s.x, SCROLL_Y, s.z, 0));   // 法线 +Z ⇒ 朝堂内
     reg('卷轴挂画', s.x, SCROLL_Y - 1.10, s.z, 0.50, 2.34);
   }
+
+  /* ──「③ 景」两件：井 + 通到井台的花街铺地（都落在西草坪，刻意低调）──
+     组原点 y = 表里射线实测的地面高（两件都**不吃** groundHeight，见各自工厂的注释）。 */
+  const wl = PROP_SPOTS.well;
+  g.add(makeWell(wl.x, wl.z, wl.y, wl.yaw));
+  reg('古井', wl.x, wl.y, wl.z, 0.80, 0.43);          // r 按井台外径 1.52/2、top 按通高 0.42
+
+  const ln = PROP_SPOTS.lane;
+  g.add(makeFlowerLane(ln.x, ln.z, ln.y, ln.len, ln.wid, ln.yaw));
+  reg('花街铺地', ln.x, ln.y, ln.z, 2.05, 0.09);       // r 按 3.9×1.15 的半对角、top 按瓦片露头
   return g;
 }
 

@@ -10,13 +10,13 @@ import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
    本模块两处用途：假山埋脚"75% 补石"（条件里还会抽 rr ⇒ 直接改全局流消费次数）与
    两位点景人物的呼吸相位 —— 都是**建场**性质，必须与加载时序无关。 */
 const jr = mulberry32(20260924);
-import { rippleInst, makeMistField, makeFogBanks, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makePondPads } from './06-vegetation.js';
+import { rippleInst, makeMistField, makeFogBanks, makeCenserSmoke, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, baitPoints, makePondPads } from './06-vegetation.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGeo } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater, groundHeight } from './05-water.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles, makeDuckWakeTex } from './01-materials.js';
-import { buildProps, SEAT_SPOTS, QIN_SEAT } from './14-props.js';
+import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
    8 · 组装场景
    ══════════════════════════════════════════════════════════════ */
@@ -1750,7 +1750,9 @@ const MACAW_SPOTS = [
 const MACAWS = [];
 const MACAW_LIFT = 2.4;                       // 起飞/落下时抬升的高度（m）
 const MACAW_DEPART = 0.55, MACAW_ARRIVE = 0.75;
-const MACAW_EV = { tail:0.38, flutter:0.42, preen:1.15, hop:0.52 };
+/* ⚠️ flutter 时长 0.42→0.55：与下面"整段只走 2 个周期"配套 —— 2/0.55 = 3.6Hz，
+   60fps 下每帧相位 0.38rad、30fps 下 0.76rad，都在"看得出来是扇动"的采样率上。 */
+const MACAW_EV = { tail:0.38, flutter:0.55, preen:1.15, hop:0.52 };
 /* 确定性伪随机 ∈ [0,1)：与全局随机流无关 */
 function h01(a, b){
   const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
@@ -1782,9 +1784,11 @@ export function updateMacaws(dt, t){
       h.visible = true;
       h.position.set(m.base.x, m.base.y + lift * MACAW_LIFT, m.base.z);
       /* 振翅：绕自机纵轴高频滚转 + 抬头；越在空中越平（俯仰按 lift 给） */
-      h.rotation.set(-0.34 * lift + 0.12 * Math.sin(m.mt * 42 + 1.1),
+      /* ⚠️ 振翅频率 42→26 rad/s（6.7→4.1Hz，与"抽搐"那条同源）：42 在 30fps 下每帧
+         1.4rad、已经走出可采样范围；4.1Hz 才是金刚刚鹦鹉那种**慢而深**的扇翅节奏。 */
+      h.rotation.set(-0.34 * lift + 0.12 * Math.sin(m.mt * 26 + 1.1),
                      m.yaw0 + Math.sin(m.mt * 0.7 + m.phase) * 0.12,
-                     Math.sin(m.mt * 42) * (0.26 + 0.34 * lift));
+                     Math.sin(m.mt * 26) * (0.26 + 0.34 * lift));
       if (u >= 1){
         if (m.mode === 'depart'){ m.mode = 'away'; h.visible = false; }
         else {
@@ -1817,14 +1821,28 @@ export function updateMacaws(dt, t){
     let dy = m.yawT - m.yaw;
     while (dy > Math.PI) dy -= Math.PI * 2;
     while (dy < -Math.PI) dy += Math.PI * 2;
-    m.yaw += dy * (1 - Math.exp(-dt / (m.ev === 'look' || m.ev === 'hop' ? 0.10 : 0.34)));
+    /* 转角时间常数：急张望 0.10（"急"是它的本意）/ 小跳换向 0.15（原与 look 共用 0.10，
+       实测单帧 Δyaw 到 0.78rad≈45°，转身像被抽了一鞭）/ 其余 0.34。 */
+    m.yaw += dy * (1 - Math.exp(-dt / (m.ev === 'look' ? 0.10 : m.ev === 'hop' ? 0.15 : 0.34)));
 
     let y = m.base.y + 0.010 * Math.sin(t * 2.2 + m.phase), pitch = 0, roll = 0;
     if (m.ev === 'flutter'){
+      /* ⚠️⚠️ 2026-10-05 修"抽搐"（老黄："鹦鹉的动作改得再自然一些，现在有时候会看到
+         鹦鹉像抽搐了几下"）：原式 `roll = sin(u*34)*0.42` —— u 每帧走 dt/0.42，
+         60fps 下**每帧相位 +1.35rad**、本机 24fps 下 **+3.4rad**，远超采样极限 ⇒
+         采出来的序列是**随机的乱抖**，读作"抽搐"而不是"抖翅"。
+         实测逐帧录（outputs/_diag/macaw-twitch.mjs，45s/1025 帧）：flutter 的单帧
+         Δroll 高达 **0.80rad**，而 rest / look / preen / tail 全在 0.05 以下 —— 差 16 倍，
+         元凶唯一。
+         修法＝把"频率"当成**帧率可承载的量**来定：整段只走 **2 个周期**
+         （0.55s ⇒ 3.6Hz；60fps 每帧 0.38rad、30fps 0.76rad，都是"看得出在扇"的采样率），
+         幅度同时收一半（0.42→0.24rad ≈ ±14°）。金刚刚鹦鹉本来就是**慢而深**的扇翅
+         （真鸟 3~4Hz），慢下来反而更像鸟。 */
       const u = 1 - Math.max(0, m.evT) / MACAW_EV.flutter, env = Math.sin(Math.PI * u);
-      roll = Math.sin(u * 34) * 0.42 * env;
-      pitch = -0.10 * env + Math.sin(u * 34 + 0.7) * 0.10 * env;
-      y += 0.035 * env;                                  // 抖翅时轻轻离枝
+      const ph = u * Math.PI * 4;                        // 整段 2 个周期
+      roll = Math.sin(ph) * 0.24 * env;
+      pitch = -0.06 * env + Math.sin(ph + 0.7) * 0.05 * env;
+      y += 0.030 * env;                                  // 抖翅时轻轻离枝
     } else if (m.ev === 'preen'){
       const u = 1 - Math.max(0, m.evT) / MACAW_EV.preen, env = Math.sin(Math.PI * u);
       pitch = 0.62 * env; y -= 0.018 * env; roll = 0.10 * env * Math.sin(u * 9.0);
@@ -2631,6 +2649,16 @@ export function tourUserTakeover(){
    （笔架/砚/茶盏/棋钵）正好靠这一遍把 castShadow 关掉，晚了就白进投射物集合、
    把阴影视体撑大（shadow-cover 的既有取舍）。 */
 world.add(buildProps());
+/* 堂前香炉的袅袅白烟（2026-10-05 · 老黄："正堂前既然加了铜炉，是不是应该有袅袅白烟"）。
+   出烟口 = 香炉落点 + **炉盖口**高度：14-props 的 makeCenser 里 bodyY=0.30、
+   盖在 bodyY+0.415、宝顶在 bodyY+0.565 ⇒ 取 0.66 正好落在盖口之上一点点
+   （⚠️ 香炉那一支改动时这个数要跟着看 —— 它是"炉在哪"的唯一依据，取 PROP_SPOTS.censer
+   而不是重抄坐标，就是为了至少水平位置不会两处漂）。 */
+{
+  const cs = PROP_SPOTS.censer;
+  const smoke = makeCenserSmoke(cs.x, groundHeight(cs.x, cs.z) + 0.66, cs.z);
+  world.add(smoke);
+}
 
 /* ── 坐姿人物：对弈二人（计划书 §6「人」批第一件，与上面的石桌石凳棋盘配套）──
    ⚠️ 必须放在 `world.add(buildProps())` **之后**：座位表 SEAT_SPOTS 是在 buildProps

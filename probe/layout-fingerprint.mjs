@@ -100,7 +100,12 @@ async function sample(page, { poke = false } = {}){
         两次加载的哈希必然不同（实测首实例相同、哈希不同——这是"采样相位"不是布局漂移）。
         位置/落点/行为的守卫交给 birds-guard（它本来就查"石上鸟在石面上、
         在最高的假山、有持续动作"）。若以后再加"每帧写矩阵"的实例网格，也要来这里登记。 */
-  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh']);
+  /* ⚠️ 2026-10-05 加第三个：`censerSmoke` —— 堂前香炉的白烟（billboard 片，位置在
+     shader 里按 uTime×相位算，实例矩阵是**单位阵**）⇒ 与 mistField 同族，不是"布局"。
+     它只吃自己的私有 mulberry32(20261007) 流，全局随机流一位没动
+     （那次红是**新实例网格让网格计数 +1**，不是随机流漂 —— 别用 --update-baseline
+     去盖它：那会把一个"没有布局变化"的东西写进基线里）。 */
+  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke']);
     const EXCLUDE_GEOM = new Set(['RingGeometry']);
     const rows = [];
     let global = 0;
