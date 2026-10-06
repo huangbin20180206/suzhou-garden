@@ -91,6 +91,31 @@ export const SEAT_SPOTS = [];
 /* 石凳的坐面世界落位（琴凳另见 QIN_SEAT）。坐面高 = STOOL_PROF 的顶面 0.452，
    与 08 里坐姿人物的 SEAT_H 是**同一个数**：改轮廓必须同步改 SEAT_H。 */
 export const QIN_SEAT = [];
+
+/* ── 棋子（棋钵）的**降水门控**（2026-10-06 · 老黄反馈第 3 条前半）───────────────
+   老黄："狂风暴雨场景象棋是不是应该收起来而不是放桌上淋雨"。
+   口径**与 12-env 里大雁落地那条判据（fowlGrounded）逐字一致**：
+     (ENV.cur.rainAmount || 0) > 0.5 || (ENV.cur.snowAmount || 0) > 0.5  ⇒ 收起。
+   为什么按**参数**而不是天气名：小雨/薄雾照旧摆在桌上（"下着雨还在下棋"本来就是园林里
+   常见的一幕），只有暴雨/大雪这一档才收 —— 与大雁"小雨照飞、暴雨落地"是同一条取舍；
+   而且雨量是滑杆上的连续量，按名字判会在"暴雨→小雪"的过渡里闪。
+   ⚠️ 为什么不用 registerWeatherRoles：那张登记表管的是**材质**的积雪/打湿两个角色
+      （snow / wet 两个数），它根本没有"显隐"通道。显隐在项目里有两条路：
+      ① 12f-season 的 SEASON_PRESENCE —— 那张表的键全部来自 ENV.cur 的**季节**量，
+         没有雨雪键，硬塞进去等于改别人的表；
+      ② 自己每帧重申 —— 取这条。
+   ⚠️ 调用点在 **08 的 updateWatchers**（每帧入口，ENV 就在它手边）：14-props **不能**
+      import 12-env 去读 ENV —— 12-env → 12f-season → 08 → 14-props，反向 import 会让
+      这条链成环（项目在 01/12f 的文件头都记着同一类事故）。
+   ⚠️ 必须**每帧**重申而不是切换时设一次：applyPresence 的注释里记着那条教训（别处的
+      旁路 pass 会保存/还原 visible），而且雨量本来就是逐帧变的连续量，门就该每帧跟一次。
+   ⚠️ 本组几何里"棋子"就是这两只**棋钵**（钵中盛着棋子）—— 桌上没有单独的棋子网格。
+      所以"收起棋子"= 收这两只钵；**棋盘按老黄"不是棋盘"保留**（桌面还是那张棋局）。
+      石桌/石凳一件都不动。 */
+export const GO_PIECE_MESHES = [];
+export function setGoPiecesVisible(on){
+  for (const m of GO_PIECE_MESHES) if (m.visible !== on) m.visible = on;
+}
 /* 鼓凳轮廓（石桌四张 + 水榭琴凳共用一份）——顶面 y = 0.452。
    ⚠️ LatheGeometry 是一张**开口的旋转壳**：轮廓首尾必须落到轴心（r=0）才能封底/封顶。
    第一版轮廓从 r=0.145 起到 r=0.212 止，上下都是敞口 —— 从上方看进去，单面材质的背面
@@ -165,11 +190,17 @@ export function makeStoneTableSet(x, z, yaw = 0){
 
   /* 两只棋钵：⚠️ 必须挪到棋盘**右侧的桌面**上 —— 原先摆在 (0.10,0.22)/(0.04,0.08)，
      那两个点落在棋盘占地内（盘面 x∈[−0.35,0.09]），钵底 0.726~0.788 正穿过盘面
-     y 0.760~0.766，近景里就是"棋钵扎在棋盘里"。桌面半径 0.62 ⇒ 右侧 x 0.09~0.62 全空。 */
+     y 0.760~0.766，近景里就是"棋钵扎在棋盘里"。桌面半径 0.62 ⇒ 右侧 x 0.09~0.62 全空。
+     ⚠️⚠️ 必须 `noMerge`（2026-10-06 · 老黄第 3 条前半"狂风暴雨里象棋该收起来"）：
+     mergeStatics 会把它们并进 MAT.celadon 的静态大网 —— 网格从组里被搬走、名字与引用一起
+     丢掉 ⇒ 之后**再也开关不了**，而且不报错、状态全对（竹帘条 / 手持木桶同一类坑）。
+     noMerge 的代价是 2 个 draw call，换"雨里真的能把棋子收起来"。 */
   for (const [bx, bz] of [[0.34, 0.10], [0.30, -0.16]]){
     const bowl = mesh(new THREE.CylinderGeometry(0.072, 0.060, 0.062, 14), MAT.celadon, { name:'propGoBowl', cast:false });
     bowl.position.set(bx, 0.751, bz);
+    bowl.userData.noMerge = true;
     g.add(bowl);
+    GO_PIECE_MESHES.push(bowl);
   }
 
   /* 茶具：一壶两盏（青白瓷）。棋盘占 x∈[−0.37,0.09]、z∈[−0.20,0.24]，棋钵占 x≈0.23~0.41；
@@ -648,6 +679,10 @@ export function makeHangingScroll(x, y, z, yaw = 0){
    （复用 MAT.winCore / MAT.vatWater，不新增材质桶）。
    ⚠️ 井圈那一段轮廓必须**从外壁绕到内壁**（不是一段圆筒）：LatheGeometry 只在轮廓两端开口，
    做成圆筒就从井口看进去会见穿堂。轮廓首尾都落在台面上 ⇒ 两个开口都被井台盖住。 */
+/* 井的通高（地面 → 井圈顶）。**登记表与井上辘轳共用这一个常量**：
+   reg('古井', …, WELL_TOP_H) 与 makeWellWindlass 的立柱/卷筒高度都从它推出来 ——
+   井台尺寸一改，架子的相对关系跟着走，不会留下"表里 0.43、架子却按 0.30 架"的第二处真值。 */
+export const WELL_TOP_H = 0.43;
 export function makeWell(x, z, y, yaw = 0){
   const g = new THREE.Group();
   g.position.set(x, y, z);
@@ -686,6 +721,111 @@ export function makeWell(x, z, y, yaw = 0){
   water.rotation.x = -Math.PI / 2;
   water.position.y = Y0 + 0.050;
   g.add(water);
+  return g;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑨b 取水木桶（2026-10-06 · 老黄反馈：井边地上要有一只桶，仕女手上也要提一只）
+   ══════════════════════════════════════════════════════════════
+   ⚠️ 木色**必须避开绿系**：井在西草坪上，草坪/池岸都是绿底 —— 与植被绿同族的道具
+   放上去等于隐身（本项目的人物服色血泪见 08 的 FIG_PALETTE 注释）。
+   这里直接用 MAT.wood(0x7C3F1D 暖棕) / MAT.woodDark(0x4A2610)：两者都已在
+   SNOW_COVER_MATS / WET_MATS 里登记过（铁律 3），雨雪会照常打湿/积雪，不必新登记。
+   ⚠️ 局部原点 = **桶底中心**、桶口朝 +Y、提梁在 +Y 侧 —— 08 里"挂在手上"就是
+   把原点抬到 (手心 y − 提梁高)，不必再猜偏移。
+   低多边形：桶身 12 棱柱（比圆筒更像木桶）、一道下箍 + 一道口箍、一根半圆提梁。 */
+export const BUCKET_R = 0.095, BUCKET_H = 0.20;      // 桶口半径 / 桶高（可提的实物尺度）
+export const BUCKET_HANDLE_H = BUCKET_H + BUCKET_R * 0.98;   // 提梁顶（= 手心应握的位置）
+export function makeWoodBucket(s = 1){
+  const g = new THREE.Group();
+  const R = BUCKET_R, H = BUCKET_H;
+  // 桶身：上宽下窄（略收腰 ⇒ 读作"桶"而不是"杯"）
+  const body = mesh(new THREE.CylinderGeometry(R, R * 0.84, H, 12, 1, true), MAT.wood, { name:'propBucketBody' });
+  body.position.y = H / 2;
+  g.add(body);
+  const bottom = mesh(new THREE.CylinderGeometry(R * 0.84, R * 0.84, 0.018, 12), MAT.woodDark, { name:'propBucketBottom', cast:false });
+  bottom.position.y = 0.009;
+  g.add(bottom);
+  /* 两道箍：木桶最强的识别信号（远看就是"两道深色横带 + 中间浅色桶身"）。
+     半径要**略大于**该高度处的桶半径，否则箍整体缩进桶里 = 等于没画。 */
+  for (const [y, r] of [[H * 0.24, R * 0.905], [H * 0.80, R * 1.004]]){
+    const hoop = mesh(new THREE.TorusGeometry(r, 0.010, 5, 14), MAT.woodDark, { name:'propBucketHoop', cast:false });
+    hoop.rotation.x = Math.PI / 2;
+    hoop.position.y = y;
+    g.add(hoop);
+  }
+  /* 提梁：半圆拱（TorusGeometry 的 arc 从 +X 逆时针扫 π ⇒ 正好跨过 +Y 顶点）。
+     圆心放在桶口高度 ⇒ 拱顶 y = H + R·0.98 = BUCKET_HANDLE_H。 */
+  const handle = mesh(new THREE.TorusGeometry(R * 0.98, 0.011, 5, 12, Math.PI), MAT.woodDark, { name:'propBucketHandle' });
+  handle.position.y = H;
+  g.add(handle);
+  if (s !== 1) g.scale.setScalar(s);
+  return g;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   ⑨c 井上取水架子（辘轳 · 2026-10-06 · 老黄反馈）
+   ══════════════════════════════════════════════════════════════
+   两根立柱 + 横梁 + 卷筒 + 摇柄（+ 一段井绳），**贴着井沿跨在井口上方**。
+   局部原点 = **井心、井的地面高**（组挂在 PROP_SPOTS.well 的 (x,z)/y 上）；
+   卷筒轴沿**局部 X**，组按 yaw 转向 ⇒ 摇柄那一端朝向汲水的人（见 buildProps）。
+   ⚠️ 所有高度**由井圈顶高 WELL_TOP_H 推出**，不手填绝对 y —— 井台/井圈尺寸一变，
+      架子跟着走，不会出现"架子悬在井口上方 20cm"这种只有看图才发现的不一致。
+   ⚠️ 卷筒底（rimY + 0.86 − 0.075 = rimY + 0.785）必须**高过人的头**吗？不必 ——
+      汲水人站在井外 1.2m，架子跨在井口上；但**必须高过井圈顶**，否则卷筒压进井圈里。
+      这里取 rimY + 0.86，离井圈顶 0.86m，绳子有地方卷。 */
+export function makeWellWindlass(yaw = 0){
+  const g = new THREE.Group();
+  g.rotation.y = yaw;
+  const rimY = WELL_TOP_H;                        // 井圈顶（相对井心地面）
+  const POST_H = rimY + 1.15;                     // 柱顶
+  const DRUM_Y = rimY + 0.86;                     // 卷筒轴心
+  const PX = 0.52;                                // 立柱半跨（井圈外径 0.36 ⇒ 落在井台上）
+  for (const sx of [-1, 1]){
+    /* 柱：底端埋进井台 0.15m（坡地上不露缝），顶端到 POST_H */
+    const post = mesh(box(0.085, POST_H + 0.15, 0.085), MAT.wood, { name:'propWindlassPost' });
+    post.position.set(sx * PX, (POST_H - 0.15) / 2, 0);
+    g.add(post);
+    // 柱脚斜撑（两根小斜木）：只加两件就把"架子"从"两根杆"变成"有结构的架子"
+    const brace = mesh(box(0.055, 0.30, 0.055), MAT.woodDark, { name:'propWindlassBrace', cast:false });
+    brace.position.set(sx * (PX - 0.10), 0.30, 0.10);
+    brace.rotation.z = sx * 0.42;
+    brace.rotation.x = -0.30;
+    g.add(brace);
+  }
+  const beam = mesh(box(PX * 2 + 0.16, 0.09, 0.11), MAT.woodDark, { name:'propWindlassBeam' });
+  beam.position.y = POST_H + 0.045;
+  g.add(beam);
+  /* 轴：穿过两根立柱、两端各露出一截（摇柄装在这一端） */
+  const axle = mesh(new THREE.CylinderGeometry(0.024, 0.024, PX * 2 + 0.30, 8), MAT.woodDark, { name:'propWindlassAxle', cast:false });
+  axle.rotation.z = Math.PI / 2;
+  axle.position.y = DRUM_Y;
+  g.add(axle);
+  /* 卷筒：12 棱柱躺平（轴沿局部 X）。半径 0.075 ⇒ 底面 rimY+0.785，仍在井圈顶之上 */
+  const drum = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.86, 12), MAT.wood, { name:'propWindlassDrum' });
+  drum.rotation.z = Math.PI / 2;
+  drum.position.y = DRUM_Y;
+  g.add(drum);
+  // 卷筒两端挡板（绳不会从筒侧滑出去）
+  for (const sx of [-1, 1]){
+    const flange = mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.022, 12), MAT.woodDark, { name:'propWindlassFlange', cast:false });
+    flange.rotation.z = Math.PI / 2;
+    flange.position.set(sx * 0.43, DRUM_Y, 0);
+    g.add(flange);
+  }
+  /* 摇柄（局部 +X 端）：竖臂 + 横握把，装在轴头外侧 */
+  const arm = mesh(box(0.045, 0.24, 0.045), MAT.woodDark, { name:'propWindlassArm', cast:false });
+  arm.position.set(PX + 0.16, DRUM_Y - 0.10, 0);
+  g.add(arm);
+  const grip = mesh(new THREE.CylinderGeometry(0.024, 0.024, 0.13, 8), MAT.wood, { name:'propWindlassGrip' });
+  grip.rotation.z = Math.PI / 2;
+  grip.position.set(PX + 0.225, DRUM_Y - 0.21, 0);
+  g.add(grip);
+  /* 井绳：自卷筒垂到井口之下一点点 —— "这架子在取水"最便宜的说明。
+     ⚠️ 细杆要在井心正上方：它的落点就是井心（局部 0,0），不另给 x/z。 */
+  const rope = mesh(new THREE.CylinderGeometry(0.013, 0.013, DRUM_Y - 0.16, 8), MAT.woodDark, { name:'propWindlassRope', cast:false });
+  rope.position.y = (DRUM_Y + 0.16) / 2;
+  g.add(rope);
   return g;
 }
 
@@ -842,6 +982,17 @@ export const PROP_SPOTS = {
      北端 (−5.45) 正好压到井台外缘 (−5.32) 之外 0.13m ⇒ 两者咬合、不留缝。
      ⚠️ y 记的是**中心**那一点的实测地面高（registry 的判据拿它跟中心射线比）。 */
   lane:       { x: -20.4, z: -3.5, y: -0.085, len: 3.9, wid: 1.15, yaw: Math.PI / 2 },
+  /* ── 2026-10-06 老黄反馈 A：井边的两件（辘轳架子 + 地上那只桶）──
+     ⚠️ 架子**不另给 (x,z)**：它就架在井口上，落点必须是井心 —— 于是本表里
+     `wellFrame` 只声明"挂在井上"，真正的坐标在 buildProps 里读 PROP_SPOTS.well。
+     （写第二份坐标 = 表与实物两处真值，坏起来是"架子偏出井口 30cm"这种只有看图才发现的不一致。） */
+  /* 地上那只空桶：井台南偏西的空草地（实测 (−19.3,−7.05) 只命中 ground −0.204，
+     距井心 1.41m ⇒ 在井台外径 0.80 之外、又在花街铺地北端 (−5.45) 以南 1.6m ⇒ 三件互不碰）。 */
+  wellBucket: { x: -19.3, z: -7.05 },
+  /* 汲水仕女的站位（老黄："井边取水的仕女"）。⚠️ 这**不是陈设**，登记进本表只为一件事：
+     08 的 D_SCHEDULES 直接读它 ⇒ 「仕女 / 井 / 架子」三者的相对关系只有**一处**真值，
+     辘轳摇柄朝哪一端也由它算出来（见 buildProps），将来挪井或挪人不必到处找数字。 */
+  ladyWell:   { x: -19.2, z: -5.2, y: -0.174 },
 };
 const SCROLL_Y = 3.30;          // 挂画中心高度（后墙 1.24~5.69，取中偏上）
 
@@ -906,7 +1057,33 @@ export function buildProps(){
      组原点 y = 表里射线实测的地面高（两件都**不吃** groundHeight，见各自工厂的注释）。 */
   const wl = PROP_SPOTS.well;
   g.add(makeWell(wl.x, wl.z, wl.y, wl.yaw));
-  reg('古井', wl.x, wl.y, wl.z, 0.80, 0.43);          // r 按井台外径 1.52/2、top 按通高 0.42
+  reg('古井', wl.x, wl.y, wl.z, 0.80, WELL_TOP_H);    // r 按井台外径 1.52/2、top 按通高（= WELL_TOP_H）
+
+  /* ── 井上辘轳架子（老黄 A3）──
+     ① 落点 = 井心（读 PROP_SPOTS.well，不另写坐标）；
+     ② 组原点 y 也 = 井的地面高（与 makeWell 同一个数）⇒ 立柱底埋进井台 0.15m；
+     ③ 摇柄（局部 +X）**朝向汲水的人**：把井→仕女的方向作为局部 +X。
+        rotation.y = θ 时局部 +X 映射到世界 (cosθ, 0, −sinθ)，要它 = (dx, dz)
+        ⇒ θ = atan2(−dz, dx)。汲水人站在摇柄这端，伸手就够得着。 */
+  const lw = PROP_SPOTS.ladyWell;
+  const wdx = lw.x - wl.x, wdz = lw.z - wl.z;
+  const wLen = Math.hypot(wdx, wdz) || 1;
+  const frame = makeWellWindlass(Math.atan2(-wdz / wLen, wdx / wLen));
+  frame.position.set(wl.x, wl.y, wl.z);
+  g.add(frame);
+  reg('井上辘轳', wl.x, wl.y, wl.z, 0.60, WELL_TOP_H + 1.20);   // top = 柱顶 + 横梁，见 makeWellWindlass
+
+  /* ── 井边地上那只空桶（老黄 A4）：与仕女手上那只**同款同尺寸**，略歪着放 ── */
+  const wb = PROP_SPOTS.wellBucket;
+  const wbY = groundHeight(wb.x, wb.z);
+  const wbucket = makeWoodBucket();
+  wbucket.position.set(wb.x, wbY, wb.z);
+  wbucket.rotation.set(0.10, 0.7, 0.13);              // 歪着靠地（"随手搁下"的读感）
+  wbucket.name = 'propWellBucketGround';
+  g.add(wbucket);
+  /* ⚠️ 桶是**斜放的**：桶底不再水平 ⇒ 支撑判据量到的是桶壁/桶底的一个角，
+     与 groundHeight 的差被倾角放大（0.095·sin0.13 ≈ 1.2cm），仍在 ±0.18 容差内。 */
+  reg('井边水桶', wb.x, wbY, wb.z, 0.16, 0.30);
 
   const ln = PROP_SPOTS.lane;
   g.add(makeFlowerLane(ln.x, ln.z, ln.y, ln.len, ln.wid, ln.yaw));

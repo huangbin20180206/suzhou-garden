@@ -23,7 +23,7 @@ import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles, makeDuckWakeTex } from './01-materials.js';
-import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS } from './14-props.js';
+import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS, makeWoodBucket, BUCKET_HANDLE_H, setGoPiecesVisible } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
    8 · 组装场景
    ══════════════════════════════════════════════════════════════ */
@@ -241,6 +241,121 @@ world.add(makeRockChain([
 // 旧位 [-1.0,5.8] 等正压汀步石，茎根从石板顶"长"出来（用户红框穿模）
 [[-4.2, 3.2], [-1.2, 3.8], [2.6, 2.9], [6.4, 3.3], [-7.5, 3.1]]
   .forEach(([px, pz])=> world.add(makeLotusPod(px, pz, rr(0.7, 1.05))));
+
+/* ══ 巡游观鱼者的闭合步行路径（2026-10-06 · 老黄反馈 B）═════════════════════════
+   老黄："巡游观鱼的主人身体倾斜也很厉害 ⇒ 收小倾斜，让他沿『草皮 → 池岸 → 汀步/拱桥
+   → 回到草皮』走一条闭合路径"。
+
+   ── 路线的每一段都是**射线实测**定的（outputs/_diag/route-check.mjs / walk-probe.mjs）──
+   · 西段（z 9.4~10.9，x 0.8~6.0）：池南岸的**平草地**，向下射线首命中一律 ground，
+     与 groundHeight 差 ≤5cm；
+   · 中段（x≈6.45 上、x≈6.95 下）：池南那座山脊（埋脚鼓包）的**西坡**，实测从坡脚
+     (6.5,12.2,≈0m) 到脊顶 (6.5,13.3,≈0.90m) 是连续坡（每 0.2m 抬 0.12m），可以走；
+   · 东段（z 13.35~13.8，x 6.9~8.7）：山脊脊线，实测 1.16~1.40m；
+   · 上桥段（x≈8.05 上、x≈8.70 下，z 11.15~12.95）：拱桥南端的**桥头平板石 + 踏跺**，
+     实测逐级 1.302(平板石) → 1.085 → 0.888 → 0.69 m —— 每级 ≤0.22m，是桥自己的台阶；
+   · 桥头平台（z 9.75，1.302m）：**拱桥的南端桥面**（与桥身同一块汉白玉板），
+     他在这里转身往回走。
+   ⚠️ **全程 33 个取样点用 insidePond(x, z−3) 断言为假**（实测 0 处在池内）：
+     路径只走到拱桥的南端引桥（z≥9.7），没有踏上跨水的拱券 —— 这是**刻意**的，
+     因为老黄那条硬要求是"每个取样点不能在池子里"，而拱券（z<9.3）在池形多边形内。
+     代价如实记下：他"上桥"上到的是桥头平板石，不是拱顶。
+   ⚠️ 每个取样点的高度**由向下射线取真实面**（不是 groundHeight）—— 桥面/踏跺/山脊
+     都不是地形，用 groundHeight 会让他悬空 1.3m 或陷进桥里；
+     口径与 probe/figure-foot-guard.mjs 完全一致（跳过 y≥3.0 的命中 = 跳过屋顶/檐口）。
+   闭合方式：最后一个航点连回第一个（不是原地掉头），所以 position 沿 s 走一圈是连续的。 */
+const WALK_ROUTE = [
+  [0.80,  9.40], [2.60,  9.90], [4.40, 10.40], [6.00, 10.90],   // 平草地（池南岸）
+  [6.45, 11.70], [6.45, 12.30], [6.45, 12.90], [6.55, 13.35],   // 山脊西坡·上坡道
+  [7.30, 13.45], [8.05, 13.35],                                 // 脊线东行
+  [8.05, 12.85], [8.05, 12.30], [8.05, 11.75], [8.10, 11.15],   // 桥头踏跺·下到平板石
+  [8.08, 10.40], [8.05,  9.75],                                 // 桥面·走到南端
+  [8.68,  9.75],                                                // 桥面·转身（另一条车道）
+  [8.68, 10.40], [8.70, 11.15], [8.70, 11.75], [8.70, 12.35],   // 桥面→踏跺·回程道
+  [8.70, 12.95], [8.35, 13.35], [7.55, 13.55], [6.95, 13.60],   // 脊线西行（比去程偏南 0.4m）
+  [6.95, 12.85], [6.95, 12.25], [6.95, 11.60],                  // 山脊西坡·下坡道
+  [6.40, 11.35], [4.60, 10.90], [2.60, 10.50], [1.10,  9.90],   // 平草地（回程）
+];
+export const WALK_PATH = (()=>{
+  /* 射线取样要在**人物建出来之前**做：树/竹是延迟批（不在 world 里），但人物是同步批 ——
+     人物一进 world，从上往下的射线会先打到他自己的头/肩，"脚下那个面"就变成他自己。
+     本块的位置（§8 主建之后、人物段之前）正好满足：此刻 world 里只有地形/水/桥/山。 */
+  world.updateMatrixWorld(true);
+  const rc = new THREE.Raycaster();
+  const DOWN = new THREE.Vector3(0, -1, 0);
+  const surfaceY = (x, z)=>{
+    rc.set(new THREE.Vector3(x, 25, z), DOWN); rc.far = 70;
+    for (const h of rc.intersectObject(world, true)){
+      if (!h.object.isMesh) continue;
+      if (h.point.y < 3.0) return h.point.y;      // 跳过屋顶/檐口（同 figure-foot-guard 口径）
+    }
+    return groundHeight(x, z);
+  };
+  const STEP = 0.15;                              // 加密间距：台阶/坡面处插值误差 ≤ ~0.08m
+  const raw = [];
+  for (let i = 0; i < WALK_ROUTE.length; i++){
+    const [x1, z1] = WALK_ROUTE[i];
+    const [x2, z2] = WALK_ROUTE[(i + 1) % WALK_ROUTE.length];
+    const n = Math.max(1, Math.round(Math.hypot(x2 - x1, z2 - z1) / STEP));
+    for (let k = 0; k < n; k++) raw.push([x1 + (x2 - x1) * k / n, z1 + (z2 - z1) * k / n]);
+  }
+  const pts = raw.map(([x, z]) => ({ x, z, y: surfaceY(x, z) }));
+  const cum = [0];
+  for (let i = 0; i < pts.length; i++){
+    const a = pts[i], b = pts[(i + 1) % pts.length];
+    cum.push(cum[i] + Math.hypot(b.x - a.x, b.z - a.z));
+  }
+  return { pts, cum, len: cum[cum.length - 1] };
+})();
+
+/* 路径上的插值取点（s = 弧长，单位 m；闭合 ⇒ 超出一圈就绕回来）。 */
+function walkPointAt(s, cursor){
+  const P = WALK_PATH.pts, C = WALK_PATH.cum;
+  let i = cursor.i | 0;
+  while (i + 1 < C.length - 1 && C[i + 1] <= s) i++;
+  while (i > 0 && C[i] > s) i--;
+  cursor.i = i;
+  const seg = C[i + 1] - C[i];
+  const t = seg > 1e-9 ? (s - C[i]) / seg : 0;
+  const a = P[i], b = P[(i + 1) % P.length];
+  return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t };
+}
+
+/* ══ 巡游观鱼者的行走驱动 · 声明与数值（2026-10-06 · 老黄反馈 B）══════════════════
+   ⚠️ 这几个声明**必须**待在 WALK_PATH 之后、D_SCHEDULES 之前：D_SCHEDULES 的建场循环
+   会调 attachWalker() 往 WALKERS 里登记，而 `const` 在声明之前是 TDZ
+   （放晚一行 = "Cannot access 'WALKERS' before initialization"，启动即炸、且只在带
+   walk:true 的人物存在时才炸）。函数本体在人物段里（见 attachWalker/driveWalkers）。
+
+   ── 为什么驱动挂在 `updateWatchers(dt, t)` 的**开头** ─────────────────────────
+   它是 08 里**每帧被调用、且早于 figures 循环**的那个入口（11-loop 在 tickFireworks 之后
+   调它，figures 循环在它之后）⇒ 在这里把人物的 position.x/z / baseY / rotation.y 写好，
+   figures 循环紧接着读 baseY 写 position.y，同一帧内自洽，而且**不必动 11-loop.js**。
+
+   ── 谁写哪个量（三个作者，必须互不重叠，否则就是"改一处被另一处每帧覆盖"）──────
+     · driveWalkers：position.x / position.z / userData.baseY / rotation.y；
+     · 11-loop 的 figures 循环（非散步分支）：position.y（= baseY）/ rotation.x（= leanX）
+       / rotation.z（= 0.03）/ visible（时段 + 天气）；
+     · updateWatchers：pivot.position.y（起伏）与 pivot.rotation.z（侧摆）。
+   ⇒ 起伏/侧摆**只能**走 pivot 层（root 与人体几何之间插一层空组，与看烟花一家的
+     `wrapWatcher` 同一手法）：写在 root 上会被 figures 循环当场抹掉 —— 就是"改一处被
+     另一处每帧覆盖"那个老坑（不报错、不影响任何断言，只让动作消失）。
+
+   ── 数值 ──────────────────────────────────────────────────────────────────
+   · 速度 **0.72 m/s**：缓行（真人慢走 0.6~0.9）；WALK_PATH 实测全长 **27.6m**
+     （182 个采样点）⇒ 走满一圈约 **38s**；
+   · 朝向按 dt×4 平滑（时间常数 0.25s）：拐弯处不会瞬间翻 180°（同 11-loop 散步者的口径）；
+   · 起伏 0.028m / 侧摆 0.035rad —— **与 11-loop 散步者逐字同源**（那边是
+     `|sin(step)| * 0.028` 与 `sin(step) * 0.035`），所以"巡游的人"和"廊里散步的人"
+     是同一套步态；步相按**走过的距离**推进（0.42m/步），绕圈/拐弯都不会出现倒退的步频；
+   · 逐帧一次随机都不取（只吃 dt）：否则帧数会改写随机流的消费位置（铁律 1 的实质）。
+   · ⚠️ 路径高是**逐点射线实测**的：桥头踏跺那几级是**阶梯函数**，而 position 在相邻
+     采样点之间走线性插值 ⇒ 台阶棱上会短暂比脚下的踏面**低 ~0.11m**（实测最大 0.109，
+     门禁容差 0.15）。要再准就得把 STEP 从 0.15 收到 0.05（采样点 ×3、建场多 ~370 次射线），
+     换 4cm 的观感 —— 当前取舍是"够"，依据留在 outputs/_diag/walk-bucket-check.mjs 里。 */
+export const WALKERS = [];
+const WALK_SPEED = 0.72, WALK_TURN = 4.0, WALK_STRIDE = 0.42;
+const WALK_BOB = 0.028, WALK_SWAY = 0.035;
 
 /* ══ 人物 · 点景人物（彩色剪影）（样稿：先过用户审，再铺日程系统）══
    用户前史："之前的AI把人物做得跟鬼一样" —— 病根是低模硬追写实五官/人体结构，
@@ -646,25 +761,40 @@ const D_SCHEDULES = [
   { pose:'observe', skin:'lily',  x: 13.4, z: -4.6, y: 0, yaw: Math.PI * 0.5, s: 1.0,
     h0: 18.0, h1: 23.0,
     stroll: { a: 13.4, b: 13.4, z0: -3.0, z1: -8.8, sp: 0.027 } },   // 沿游廊 z 缓行（0.55 m/s）
-  /* 观鱼人（2026-10-05）：**池南岸**上看水里的锦鲤 —— 落点射线实测 (1.3, 8.0) 命中岸地
-     y=−0.282，±0.35m 见方的高差 0.138m（岸坡的常态）。
-     ⚠️ 第一版放在拱桥上（桥面 y=2.00）：**桥栏板把下半身挡住**，前倾被吃掉一半。
-     ⚠️ 第二版放 (0.4,7.7) 的"水边石"：那是一堆**岸边石**，±0.35m 内高差 **1.679m** ⇒
-        袍摆（0.42m 宽）探出石沿，出图判读成"悬空/嵌进石头" —— 站位必须先量平整度，
-        不能只看"往下打第一个命中"（第一次测到 0.093、第二次同一点 0.576，就是因为
-        那不是一块平台而是石头堆）。
-     前俯 0.30rad + 低头 0.58rad（小于 15° 的俯身在这套简笔人物上读不出来），右手前下指水。 */
-  { pose:'pointDown', skin:'moonwhite', x: 1.3, z: 8.0, y: -0.282,
-    yaw: Math.atan2(-1.3, -5.0),
-    s: 1.0, leanX: 0.30, headDown: 0.58,
+  /* ── 巡游观鱼者（2026-10-06 · 老黄反馈 B）────────────────────────────────────
+     老黄："**巡游**观鱼的主人身体倾斜也很厉害 ⇒ 收小倾斜，让他沿『草皮 → 池岸 →
+     汀步/拱桥 → 回到草皮』走一条闭合路径"。
+     ⚠️ 第一版（2026-10-05）是**站着**看鱼的（前俯 0.30rad + 右手前下指水）；现在他要"巡游"
+        ⇒ ① 姿态回到 `observe`（负手缓行 —— 走路的人不会一直伸着一只手）；
+           ② 前俯 0.30 → **0.05**（2.9°，只是"走路时躯干不竖直"那点量）、低头 0.58 → **0.20**；
+           ③ 位置不再写死，改成 **WALK_PATH 的起点**（每个点都是射线实测的地面/桥面高），
+              之后由 driveWalkers 沿闭合路径以 0.72 m/s 推进。
+     ⚠️ `stroll` **保持 null**（不是漏写）：11-loop 的散步分支一旦接管，它会每帧写
+        position.x/z、rotation.y —— 与 driveWalkers 两处互相覆盖；而且 figure-foot-guard
+        是拿 `slot.stroll` 的 **z0~z1 直线区间**去扫点的，走矩形区间在他这条闭合路径上
+        等于扫到水里/桥栏上（那条判据会报一堆假红）。位置由 driveWalkers 一处负责。
+        rotation.x / rotation.z 则仍由 11-loop 写（leanX 0.05 / 0.03），起伏与侧摆走 pivot 层
+        —— 两处互不重叠，见下面 WALKERS 一段。 */
+  { pose:'observe', skin:'moonwhite',
+    x: WALK_PATH.pts[0].x, z: WALK_PATH.pts[0].z, y: WALK_PATH.pts[0].y,
+    /* 首帧朝向 = 第一段路的前进方向（`atan2(dx,dz)`，模型正面 = +z）——
+       不写 0：写 0 的话第一帧会"面朝 +z"再慢慢转过去（探针/devtools 里能拍到半转身）。 */
+    yaw: Math.atan2(WALK_PATH.pts[1].x - WALK_PATH.pts[0].x,
+                    WALK_PATH.pts[1].z - WALK_PATH.pts[0].z),
+    s: 1.0, leanX: 0.05, headDown: 0.20, walk: true,
     h0: 7.5, h1: 12.0, stroll: null },
-  /* 仕女（2026-10-05）：**井边汲水** —— 落点射线实测 (−19.2,−5.2) 命中 ground y=−0.174，
-     与古井（PROP_SPOTS.well = −20.4,−6.1）相距 1.2m，朝向井心；俯身 + 双手前下（SLEEVE.draw）。
-     ⚠️ y 显式给实测值：这块草地不在 y=0（是 −0.174）。
-     ⚠️ 前俯 0.34rad（≈19°）而不是 0.22：同观鱼人那条教训 —— 小于 15° 读不出"俯身"。 */
-  { pose:'draw', skin:'lilac', x: -19.2, z: -5.2, y: -0.174,
-    yaw: Math.atan2(-20.4 + 19.2, -6.1 + 5.2),
-    s: 0.97, lady: true, leanX: 0.34, headDown: 0.55,
+  /* 仕女（2026-10-05 落点 / 2026-10-06 老黄 B 改倾角）：**井边汲水**。
+     ⚠️ 落点**读 PROP_SPOTS.ladyWell**（14-props 的表）而不是在这里重写一份坐标：
+     那张表同时被 14-props 的 buildProps 用来算辘轳摇柄朝哪一端（"井 / 架子 / 人"三者的
+     相对关系只有一处真值）；两处各写一份坐标，坏起来就是"架子对着空地摇"这种只有看图
+     才发现的不一致（该表里的注释已经把这条写成了约定）。
+     朝向井心；俯身 + 双手前下（SLEEVE.draw）。
+     ⚠️ 前俯 0.34 → **0.17**（≈9.7°，落在老黄要的 8~12° 区间）：0.34rad 是"整条上身扑向井口"
+       的读数，出图判读成"要投井"，收小一半后才是"俯身汲水"。低头 0.55 → 0.42 与之配套
+       （头还得看着井绳，所以收得比躯干少 —— 差 0.25rad ≈ 14°，读作"弓着背、眼睛还在水面"）。 */
+  { pose:'draw', skin:'lilac', x: PROP_SPOTS.ladyWell.x, z: PROP_SPOTS.ladyWell.z, y: PROP_SPOTS.ladyWell.y,
+    yaw: Math.atan2(PROP_SPOTS.well.x - PROP_SPOTS.ladyWell.x, PROP_SPOTS.well.z - PROP_SPOTS.ladyWell.z),
+    s: 0.97, lady: true, leanX: 0.17, headDown: 0.42,
     h0: 7.5, h1: 12.0, stroll: null },
 ];
 D_SCHEDULES.forEach((d, i)=>{
@@ -674,7 +804,107 @@ D_SCHEDULES.forEach((d, i)=>{
   fg.userData.skin = d.skin;                 // 供 probe/figure-audit.mjs 读角色服色做门禁
   fg.userData.poseName = d.pose;
   world.add(fg);
+  if (d.walk) attachWalker(fg);              // 巡游观鱼者：沿 WALK_PATH 走（见下面 driveWalkers）
+  if (d.lady) attachWoodBucket(fg);          // 井边仕女：右手提一只木桶（老黄 A4）
 });
+
+/* ══ 巡游观鱼者的行走驱动（2026-10-06 · 老黄反馈 B）· 函数部分 ══════════════════
+   ⚠️ 常量与 WALKERS 的**声明**在文件上方紧挨着 WALK_PATH（那边解释了全部数值与理由）：
+   D_SCHEDULES 的建场循环会调 attachWalker() 往 WALKERS 里登记，而 `const` 在声明之前是
+   TDZ —— 声明放晚一行就是 "Cannot access 'WALKERS' before initialization"，启动即炸。
+   函数声明是提升的，所以这几个函数可以留在人物段里（离调用点近，读起来顺）。 */
+/* 插一层 pivot（root → pivot → 人体几何）。搬迁用 while 而不是 forEach：
+   three 的 add() 会把节点从原父级摘掉，边遍历边改数组会漏节点（wrapWatcher 同款）。 */
+function attachWalker(root){
+  const pivot = new THREE.Group();
+  pivot.name = 'walkerPivot';
+  while (root.children.length) pivot.add(root.children[0]);
+  root.add(pivot);
+  root.userData.walk = {
+    s: 0,                                  // 沿闭合路径的弧长（m）
+    cur: { i: 0 }, curA: { i: 0 },         // walkPointAt 的游标（避免每帧从 0 线性找）
+    step: 0,                               // 步相（rad，按走过的距离推进）
+    pivot,
+  };
+  WALKERS.push(root);
+  return root;
+}
+/* 沿弧长推进（s 是"园中时间"的函数，闭合 ⇒ 走满一圈回到起点，不是原地掉头）。
+   ⚠️ 取点必须在 [0, len) 内：walkPointAt 在 s ≥ len 时会拿最后一段**外推**（不是绕回），
+   所以先在 driveWalkers 里把 s 绕回来。 */
+function walkAt(s, cursor){
+  const L = WALK_PATH.len;
+  return walkPointAt(s >= L ? s - L : s, cursor);
+}
+function driveWalkers(dt){
+  for (const f of WALKERS){
+    const w = f.userData.walk;
+    w.s += WALK_SPEED * dt;
+    if (w.s >= WALK_PATH.len) w.s -= WALK_PATH.len;
+    const p = walkAt(w.s, w.cur);
+    /* 朝向 = 前方 0.25m 的差分方向（比取切线省一次"上一段/下一段"的分支，
+       而且闭合处不必处理负下标）。模型正面 = +z ⇒ `atan2(dx, dz)`。 */
+    const q = walkAt(w.s + 0.25, w.curA);
+    const dx = q.x - p.x, dz = q.z - p.z;
+    if (Math.hypot(dx, dz) > 1e-4){
+      const want = Math.atan2(dx, dz);
+      /* 归一到 (−π, π]：不归一的话绕圈经过 ±π 时会"抽一下"（走最短弧要求差值连续） */
+      const d = Math.atan2(Math.sin(want - f.rotation.y), Math.cos(want - f.rotation.y));
+      f.rotation.y += d * Math.min(1, dt * WALK_TURN);
+    }
+    f.position.x = p.x; f.position.z = p.z;
+    /* baseY = 脚下那个面（建场期逐点**射线实测**的高，见 WALK_PATH 的注释）：
+       figures 循环每帧 `f.position.y = f.userData.baseY`，所以只要这里对，人就不会
+       悬空/陷地（桥面 1.302、山脊 1.4、草地 −0.2 都在 p.y 里）。 */
+    f.userData.baseY = p.y;
+    f.position.y = p.y;                 // 立刻写一次：本帧 figures 循环要写同一个值（幂等）
+    w.step += WALK_SPEED * dt / WALK_STRIDE * Math.PI;
+    w.pivot.position.y = Math.abs(Math.sin(w.step)) * WALK_BOB;     // 迈步起伏
+    w.pivot.rotation.z = Math.sin(w.step) * WALK_SWAY;              // 左右轻摆
+  }
+}
+
+/* ══ 井边仕女手上的木桶（2026-10-06 · 老黄 A4）══════════════════════════════════
+   与地上那只（14-props 的 PROP_SPOTS.wellBucket）**同款同尺寸**：makeWoodBucket()。
+   ⚠️ 挂点**实测**，不手填：手位由「SLEEVE.draw 的点列 × 躯干层 g 的椭圆截面缩放」两处
+   共同决定 —— 手算等于把两处真值抄一遍，改任一处（比如再收一次肩宽）就静默错位。
+   所以取右手拢手球的**世界坐标**，再用 `root.worldToLocal` 转回 root 局部坐标；
+   桶的原点在**桶底中心、桶口朝 +Y** ⇒ `y = 手.y − BUCKET_HANDLE_H` 时提梁顶正好落在手心里。
+   ⚠️ "右手" = 局部 **−x** 侧：模型正面约定为 +z，right = forward × up = (0,0,1)×(0,1,0) = (−1,0,0)。
+      两只拢手球同名（`scholarClump`），所以按 x 符号挑 —— 这也是"实测"的一部分。
+   ⚠️ 桶挂 **root**（不挂躯干层 g）：g 上有 (1.15×0.90, 1, 0.82×0.90) 的椭圆缩放，
+      挂上去桶会被压扁成一个歪的铁丝圈。
+   ⚠️ 桶的全部网格必须 `noMerge`：mergeStatics 会把它们并进 MAT.wood/woodDark 的静态大网、
+      世界矩阵被烘死 ⇒ **人走了桶留在原地**（竹帘条、看烟花一家都踩过同一类坑）。
+      代价：5 个 draw call（桶身/底/两道箍/提梁各一个网格）—— 要能跟着人动就得付。
+   ⚠️ 桶的尺度：BUCKET_R 0.095 / BUCKET_H 0.20（可提的实物尺度）。挂完桶底在
+      她脚面上方约 0.68m（手 y ≈ 0.975 − 提梁 0.293），是"垂手提桶"的高度，不蹭地。 */
+function attachWoodBucket(root){
+  let hand = null;
+  root.traverse(o => {
+    if (hand || !o.isMesh || o.name !== 'scholarClump') return;
+    if (o.position.x < 0) hand = o;
+  });
+  if (!hand){
+    console.warn('[井边仕女] 找不到右手拢手球（scholarClump），木桶未挂');
+    return null;
+  }
+  /* getWorldPosition 会沿父链把 matrixWorld 刷到最新（刚 world.add 完还没渲染过），
+     所以下面这次 worldToLocal 用的是**真实**的世界矩阵，不是上一帧的残值。 */
+  const local = root.worldToLocal(hand.getWorldPosition(new THREE.Vector3()));
+  const b = makeWoodBucket();
+  b.name = 'propWellBucketHand';
+  /* 提梁顶 = 桶原点 + BUCKET_HANDLE_H ⇒ 让提梁顶落在手心里就是这一行（桶原点在桶底中心） */
+  const bucketY = local.y - BUCKET_HANDLE_H;
+  b.position.set(local.x, bucketY, local.z);
+  b.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
+  root.add(b);
+  /* 手位留给探针/门禁复核（"桶真的挂在手上"是一条可判定的断言，不该只靠看图）。 */
+  root.userData.bucketHand = { hand: [+local.x.toFixed(4), +local.y.toFixed(4), +local.z.toFixed(4)],
+                               bucketY: +bucketY.toFixed(4),
+                               handleTop: +(bucketY + BUCKET_HANDLE_H).toFixed(4) };
+  return b;
+}
 
 /* 私塾孩童（第十六轮：用户要求"2 孩童 + 1 教书先生"场景）。
    makeChildScholar 是先生剪影的子集 —— 矮约 0.72 倍、头更大（孩童头身比 ~3.5:1）、
@@ -2967,6 +3197,20 @@ WATCH_SPOTS.forEach((sp, i) => {
    dt = 本帧仿真步长（与风/水/散步者同一口径：60fps 下 ≡ 墙钟，软渲染下慢放且可复现），
    t  = 计时器的仿真时间（这里只用来给成年人一点极慢的摆动，不参与雀跃的相位）。 */
 export function updateWatchers(dt, t){
+  /* ── 每帧入口的第 1 段：巡游观鱼者（老黄 B）───────────────────────────────
+     ⚠️ 必须在本函数**开头**、且早于 11-loop 的 figures 循环（调用顺序见函数上方注释与
+     上方 WALKERS 声明处那段"谁写哪个量"）。driveWalkers 只写 position.x/z、baseY、rotation.y，
+     与 figures 循环写的 position.y/rotation.x/z 互补 —— 起伏与侧摆走 pivot 层。 */
+  driveWalkers(dt);
+  /* ── 每帧入口的第 2 段：狂风暴雨里把棋子（棋钵）收起来（老黄第 3 条前半）─────────
+     口径与 12-env 里大雁落地那条判据（fowlGrounded）**逐字一致**：
+       (rainAmount || 0) > 0.5 || (snowAmount || 0) > 0.5
+     即"暴雨/大雪这一档才收，小雨照摆"（雁是"小雨照飞、暴雨落地"，同一条取舍）。
+     ⚠️ 为什么门开在这里而不是 14-props：那边读不到 ENV（14-props ← 08 ← 12f ← 12-env，
+     反向 import 成环），而本模块早就 import 了 ENV 与 12-env 的同一枚状态。
+     ⚠️ 必须每帧重申：rainAmount 是连续量（滑杆/天气过渡逐帧在变），门就该逐帧跟一次 ——
+     这也正是 applyPresence（存在性）那条注释里的教训。 */
+  setGoPiecesVisible(!((ENV.cur.rainAmount || 0) > 0.5 || (ENV.cur.snowAmount || 0) > 0.5));
   /* ── 门控：与 12-env 的 FIREWORKS._fwOn() **同一口径**（冬 + 夜色深度 + 无雨雪雷暴 + 无明显降水）。
      自己读 ENV 算，而不是 import 那边的开关：_fwOn 没有导出，而 12-env 被本模块 import
      —— 反向取值成环（本文件里 02/05/06/14 的几处 import 注释都记着这条）。两处口径要一起改。 */
