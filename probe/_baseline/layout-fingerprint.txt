@@ -149,7 +149,7 @@
 #ffffff|0|BufferGeometry	首实例=0.53,1.81,-0.05	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=-16.40,3.43,1.47	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=9.77,3.09,1.06	hash=2166136261
-#ffffff|0|BufferGeometry	首实例=-29.05,3.94,-21.55	hash=2166136261
+#ffffff|0|BufferGeometry	首实例=-29.53,4.46,-22.03	hash=2166136261
 #ffffff|117|PlaneGeometry	首实例=0.27,0.02,0.11	hash=3430056581
 #ffffff|117|PlaneGeometry	首实例=0.87,0.05,-0.26	hash=1827051725
 #ffffff|130|LatheGeometry	首实例=1.09,3.15,0.46	hash=4258869765

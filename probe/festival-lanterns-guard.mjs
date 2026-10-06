@@ -135,23 +135,43 @@ const check = (name, ok, detail = '') => {
     on.st.hang.length === 3 && on.st.hang.every(h => h.objs === 1),
     `${total} 盏灯只占 ${on.st.hang.length} 个对象（诊断试摆拆 4~5 件时报 +26 draw call）`);
 
-  /* ── 挂点位置合理性：贴树冠 / 贴藤 / 贴墙檐 ── */
+  /* ── 挂点位置合理性：贴树冠 / 贴藤 / **真的挂在墙帽上** ── */
   const geo = await page.evaluate(() => {
-    const g = window.__garden, W = 60, D = 45;
+    const g = window.__garden, T = g.THREE, W = 60, D = 45;
     const byK = Object.fromEntries(window.__fl.hangPos(window.__fl.hangObjs()).map(o => [o.kind, o.pos]));
     const stat = (arr) => ({ n: arr.length,
       yMin: +Math.min(...arr.map(p => p[1])).toFixed(2), yMax: +Math.max(...arr.map(p => p[1])).toFixed(2) });
-    /* 墙灯必须在四面围墙**内侧**、檐下（y≈3.95），且离墙心带 ≤1.6m */
+    /* 墙灯必须在四面围墙**内侧**、檐下（y≈4.47）：
+       ⚠️ 2026-10-06 内缩量 0.95 → **0.47**、挂高 3.95 → **4.47**
+       （旧值让灯挂在离墙帽 0.4m 的空气里 = 悬空，见 12c 的长注释与 outputs/_diag/wall-lantern-geom.mjs）。
+       挂高窗口 [4.40, 4.55] = "贴着帽檐下沿"这一档；真正的牙是下面那条"上方必须有结构"。 */
     const wall = byK.wallRed || [];
-    const onRing = wall.filter(([x, , z]) => Math.abs(Math.abs(x) - (W/2 - 0.95)) < 0.3
-                                      || Math.abs(Math.abs(z) - (D/2 - 0.95)) < 0.3);
-    const yOK = wall.filter(([, y]) => y > 3.6 && y < 4.4).length;
+    const onRing = wall.filter(([x, , z]) => Math.abs(Math.abs(x) - (W/2 - 0.47)) < 0.3
+                                      || Math.abs(Math.abs(z) - (D/2 - 0.47)) < 0.3);
+    const yOK = wall.filter(([, y]) => y > 4.40 && y < 4.55).length;
+    /* ⚠️⚠️ 2026-10-06 新增的**有牙**判据：从每个挂点**竖直向上**打射线，
+       必须在 0.5m 内命中墙帽 —— 这才是"它真的挂在结构上"。
+       旧实现（内缩 0.95）8/8 抽样全部 null（上面什么都没有）却一路绿灯：
+       原判据只量了"在不在墙内侧那条带上"、没量"上面有没有东西"。
+       顺带量"帽底−挂点"：绳长 0.356 ⇒ 该值必须 ≤0.36（绳顶顶进墙帽），且 ≥0.28（别把灯身顶穿帽子）。 */
+    const rc = new T.Raycaster(), up = new T.Vector3(0, 1, 0);
+    const hangGap = wall.map(([x, y, z]) => {
+      rc.set(new T.Vector3(x, y, z), up); rc.far = 0.5;
+      const hit = rc.intersectObject(g.scene, true).find(h => h.object.isMesh);
+      return hit ? +(hit.point.y - y).toFixed(3) : null;
+    });
     return { willow: stat(byK.willowFlower || []), wisteria: stat(byK.wisteriaFlower || []),
-             wall: stat(wall), wallOnRing: onRing.length, wallYOK: yOK };
+             wall: stat(wall), wallOnRing: onRing.length, wallYOK: yOK,
+             hangGap, hung: hangGap.filter(v => v !== null).length,
+             gapOK: hangGap.filter(v => v !== null && v <= 0.20 && v >= 0.13).length };
   });
-  check('B 围栏红灯笼：落在四面围墙内侧带、檐下高度 3.6~4.4m',
+  check('B 围栏红灯笼：落在四面围墙内侧带、挂高 4.40~4.55m（贴帽檐下沿）',
     geo.wallOnRing === geo.wall.n && geo.wallYOK === geo.wall.n,
     `贴墙带 ${geo.wallOnRing}/${geo.wall.n} · 高度合格 ${geo.wallYOK}/${geo.wall.n}（y ${geo.wall.yMin}~${geo.wall.yMax}）`);
+  check('B 围栏红灯笼：**真的挂在墙帽上**（竖直向上 0.5m 内命中，且帽底−挂点 ≤ 0.20 = 灯身顶几乎贴住檐口）',
+    geo.hung === geo.wall.n && geo.gapOK === geo.wall.n,
+    `${geo.hung}/${geo.wall.n} 盏上方命中结构 · 间隙合格 ${geo.gapOK}/${geo.wall.n}`
+    + `（实测间隙 ${JSON.stringify(geo.hangGap.slice(0, 4))}…；修复前 8/8 抽样全 null = 一片悬空）`);
   /* 柳冠实测（诊断 outputs/_diag/lantern-hangpts.mjs）：叶幕 y 2.30~6.61。
      挂点取冠中段 yP25~yP75 再垂 0.15 ⇒ 上界 6.6、下界 1.5 都留了余量。 */
   check('A 柳树挂灯：挂点在冠内（y 1.5~6.6m），不是浮在空中也不是贴树梢',
