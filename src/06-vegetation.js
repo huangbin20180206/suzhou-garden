@@ -3281,7 +3281,14 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
      半径剖面 r(t) = trunkR × (1 − 0.40t) × (1 + 0.38(1−t)^6)：
        t=0 → 1.38r（≈0.14，根盘）→ 中段 ≈1.0r → t=1 → 0.60r（≈0.06）—— 圆管且确实在收细。 */
   const trunkCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, -0.06 - baseY, 0),   // 向下加长：穿过隆起的土石层（否则抬高后树底悬空）
+    /* ⚠️⚠️ 2026-10-06 修「腊梅主干悬空」（老黄截图1：树干整根停在雪面上方、底端与雪面有空隙）：
+       这一行原来是 `-0.06 - baseY` —— 它假定 baseY ≥ 0（桃树两株正是 0 与 0.45，向下加长
+       以穿过隆起的土石层）。而梅是**按负地表**落地的（腊梅 baseY = −0.40），负号一进公式就翻向：
+       −0.06 −(−0.40) = **+0.34** ⇒ 主干底端被抬到组原点**上方** 0.34m，而组本身坐在 −0.40
+       ⇒ 树底离地约 0.34m，整根悬空（截图里"停在雪面上"就是这么来的）。
+       ⇒ 改成 `-0.06 - Math.max(0, baseY)`：baseY ≥ 0 时逐字不变（桃树不受影响），
+       baseY < 0 时不再加长（组已经落在地表上，底端自然埋进土里）。 */
+    new THREE.Vector3(0, -0.06 - Math.max(0, baseY), 0),
     new THREE.Vector3(rr2(-0.05,0.05), H*0.18, rr2(-0.05,0.05)),
     new THREE.Vector3(rr2(-0.04,0.04), H*0.34, rr2(-0.04,0.04)),
     new THREE.Vector3(rr2(-0.03,0.03), H*0.48, rr2(-0.03,0.03)),
@@ -3717,9 +3724,14 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
   return makePeachTree(x, z, scale, baseY, {
     noFruit: true,
     blossomMat: red ? MAT.plumBlossomRed : MAT.plumBlossomYellow,
-    flowerN: 2000,
-    blossomA: new THREE.Color(red ? 0xFF7FA0 : 0xFFF0A8),
-    blossomB: new THREE.Color(red ? 0xC01F45 : 0xD9A62B),
+    /* ⚠️ 花量 5000（2026-10-06 二轮 · 老黄："然后梅花一颗树5000朵吧"）：原来 2000 朵
+       在截图里只读得出"零星几簇"，与桃的满树花完全分不出来 —— 梅要的是"满树繁花"。 */
+    flowerN: 5000,
+    /* ⚠️ 花色区间（二轮修色）：材质底色已改白，色相只由这里的实例色给 ——
+       红梅 = 淡胭脂 → 正红（原来底色是彩的，乘完变锈红）；
+       腊梅 = 淡黄 → 正黄（老黄："腊梅是淡黄色到黄色"）。 */
+    blossomA: new THREE.Color(red ? 0xFFA8BC : 0xFFFBDC),
+    blossomB: new THREE.Color(red ? 0xD8213F : 0xF2D24A),
   });
 }
 
