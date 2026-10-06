@@ -61,39 +61,54 @@ const check = (name, ok, detail = '') => {
   /* ══ ① 大雁：**2026-10-02 恢复**（老黄："春秋两季的大雁也没有了"）══════════════
      2026-10-01 曾按老黄"把天上飞的几只小鸟去掉"整层下线（GN=0），10-02 他又报
      "春秋两季的大雁也没有了"，拍板恢复（GN=13 + 整体放大 1.4×）。
-     本门随之翻回"守行为"：
-       (a) 季节显隐 64 组合全扫（4 季 × 4 天气 × 4 时段）：春/秋全 13 只可见、
-           夏/冬 0 —— 曾经只测单一天气+单一时段，"某个组合漏了"从缝里漏过去
+     本门随之翻回"守行为"（2026-10-05 再补一条"恶劣天气不飞"）：
+       (a) 季节显隐 80 组合全扫（4 季 × **5 天气** × 4 时段）：春/秋在**非降水天气**下 13 只可见、
+           夏/冬 0；**降水天气（狂风暴雨 / 银装素裹）春/秋也必须 0** —— 老黄 2026-10-05：
+           "春秋季大雁在狂风暴雨场景依旧在天上飞，这个不合理"（判据在产品里用 rainAmount /
+           snowAmount 的阈值，这里按天气名对齐同一口径）；
+           曾经只测单一天气+单一时段，"某个组合漏了"从缝里漏过去
            （2026-10-01 的教训：扫全表 + 扫完必须复位）；
        (b) 两种阵型真的都出现、且形状不同（人字横向宽、八字 S 纵向长）；
        (c) 航线在园子上空的高度带/半径带内（10~13m / 半径 26±呼吸）。 */
   {
     const SE = ['spring', 'summer', 'autumn', 'winter'];
-    const WE = ['clear', 'mist', 'storm', 'afterrain'];
+    const WE = ['clear', 'mist', 'storm', 'afterrain', 'snow'];   // 2026-10-05：补 snow（同属降水天气）
     const TI = ['morning', 'noon', 'dusk', 'night'];
-    const bad = [];
+    const GROUNDED_W = new Set(['storm', 'snow']);                // 与产品里的 rainAmount/snowAmount 阈值同口径
+    const bad = []; let skipped = 0;
     for (const ss of SE){
       for (const ww of WE){
         for (const tt of TI){
-          await page.evaluate(([a, b, c]) => {
+          /* ⚠️ 天气有**季节合法性**（例：夏季不能下雪 'snow' 只在冬季合法）——先设季节、再问产品
+             这个组合合不合法；不合法的组合本就不该出现，跳过并计数（别把它当异常，
+             2026-10-05 我第一版就是这么假红的：请求 snow 被产品静默拒绝，天气仍是 clear）。 */
+          await page.evaluate((a) => window.__garden.setEnv('season', a), ss);
+          const legal = await page.evaluate((w) => {
             const G = window.__garden;
-            G.setEnv('season', a); G.setEnv('weather', b); G.setEnv('time', c);
-          }, [ss, ww, tt]);
+            return typeof G.weatherAllowed === 'function' ? G.weatherAllowed(w) : true;
+          }, ww);
+          if (!legal){ skipped++; continue; }
+          await page.evaluate(([b, c]) => {
+            const G = window.__garden;
+            G.setEnv('weather', b); G.setEnv('time', c);
+          }, [ww, tt]);
           await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
           await page.waitForTimeout(120);
           const st = await page.evaluate(() => {
             const G = window.__garden;
-            return { total: G.geese.length, vis: G.geese.filter(g => g.visible).length };
+            return { total: G.geese.length, vis: G.geese.filter(g => g.visible).length,
+                     w: G.ENV.weather, s: G.ENV.season };
           });
-          const wantVis = (ss === 'spring' || ss === 'autumn') ? 13 : 0;
+          const seasonal = (ss === 'spring' || ss === 'autumn');
+          const wantVis = (seasonal && !GROUNDED_W.has(st.w)) ? 13 : 0;
           if (st.total !== 13 || st.vis !== wantVis)
-            bad.push(`${ss}/${ww}/${tt}: ${st.vis}/${st.total} 只（期望 ${wantVis}/13）`);
+            bad.push(`${ss}/${ww}/${tt}: ${st.vis}/${st.total} 只（期望 ${wantVis}/13，实际天气 ${st.w}）`);
         }
       }
     }
-    check('大雁：装配 13 只，春/秋 64 组合全可见、夏/冬全隐藏',
+    check('大雁：装配 13 只；春/秋在非降水天气全可见、夏/冬与降水天气全隐藏（非法季节组合已跳过）',
       bad.length === 0,
-      bad.length ? `${bad.length} 个异常：${bad.slice(0, 6).join('，')}` : '64 组合全部符合');
+      bad.length ? `${bad.length} 个异常：${bad.slice(0, 6).join('，')}` : `全部符合（跳过 ${skipped} 个季节非法组合）`);
     /* 复位环境（扫完必须复位，否则污染后面的判据——2026-10-01 的教训） */
     await page.evaluate(() => {
       const G = window.__garden;

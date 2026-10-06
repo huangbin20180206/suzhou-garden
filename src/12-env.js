@@ -356,15 +356,18 @@ export function applyEnv(p){
     /* 停栖蜻蜓同口径：冬（dragonflyShow=0）与暴雨/风雪都藏起来。
        这里只写开关，位置在渲染循环里逐帧算（隐藏期间不更新，重现时从停栖态重算）。 */
     setPerchShowOK(!grounded && p.dragonflyShow > 0.03);
-    /* 大雁（2026-09-30）：只跟**季节**（春/秋迁徙），不跟天气 ——
-       雁在雨天照样飞（真雁阵雨天常见）。夏/冬 gooseShow=0 ⇒ 整队隐藏。
+    /* 大雁（2026-09-30）：按**季节**迁徙（春/秋 gooseShow=1，夏/冬 0 ⇒ 整队隐藏）。
+       ⚠️⚠️ 2026-10-05 老黄："春秋季大雁在狂风暴雨场景依旧在天上飞，这个不合理" ⇒ 加**恶劣天气落地**：
+       判据用**参数**而不是天气名（`rainAmount / snowAmount` 够大就不飞）—— 真雁遇狂风暴雨/风雪会落地
+       避险；薄雾、雨后初晴（rain=0）照飞，小雨也照飞（原注释"雁在雨天照样飞"对小雨成立、对暴雨不成立）。
        ⚠️⚠️ 2026-10-02 第九轮：顺带按季节写**飞行方向**（老黄："从整个画面中从左到右
        （春季），从右到左（秋季）"）：春 +1（西→东 = 画面左→右）、秋 −1。
        dirSign 只在过渡期间（applyEnv 被调时）写 —— 但换季是 3s 过渡里发生的事，
        用户会看到"方向在 3 秒内翻转"，这正是期望的（南飞/北飞本来就是渐变的）。
        ⚠️ 立即生效：若用户正处在 gap 间隙（整队在画外），下一个波次就按新方向来，
        画面里读不出"方向突变"；不必为此中断当前波次。 */
-    const gooseOn = p.gooseShow > 0.03;
+    const fowlGrounded = (p.rainAmount || 0) > 0.5 || (p.snowAmount || 0) > 0.5;
+    const gooseOn = p.gooseShow > 0.03 && !fowlGrounded;
     for (const g of geese) g.visible = gooseOn;
     GOOSE.dirSign = (ENV.season === 'autumn') ? -1 : 1;
   }
