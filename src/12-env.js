@@ -651,9 +651,20 @@ function syncEnvUI(){
     placeHourTip(ENV.hour);
   }
   /* 2026-09-29 合并时段条：读数气泡 = 拖动提示，钉在滑块正上方跟随移动
-     （老黄："拖动的时候具体时间要跟随进度条，提示用户拖到的时间点"） */
+     （老黄："拖动的时候具体时间要跟随进度条，提示用户拖到的时间点"）
+     ⚠️⚠️ 2026-10-06（第 6 条反馈）：气泡的**位置**改由 CSS 一处负责 ——
+       `left: calc((100% - 球径) * var(--r) + 球径/2)`（球径 18px，与 thumb 同值）。
+       旧的这里写的是 `tip.style.left = ratio*100 + '%'`，那是"占整条百分比"，
+       与"圆球中心"差半个球径，越靠右偏得越多（实测 21.5 时偏 11px，老黄截图里
+       气泡就是压在圆球右边）。inline 样式优先级最高，会把上面那条 CSS 公式整个盖掉，
+       所以这里必须先把它清掉、只负责写入 CSS 变量 --r（与 placeHourTip 同一套口径）。 */
   const tip = document.getElementById('hourReadout');
-  if (tip) tip.style.left = (Math.max(0, Math.min(24, ENV.hour)) / 24 * 100).toFixed(2) + '%';
+  if (tip){
+    if (tip.style.left) tip.style.removeProperty('left');   // 清掉旧口径留下的 inline left（幂等）
+    const tr = document.getElementById('timeTrack');
+    if (tr) tr.style.setProperty('--r', (Math.max(0, Math.min(24, ENV.hour)) / 24).toFixed(4));
+    tip.textContent = fmtHour(ENV.hour);
+  }
 }
 envEl.addEventListener('click', (e)=>{
   const b = e.target.closest('button');
@@ -709,6 +720,25 @@ hourSlider.addEventListener('input', ()=>{
   syncEnvUI();
 });
 hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
+
+/* ── 留影行的音量滑杆（#sndVol）：与时段条共用"已过段暖色填充"的同一套视觉 ──
+   2026-10-06 老黄第 6 条反馈要求两个滑杆视觉统一（一致性），而"已过段"是纯 CSS
+   用 `background-size: calc(... var(--r) ...)` 裁出来的 ⇒ 需要一个 --r。
+   时段条的 --r 由 placeHourTip/syncEnvUI 写；音量滑杆没有别的写入方（11-loop 只把
+   它的值送进 Snd.setVolume），所以在这里补一个**只写 CSS 变量**的监听器。
+   ⚠️ 与 11-loop 的 input 监听器互不干扰（同一个 input 可以挂多个 input 监听），
+      本监听器不改 value、不碰音量，只重算填充比例。 */
+const sndVol = document.getElementById('sndVol');
+function syncSndVolFill(){
+  if (!sndVol) return;
+  const max = parseFloat(sndVol.max) || 100;
+  const v = Math.max(0, Math.min(max, parseFloat(sndVol.value) || 0));
+  sndVol.style.setProperty('--r', (v / max).toFixed(4));
+}
+if (sndVol){
+  sndVol.addEventListener('input', syncSndVolFill);
+  syncSndVolFill();                  // 初始态（value=100 ⇒ 整条暖色）
+}
 
 /* ══ 时光流转（Showreel）：让 ENV.hour 自己走 ══
    按一下就什么都不用再点：晨 → 午 → 暮 → 夜 连续推进，日出日落、月起月落、灯笼点亮、

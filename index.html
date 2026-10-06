@@ -177,63 +177,136 @@
     font-family: inherit;
   }
 
-  /* 时年和滑块 */
+  /* ══════════════════════════════════════════════════════════════
+     滑块 · 新样式（2026-10-06 老黄第 6 条反馈："这个时段的拖拉滚动条我始终觉得
+     做得不好看，你再换个样式"）
+     两个滑杆（时段条 #hourSlider / 留影行的音量 #sndVol）共用**同一套视觉**（一致性）：
+       · 细轨道 4px + **已过段暖色渐变填充**：两层 background ——
+         上层暖色渐变（木褐→金→暖橙）按"已过段"裁宽、下层青灰细线铺满；
+         裁剪量走 background-size 的 calc，比例来自 CSS 变量 --r
+         （= 圆球中心位置公式 (100% - 球径) * r + 球径/2 里的 r），与气泡、锚点同源；
+       · 圆球 18px：暖白→金径向渐变 + 木褐描边 + 内高光 + 外投影，hover 放大 1.16×；
+       · 层次拉开：圆球（亮 / 有描边 / 有影）＞ 轨道刻度点 ＞ 锚点标签（暗字 / 无框 / 小一号）。
+     ⚠️ 所有选择器**必须带 #env 前缀**：面板规则大量使用 ID 选择器
+        （`#env button{…}`、`#env input[type="range"]{width:150px}`），
+        写 `.time-track input` 这种无前缀规则会因优先级不够被吃掉 ——
+        项目踩过的坑（"看着改了没生效"）。
+     ⚠️ 反过来也成立：带 #env 的规则会盖掉窄屏 `#env button{min-height:40px}`，
+        所以锚点标签那条里**不许**声明 min-height（触控命中区 ≥38px 是 smoke 门禁）。 */
   #env input[type="range"] {
     width: 150px;
-    height: 24px;
-    accent-color: var(--江南-青灰);
+    height: 22px;
+    margin: 0;
+    padding: 0;
     background: transparent;
     cursor: pointer;
     flex: 0 1 auto;
     -webkit-appearance: none;
+    appearance: none;
   }
-
+  /* 轨道：下层 = 未过段（青灰细线，整条）；上层 = 已过段（暖色渐变，按 --r 裁宽）。
+     --r 缺省 0.5 只作兜底：时段条的 --r 由 placeHourTip / syncEnvUI 写进 .time-track，
+     音量滑杆的 --r 由 12-env 的 syncSndVolFill 写在自己身上。 */
   #env input[type="range"]::-webkit-slider-runnable-track {
-    height: 6px;
-    background: var(--江南-青灰);
-    border-radius: 3px;
+    height: 4px;
+    border-radius: 2px;
+    border: none;
+    background-image:
+      linear-gradient(90deg, #6A4A2E 0%, #A8793C 60%, #D08A3E 100%),
+      linear-gradient(90deg, #7E8B87, #66736F);
+    background-size:
+      calc((100% - 18px) * var(--r, 0.5) + 9px) 100%,
+      100% 100%;
+    background-repeat: no-repeat;
+    box-shadow: inset 0 1px 1px rgba(24,20,14,.20);
   }
-
+  /* 圆球：暖白珠 + 木褐描边 + 内高光 + 投影（比锚点标签明显"高一层"） */
   #env input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
-    height: 18px;
+    appearance: none;
     width: 18px;
-    background: var(--江南-木褐);
+    height: 18px;
+    margin-top: -7px;                 /* (4px 轨道 − 18px 圆球) / 2 */
     border-radius: 50%;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.3);
-    cursor: pointer;
-    margin-top: -6px;
+    border: 1.5px solid rgba(88,64,40,.92);
+    background: radial-gradient(circle at 34% 28%, #FFFDF7 0%, #F2E7CE 44%, #CDA96C 100%);
+    box-shadow: 0 1px 3px rgba(20,16,10,.42), inset 0 1px 1px rgba(255,255,255,.9);
+    cursor: grab;
+    transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease;
   }
-
   #env input[type="range"]:hover::-webkit-slider-thumb {
-    background: var(--江南-墨黑);
-    transform: scale(1.1);
+    transform: scale(1.16);
+    border-color: var(--江南-木褐);
+    box-shadow: 0 2px 7px rgba(20,16,10,.5), 0 0 0 4px rgba(176,124,60,.22),
+                inset 0 1px 1px rgba(255,255,255,.9);
+  }
+  #env input[type="range"]:active::-webkit-slider-thumb {
+    transform: scale(1.04);
+    cursor: grabbing;
+  }
+  #env input[type="range"]:focus-visible::-webkit-slider-thumb {
+    box-shadow: 0 2px 7px rgba(20,16,10,.5), 0 0 0 4px rgba(176,124,60,.36),
+                inset 0 1px 1px rgba(255,255,255,.9);
   }
 
-  /* ── 时段合并条（2026-09-29 · 老黄："时段更精准，合并时辰；拖动时跟随显示具体时间"）──
+  /* ── 时段合并条（2026-09-29 · 老黄："时段更精准，合并时辰；拖动时跟随显示具体时间"；
+         2026-10-06 换样式 + 重排）──
      一根长拖动条 = 一天 0~24 时；晨/午/暮/夜 四个锚点以可点标签落在条上对应位置
      （7.5 / 12.5 / 17.5 / 21.5 时），点标签 = 跳到该时段锚点；读数气泡钉在滑块
-     圆球正上方，随拖动实时显示具体时间（HH:MM）——标签收进条内紧凑排列，
-     不再压到下一行。 */
-  .time-track{ position: relative; flex: 1 1 auto; min-width: 210px; height: 40px;
-    display: flex; align-items: center; --r: 0.52; }
-  /* ⚠️ 必须 #env 前缀：否则输给下面的 #env input[type="range"]{width:150px}，
+     圆球正上方，随拖动实时显示具体时间（HH:MM）。
+     ⚠️ 与旧版的差别只在**层次**：刻度点留在轨道线上、锚点标签沉到轨道下方 ——
+        旧版标签与圆球在锚点位置完全重合，圆球被标签盖住（读起来像"这条没有可拖的球"）。
+     ⚠️ 容器高度 46px 要同时容下"轨道线（居中 y=23）+ 5px 刻度点 + 下方 12px 标签"；
+        气泡在容器**上方**（bottom: calc(100% + 2px)），不占这里的高度。
+     ⚠️ max-width：重排后面板宽度由最长的一行（导览）决定，时段条若跟着 flex 撑满
+        会变成一根近 900px 的"通条"—— 480px 上限让它保持"一根条"的比例。 */
+  #env .time-track{ position: relative; flex: 1 1 auto; min-width: 210px; max-width: 480px;
+    height: 46px; display: flex; align-items: center; --r: 0.52; }
+  /* ⚠️ 必须 #env 前缀：否则输给上面的 #env input[type="range"]{width:150px}，
      滑杆缩在左边 150px，与跨全条的标签/气泡坐标脱节（老黄截图"气泡不对准圆球"根因） */
-  #env .time-track input[type="range"]{ width: 100%; }
-  .time-marks{ position: absolute; inset: 0; pointer-events: none; }
-  .time-marks button{
-    position: absolute; top: 50%; transform: translate(-50%, -50%);
-    pointer-events: auto; padding: 5px 10px; min-height: 0; line-height: 1;
-    font-size: 12px; background: rgba(240,228,200,.10);
-    border-color: transparent; border-radius: 6px;
+  #env .time-track input[type="range"]{ width: 100%; max-width: none; }
+  /* 锚点刻度点：留在轨道线上（与标签共用同一套 left 公式，只是层次不同） */
+  #env .time-ticks{ position: absolute; inset: 0; pointer-events: none; }
+  #env .time-ticks i{
+    position: absolute; top: 50%; width: 5px; height: 5px; border-radius: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--江南-木褐);
+    box-shadow: 0 0 0 1.5px rgba(246,246,243,.82);
   }
-  .time-marks button.on{
-    background: var(--江南-木褐); color: #F0E4C8;
+  /* 锚点标签：沉到轨道下方，小一号、无框、暗字 —— 与圆球拉开层次 */
+  #env .time-marks{ position: absolute; inset: 0; pointer-events: none; }
+  #env .time-marks button{
+    position: absolute; bottom: 0; transform: translateX(-50%);
+    pointer-events: auto; padding: 1px 7px; line-height: 1.30;
+    font-size: 10.5px; letter-spacing: .16em; text-indent: .16em; font-weight: 600;
+    background: transparent; border-color: transparent; border-radius: 5px;
+    color: var(--江南-木褐); opacity: .78;
+    transition: opacity .2s, color .2s, background .2s, border-color .2s;
+  }
+  /* ⚠️ hover 规则必须①带上 :not(:disabled)、②**重写 transform**：
+     它与 `#env button:hover:not(:disabled)` 是同一件事的两处声明，
+     不重写 transform 就会被那条的 translateY(-1px) 顶掉，本条的 translateX(-50%)
+     居中当场失效（标签整体右移半个宽度）。同为 (1,3,1)，靠"后置"取胜。 */
+  #env .time-marks button:hover:not(:disabled){
+    transform: translateX(-50%);
+    opacity: 1; color: var(--江南-墨黑);
+    background: rgba(96,72,48,.12);
+  }
+  #env .time-marks button.on{
+    background: var(--江南-木褐);
     border-color: var(--江南-木褐);
+    color: #F0E4C8; opacity: 1;
   }
+  /* 读数气泡：钉在圆球正上方。18px = 圆球直径（与 thumb width 同一常量），
+     --r 由 syncEnvUI / placeHourTip 写入 —— ⚠️ 不要再写 inline left 覆盖它
+     （旧的 `tip.style.left = '52%'` 走的是"占整条百分比"，与圆球中心差半个球径，
+      越靠右偏得越多：21.5 时实测偏 11px）。 */
   #env .hint#hourReadout {
     position: absolute; bottom: calc(100% + 2px);
-    left: calc((100% - 18px) * var(--r, 0.52) + 9px);   /* 18px = 滑块圆球直径：圆球正上方 */
+    left: calc((100% - 18px) * var(--r, 0.52) + 9px);
+    /* ⚠️ margin-left 必须归零：基类 `#env .hint{margin-left:4px}` 会把这个绝对定位的
+       气泡整体右推 4px（实测气泡中心比圆球中心恒偏 +4px）—— 对跟随气泡来说这是错位。 */
+    margin-left: 0;
     transform: translateX(-50%); text-align: center; pointer-events: none;
     background: var(--江南-墨黑); color: #F0E4C8; padding: 2px 7px;
     border-radius: 5px; white-space: nowrap;
@@ -302,8 +375,13 @@
       min-width: 3.2em;
     }
     #env input[type="range"] {
-      width: 104px;
+      width: 104px;                 /* 留影行的音量滑杆（时段条由下面一条按 100% 覆盖） */
     }
+    /* 时段条在窄屏：容器加高，给"40px 命中区的锚点标签"留位置 ——
+       ⚠️ 标签这条**不写 min-height**，好让上面的 `#env button{min-height:40px}`
+         继续生效（smoke 量 `#env button` 最小高度 ≥38px）。 */
+    #env .time-track{ height: 62px; max-width: none; }
+    #env .time-marks button{ bottom: 0; padding: 0 8px; min-width: 34px; font-size: 11.5px; }
   }
   /* ── Loading：水墨封面（2026-09-20 · B4）──
      原来是纯灰底 + 一行小字，首屏 6 秒盯着一块 #D8DCDA。改用 docs/cover.jpg 做底：
@@ -417,10 +495,23 @@
 
   <!-- 抽屉展开内容区 -->
   <div class="drawer-content">
+    <!-- 时段行（2026-10-06 老黄第 6 条反馈重排）：本行只剩"一根条 + 四个锚点"——
+         「灯会🏮」挪去陈设行、「流转▸ / 偶得✦」挪去导览行（与那两行的按钮同组）。
+         结构一个字没丢：滑块 #hourSlider + 四个可点锚点标签 + 跟随气泡 #hourReadout。 -->
     <div class="row">
       <span class="lbl">时段</span>
       <div class="time-track" id="timeTrack">
         <input id="hourSlider" type="range" min="0" max="24" step="0.1" value="12.5" aria-label="时段拖动条：一天 0~24 时">
+        <!-- 锚点小刻度点：与四个可点标签**共用同一套定位公式**
+             （圆球中心位置 = (100% - 球径) * ratio + 球径/2，球径 18px，与 thumb width 同值）。
+             差别只在层次：刻度点留在轨道线上，标签沉到轨道下方 ——
+             改前标签与圆球在锚点位置完全重合，圆球被盖住（"这条没有能拖的球"）。 -->
+        <div class="time-ticks" aria-hidden="true">
+          <i style="left:calc((100% - 18px) * 0.3125 + 9px)"></i>
+          <i style="left:calc((100% - 18px) * 0.5208 + 9px)"></i>
+          <i style="left:calc((100% - 18px) * 0.7292 + 9px)"></i>
+          <i style="left:calc((100% - 18px) * 0.8958 + 9px)"></i>
+        </div>
         <div class="time-marks">
           <button data-axis="time" data-v="morning" style="left:calc((100% - 18px) * 0.3125 + 9px)">晨</button>
           <button data-axis="time" data-v="noon" style="left:calc((100% - 18px) * 0.5208 + 9px)">午</button>
@@ -429,9 +520,6 @@
         </div>
         <span class="hint" id="hourReadout">12:30</span>
       </div>
-      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
-      <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得✦</button>
-      <button data-act="festival" aria-label="上元灯会" title="上元灯会：夜 + 河灯 + 灯串（一键开/关）">灯会🏮</button>
     </div>
     <div class="row">
       <span class="lbl">季节</span>
@@ -452,11 +540,20 @@
     </div>
     <!-- 陈设：竹帘卷起 / 放下（老黄 2026-10-05："右侧亭子里加的帘子挡住了里面的人和景，
          是不是加一个帘子可以升起和放下的按钮或者其它什么方式"）——
-         单独一行而不是塞进"时段"那一行：那行已经有拖动条，再加按钮会挤窄它。 -->
+         单独一行而不是塞进"时段"那一行：那行已经有拖动条，再加按钮会挤窄它。
+         2026-10-06 老黄第 6 条反馈：把「灯会🏮」（原在时段行末）与「看烟花」（原在导览行）
+         都并到本行，与「卷帘/放帘」同行（截图里两个红框 + 两支红箭头都指向这一行）。 -->
     <div class="row">
       <span class="lbl">陈设</span>
       <button data-act="blind" aria-label="竹帘卷起或放下" aria-pressed="false"
               title="竹帘：卷起 / 放下（C）">卷帘</button>
+      <!-- 上元灯会（第 4 层开关）：一键 = 夜 + 河灯 + 灯串。按钮态由 toggleFestival 自己同步 -->
+      <button data-act="festival" aria-label="上元灯会" title="上元灯会：夜 + 河灯 + 灯串（一键开/关）">灯会🏮</button>
+      <!-- 春节烟花（2026-10-05）：这个机位是**必需品**不是锦上添花 ——
+           OrbitControls.maxPolarAngle=88.6°（限制俯仰、避免钻入地面）⇒ 镜头抬不起来，
+           默认俯视机位物理上看不到天上的花（只能看到"庭院被染亮"）。
+           它同时是"一键成立"的：点它会把场景设成 冬·夜·晴（烟花的三重门控），见 12-env 的点击分支。 -->
+      <button data-view="fireworks">看烟花</button>
       <span class="hint">C</span>
     </div>
     <div class="row">
@@ -466,6 +563,9 @@
       <button data-quality="balanced" aria-label="锁定均衡画质">均衡</button>
       <button data-quality="performance" aria-label="锁定性能画质">性能</button>
     </div>
+    <!-- 导览行（2026-10-06 重排）：「看烟花」挪去陈设行；
+         「流转▸ / 偶得✦」（原在时段行末）并到本行末尾、紧邻快捷键提示 —— 截图里两个蓝框
+         框住这两个按钮、蓝箭头指向这段提示。提示文字仍在行末（其余各行的约定一致）。 -->
     <div class="row">
       <span class="lbl">导览</span>
       <button data-view="hero">立峰·云根</button>
@@ -473,12 +573,10 @@
       <button data-view="hall">远香堂</button>
       <button data-view="pavilion">荷风四面</button>
       <button data-view="overview">全园</button>
-      <!-- 春节烟花（2026-10-05）：这个机位是**必需品**不是锦上添花 ——
-           OrbitControls.maxPolarAngle=88.6°（限制俯仰、避免钻入地面）⇒ 镜头抬不起来，
-           默认俯视机位物理上看不到天上的花（只能看到"庭院被染亮"）。 -->
-      <button data-view="fireworks">看烟花</button>
       <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
+      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
+      <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得✦</button>
       <span class="hint">Z 巡览 / T 巡游 / Y 四季</span>
     </div>
     <div class="row">

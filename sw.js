@@ -44,7 +44,12 @@
 /* 2026-10-05 陈设（竹帘升降）批次 bump v15→v16：改了 SHELL 成员 index.html
    （面板加"陈设·卷帘"一行）。src/*.js 不在 SW 缓存里，改它们不用 bump。 */
 /* 2026-10-05 春节烟花批次 bump v16→v17：又改了 SHELL 成员 index.html（导览行加"看烟花"机位按钮）。 */
-const CACHE = 'suzhou-garden-v17';
+/* 2026-10-06 面板重排 + 时段滑块换样式批次 bump v17→v18：改了 SHELL 成员 index.html
+   （老黄第 6 条反馈：灯会🏮/看烟花 并进"陈设"行、流转▸/偶得✦ 并进"导览"行、
+   时段条换"细轨道 + 已过段暖色填充 + 精修圆球 + 锚点刻度点"的新样式、
+   两个滑杆视觉统一）与 src/12-env.js（气泡位置改由 CSS 变量 --r 统一负责、
+   音量滑杆补齐填充比例）。改 SHELL 成员必须升版，否则已装 SW 的浏览器吃旧缓存看不到新面板。 */
+const CACHE = 'suzhou-garden-v18';
 const SHELL = [
   './',
   './index.html',
