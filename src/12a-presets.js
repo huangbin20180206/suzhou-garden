@@ -171,6 +171,11 @@ export const ENV_WEATHER = {
    返回 null 表示该组合合法。 */
 const WEATHER_RULES = {
   snow: s => s === 'winter' ? null : '仅冬季可用',
+  /* ⚠️ 2026-10-06 老黄："冬季多一个'银装素裹'场景就少一个'狂风暴雨'吧，这样逻辑上才站得住"
+     ⇒ 冬季禁用「狂风暴雨」（原来它在冬天会降级成"狂风细雨"，与"银装素裹"摆在一起逻辑别扭）。
+     与 snow 走**同一套互斥框架**：按钮置灰 + tooltip 给原因；键盘/控制台/外部脚本调 setEnv 时
+     由 enforceWeather() 兜底降级回风和日丽（UI 置灰只是提示、不是保证 —— 那条注释就在下面）。 */
+  storm: s => s === 'winter' ? '冬季请用「银装素裹」' : null,
 };
 export function weatherMutexReason(weather, season){
   const r = WEATHER_RULES[weather];

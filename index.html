@@ -175,7 +175,25 @@
     opacity: .8;
     margin-left: 4px;
     font-family: inherit;
+    /* ⚠️ 2026-10-06 老黄："所有按钮全部配置快捷键，但平时都隐藏，多一个快捷按钮的复选框，
+       选中就出现快捷键的提示，不选中就不显示，默认情况下不显示"。
+       ⇒ 快捷键提示默认隐藏（面板更干净）；勾上「快捷键」复选框（body.show-keys）才出现。
+       ⚠️ `#hourReadout`（时辰气泡）**也是 .hint**，但它不是快捷键、必须一直显示 ⇒
+       用 :not(#hourReadout) 排除，否则气泡会跟着一起消失（那是"改 UI 顺手打翻别处"的老坑）。 */
+    display: none;
   }
+  #env .hint:not(#hourReadout).show, body.show-keys #env .hint:not(#hourReadout) { display: inline; }
+  /* ⚠️ 时辰气泡 #hourReadout **也是 .hint**，但它不是快捷键 ⇒ 必须永远显示。
+     上面那条 :not(#hourReadout) 只放行了"其它提示"，气泡自己还得单独放行一次
+     （探针实测：漏了这句时气泡 display:none —— 时长读数整个看不见）。 */
+  #env .hint#hourReadout { display: inline; }
+  /* 快捷键提示开关（画质行末尾）：与按钮同族的圆角小标签，无边框干扰 */
+  #env .hint-toggle{
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 11px; color: var(--江南-木褐); opacity: .85;
+    cursor: pointer; user-select: none; padding: 0 4px;
+  }
+  #env .hint-toggle input{ width: 13px; height: 13px; accent-color: var(--江南-木褐); cursor: pointer; }
 
   /* ══════════════════════════════════════════════════════════════
      滑块 · 新样式（2026-10-06 老黄第 6 条反馈："这个时段的拖拉滚动条我始终觉得
@@ -546,9 +564,9 @@
     <div class="row">
       <span class="lbl">陈设</span>
       <button data-act="blind" aria-label="竹帘卷起或放下" aria-pressed="false"
-              title="竹帘：卷起 / 放下（C）">卷帘</button>
+              title="珠帘：卷起 / 放下（C）">珠帘</button>
       <!-- 上元灯会（第 4 层开关）：一键 = 夜 + 河灯 + 灯串。按钮态由 toggleFestival 自己同步 -->
-      <button data-act="festival" aria-label="上元灯会" title="上元灯会：夜 + 河灯 + 灯串（一键开/关）">灯会🏮</button>
+      <button data-act="festival" aria-label="上元灯会" title="上元灯会：夜 + 河灯 + 灯串（一键开/关）">灯会</button>
       <!-- 春节烟花（2026-10-05）：「看烟花」机位是**必需品**不是锦上添花 ——
            OrbitControls.maxPolarAngle=88.6°（限制俯仰、避免钻入地面）⇒ 镜头抬不起来，
            默认俯视机位物理上看不到天上的花（只能看到"庭院被染亮"）。
@@ -557,13 +575,18 @@
            开 = 记下当前场景 → 设 冬·夜·晴（烟花的三重门控）→ 飞到机位；
            关 = 还回进来之前的场景（本来就处在 冬·夜·晴 时用权威开关明确压掉）。
            两者可同时开（灯会 + 烟花），见 12-env 的 toggleFireworksScene。 -->
-      <button data-act="fireworks">看烟花</button>
+      <button data-act="fireworks">烟花</button>
       <!-- 看彩虹（2026-10-06）：与「看烟花」同款的**一键情境**按钮 —— 虹只在 雨后初晴+白天
            出现（夜里按 uStarAmount 门控消失），所以点它先把场景设成 暮色·雨后初晴（见 12-env
            的 data-view 分支）再飞到 VIEWPOINTS.rainbow。⛔ 别删：那个机位没有别的入口
            （既不在巡游清单 TOUR_ORDER 里，也没有其它按钮引用它）。 -->
-      <button data-view="rainbow">看彩虹</button>
-      <span class="hint">C</span>
+      <button data-view="rainbow">彩虹</button>
+      <!-- 鱼趣（2026-10-06 · 老黄："新增按钮，功能和鼠标点击池水投入鱼食效果一样，只不过鼠标
+           点击是用户主动选择位置，但这个按钮是鱼食掉落在池塘中的随机位置"）：
+           与"点水面撒饵"走**同一个产品函数**（12-env 的 data-act="fish" 分支 → dropBait），
+           位置取池内随机点；运行期交互允许 Math.random（铁律 1 的"运行期效果"一档）。 -->
+      <button data-act="fish" aria-label="在池中随机位置撒一把鱼食" title="鱼趣：随机往池里撒一把鱼食">鱼趣</button>
+      <span class="hint">C D V B N</span>
     </div>
     <div class="row">
       <span class="lbl">画质</span>
@@ -571,6 +594,12 @@
       <button data-quality="high" aria-label="锁定高画质">高</button>
       <button data-quality="balanced" aria-label="锁定均衡画质">均衡</button>
       <button data-quality="performance" aria-label="锁定性能画质">性能</button>
+      <!-- 快捷键提示开关（2026-10-06 老黄："所有按钮全部配置快捷键，但平时都隐藏，多一个快捷
+           按钮的复选框，选中就出现选择键的提示，不选中就不显示快捷键，默认情况下不显示"）：
+           body.show-keys 控制所有 .hint（#hourReadout 时辰气泡除外）；状态存 localStorage。 -->
+      <label class="hint-toggle" title="显示各行按钮的快捷键提示">
+        <input type="checkbox" id="showKeys"> 快捷键
+      </label>
     </div>
     <!-- 导览行（2026-10-06 重排）：「看烟花」挪去陈设行；
          「流转▸ / 偶得✦」（原在时段行末）并到本行末尾、紧邻快捷键提示 —— 截图里两个蓝框

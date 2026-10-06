@@ -353,6 +353,9 @@ HOOKS.sound = toggleSound;
 /* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
 HOOKS.blind = toggleBlinds;
 HOOKS.blindState = blindsRolled;
+/* 鱼趣（2026-10-06 老黄）：面板按钮"随机位置撒饵"经这个钩子转发到与水面上点击**同一个**
+   dropBait（时间取 frameT —— 与 pointerdown 那条路径逐字一致，否则饵的存活/吸引相位会不同）。 */
+HOOKS.feedBait = (x, z) => dropBait(x, z, frameT);
 HOOKS.thunder = (ev) => Snd.playThunder(ev);   // 电闪雷鸣：闪电事件 → 排队雷鸣（12-env 调）
 /* 反射按需更新：把"水面是否活跃"的判断放在这里（本模块已经 import 了 ENV / REEL / 涟漪状态），
    05-water 经 HOOKS 读 —— 它不能 import 06-vegetation / 12-env（会成环，见 05 的注释）。

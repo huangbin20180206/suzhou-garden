@@ -634,7 +634,9 @@ function syncEnvUI(){
       const up = !!HOOKS.blindState?.();
       b.classList.toggle('on', up);
       b.setAttribute('aria-pressed', up ? 'true' : 'false');
-      b.textContent = up ? '放帘' : '卷帘';      // 标签写"下一步做什么"，比"当前是什么"好用
+      /* ⚠️ 2026-10-06 老黄："陈设这一行所有按钮名称全部改为两个字：珠帘-灯会-烟花-彩虹-鱼趣"
+         ⇒ 标签**不再随状态改写**（原来这里是 up ? '放帘' : '卷帘'），恒定显示"珠帘"，
+         卷/放两态由 .on 高亮 + aria-pressed + title 表达（与其它按钮同格式）。 */
       return;
     }
     if (b.dataset.act === 'season-demo'){
@@ -740,7 +742,17 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.act === 'random'){ seasonDemoUserTakeover(); HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
   if (b.dataset.act === 'festival'){ toggleFestival(); return; }   // 上元灯会：一键开关（按钮态由 toggleFestival 自己同步）
   if (b.dataset.act === 'fireworks'){ toggleFireworksScene(); return; }   // 看烟花：两档开关（2026-10-06 由 data-view 改成 data-act）
-  if (b.dataset.act === 'blind'){ HOOKS.blind?.(); syncEnvUI(); return; }   // 竹帘卷起/放下（状态在 14-props）
+  if (b.dataset.act === 'blind'){ HOOKS.blind?.(); syncEnvUI(); return; }   // 珠帘卷起/放下（状态在 14-props）
+  /* 鱼趣（2026-10-06 老黄："功能和鼠标点击池水投入鱼食效果一样，只不过鼠标点击是用户主动选择
+     位置，但这个按钮是鱼食掉落在池塘中的随机位置"）：与"点池水撒饵"走**同一个产品函数**
+     （11-loop 在 pointerdown 里调 dropBait），这里经 HOOKS.feedBait 转发；位置取池内随机点 ——
+     池心世界 (0, 3)、半径 1.6~3.6 稳稳在池里（dropBait 自己还会按岸线 0.95 夹紧，越界也安全）。
+     运行期交互用 Math.random 是允许的（铁律 1 的"运行期效果"一档，与涟漪/音景同族）。 */
+  if (b.dataset.act === 'fish'){
+    const a = Math.random() * Math.PI * 2, r = 1.6 + Math.random() * 2.0;
+    HOOKS.feedBait?.(Math.cos(a) * r, 3.0 + Math.sin(a) * r);
+    return;
+  }
   if (b.dataset.act === 'season-demo'){ toggleSeasonDemo(); return; }
   /* P2-2 巡游开关：巡游中按任意导览/环境按钮都先停巡游（接管语义），再执行本意 */
   if (b.dataset.act === 'tour'){ seasonDemoUserTakeover(); TOUR.on ? tourStop() : tourStart(); return; }
@@ -796,6 +808,22 @@ hourSlider.addEventListener('input', ()=>{
   syncEnvSoon();                           // 拖时辰可能让烟花的门控翻面 ⇒ 按钮态延后对齐
 });
 hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
+/* 快捷键提示开关（2026-10-06 老黄："多一个快捷按钮的复选框，选中就出现选择键的提示，
+   不选中就不显示快捷键，默认情况下不显示"）：body.show-keys 控制所有 .hint
+   （#hourReadout 时辰气泡除外，它不是快捷键），选择存 localStorage。 */
+{
+  const sk = document.getElementById('showKeys');
+  if (sk){
+    const apply = (v) => { document.body.classList.toggle('show-keys', !!v); sk.checked = !!v; };
+    let saved = '0';
+    try { saved = localStorage.getItem('garden.showKeys') || '0'; } catch (e) { /* 隐私模式：忽略 */ }
+    apply(saved === '1');
+    sk.addEventListener('change', () => {
+      apply(sk.checked);
+      try { localStorage.setItem('garden.showKeys', sk.checked ? '1' : '0'); } catch (e) { /* 同上 */ }
+    });
+  }
+}
 
 /* ── 留影行的音量滑杆（#sndVol）：与时段条共用"已过段暖色填充"的同一套视觉 ──
    2026-10-06 老黄第 6 条反馈要求两个滑杆视觉统一（一致性），而"已过段"是纯 CSS
@@ -946,6 +974,13 @@ addEventListener('keydown', (e)=>{
   }
   /* 竹帘卷起/放下：C（Curtain，2026-10-05 老黄要的"升起和放下"） */
   if (e.key === 'c' || e.key === 'C'){ HOOKS.blind?.(); syncEnvUI(); return; }
+/* 2026-10-06 陈设行四键（老黄："所有按钮全部配置快捷键，但平时都隐藏"）：
+   D 灯会 / V 烟花 / B 彩虹 / N 鱼趣。均与按钮走**同一条分支**（直接派发 click），
+   避免"快捷方式与按钮两条实现"这种日后会分家的写法。 */
+if (e.key === 'd' || e.key === 'D'){ document.querySelector('[data-act="festival"]')?.click(); return; }
+if (e.key === 'v' || e.key === 'V'){ document.querySelector('[data-act="fireworks"]')?.click(); return; }
+if (e.key === 'b' || e.key === 'B'){ document.querySelector('[data-view="rainbow"]')?.click(); return; }
+if (e.key === 'n' || e.key === 'N'){ document.querySelector('[data-act="fish"]')?.click(); return; }
   const map  = { '1':'morning', '2':'noon', '3':'dusk', '4':'night' };
   const smap = { q:'spring', w:'summer', e:'autumn', r:'winter' };
   /* 2026-09-28：'阴霾暗沉'从菜单收起（老黄："和薄雾感官上太一致，保留薄雾"）——

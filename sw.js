@@ -53,7 +53,10 @@
    （陈设行加「看彩虹」一键情境按钮 —— 同「看烟花」的套路：先设 暮色·雨后初晴 再飞）。 */
 /* 2026-10-06 看烟花两档开关批次 bump v19→v20：又改了 SHELL 成员 index.html
    （「看烟花」由 data-view 改成 data-act 的两档开关；同时"换场景自动收起灯会/烟花"）。 */
-const CACHE = 'suzhou-garden-v20';
+/* 2026-10-06 面板统一批次 bump v20→v21：又改了 SHELL 成员 index.html ——
+   陈设行按钮改两字名（珠帘/灯会/烟花/彩虹/鱼趣）、新增「鱼趣」与「快捷键」复选框、
+   快捷键提示默认隐藏（勾选才显示）。 */
+const CACHE = 'suzhou-garden-v21';
 const SHELL = [
   './',
   './index.html',
