@@ -3259,7 +3259,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
                         ^ (Math.round(scale * 1000) * 83492791));
   const rr2 = (a, b) => a + R2() * (b - a);
   const i2 = (n) => (R2() * n) | 0;
-  const H = 4.2 * rr2(0.92, 1.08);                      // 桃较柳矮：观花小乔木
+  const H = 4.2 * rr2(0.92, 1.08) * (opts.heightMul || 1);   // 桃较柳矮：观花小乔木（梅传 heightMul 更高）
   /* ⚠️ 主干半径 0.150 → 0.100（2026-09-22 二轮重建）：老黄实拍样张里主干是一根 ~0.44m 粗的
      光杆，4m 高的桃树不该有这么粗的干（真实桃干径 0.12~0.20m）。根盘同步收小。 */
   const trunkR = 0.100 * rr2(0.94, 1.08);
@@ -3267,7 +3267,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
      一层稀晕（实测 77% 的叶挤在半径 1m 内，冠外圈只摊到 23%，从外面看穿得透）。
      收到 0.34H（冠幅 ≈2.9m）后同样的叶量密度提高 ~1.5 倍。 */
   const canopyC = new THREE.Vector3(0, H * 0.64, 0);     // 冠心
-  const R = H * 0.34;                                    // 冠半径
+  const R = H * 0.34 * (opts.canopyMul || 1);            // 冠半径（梅传 canopyMul 展得更开）
   const _m = new THREE.Matrix4(), _p = new THREE.Vector3(),
         _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(),
         _s = new THREE.Vector3(), _e = new THREE.Euler(),
@@ -3346,7 +3346,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   /* 主枝：5~7 根，从主干 **0.16~0.38H**（低位）处分叉斜向上外张 —— 杯状骨架。
      半径基 0.041 → 梢 0.011（随干径同步收小；旧 0.050 的枝在细干上像插上去的）。
      全部并成**一个** mesh —— 同材质同变换，分成 5~6 个 mesh 只是白送 5~6 个 draw call。 */
-  const nBranch = 5 + (i2(3));
+  const nBranch = Math.round((5 + (i2(3))) * (opts.branchMul || 1));   // 主枝（梅传 branchMul 枝更多）
   const mainBranches = [];       // 保存曲线用于挂叶/花/果
   const branchGeos = [];
   const BR_SEG = 14, BR_RAD = 7;
@@ -3388,7 +3388,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   const twigGeos = [];
   const TW_SEG = 6, TW_RAD = 5;
   for (const br of mainBranches){
-    const nTwig = 8 + (i2(5));
+    const nTwig = Math.round((8 + (i2(5))) * (opts.branchMul || 1));
     for (let k = 0; k < nTwig; k++){
       const t = rr2(0.20, 0.96);
       const base = br.getPointAt(t);
@@ -3518,7 +3518,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
 
   /* ── 叶：桃叶互生，短枝上 3~4 片成簇 ── */
   const leafGeo = makePeachLeafGeo();
-  const leafN = 4000;
+  const leafN = Math.round(4000 * (opts.leafMul || 1));
   const leafInst = new THREE.InstancedMesh(leafGeo, MAT.peachLeaf, leafN);
   leafInst.castShadow = true;
   const leafA = new THREE.Color(0x79B23E), leafB = new THREE.Color(0x44701F);
@@ -3727,12 +3727,72 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
     /* ⚠️ 花量 5000（2026-10-06 二轮 · 老黄："然后梅花一颗树5000朵吧"）：原来 2000 朵
        在截图里只读得出"零星几簇"，与桃的满树花完全分不出来 —— 梅要的是"满树繁花"。 */
     flowerN: 5000,
-    /* ⚠️ 花色区间（二轮修色）：材质底色已改白，色相只由这里的实例色给 ——
-       红梅 = 淡胭脂 → 正红（原来底色是彩的，乘完变锈红）；
-       腊梅 = 淡黄 → 正黄（老黄："腊梅是淡黄色到黄色"）。 */
+    /* ⚠️⚠️ 2026-10-06 三轮 · 老黄："梅花和桃树的结构长得太像了，让梅花树长得更高，
+       枝条和树叶也更多，枝条伸展的范围也更大" ⇒ 四个乘子把"梅 ≠ 桃"做成可读的差别：
+         · heightMul 1.35 —— 梅比桃高一档（桃 H≈4.2，梅≈5.7）；
+         · canopyMul 1.25 —— 冠幅再展 1/4（结合高度，枝展明显更开）；
+         · branchMul 1.30 —— 主枝与小枝各多三成（"枝条更多"）；
+         · leafMul   1.40 —— 叶量多四成（夏天叶更密；冬天叶落只留骨相，不受影响）。
+       这些只改**本树自己的私有流**（R2 由坐标播种），不影响全局布局流。 */
+    heightMul: 1.35, canopyMul: 1.25, branchMul: 1.30, leafMul: 1.40,
+    /* ⚠️ 花色区间（二轮修色）：材质底色已改白、瓣贴图改白底，色相只由这里的实例色给 ——
+       红梅 = 淡胭脂 → 正红；腊梅 = 淡黄 → 正黄（老黄："腊梅是淡黄色到黄色"）。 */
     blossomA: new THREE.Color(red ? 0xFFA8BC : 0xFFFBDC),
     blossomB: new THREE.Color(red ? 0xD8213F : 0xF2D24A),
   });
+}
+
+/* ══ 廊下兰草（2026-10-06 · 老黄："在廊下补一小丛兰草（或盆栽兰）"）═════════════════════
+   凑"梅兰竹菊"的最后一笔。取"**盆栽兰**"（廊下本来就有缸/盆一类陈设，最省事也最不出错）：
+     · 花盆：两级陶盆 + 口沿圈（深陶色）；
+     · 叶：复用 `makeReedBladeGeo()` —— 它本来就是"根部直立、梢部外弯"的弧叶，正是兰叶的形；
+       9 片绕心放射，朝向/长度/倾角全部吃**本函数私有流**（不动全局 rnd/rr，铁律 1）；
+     · 花葶：3 根细杆挑出盆沿、顶端各 2~3 朵米黄小花（远看就是"兰开花了"）。
+   开销：1 个 InstancedMesh（叶）+ 一小组普通 Mesh，只多一次提交级别的成本。
+   ⚠️ 落点高度必须由调用方按**实测地表**给（见 08 的注释）：廊下是台基/铺装，不是地形，
+     用 groundHeight 会把盆陷进台基里。 */
+export function makeOrchidPot(x, z, baseY = 0){
+  const g = new THREE.Group();
+  g.position.set(x, baseY, z);
+  const R3 = mulberry32(((Math.round(x * 1000) * 2654435761) ^ (Math.round(z * 1000) * 40503)) >>> 0);
+  const potLow = mesh(new THREE.CylinderGeometry(0.115, 0.095, 0.075, 12), MAT.stoneDark, { name:'orchidPotLow', cast:true });
+  potLow.position.y = 0.0375; g.add(potLow);
+  const potUp  = mesh(new THREE.CylinderGeometry(0.135, 0.115, 0.085, 12), MAT.stoneDark, { name:'orchidPotUp', cast:true });
+  potUp.position.y = 0.1175; g.add(potUp);
+  const potRim = mesh(new THREE.CylinderGeometry(0.146, 0.140, 0.022, 12), MAT.stoneDark, { name:'orchidPotRim', cast:true });
+  potRim.position.y = 0.168; g.add(potRim);
+  const leafGeo = makeReedBladeGeo(0.52);
+  const leaves = new THREE.InstancedMesh(leafGeo, MAT.reed, 9);
+  const lq = new THREE.Quaternion(), lq2 = new THREE.Quaternion(), lp = new THREE.Vector3(),
+        ls = new THREE.Vector3(), lm = new THREE.Matrix4(), AY = new THREE.Vector3(0, 1, 0), AX = new THREE.Vector3(1, 0, 0);
+  for (let i = 0; i < 9; i++){
+    const a = (i / 9) * TAU + R3() * 0.5;
+    const lean = 0.20 + R3() * 0.22;
+    lp.set(Math.cos(a) * 0.05, 0.155, Math.sin(a) * 0.05);
+    lq.setFromAxisAngle(AY, -a);
+    lq2.setFromAxisAngle(AX, lean);
+    lq.multiply(lq2);
+    ls.setScalar(0.85 + R3() * 0.5);
+    lm.compose(lp, lq, ls); leaves.setMatrixAt(i, lm);
+  }
+  leaves.instanceMatrix.needsUpdate = true;
+  leaves.castShadow = false; leaves.receiveShadow = true;
+  g.add(leaves);
+  /* 花葶复用腊梅的米黄瓣材质（同为淡黄小花，省一份材质；它已在 SEASON_PRESENCE 里，
+     冬天 plumBlossomShow=1 时兰也在开 —— 与兰的花期（冬春）正好一致）。 */
+  for (let k = 0; k < 3; k++){
+    const a = 0.7 + k * 2.1 + R3() * 0.4, lean = 0.16 + R3() * 0.18, h = 0.44 + R3() * 0.16;
+    const stem = mesh(new THREE.CylinderGeometry(0.006, 0.009, h, 5), MAT.reed, { name:'orchidStem', cast:false });
+    stem.position.set(Math.cos(a) * 0.05, 0.16 + h / 2, Math.sin(a) * 0.05);
+    stem.rotation.set(lean * Math.sin(a), 0, -lean * Math.cos(a));
+    g.add(stem);
+    for (let j = 0; j < 3; j++){
+      const f = mesh(new THREE.SphereGeometry(0.022, 7, 6), MAT.plumBlossomYellow, { name:'orchidFlower', cast:false });
+      f.position.set(stem.position.x * (1 + j * 0.5), 0.16 + h * (0.72 + j * 0.12), stem.position.z * (1 + j * 0.5));
+      g.add(f);
+    }
+  }
+  return g;
 }
 
 /* 芭蕉果串（重建）：真实香蕉束 —— 冠部斜出的粗果轴 + 5 圈"把"（hand），每圈一圈

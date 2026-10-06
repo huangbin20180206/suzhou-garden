@@ -15,7 +15,7 @@ const jr = mulberry32(20260924);
    （铁律 1 的实质是"别改既有流的消费位置"），而 updateWatchers 逐帧**一次随机都不取** ——
    否则帧数会改写这条流的消费点，延迟批里那些还要 jr() 的 job 布局会整体漂。 */
 const WR = mulberry32(20261009);
-import { rippleInst, makeMistField, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, makePlumTree, baitPoints, makePondPads } from './06-vegetation.js';
+import { rippleInst, makeMistField, makeWisteria, makeRockery, makeRockChain, makeLotusPod, makeAquatic, makeKoiGroup, perchingAnchors, makeWaterGrass, placeAssets, makeBananaPlant, loadAssetOnce, KOI_ORBITS, makeWillow, makeBamboo, makeTaihuHeroGeo, makeReedBladeGeo, makePeachTree, makePlumTree, makeOrchidPot, baitPoints, makePondPads } from './06-vegetation.js';
 /* 2026-10-05 拆分：雾团 + 香炉白烟已搬进 06b-atmos.js（两者是"billboard 氛围片"，与植被建模无关）。 */
 import { makeFogBanks, makeCenserSmoke } from './06b-atmos.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGeo } from './07-ground.js';
@@ -2710,16 +2710,25 @@ const DUCK_ORBITS = [0, 6, 2, 3];
 
 // 梅（2026-10-06 · 老黄："院内布景也讲究梅兰竹菊…加两株梅花，一株腊梅一株红梅，
 // 给冬天增加一点色彩，特别是'银装素裹'下"）。
-/* 落点用 outputs/_diag/plum-spots.mjs 实测选的（15 个候选中挑"不在池内 + 四角高差最小"）：
-     · 红梅 (16, -6)：地表 y=-0.05、±0.7m 四角高差 **0.06**（最平），大堂堂东开阔地、
-       游廊北端外 2m（游廊 z≥-3.9）—— 默认机位与东岸视角都看得到；
-     · 腊梅 (-20, 14)：地表 y=-0.40、四角高差 **0.04**，西南墙角附近（离南墙 8.5m）——
-       "墙角腊梅"本来就是江南园林的固定套路。
-   ⚠️ baseY 按实测地表给（桃树那株的教训：树基写 0 会被埋进石缝/草皮，只露出主枝中上段，
-   读作灌木）；梅的枝干照旧进 mergeStatics，冬天叶落仍留"疏影横斜"的骨相。 */
-[[16, -6, 1.12, -0.05, 'red'], [-20, 14, 1.06, -0.40, 'yellow']]
-  .forEach(([x, z, s, by, kind]) => deferBoot('梅@' + x + ',' + z,
+/* ⚠️ 初版落点（红梅 (16,-6) / 腊梅 (-20,14)，由 outputs/_diag/plum-spots.mjs 选的）已在
+   2026-10-06 二轮**作废并挪走**（老黄要求墙角位）—— 见下面那一块，别改回来。 */
+/* ⚠️ 2026-10-06 二轮挪位（老黄："腊梅的位置更靠西南墙角一些，红梅的位置靠东北墙角"）：
+   落点用 outputs/_diag/spots2.mjs 在墙角一带实测挑的（都不在池内、四角高差最小）：
+     · 腊梅 (-23.5, 17)：地表 -0.375、±0.7m 高差 **0.007**，西南墙角（离西墙 6.5m、南墙 5.5m）；
+     · 红梅 (22.5, -16.5)：地表 -0.717、四角高差 **0.042**，东北墙角（离东墙 7.5m、北墙 6m）。
+   ⚠️ 旧落点（红梅 (16,-6) / 腊梅 (-20,14)）作废，别改回去。
+   baseY 一律按实测地表给 —— 腊梅上一次"主干悬空"就出在 baseY 与地表没对齐。 */
+[[22.5, -16.5, 1.12, -0.717, 'red'], [-23.5, 17, 1.06, -0.375, 'yellow']]
+  .forEach(([x, z, s, by, kind]) => deferBoot('梅二@' + x + ',' + z,
     () => deferRoot.add(makePlumTree(x, z, s, by, kind))));
+
+// 廊下盆栽兰（2026-10-06 · 老黄："在廊下补一小丛兰草（或盆栽兰）"）—— 凑齐"梅兰竹菊"。
+/* 落点用 outputs/_diag/spots2.mjs 实测：廊内 (14.2, 9.0) 地表 **0.62**、±0.7m 四角高差 **0**
+   （命中 mergedStatic = 游廊台基/铺装，不是地形）⇒ baseY 直接给 0.62，盆就稳稳坐在廊下。
+   ⚠️ 别改成 groundHeight(x,z)：廊下是台基，地形高度在它下面 0.6m 以外，盆会陷进去。 */
+[[14.2, 9.0, 0.62], [14.2, 5.2, 0.62]]
+  .forEach(([x, z, by]) => deferBoot('兰@' + x + ',' + z,
+    () => deferRoot.add(makeOrchidPot(x, z, by))));
 
 // 青竹丛（沿墙根密植，四角加倍）—— P1-4 延迟装配（竹竿几何 + 叶实例，量最大）
 // 北排只保留主堂檐口以外的位置，并整体退到 z=-20 以内，避免竹叶穿出围墙内壁（22.2）
