@@ -291,7 +291,7 @@ export const WALK_PATH = (()=>{
     }
     return groundHeight(x, z);
   };
-  const STEP = 0.15;                              // 加密间距：台阶/坡面处插值误差 ≤ ~0.08m
+  const STEP = 0.15;                              // 基准采样间距（台阶处另做自适应细分，见下）
   const raw = [];
   for (let i = 0; i < WALK_ROUTE.length; i++){
     const [x1, z1] = WALK_ROUTE[i];
@@ -299,7 +299,53 @@ export const WALK_PATH = (()=>{
     const n = Math.max(1, Math.round(Math.hypot(x2 - x1, z2 - z1) / STEP));
     for (let k = 0; k < n; k++) raw.push([x1 + (x2 - x1) * k / n, z1 + (z2 - z1) * k / n]);
   }
-  const pts = raw.map(([x, z]) => ({ x, z, y: surfaceY(x, z) }));
+  const base = raw.map(([x, z]) => ({ x, z, y: surfaceY(x, z) }));
+  /* ⚠️⚠️ 台阶处"把坎找准再跨过去"（2026-10-06 修"过桥头踏跺时瞬时下陷"，交接文档第 3 节第 3 条）：
+     桥头是**四级各 ~0.2m 的踏跺**（实测 x=8.70 车道：1.302 / 1.0848 / 0.8875 / 0.6903，
+     每级踏面 0.4m 左右、坎在两级之间）。而基准采样是 0.15m 一档 ⇒ 坎必然落在某一档**内部**，
+     线性插值就把一级坎抹成 0.15m 长的斜坡 —— 数学上"跨坎段的插值偏差" = Δy × max(u/λ, 1−u/λ)
+     ≥ Δy/2（u=坎在段内的位置），**细分只能把窗口变短、压不下幅度**（我第一版就是这么做
+     自适应二分到 0.005m，实测最大偏差仍有 0.102m ⇒ 那条路是错的，别回头）。
+     实测（outputs/_diag/walk-step-check.mjs，按 0.02m 一档复算产品自己的 walkPointAt）：
+       · 修复前：最大 |脚底−面| = **0.161m**（陷地 −0.161 / 悬空 +0.110），
+         **|偏差| > 5cm 的路程合计 0.62m**（≈0.86s 的"陷进去"时间），全在桥头两处踏跺。
+     ⇒ 正解 = **先二分把坎的位置找出来**（射线实测，6 次二分定位到 L/64 ≈ 2.3mm），
+     再在坎两侧各插一个点 ⇒ 插值只在 ~2mm 内走完 0.2m 落差（≈3ms）：
+     偏差窗口从 0.62m 收到 ~0.02m，肉眼就是一"步"落下去（真人也正是这么下台阶的）。
+     ⚠️ 只**加密采样**：路线与 x/z 一字不动（新点落在原来的直线段上）⇒ 全长 27.59m、
+     walkPointAt 的插值口径、0.72m/s 与"一圈 38s"全不受影响；也**不消耗任何随机数**
+     ⇒ layout-fingerprint 不受影响（那门只哈希 InstancedMesh）。普通坡面（|Δy| ≤ 0.06）
+     **完全不动**（照旧线性插值，免得把山脊那几条长坡走成"小碎步"）。
+     实测（0.02m 一档复算产品自己的 walkPointAt）：最大 |脚底−面| 0.161→**0.070**、
+     **最大下陷 −0.161→−0.019**（"陷进石头"那一半基本消失）、|偏差|>5cm 的路程 **0.62m→0.04m**。
+     代价：182 → **248** 个采样点（多 264 次射线）⇒ 冷启动 A/B/A/B 交替实测 10.41s vs 10.14s
+     ＝ **+0.27s（2.7%）**。⚠️ 不交替测会得出"+9s"的假结论 —— 那是本机启动漂移（本项目
+     "同一份代码早晚差 2 倍"那条老账），别信。 */
+  const RISER_DY = 0.06;      // 判"这是坎"的最小高差（低于它的当坡面，不处理）
+  const RISER_BISECT = 6;     // 二分次数：定位精度 ≈ 段长/2^6 ≈ 2.3mm
+  const locateRiser = (a, b, out) => {
+    const D = Math.abs(b.y - a.y);
+    if (D <= RISER_DY) return;
+    const len = Math.hypot(b.x - a.x, b.z - a.z);
+    if (len < 1e-6) return;
+    const at = (t) => { const x = a.x + (b.x - a.x) * t, z = a.z + (b.z - a.z) * t;
+                        return { x, z, y: surfaceY(x, z) }; };
+    let lo = 0, hi = 1;
+    for (let k = 0; k < RISER_BISECT; k++){
+      const t = (lo + hi) / 2, p = at(t);
+      /* 离 a 那级踏面更近 ⇒ 还没到坎；否则已经落到 b 那一级 */
+      if (Math.abs(p.y - a.y) <= D / 2) lo = t; else hi = t;
+    }
+    if (hi - lo >= 0.5) return;                    // 没收敛（不是单一台阶）⇒ 原样不动
+    out.push(at(lo));                              // 坎前最后一点（仍在上二级踏面上）
+    out.push(at(hi));                              // 坎后第一点（已落到下一级）
+  };
+  const pts = [];
+  for (let i = 0; i < base.length; i++){
+    const a = base[i], b = base[(i + 1) % base.length];
+    pts.push(a);
+    locateRiser(a, b, pts);                        // 只在 a→b 之间插点（不含 b）
+  }
   const cum = [0];
   for (let i = 0; i < pts.length; i++){
     const a = pts[i], b = pts[(i + 1) % pts.length];
@@ -308,8 +354,11 @@ export const WALK_PATH = (()=>{
   return { pts, cum, len: cum[cum.length - 1] };
 })();
 
-/* 路径上的插值取点（s = 弧长，单位 m；闭合 ⇒ 超出一圈就绕回来）。 */
-function walkPointAt(s, cursor){
+/* 路径上的插值取点（s = 弧长，单位 m；闭合 ⇒ 超出一圈就绕回来）。
+   ⚠️ 2026-10-06 起**也 export**（门禁要按产品自己的插值口径复算"脚底 vs 脚下那个面"，
+   见 probe/figure-foot-guard.mjs 的"巡游观鱼者沿全程扫描"那条 —— 探针里另写一份 lerp
+   等于把产品口径抄一遍，改产品时两边会悄悄分家）。 */
+export function walkPointAt(s, cursor){
   const P = WALK_PATH.pts, C = WALK_PATH.cum;
   let i = cursor.i | 0;
   while (i + 1 < C.length - 1 && C[i + 1] <= s) i++;

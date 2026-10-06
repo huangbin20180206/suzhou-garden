@@ -69,8 +69,9 @@ const EXPECT_FIGS = 15;                     // 先生 + 2 书童 + 品茗 + 夜�
   await page.evaluate(() => { const G = window.__garden; G.ENV.dur = 0.25; });
   await page.waitForTimeout(600);
 
-  const data = await page.evaluate((selftest) => {
+  const data = await page.evaluate(async (selftest) => {
     const G = window.__garden, T = G.THREE;
+    const A = await import('/src/08-assemble.js');   // 取产品自己的 walkPointAt（见文件头"巡游者"一条）
     const figs = G.figures || [];
     /* 复现缺陷态：人全按回 y=0（修复前就是这个值），
        并把散步区间换回修复前的 [1.3, −3.8]（那段有 2.5m 在池面上）——
@@ -134,15 +135,40 @@ const EXPECT_FIGS = 15;                     // 先生 + 2 书童 + 品茗 + 夜�
       out.push({ pose: f.userData.poseName || '(无)', skin: f.userData.skin || '(无)',
                  baseY: +f.userData.baseY.toFixed(3), strolling: !!st, rows });
     }
+    /* ⚠️ 巡游观鱼者要**沿整条路扫**（2026-10-06 补）：他的 `slot.stroll` 是 null（位置由
+       driveWalkers 沿 WALK_PATH 推），所以上面的循环只量到他**此刻那一个点** ——
+       而"过桥头踏跺时陷一下"只在路径的特定几段出现（实测 s=10.5~16.8 的两处踏跺）。
+       这里用**产品自己的** `walkPointAt` 取点（口径与 driveWalkers 逐字一致，不在探针里
+       另抄一份 lerp —— 抄一份 = 改产品时两边悄悄分家），0.02m 一档扫完一圈。 */
+    let walkerScan = null;
+    const wk = figs.find(f => f.userData.walk);
+    if (wk && A.WALK_PATH && A.walkPointAt){
+      const P = A.WALK_PATH, cur = { i: 0 }, rows = [];
+      for (let s = 0; s < P.len; s += 0.02){
+        const p = A.walkPointAt(s, cur);
+        const sf = surfaceAt(p.x, p.z);
+        if (sf) rows.push({ s: +s.toFixed(2), x: +p.x.toFixed(2), z: +p.z.toFixed(2),
+                            gap: +(p.y - sf.y).toFixed(4), isWater: sf.isWater });
+      }
+      if (rows.length){
+        const worst = rows.slice().sort((a, b) => Math.abs(b.gap) - Math.abs(a.gap))[0];
+        walkerScan = { points: P.pts.length, len: +P.len.toFixed(2), n: rows.length,
+                       maxAbs: Math.abs(worst.gap), worst,
+                       maxSink: Math.min(...rows.map(r => r.gap)),      // 最深的"陷进去"
+                       /* ⚠️ 关键量是**里程**（=持续时间）而不是峰值：见下面判据的标定说明 */
+                       over5Len: +(rows.filter(r => Math.abs(r.gap) > 0.05).length * 0.02).toFixed(3),
+                       water: rows.filter(r => r.isWater).length };
+      }
+    }
     figs.forEach((f, i) => { f.visible = was[i]; });
-    return out;
+    return { figs: out, walkerScan };
   }, SELFTEST);
 
   check(`点景人物数量 = ${EXPECT_FIGS}（先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴 + 看烟花的一家 5 + 观鱼人 + 仕女）`,
-    data.length === EXPECT_FIGS, `实测 ${data.length} 个：${data.map(d => d.pose).join('、')}`);
+    data.figs.length === EXPECT_FIGS, `实测 ${data.figs.length} 个：${data.figs.map(d => d.pose).join('、')}`);
 
   let worstGap = 0, worstWhere = '', waterHits = [];
-  for (const d of data) {
+  for (const d of data.figs) {
     for (const r of d.rows) {
       if (r.isWater) waterHits.push(`${d.pose}@z=${r.z}`);
       if (r.gap !== null && Math.abs(r.gap) > Math.abs(worstGap)) { worstGap = r.gap; worstWhere = `${d.pose}@(${r.x},${r.z})`; }
@@ -152,7 +178,30 @@ const EXPECT_FIGS = 15;                     // 先生 + 2 书童 + 品茗 + 夜�
     waterHits.length ? `${waterHits.length} 处：${waterHits.slice(0, 4).join('、')}` : '0 处');
   check(`人物脚底贴着脚下的面（|脚底 − 面| ≤ ${TOL}，含散步全程扫描）`,
     Math.abs(worstGap) <= TOL, `最差 ${worstGap} @ ${worstWhere || '—'}`);
-  for (const d of data) {
+  /* ── 巡游观鱼者：沿整条闭合路径扫描（2026-10-06 新增）─────────────────────
+     标定（修复前 → 修复后，0.02m 一档复算产品自己的 walkPointAt，outputs/_diag/walk-step-check.mjs）：
+       · **最大下陷 −0.161 → −0.019**（"脚陷进石板里"就是老黄说的"过桥头时陷一下"）；
+       · |偏差| > 5cm 的**路程 0.62m → 0.04m**（0.62m ≈ 0.86s 的持续时间 ⇒ 肉眼看得出来；
+         0.04m ≈ 0.06s ⇒ 就是一"步"落下去）。
+     ⚠️⚠️ 判据必须量**里程/持续时间**，不能只量峰值：桥头是四级 0.2m 的踏跺，而**任何**线性
+     插值跨坎时瞬时偏差都在 Δy/2 左右（实测修后仍有 0.070m 的一瞬）—— 峰值这条抓不出
+     真正的观感缺陷（0.86s 的持续下陷），量里程才抓得出（同"鱼倒游要量连续时长、不数单帧翻转"
+     那条）。所以这里不写"最大偏差 ≤ 0.05"，而是"下陷 ≤ 0.03 + >5cm 的路程 ≤ 0.15m"。 */
+  if (data.walkerScan) {
+    const w = data.walkerScan;
+    console.log(`     · 巡游观鱼者全程扫描：路径 ${w.points} 点 / ${w.len}m，复算 ${w.n} 档`
+      + `（最大外浮 ${w.maxAbs.toFixed(3)} @ (${w.worst.x},${w.worst.z}) s=${w.worst.s}`
+      + `，最大下陷 ${w.maxSink.toFixed(3)}，>5cm 里程 ${w.over5Len}m）`);
+    check('巡游观鱼者沿全程：脚不会陷进石头（最大下陷 ≤ 0.03m；修复前 −0.161m）',
+      w.maxSink >= -0.03, `最大下陷 ${w.maxSink.toFixed(3)}m · 最大外浮 ${w.maxAbs.toFixed(3)}m`);
+    check('巡游观鱼者：偏差 >5cm 的路程 ≤ 0.15m（修复前 0.62m ≈ 0.86s 的"陷进去"）',
+      w.over5Len <= 0.15, `${w.over5Len}m / 全程 ${w.len}m`);
+    check('巡游观鱼者全程不踩水面', w.water === 0, `${w.water} 档命中 waterSurface`);
+  } else {
+    check('找到巡游观鱼者并扫完全程（userData.walk + 产品的 walkPointAt）', false,
+      '没扫到 ⇒ 上面的"没越界"只是没量过');
+  }
+  for (const d of data.figs) {
     const gs = d.rows.map(r => r.gap).filter(g => g !== null);
     const mn = gs.length ? Math.min(...gs) : NaN, mx = gs.length ? Math.max(...gs) : NaN;
     console.log(`     · ${d.pose.padEnd(8)} y=${String(d.baseY).padStart(6)} ${d.strolling ? '散步' : '静止'}`
