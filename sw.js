@@ -56,7 +56,10 @@
 /* 2026-10-06 面板统一批次 bump v20→v21：又改了 SHELL 成员 index.html ——
    陈设行按钮改两字名（珠帘/灯会/烟花/彩虹/鱼趣）、新增「鱼趣」与「快捷键」复选框、
    快捷键提示默认隐藏（勾选才显示）。 */
-const CACHE = 'suzhou-garden-v21';
+/* 2026-10-06 图标与快捷键补齐批次 bump v21→v22：又改了 SHELL 成员 index.html ——
+   全部按钮加图标（data-ic + CSS ::before，不动 DOM 结构、textContent 不变）、
+   提示文字补 5~9 机位 / Shift+1~4 画质。 */
+const CACHE = 'suzhou-garden-v22';
 const SHELL = [
   './',
   './index.html',

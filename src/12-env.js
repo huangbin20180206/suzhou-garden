@@ -825,6 +825,32 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
   }
 }
 
+/* ══ 按钮图标（2026-10-06 老黄："所有按钮都学灯会一样，文字+中式小图标来呈现，形成统一的格式
+      和布景"）═══════════════════════════════════════════════════════════════════════
+   一张表 + 一遍遍历把 `data-ic` 打到每个按钮上，图标由 CSS 的 ::before 画出来（见 index.html）。
+   ⚠️ **不改 DOM 结构、不加子元素** ⇒ 按钮的 textContent 仍是纯标签文字，
+      各探针按文字认按钮的口径（panel-check2 / _ui-click-diag 等）一位不变。
+   图标统一取"淡墨印记"一族的几何/花卉符号（与既有的 ▸ ✦ ▽ 同风格），不用彩色 emoji。 */
+{
+  const ICON = {
+    'season:spring': '❀', 'season:summer': '☀', 'season:autumn': '❦', 'season:winter': '❄',
+    'weather:clear': '☼', 'weather:storm': '☂', 'weather:afterrain': '◠', 'weather:snow': '❄', 'weather:mist': '≋',
+    'act:blind': '⌇', 'act:festival': '◍', 'act:fireworks': '✺', 'act:fish': '◔',
+    'quality:auto': 'Ａ', 'quality:high': 'Ｈ', 'quality:balanced': 'Ｂ', 'quality:performance': 'Ｐ',
+    'view:rainbow': '◠', 'view:hero': '▲', 'view:stele': '◆', 'view:hall': '⌂', 'view:pavilion': '◇', 'view:overview': '◎',
+    'act:season-demo': '❁', 'act:tour': '▸', 'act:reel': '◔', 'act:random': '✦',
+    'act:shot': '▤', 'act:long': '✧', 'act:sound': '♪',
+  };
+  for (const b of envEl.querySelectorAll('button')){
+    const d = b.dataset;
+    const key = d.axis ? d.axis + ':' + d.v
+              : d.act ? 'act:' + d.act
+              : d.view ? 'view:' + d.view
+              : d.quality ? 'quality:' + d.quality : '';
+    if (key && ICON[key]) b.dataset.ic = ICON[key];
+  }
+}
+
 /* ── 留影行的音量滑杆（#sndVol）：与时段条共用"已过段暖色填充"的同一套视觉 ──
    2026-10-06 老黄第 6 条反馈要求两个滑杆视觉统一（一致性），而"已过段"是纯 CSS
    用 `background-size: calc(... var(--r) ...)` 裁出来的 ⇒ 需要一个 --r。
@@ -981,6 +1007,18 @@ if (e.key === 'd' || e.key === 'D'){ document.querySelector('[data-act="festival
 if (e.key === 'v' || e.key === 'V'){ document.querySelector('[data-act="fireworks"]')?.click(); return; }
 if (e.key === 'b' || e.key === 'B'){ document.querySelector('[data-view="rainbow"]')?.click(); return; }
 if (e.key === 'n' || e.key === 'N'){ document.querySelector('[data-act="fish"]')?.click(); return; }
+/* 2026-10-06 补齐剩余快捷键（老黄："所有按钮全部配置快捷键"）：
+   ⚠️ 数字 **1~4 已被「时段」占用**（下面 time 的 map），别拿来当机位键。
+   ⇒ 5~9 = 导览五个机位（顺序与面板/VIEWPOINTS 一致：立峰/云根近观/远香堂/荷风四面/全园）；
+     Shift+1~4（键盘上是 ! @ # $）= 画质四档（自动/高/均衡/性能）。
+   两条都走"派发 click"这同一条路径，不另写一套实现。 */
+if (e.key >= '5' && e.key <= '9'){
+  const id = ['hero', 'stele', 'hall', 'pavilion', 'overview'][+e.key - 5];
+  document.querySelector('[data-view="' + id + '"]')?.click(); return;
+}
+if (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '$'){
+  HOOKS.setQuality?.(['auto', 'high', 'balanced', 'performance']['!@#$'.indexOf(e.key)]); return;
+}
   const map  = { '1':'morning', '2':'noon', '3':'dusk', '4':'night' };
   const smap = { q:'spring', w:'summer', e:'autumn', r:'winter' };
   /* 2026-09-28：'阴霾暗沉'从菜单收起（老黄："和薄雾感官上太一致，保留薄雾"）——

@@ -195,6 +195,21 @@
   }
   #env .hint-toggle input{ width: 13px; height: 13px; accent-color: var(--江南-木褐); cursor: pointer; }
 
+  /* ══ 按钮图标（2026-10-06 老黄："所有按钮都学灯会一样，文字+中式小图标来呈现，
+     形成统一的格式和布景"）══
+     ⚠️ 图标走 `data-ic` 属性 + ::before 注入，**不往按钮里塞子元素** ——
+     按钮的 textContent 仍是纯标签文字，各探针按 textContent 认按钮的口径一位不变
+     （panel-check2 / _ui-click-diag 都是按文字找按钮的）。 */
+  #env button[data-ic]::before{
+    content: attr(data-ic);
+    font-size: 11px;
+    opacity: .62;
+    margin-right: 3px;
+    line-height: 1;
+    color: inherit;          /* 一角"淡墨印记"，不用彩色 emoji */
+  }
+  #env button.on[data-ic]::before{ opacity: .92; }
+
   /* ══════════════════════════════════════════════════════════════
      滑块 · 新样式（2026-10-06 老黄第 6 条反馈："这个时段的拖拉滚动条我始终觉得
      做得不好看，你再换个样式"）
@@ -600,6 +615,7 @@
       <label class="hint-toggle" title="显示各行按钮的快捷键提示">
         <input type="checkbox" id="showKeys"> 快捷键
       </label>
+      <span class="hint">Shift+1~4 画质</span>
     </div>
     <!-- 导览行（2026-10-06 重排）：「看烟花」挪去陈设行；
          「流转▸ / 偶得✦」（原在时段行末）并到本行末尾、紧邻快捷键提示 —— 截图里两个蓝框
@@ -615,7 +631,7 @@
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
       <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
       <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得✦</button>
-      <span class="hint">Z 巡览 / T 巡游 / Y 四季</span>
+      <span class="hint">Z 巡览 / T 巡游 / Y 四季 / 5 6 7 8 9 机位</span>
     </div>
     <div class="row">
       <span class="lbl">留影</span>
