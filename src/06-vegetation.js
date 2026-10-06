@@ -3245,7 +3245,7 @@ const MATB = { treeLantern: TREE_LANTERN_MAT };
    "它的根和枝都是石头或者草皮中长出来的，而不是一个主枝干，再分支的正常形态。"
    对策：把整树抬到隆起之上（baseY），并让主干**向下加长**穿进土里（见 trunkCurve 第一点），
    免得抬起来之后树底悬空。根盘跟着树走 —— 树长在丘顶，根颈就在丘顶，这是自然的。 */
-export function makePeachTree(x, z, scale = 1, baseY = 0){
+export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   const g = new THREE.Group();
   g.position.set(x, baseY, z);
   g.scale.setScalar(scale);
@@ -3573,9 +3573,9 @@ export function makePeachTree(x, z, scale = 1, baseY = 0){
      并且花与叶走**同一套 canopyShell 壳层**：桃是**先花后叶**，盛花期冠里没有叶帮忙遮挡，
      花若全埋在枝心的位置就只剩几个点 —— 推到壳层才读得出"满树花"。 */
   const flGeo = makePeachFlowerGeo();
-  const flN = 3000;
-  const flInst = new THREE.InstancedMesh(flGeo, MAT.peachBlossom, flN);
-  const flA = new THREE.Color(0xFFE8F0), flB = new THREE.Color(0xF490B4);
+  const flN = opts.flowerN || 3000;          // 梅传 2000：比桃疏（"疏影横斜"）
+  const flInst = new THREE.InstancedMesh(flGeo, opts.blossomMat || MAT.peachBlossom, flN);
+  const flA = opts.blossomA || new THREE.Color(0xFFE8F0), flB = opts.blossomB || new THREE.Color(0xF490B4);
 
   const twigPool = woodPts.filter(o => o.w > 0.9);
   const flRaw = [];
@@ -3621,6 +3621,10 @@ export function makePeachTree(x, z, scale = 1, baseY = 0){
   if (flInst.instanceColor) flInst.instanceColor.needsUpdate = true;
   g.add(flInst);
 
+  /* ⚠️ 梅（opts.noFruit）**不挂桃**：株形骨相可以借桃的骨架，果实不能借 ——
+     一棵"梅树"上挂着蜜桃是硬伤。整块跳过（该函数只用私有随机流 rr2/R2，
+     跳过不会影响全局布局流，也不会影响别的树）。 */
+  if (!opts.noFruit){
   /* ── 果：夏结秋疏。桃的果实着生在短枝上，果柄短、稍下垂（果尖＝花端朝外下方）。
      果量 130（旧 80 上限实测只挂到 64）。 */
   const frGeo = makePeachFruitGeo();
@@ -3661,7 +3665,11 @@ export function makePeachTree(x, z, scale = 1, baseY = 0){
   frInst.instanceMatrix.needsUpdate = true;
   if (frInst.instanceColor) frInst.instanceColor.needsUpdate = true;
   g.add(frInst);
+  }
 
+  /* ⚠️ 梅（opts.noFruit）也**不撒桃瓣**：地面那层粉瓣是"桃的落花"，梅的落花另有颜色与时机
+     （而且冬天落花会被积雪盖住、做了也看不见）。同样是整块跳过。 */
+  if (!opts.noFruit){
   /* 落花铺地（春末夏初 · 树干四周散一层粉瓣）260 片。
      槽位先算好再打散：春季 peachPetalShow=0.3 / 夏 0.45 是 12-env 按 count 截**前缀**的，
      不打散就会"花瓣只落在一个扇形里"。 */
@@ -3685,9 +3693,34 @@ export function makePeachTree(x, z, scale = 1, baseY = 0){
   petalInst.instanceMatrix.needsUpdate = true;
   if (petalInst.instanceColor) petalInst.instanceColor.needsUpdate = true;
   g.add(petalInst);
+  }
 
   g.userData.peachTree = true;
   return g;
+}
+
+/* ══ 梅（2026-10-06 · 老黄："院内布景是否也讲究梅兰竹菊…在院子里加两株梅花，一株腊梅一株红梅，
+      给冬天增加一点色彩，特别是'银装素裹'的场景下就会显得非常有生机"）═════════════════
+   做法：**借桃的骨架、换花**。梅与桃是蔷薇科同族小乔木，都是"先花后叶、花缀满枝"，
+   低分叉杯状骨架 + 花沿小枝簇生这套形制完全通用；差别只在花色、花期与"不挂果"。
+   ⇒ 调用 makePeachTree 并传 opts：
+      · blossomMat = MAT.plumBlossomRed / plumBlossomYellow（红梅 / 腊梅）；
+      · flowerN 2000（梅比桃疏，"疏影横斜"，太满读成桃）；
+      · 花色区间偏"单色深浅"而不是桃那种粉白渐变（红梅=胭脂→水红，腊梅=蜡黄→浅黄）；
+      · noFruit = true（不挂桃、不撒桃瓣）。
+   花期由季节通道 plumBlossomShow 控制（冬 1.0 / 春 0.55 / 秋 0.15 / 夏 0）——
+   ⚠️ 冬 1.0 是这条需求的全部意义：**"银装素裹"里唯一的彩色**。
+   ⚠️ 梅的骨相（主干/主枝/小枝）照旧进 mergeStatics（冬天叶落也不消失 ⇒ "疏影横斜"的枝条在）。
+   位置由调用方给（见 08-assemble 的梅树落点，那里有射线实测的说明）。 */
+export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
+  const red = kind !== 'yellow';
+  return makePeachTree(x, z, scale, baseY, {
+    noFruit: true,
+    blossomMat: red ? MAT.plumBlossomRed : MAT.plumBlossomYellow,
+    flowerN: 2000,
+    blossomA: new THREE.Color(red ? 0xFF7FA0 : 0xFFF0A8),
+    blossomB: new THREE.Color(red ? 0xC01F45 : 0xD9A62B),
+  });
 }
 
 /* 芭蕉果串（重建）：真实香蕉束 —— 冠部斜出的粗果轴 + 5 圈"把"（hand），每圈一圈

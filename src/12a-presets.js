@@ -449,6 +449,7 @@ export const ENV_SEASON = {
     bambooLeaf:0.28, koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 春：大雁北迁过境
     /* 春：先花后叶。花满树、叶始萌（15% 刚抽的嫩芽），落花初落 —— 桃是先花后叶树种 */
     peachShow:0.15, peachBlossomShow:1, peachFruitShow:0, peachPetalShow:0.3,
+    plumBlossomShow:0.55,          // 梅：红梅冬末春初还在开，春天留一半
     blindShow:0, scrollCoolShow:1, scrollWarmShow:0 },      // 春：帘未挂；堂内青绿山水
   summer: { label:'夏',
     sunMul:1.00, ambMul:1.00, hemiMul:1.00, fogMul:1.00, satMul:1.00,
@@ -460,6 +461,7 @@ export const ENV_SEASON = {
     koiSpeed:1.0, dragonflyShow:1.0, turtleShow:1.0, gooseShow:0.0,   // 夏：无雁（盛夏非迁徙季）
     /* 夏：花落尽、桃结果（叶茂果生，落花也快被扫净只余淡痕） */
     peachShow:1, peachBlossomShow:0, peachFruitShow:1, peachPetalShow:0.45,
+    plumBlossomShow:0,             // 梅：夏季无花（骨相仍在）
     blindShow:1, scrollCoolShow:1, scrollWarmShow:0 },  autumn: { label:'秋',   // 夏：帘垂下遮阳
     sunMul:0.97, ambMul:0.95, hemiMul:0.96, fogMul:1.18, satMul:1.06,
     /* 秋竹叶：0xD8A94E（绿度 −47，金黄）→ 0x93A656（绿度 +19，转暗的秋绿）。
@@ -476,6 +478,7 @@ export const ENV_SEASON = {
     koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 秋：大雁南迁过境
     /* 秋：桃叶转黄（tinLeaf）、果渐疏（快被摘/落尽），花/落花早没了 */
     peachShow:1, peachBlossomShow:0, peachFruitShow:0.7, peachPetalShow:0,
+    plumBlossomShow:0.15,          // 梅：深秋只有极少数早花（腊梅含苞）
     blindShow:0.35, scrollCoolShow:0, scrollWarmShow:1 },    // 秋：帘卷起；换秋山
   winter: { label:'冬',
     sunMul:0.88, ambMul:0.93, hemiMul:0.94, fogMul:1.28, satMul:0.70,
@@ -498,6 +501,10 @@ export const ENV_SEASON = {
     koiSpeed:0.42, dragonflyShow:0.0, turtleShow:0.0, gooseShow:0.0,   // 冬：无雁（越冬地不在此）
     /* 冬：桃树落叶，裸枝过冬（同冬柳）——叶落尽、无花无果无落花 */
     peachShow:0, peachBlossomShow:0, peachFruitShow:0, peachPetalShow:0,
+    /* ⚠️ 梅 = 冬天的**唯一花事**（老黄："给冬天增加一点色彩，特别是'银装素裹'的场景下"）：
+       冬 1.0 —— 满树花。这一档是"梅兰竹菊"第一次真正参与画面，别被任何天气通道压掉：
+       雪景要显色 ⇒ 梅的花材质不登 SNOW_COVER_MATS（否则会被雪盖成白片）。 */
+    plumBlossomShow:1.0,
     blindShow:0, scrollCoolShow:0, scrollWarmShow:1 },       // 冬：帘撤下；堂内雪意
 };
 

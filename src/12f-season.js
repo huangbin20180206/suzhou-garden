@@ -80,6 +80,9 @@ const SEASON_PRESENCE = [
      全植物用一种材质的话季节只能整棵树显/隐，做不出"春开花 → 夏结果 → 秋叶黄"。 */
   ['peachShow',[MAT.peachLeaf]], ['peachBlossomShow',[MAT.peachBlossom]],
   ['peachFruitShow',[MAT.peachFruit]], ['peachPetalShow',[MAT.peachPetal]],
+  /* 梅（2026-10-06）：两株梅的**花**各自独立通道（腊梅深冬开、红梅冬末春初开），
+     树干与枝不进表 —— 梅是落叶小乔木，冬天要留"疏影横斜"的骨相（进表就会被整株收掉）。 */
+  ['plumBlossomShow',[MAT.plumBlossomRed, MAT.plumBlossomYellow]],
   /* 灯会内容也走同一套存在性通道：festivalShow>0.03 才提交。 */
   ['festivalShow',[riverLampMat, riverFlameMat, stringBulbMat]],
   /* ── 2026-10-04 · 陈设（物）的季节通道 ──

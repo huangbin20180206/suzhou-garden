@@ -1,4 +1,4 @@
-# 布局指纹基线（T0）网格数=174 总指纹=1162708933
+# 布局指纹基线（T0）网格数=180 总指纹=3208183192
 # 采样条件：bootDonePromise 已 resolve → season=summer → hour=12.5 → ENV.t>=1 → settle 2 帧
 # 排除：name∈{mistField}、geom∈{RingGeometry}（动画驱动，非流产物）
 -|6|PlaneGeometry	首实例=0.00,0.00,0.00	hash=3755118789
@@ -68,6 +68,8 @@
 #5e7a3a|60|BufferGeometry	首实例=-2.34,0.09,0.04	hash=3055500624
 #6ba340|4000|BufferGeometry	首实例=1.02,2.99,0.34	hash=2710491843
 #6ba340|4000|BufferGeometry	首实例=0.64,2.46,-0.05	hash=1749027127
+#6ba340|4000|BufferGeometry	首实例=0.77,2.12,-0.06	hash=4277147457
+#6ba340|4000|BufferGeometry	首实例=0.22,1.50,0.01	hash=5424136
 #7c3f1d|16|CylinderGeometry	首实例=-10.00,3.38,3.70	hash=1065925189
 #7fa84c|10|BufferGeometry	首实例=-0.13,0.00,-0.41	hash=3698562904
 #7fa84c|10|BufferGeometry	首实例=0.17,0.00,-0.86	hash=3989288206
@@ -138,7 +140,9 @@
 #c6ca86|9|SphereGeometry	首实例=0.00,0.03,0.00	hash=548610314
 #c6ca86|9|SphereGeometry	首实例=0.00,0.03,0.00	hash=1439059407
 #c9a227|12|CylinderGeometry	首实例=-3.07,0.94,-0.59	hash=893051009
+#e04a6e|2000|BufferGeometry	首实例=0.80,2.18,-0.06	hash=271146846
 #e4eef6|16|SphereGeometry	首实例=0.00,0.00,0.00	hash=3605751237
+#e8c24a|2000|BufferGeometry	首实例=0.25,1.50,0.06	hash=4040902844
 #f2c7d4|18|BufferGeometry	首实例=-0.30,0.70,-0.21	hash=2596993368
 #f2c7d4|18|BufferGeometry	首实例=-0.02,0.51,-0.30	hash=2635271501
 #f2c7d4|240|BufferGeometry	首实例=-3.03,0.93,-0.59	hash=1707696977
@@ -147,6 +151,8 @@
 #fff0d0|0|ConeGeometry	首实例=0.00,0.00,0.00	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=0.63,2.57,0.21	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=0.53,1.81,-0.05	hash=2166136261
+#ffffff|0|BufferGeometry	首实例=0.53,1.68,-0.04	hash=2166136261
+#ffffff|0|BufferGeometry	首实例=0.70,1.78,0.05	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=-16.40,3.43,1.47	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=9.77,3.09,1.06	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=-29.53,4.46,-22.03	hash=2166136261

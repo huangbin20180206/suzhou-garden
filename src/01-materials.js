@@ -1011,6 +1011,14 @@ export const MAT = {
      提一档明度，仍比竹叶深，保住"桃叶比竹叶沉"的层次。 */
   peachLeaf: new THREE.MeshStandardMaterial({ color:0x6BA340, roughness:0.86, metalness:0.0, envMapIntensity:0.35, side:THREE.DoubleSide }),
   peachBlossom: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xFFFFFF, roughness:0.9, metalness:0.0, envMapIntensity:0.2, side:THREE.DoubleSide, alphaTest:0.42 }),
+  /* 梅（2026-10-06 · 老黄："院内布景是否也讲究梅兰竹菊…在院子里加两株梅花，一株腊梅一株红梅，
+     给冬天增加一点色彩，特别是'银装素裹'的场景下"）：复用桃花瓣那张**白底**贴图
+     （瓣形一样，颜色靠 color 染）—— 红梅取胭脂红、腊梅取蜡黄（腊梅的花被片本就是蜜蜡黄）。
+     加一点自发光让"雪地暗光下也读得出颜色"（雪天的环境已是漫射亮光，emissive 只补一点底）。
+     ⚠️ 必须是**共享材质**并登进 SEASON_PRESENCE（铁律：进表的名字一律定义在本文件，
+     否则 12f 建表时拿到 undefined、整类静默不显隐 —— 竹帘/卷轴踩过）。 */
+  plumBlossomRed: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xE04A6E, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x33080F, emissiveIntensity:0.6 }),
+  plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xE8C24A, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x332600, emissiveIntensity:0.6 }),
   /* ⚠️ 果基色必须是**白**：实例色（frA→frB 的蜜桃黄→粉晕）会与材质 color 相乘，
      而 multiply 走的是线性空间 —— 基色 0xE08050 再乘一个橙红实例色 = 把颜色**平方**，
      出来的是一颗高饱和深红（用户截图里读作"圣女果"）。
