@@ -56,6 +56,19 @@ const check = (name, ok, detail = '') => {
     && document.getElementById('loading').classList.contains('done'), null, { timeout: 300000 });
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
   await page.addStyleTag({ content: '#hud,#env,#caption,#stats,#loading{display:none !important}' });
+  /* ⚠️⚠️ 把水面反射钉成"每帧刷"（2026-10-06，与 lampvol-guard / legibility-guard 同一手法）：
+     本门两条判据都靠"**同状态**连渲两张做差分"，而"反射按需更新"（05-water 的设计行为）
+     会让**同一任务内的不同渲染**用到不同相位的倒影 —— 实测（outputs/_diag/fw-flaky2.mjs，
+     12 轮）：每次 composer.render() 是否触发反射刷新是**逐次交替**的
+     （三张图的刷新次数实测 [0,1,0] / [1,0,0] / [0,0,1] 三种都出现过）⇒ 于是
+     "同状态自检"偶发非零（实测 12 轮里 1 次：46px、峰值差 53，**bbox 落在水面区**
+     —— 即"这张图里的倒影是上一张的"）。交接文档记的那次"自检最大差 115"同源。
+     钉住后 12 轮全 0（A/B 实测：不钉 6 轮里 1 次 84px；钉住 6 轮全 0）。
+     ⚠️ 反射的"按需降频"本身由 probe/reflect-adaptive.mjs 守，别在这里断言。 */
+  await page.evaluate(() => {
+    const w = window.__garden.scene.getObjectByName('waterSurface');
+    if (w) w.userData.reflectEveryFrame = true;
+  });
 
   const settle = async (axis, v) => {
     await page.evaluate(([a, val]) => window.__garden.setEnv(a, val), [axis, v]);
@@ -206,7 +219,23 @@ const check = (name, ok, detail = '') => {
     fin.finale >= 1 && fin.fin.every(v => v === 1), `finale=${fin.finale} fin=${JSON.stringify(fin.fin)}`);
   check('⑤ 四弹**齐射**：四发发射时刻相同（age 极差 < 0.05s）',
     Math.max(...fin.ages) - Math.min(...fin.ages) < 0.05, `四槽 age=${JSON.stringify(fin.ages)}`);
-  await page.waitForTimeout(1900);                       // 升空 1.15s + 成形 0.55s ⇒ 最整齐
+  /* ⚠️⚠️ 2026-10-06 改成**按仿真年龄取样**，不再按墙钟 `waitForTimeout(1900)`：
+     "2027" 的成形是**壳年龄（仿真时间）**的函数，而墙钟 1900ms 对应的年龄会随帧率/机器负载漂
+     （仿真钟在慢帧里被固定步长夹住）。实测同一发彩蛋逐次取样（outputs/_diag/fw-flaky.mjs）：
+        年龄 0.67~1.08 ⇒ 贡献 39~61 万 px、**1 段**（闪光峰值期火星还挤成一团、整幅被 bloom 晕开）；
+        年龄 1.32      ⇒ 0.7 万 px、7 段（散开中，碎）；
+        年龄 ≥1.52     ⇒ 0.75 万 px、**稳定 5 段**，一直到 3.1s 逐位不变。
+     ⇒ 旧写法在机器被占用/低帧时会把取样点推到 1.0 附近，量到"1 段 / 13.7 万 px"的**假红**
+     （交接文档记的"两次红点位置与像素都不同"就是这个：红点不同是因为取样年龄不同）。
+     现在先等年龄 ≥1.5 再量，形状是确定性的；并把年龄本身作为**前提断言**打出来。 */
+  const fwReady = await page.waitForFunction(() => {
+    const a = window.__garden.fireworksState().ages || [];
+    return a.length >= 4 && Math.min(...a) >= 1.5;
+  }, null, { polling: 60, timeout: 30000 }).then(() => true).catch(() => false);
+  const finAge = await page.evaluate(() =>
+    Math.min(...(window.__garden.fireworksState().ages || [1e9])));
+  check('⑤ 前提：取样时壳年龄已进入"成形稳定窗"（≥1.5s；更早量到的是被 bloom 晕开的一团）',
+    fwReady && finAge >= 1.5, `年龄 ${(+finAge).toFixed(2)}s`);
   const word = await page.evaluate(() => {
     const G = window.__garden;
     let im = null; G.scene.traverse(o => { if (o.name === 'fireworks') im = o; });
@@ -229,8 +258,13 @@ const check = (name, ok, detail = '') => {
     }
     return { px: n, segs };
   });
-  check('⑤ 「2027」成形且**分成 ≥4 段**（四个数字各自成段 ⇒ 不是糊成团、也不出框）',
-    word.segs.length >= 4 && word.px > 3000,
+  /* ⚠️ 上限 6 万 px 是**第二条牙**（2026-10-06 加）：成形稳定窗里贡献约 0.75 万 px，
+     而"取样落在闪光峰值期（年龄 ~1.0s）"时是 13.7~61 万 px（整幅被 bloom 晕开）。
+     下限只管"有没有画出来"，上限专抓"取样早了/又被晕开" —— 两向都断，别只留下限
+     （同 09-28「判据只断下限会诱发调过头」）。 */
+  check('⑤ 「2027」成形且**分成 ≥4 段**（四个数字各自成段 ⇒ 不是糊成团、也不出框；'
+      + '贡献 0.3~6 万 px = 稳定窗）',
+    word.segs.length >= 4 && word.px > 3000 && word.px < 60000,
     `贡献 ${word.px}px · ${word.segs.length} 段：${word.segs.map(([a, w]) => `${a}+${w}`).join(' ')}`);
   await page.screenshot({ path: path.join(OUT, '03-彩蛋2027.png') });
 
