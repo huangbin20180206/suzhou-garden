@@ -810,7 +810,12 @@ function clampAquaticToPond(gx, gz, px, pz, edge = 0){
   let a = Math.atan2(lz, lx); if (a < 0) a += TAU;
   const ri = Math.min(POND_RADII.length - 1, Math.floor(a / TAU * POND_RADII.length));
   const shore = POND_RADII[ri];
-  const cap = Math.min(shore * 0.85, Math.max(0, shore - edge - 0.10));
+  /* ⚠️ 到岸线的余量：原来只有 0.10m —— 实测驳岸有**内伸的石唇与草沿**（岸线多边形是"水面轮廓"，
+     不是"看得见的岸沿"），0.1m 的余量会让靠岸那几片叶盘**边缘压在石唇/草沿上**（老黄 2026-10-05：
+     "池塘北面有几片睡莲跑到草皮和石头上"）。放大到 BANK_MARGIN：叶盘边缘离水面轮廓留 0.45m，
+     视觉上就干净地浮在水里；池心那片（edge=0.775）同样受益，不会因此离岸太远。 */
+  const BANK_MARGIN = 0.45;
+  const cap = Math.min(shore * 0.85, Math.max(0, shore - edge - BANK_MARGIN));
   if (r <= cap) return { x: px, z: pz };
   const k = cap / r;
   return { x: lx * k - gx, z: lz * k + 3.0 - gz };
@@ -999,6 +1004,25 @@ export function spawnRipple(x, z, t, rings = 3, strength = 1, kind = ''){
      （同 07-ground.js 的 `dz = z - 3.0`、本文件里 `z = 3 + sin(ang)*rad` 的写法）
      ⇒ 世界 (x,z) → 局部 (x, z − 3)。 */
   if (!insidePond(x, z - 3.0)) return;
+  /* ⚠️⚠️ 2026-10-05 二轮修（老黄："狂风暴雨的池水涟漪会穿过池边岩石再拓展到草皮上"）：
+     只挡"**中心点**在池外"**不够** —— 涟漪圈会随时间扩大，`d.maxR = (0.5 + k*0.68) * jit *
+     (0.65 + 0.35*strength)`：雨滴（3 圈 / strength≈1.3）最大 ~2.4m、点击级（5 圈 / 1.6）可达 ~4.5m。
+     中心在池内 0.5m 的圈，长到 2.4m 时照样越过岸线压在草皮与驳岸石上（正是他截图里那两处）。
+     ⇒ 按**本圈的最大半径**给落点留余量：不够就往池心方向拉回来（**不丢弃** —— 丢弃会让近岸雨痕
+     明显变稀，而雨打水面本来就是"到处都在打"）。余量 +0.15 是环带自身宽度（几何外径 1.0 的 15%）。
+     ⚠️ 这里**不新增任何 Math.random 调用**（运行期效果可用全局随机，但抽数次数一变会让同帧其余
+     随机量错位），只做纯几何夹紧。 */
+  {
+    const maxRing = (0.5 + Math.max(0, rings - 1) * 0.68) * 1.15 * (0.65 + 0.35 * strength) + 0.15;
+    const lx = x, lz = z - 3.0;
+    const r0 = Math.hypot(lx, lz);
+    if (r0 > 1e-6){
+      let a0 = Math.atan2(lz, lx); if (a0 < 0) a0 += TAU;
+      const ri = Math.min(POND_RADII.length - 1, Math.floor(a0 / TAU * POND_RADII.length));
+      const cap = Math.max(0.25, POND_RADII[ri] - maxRing);
+      if (r0 > cap){ const k = cap / r0; x = lx * k; z = lz * k + 3.0; }
+    }
+  }
   lastSpawnT = t;                       // 供"反射按需更新"判断"刚刚有快速动作"（见 lastRippleAge）
   /* ── 惊鱼自动钩子（2026-09-26）──────────────────────────────────────────
      玩家点击水面会在此产生一圈 strength≈1.6 的涟漪（11-loop 传 rings=5,strength=1.6），
