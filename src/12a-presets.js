@@ -100,11 +100,21 @@ export const ENV_WEATHER = {
     cloudAmount:1.00, skyGray:0.72, fogGray:0.62, diskFade:1.00,
     rainAmount:0.0, snowAmount:0.0, snowCover:0.0, wetness:0.0,
     windMul:1.15, gustMul:1.00, moonVis:0.00, snowTint:0xF2F6FA },   // 阴霾：云底满天，看不见月
+  /* ⚠️⚠️ 2026-10-06（老黄："冬季'银装素裹'场景主堂和树木都还有明显的影子，一边下雪一边
+     还有阳光，我不知道这个是否合理"）：**不合理，已改**。判据是这组参数自己就矛盾 ——
+       · snowAmount 1.0 + cloudAmount 0.94 = **正在下大雪、云量 94%**（不是"雪后初晴"），
+         而且 diskFade 0.90 已经把日轮藏掉九成；
+       · 却给 sunMul 0.62（强直射）⇒ 满云天下打出一排**硬影子**，正是 2026-09-28 老黄否掉
+         阴霾/薄雾影子时说的那句"与现实场景不相符"（shadowK 的机制与那条口径见 11-loop）。
+     ⇒ sunMul 0.62→0.45、shadowK 1.00→**0.00**（雪天是漫射光，没有方向性硬影），
+     ambMul/hemiMul 略抬（1.10/1.12 → 1.18/1.20）把"雪地反光"的亮堂补回来 ——
+     "银装素裹"的亮来自**地面反照**，不来自太阳直射。注释里原来的"雪霁：云缝里透一点月色"
+     与 snowAmount 1.0 本就是矛盾的描述，一并改正。 */
   snow: { weatherLabel:'银装素裹', blizzard:0,
-    sunMul:0.62, ambMul:1.10, hemiMul:1.12, fogMul:1.30, satMul:0.80, expMul:1.00, shadowK:1.00,
+    sunMul:0.45, ambMul:1.18, hemiMul:1.20, fogMul:1.30, satMul:0.80, expMul:1.00, shadowK:0.00,
     cloudAmount:0.94, skyGray:0.60, fogGray:0.55, diskFade:0.90,
     rainAmount:0.0, snowAmount:1.0, snowCover:1.0, wetness:0.0,
-    windMul:1.35, gustMul:1.00, moonVis:0.12, snowTint:0xF4F8FF },   // 雪霁：云缝里透一点月色
+    windMul:1.35, gustMul:1.00, moonVis:0.12, snowTint:0xF4F8FF },   // 雪天：漫射光 + 雪地反照
   /* 薄雾烟霭：全季节合法。它不是"阴"—— 雾的本质是**雾本身变厚**（fogMul 1.3：
      正午 0.0052×1.3≈0.0068，晨间 0.0088×1.3≈0.011），天空只轻度去色、日轮留一个
      淡淡的白色圆盘（diskFade 0.7），湿气贴地（wetness 0.25）。
@@ -191,6 +201,18 @@ export function effectiveWeather(){
    而不是单纯压暗，所以做成混色而不是乘一个系数。 */
 const SKY_GRAY  = new THREE.Color(0x8E949C);
 const FOG_GRAY  = new THREE.Color(0x9AA0A6);
+/* ⚠️ 2026-10-06 新增：暴雨/风雪的**云色**与**白底天空**。
+   老黄："狂风暴雨场景天空还是蓝天白云，这个好像有点不合理，建议改为**白底天空，乌云密布**，
+   亮度可以再降一点"。三件一起做：
+     · 云底压得低、受光极少 ⇒ 用 CLOUD_GRAY（明显比天空灰更暗、近中性）当 uCloudTint，
+       在天空 shader 的 `col = mix(col, uCloudTint, cloudCover)` 里把满云盖读成"乌云压顶"；
+     · 天空本体往 **SKY_OVERCAST（浅灰白）**拉，而不是往 SKY_GRAY（中灰）拉 ——
+       往中灰拉会把"白底"变成"阴天灰幕"，实测天带平均 RGB 掉到 138,154,171 且偏蓝，
+       不是老黄要的"白底 + 乌云"；
+     · 亮度由 exposure ×0.92 降（不改 ambMul/hemiMul —— 2026-09-29 老黄专门要过
+       "暴雨别闷成脏灰"，靠天光照亮园子那条不能被压回去）。 */
+const CLOUD_GRAY    = new THREE.Color(0x5C6066);
+const SKY_OVERCAST  = new THREE.Color(0xC2C5C8);
 function grayMix(col, gray, amount){
   if (amount <= 0) return;
   col.r += (gray.r - col.r) * amount;
@@ -236,6 +258,20 @@ function applyWeatherTo(p, eff){
     p.bankHall = 0; p.bankBamboo = 0; p.bankBridge = 0; p.bankRockery = 0;
   }
   p.skyGray    = w.skyGray;    p.fogGray    = w.fogGray;  p.diskFade = w.diskFade;
+  /* ⚠️⚠️ 2026-10-06「狂风暴雨的天空还是蓝天白云」（老黄反馈）：
+     真因 = **云的底色没跟着天气走** —— uCloudTint 一直取的是 ENV_TIME 的 cloudTint
+     （晨 0xFBF3E8 暖白 / 午 纯白），暴雨只是把天空本身往中灰拉（旧 skyGray 0.55）。
+     于是画面读作"阳光下的白云 + 一层灰雾"，而不是"乌云压顶"。
+     ⇒ 暴雨/风雪一律换成**暗云色**（下面的 CLOUD_GRAY），并把天空灰度抬到 0.80
+     （新鲜白底、云压得很低）；曝光再降 8%（老黄："亮度可以再降一点"）。
+     ⚠️ 只动这三个量，不动 ambMul/hemiMul/fogMul —— 2026-09-29 老黄专门要过"暴雨别闷成脏灰"，
+     靠天光照亮园子那条不能被这次回调压回去。 */
+  if (eff === 'storm' || eff === 'winterrain'){
+    p.cloudTint = CLOUD_GRAY.clone();
+    p.skyGray = Math.max(p.skyGray, 0.80);
+    p.exposure *= 0.92;
+  }
+  const overcast = (eff === 'storm' || eff === 'winterrain');
   p.weatherLabel = weatherLabelOf(ENV.weather, ENV.season);
   p.blizzard = w.blizzard || 0;          // 供统计栏/调试判断"这是不是风雪"，不参与插值
   p.snowTint = new THREE.Color(w.snowTint);
@@ -260,10 +296,12 @@ function applyWeatherTo(p, eff){
   if (eff === 'snow'){
     p.snowAmount = 1.0; p.snowCover = 1.0; p.rainAmount = 0.0;
   }
-  grayMix(p.skyTop,     SKY_GRAY, p.skyGray);
+  /* 天空去色：暴雨/风雪往**浅灰白**拉（"白底天空 + 乌云密布"），其余天气照旧往中灰拉。 */
+  const skyTarget = overcast ? SKY_OVERCAST : SKY_GRAY;
+  grayMix(p.skyTop,     skyTarget, p.skyGray);
   /* 中段也得跟着去色，否则阴雨天地平线和天顶都灰了、腰上还横着一条彩色残带 */
-  if (p.skyMid) grayMix(p.skyMid, SKY_GRAY, p.skyGray * 0.8);
-  grayMix(p.skyHorizon, SKY_GRAY, p.skyGray);
+  if (p.skyMid) grayMix(p.skyMid, skyTarget, p.skyGray * 0.8);
+  grayMix(p.skyHorizon, skyTarget, p.skyGray);
   grayMix(p.fogColor,   FOG_GRAY, p.fogGray);
   return p;
 }
