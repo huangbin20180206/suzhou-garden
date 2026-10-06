@@ -1001,12 +1001,18 @@ function animate(){
      探针低帧率下云影采样也不稳定。真机 60fps 两者等价。 */
   skyMesh.material.uniforms.uTime.value = windClock;
   /* 堂前香炉的袅袅白烟（2026-10-05 · 老黄："正堂前既然加了铜炉，是不是应该有袅袅白烟"）：
-     与天空/云/雾**同一个仿真时钟**（相位跟风走；不用墙钟 —— 软渲染一帧 8.4s，用墙钟烟会"瞬移"），
-     并按天气收一下：暴雨/雷雨里香炉基本是灭的（那一缕白烟既不合物理、又抢眼）。
+     与天空/云/雾**同一个仿真时钟**（相位跟风走；不用墙钟 —— 软渲染一帧 8.4s，用墙钟烟会"瞬移"）。
+     ⚠️ 2026-10-05 老黄改口径："至于香炉，我也不知道古代的香炉遇到这种天气是不是防雨的，
+        能不能继续在这种天气也能燃烧冒烟" ⇒ **暴雨/风雪里继续冒**（原来直接压到 0.06、几乎看不见）。
+        理由与取舍写在这里：铜炉有**炉盖**、雨点打不进炉膛，香照燃；但雨会把烟**打散压矮**，
+        所以不取晴天的原值，取 **0.22**（淡一半，仍能读出"炉上有一缕烟"）。
+        判据用**参数**（rainAmount/snowAmount）而不是天气名 —— 与"大雁落地"同口径；
+        snow 只算雪压不算雨打（snowAmount 计入但取同一档，雪花不会把烟打散到看不见）。
      放在这一行（而不是雾团那个 if 块里）是因为**雾团那段在条件分支里**（低档位不进），
      烟不该跟着一起消失。 */
   CENSER_SMOKE.uTime.value = windClock;
-  CENSER_SMOKE.uAlpha.value = (ENV.weather === 'storm' || ENV.weather === 'thunder') ? 0.06 : 0.40;
+  const _heavyPrecip = (ENV.cur.rainAmount || 0) > 0.5 || (ENV.cur.snowAmount || 0) > 0.5;
+  CENSER_SMOKE.uAlpha.value = _heavyPrecip ? 0.22 : 0.40;
   // 彩虹独立层同钟（第七轮搬出天空球，呼吸的相位要跟天空动画一致）
   rainbowMesh.material.uniforms.uTime.value = windClock;
 
