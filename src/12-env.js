@@ -541,6 +541,13 @@ export function setEnv(axis, val){
     console.warn('[ENV] 非法切换被忽略：', axis, '=', val);
     return;
   }
+  /* ⚠️⚠️ 换场景 ⇒ 灯会收起（2026-10-06 老黄："选过'灯会'场景，切换其它场景，灯会的布景
+     一直带到其它场景中，这个应该也是 bug"）。收口放在 setEnv 里 = 季节/天气/时段按钮、
+     四季演示、偶得、控制台**全走这一条**；且必须在"同值早退"**之前** —— 在灯会里再点一次
+     「夜」也算重新选场景，同样要能退出。收起时它会按既有规矩把时段还给"进来之前"
+     （用户自己改过时段就不抢，见 12c 的 toggleFestival）。
+     ⚠️ 例外：烟花的一键预设要**保留**灯会（老黄认可两者同时出现）⇒ 用 _keepFestival 抑制。 */
+  if (!_keepFestival && ENV.festival) toggleFestival(false);
   if (ENV[axis] === val) return;
   ENV[axis] = val;
   if (axis === 'time') ENV.hour = TIME_ANCHORS[val];   // 时段按钮 = 把连续时辰对齐到锚点
@@ -615,6 +622,14 @@ function syncEnvUI(){
       b.setAttribute('aria-pressed', ENV.festival ? 'true' : 'false');
       return;
     }
+    /* 「看烟花」两档开关（2026-10-06）：按下态 = 画面里**真的在放**（fireworksState().on），
+       不是内部标志 —— 用户自己改天气/换季时它会自动灭，按钮永不说谎。 */
+    if (b.dataset.act === 'fireworks'){
+      const on = !!(fireworksState && fireworksState().on);
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      return;
+    }
     if (b.dataset.act === 'blind'){
       const up = !!HOOKS.blindState?.();
       b.classList.toggle('on', up);
@@ -666,6 +681,53 @@ function syncEnvUI(){
     tip.textContent = fmtHour(ENV.hour);
   }
 }
+/* ══ 「看烟花」两档开关（2026-10-06 · 老黄："灯会和烟花最好还是做成和帘子一样（开和关两档
+      控制即可）"，并认可"两者可以同时出现"）═══════════════════════════════════════════
+   旧实现是 data-view：点一下 = 设 冬·夜·晴 + 飞到「看烟花」机位，**没有"关"这一档**
+   （想关只能自己去改天气/时段，而那时按钮态与画面脱节）。
+   现在按帘子的语义做两态：
+     开 = 记住当前 季节/时段/天气 → 设成 冬·夜·晴（烟花的门控，见 12b 的 FW_ALLOWED）→ 飞去看花；
+     关 = 还回进来之前的场景；若本来就处在"冬·夜·晴"（烟花默认就在放），
+          则用产品侧的权威开关 setFireworksForce(false) 明确压掉（否则"还回原场景"= 没变化）。
+   ⚠️ 与灯会**可同时存在** ⇒ 开关里用 _keepFestival 抑制 setEnv 的"换场景收起灯会"。
+   ⚠️ 按钮的按下态一律由 **fireworksState().on（画面里真的在放）** 推导，不是内部标志：
+      用户自己把天气改成暴雨、或切到夏天，按钮会自动灭 —— 状态永不说谎。
+   ⚠️ 任何环境轴切换都会把 setFireworksForce 复位成 null（= 交还给门控），
+      否则"关一次"会永久压住这个场景的烟花。 */
+let _fwPrev = null, _keepFestival = false;
+/* ⚠️ 有几个"按钮态读的是下一帧才翻面的量"（烟花是否在放由门控决定，setEnv 只改 ENV 目标，
+   applyEnv/tickFireworks 下一帧才跑）⇒ 立刻 syncEnvUI 读到的是旧值，按钮会"该灭不灭/该亮不亮"
+   （实测：点开烟花后 aria-pressed 仍是 false；换成暴雨后烟花已灭、按钮还亮着）。
+   统一用这个延迟同步把状态对齐 —— 面板层唯一的异步点，其余 UI 都是同帧落位。 */
+function syncEnvSoon(){ for (const ms of [120, 400, 900]) setTimeout(() => syncEnvUI(), ms); }
+export function toggleFireworksScene(){
+  const flying = !!(fireworksState && fireworksState().on);
+  if (flying){                                   // 关
+    _keepFestival = true;
+    try {
+      const p = _fwPrev;
+      if (p){
+        setEnv('season', p.season); setEnv('weather', p.weather);
+        /* ⚠️ 时段只在**灯会不在场**时还回去：灯会本身就是夜场景，若把它一起拽回正午，
+           就成了"白天挂着灯串河灯"（灯会 + 烟花同时开时按"看烟花"的关，正好踩到这里）。 */
+        if (!ENV.festival) setEnv('time', p.time);
+      }
+      setFireworksForce(false);                  // 画面已不在烟花预设时，"还回场景"改不动它 ⇒ 明压
+    } finally { _keepFestival = false; }
+    _fwPrev = null;
+  } else {                                       // 开
+    _fwPrev = { season: ENV.season, time: ENV.time, weather: ENV.weather };
+    setFireworksForce(null);                     // 交还门控（用户可能刚从"关"那一档回来）
+    _keepFestival = true;
+    try {
+      setEnv('season', 'winter'); setEnv('time', 'night'); setEnv('weather', 'clear');
+    } finally { _keepFestival = false; }
+    gotoViewpoint('fireworks');                  // 这个机位是**必需品**（默认俯视机位看不到天上的花）
+    showCaption('fireworks', 'manual'); setTimeout(() => hideCaption('manual'), 6000);
+  }
+  syncEnvUI();
+  syncEnvSoon();          // 烟花是否在放由门控下一帧才翻面（见 syncEnvSoon 注释）
+}
 envEl.addEventListener('click', (e)=>{
   const b = e.target.closest('button');
   if (!b || b.disabled) return;
@@ -677,6 +739,7 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.act === 'reel'){ toggleReel(); return; }   // 时光流转（按钮态由 toggleReel 自己同步）
   if (b.dataset.act === 'random'){ seasonDemoUserTakeover(); HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
   if (b.dataset.act === 'festival'){ toggleFestival(); return; }   // 上元灯会：一键开关（按钮态由 toggleFestival 自己同步）
+  if (b.dataset.act === 'fireworks'){ toggleFireworksScene(); return; }   // 看烟花：两档开关（2026-10-06 由 data-view 改成 data-act）
   if (b.dataset.act === 'blind'){ HOOKS.blind?.(); syncEnvUI(); return; }   // 竹帘卷起/放下（状态在 14-props）
   if (b.dataset.act === 'season-demo'){ toggleSeasonDemo(); return; }
   /* P2-2 巡游开关：巡游中按任意导览/环境按钮都先停巡游（接管语义），再执行本意 */
@@ -685,28 +748,31 @@ envEl.addEventListener('click', (e)=>{
   if (TOUR.on && (b.dataset.view || b.dataset.axis)) tourStop();
   if (REEL.on && b.dataset.axis === 'time') toggleReel();   // 手动选时段 = 接管，停时光流转
   if (b.dataset.view){
-    /* ⚠️⚠️ 2026-10-05：「看烟花」必须**一键成立**。这个机位只在「冬 + 夜 + 无降水」下才有东西
-       可看 —— 烟花绽放、星辰、池南看花的一家人**全都是这个门控**。而默认状态是 夏·正午，
-       用户点它本意是"我要看烟花"，不是"我只想挪相机" ⇒ 只挪相机的结果就是
-       "点了看烟花没有任何效果"（老黄 2026-10-05 的实测反馈）。所以先把场景设成那个状态再飞。
-       其余机位不动 —— 它们不依赖时段/季节（不再顺手改）。 */
-    if (b.dataset.view === 'fireworks'){
-      setEnv('season', 'winter'); setEnv('time', 'night'); setEnv('weather', 'clear');
-    }
+    /* ⚠️ 「看烟花」已改成 data-act 的两档开关（2026-10-06，见 toggleFireworksScene）——
+       这里原来那段"点 data-view='fireworks' 就设 冬·夜·晴 再飞"的代码已随之删除，
+       别再往 data-view 里加烟花逻辑。 */
     /* 同理（2026-10-06）：「看彩虹」也必须是**一键成立**的 —— 虹只在 **雨后初晴 + 白天** 出现
        （夜里按 uStarAmount 门控自动消失；其它天气为 0）。默认状态是 夏·正午，用户点它本意是
        "我要看那道拱"，不是"我只想挪相机" ⇒ 先把时段与天气设好再飞。
        季节**不动**（虹与季节无关，别顺手改）；时段取**暮色**（ENV_TIME 的 rainbowMul 在暮色
        最大、且 afterrain-guard 的参照实测都在暮色）。 */
-    if (b.dataset.view === 'rainbow'){ setEnv('time', 'dusk'); setEnv('weather', 'afterrain'); }
+    if (b.dataset.view === 'rainbow'){
+      setFireworksForce(null);                 // 换场景 ⇒ 交还门控（用户可能刚按过"看烟花"的关）
+      setEnv('time', 'dusk'); setEnv('weather', 'afterrain');
+    }
     gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return;
   }
   /* 选"狂风暴雨"自动开启音景 —— 合并后暴雨带闪电，而闪电的核心观感之一就是雷鸣，
      没有声音等于没做一半。浏览器要求音频必须由用户手势创建，这次点击正好是手势。
      （雨后初晴不需要：它的彩虹是视觉，不需要开音景。） */
   if (b.dataset.axis === 'weather' && b.dataset.v === 'storm' && !HOOKS.sound?.()) HOOKS.sound();
+  /* ⚠️ 换场景 ⇒ 灯会收起 / 烟花的"关"latch 交还门控（2026-10-06，规矩见 setEnv 里那段注释：
+     setEnv 内部只在"真的改了轴"时收灯会；**同值点击**这里也要收，所以在面板这一层显式做一次）。 */
+  if (ENV.festival) toggleFestival(false);
+  setFireworksForce(null);
   setEnv(b.dataset.axis, b.dataset.v);
   if (enforceWeather()) syncEnvUI();
+  syncEnvSoon();          // 换天气可能让烟花的门控翻面 ⇒ 按钮态延后对齐
 });
 
 /* ── 时辰滑杆 ──
@@ -714,6 +780,9 @@ envEl.addEventListener('click', (e)=>{
    短过渡过去（0.45s 跟手）；松手把过渡节奏还给 2.8s 的默认值。 */
 const hourSlider = document.getElementById('hourSlider');
 hourSlider.addEventListener('input', ()=>{
+  /* 拖时辰 = 换场景 ⇒ 灯会收起、烟花 latch 交还（同面板按钮那条规矩；滑杆不走 setEnv）。 */
+  if (ENV.festival) toggleFestival(false);
+  setFireworksForce(null);
   ENV.hour = parseFloat(hourSlider.value);
   tourUserTakeover();   // P2-2：拖时辰 = 接管，停巡游
   seasonDemoUserTakeover();
@@ -724,6 +793,7 @@ hourSlider.addEventListener('input', ()=>{
   ENV.t = 0; ENV.dur = 0.45;
   ENV.time = nearestTimeKey(ENV.hour);     // 按钮高亮 / UI 主题跟随最近锚点
   syncEnvUI();
+  syncEnvSoon();                           // 拖时辰可能让烟花的门控翻面 ⇒ 按钮态延后对齐
 });
 hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
 

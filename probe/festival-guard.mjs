@@ -110,10 +110,11 @@ const check = (name, ok, detail = '') => {
     const beforeAxis = btn && btn.getAttribute('aria-pressed');
     const nightPressed = nightBtn && nightBtn.getAttribute('aria-pressed');
     const hourReadout = document.getElementById('hourReadout').textContent;
-    g.setEnv('season', 'spring');                 // 灯会是第 4 层，季节轴切换不能把按钮态抹掉
-    const afterAxis = btn && btn.getAttribute('aria-pressed');
+    /* ⚠️ 这一轮**不要**在同一轮里切轴 —— 换场景会收起灯会（2026-10-06 新契约），
+       一旦混在一起，time/festival/show 这些读数就被收起过程污染（我第一版就这么写错了，
+       三条判据同时假红）。换场景那件事单独一轮做，见下面 axisExit。 */
     return { time: g.ENV.time, festival: g.ENV.festival, show: g.ENV.cur.festivalShow,
-             beforeAxis, afterAxis, nightPressed, hourReadout,
+             beforeAxis, nightPressed, hourReadout,
              st: g.festivalState(), calls: window.__fg.calls() };
   });
   check('⑥ 开灯会：自动切到夜（灯会是夜的 plus 版）且存在性通道 = 1',
@@ -122,9 +123,34 @@ const check = (name, ok, detail = '') => {
   check('⑥ 开灯会同帧同步环境 UI：夜按钮选中、时辰显示 21:30',
     on.nightPressed === 'true' && on.hourReadout === '21:30',
     `夜按钮=${on.nightPressed} · hourReadout=${on.hourReadout}`);
-  check('⑥ 灯会与季节轴正交：切季节后按钮 aria-pressed 仍为 true',
-    on.beforeAxis === 'true' && on.afterAxis === 'true',
-    `aria-pressed ${on.beforeAxis} → ${on.afterAxis}`);
+  /* ── ⑥ 换场景 ⇒ 灯会收起（2026-10-06 契约**翻面**）─────────────────────────
+     老黄："选过'灯会'场景，切换其它场景，灯会的布景一直带到其它场景中，这个应该也是 bug"
+     ⇒ 灯会不再是"与季节正交的第 4 层"，而是**一个场景**：任何环境轴切换都把它收起，
+     连河灯/灯串/挂灯一起消失。旧判据守的正是相反的行为（"切季节后按钮仍 true"），
+     已随之翻面 —— 否则门禁在惩罚正确改动（同"判据把产品当时的样子固化成标准"）。 */
+  const axisExit = await page.evaluate(async () => {
+    const g = window.__garden;
+    const btn = document.querySelector('[data-act="festival"]');
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    g.setEnv('season', 'summer');                       // 先离开灯会（上一轮还开着）
+    await wait(400);
+    g.setEnv('time', 'noon'); g.setEnv('weather', 'clear');
+    await wait(400);
+    g.toggleFestival(true);
+    await wait(500);
+    const was = { f: g.ENV.festival, btn: btn && btn.getAttribute('aria-pressed'),
+                  target: +g.ENV.to.festivalShow.toFixed(3) };
+    g.setEnv('season', 'spring');                       // ← 换场景
+    await wait(300);
+    return { was, f: g.ENV.festival, btn: btn && btn.getAttribute('aria-pressed'),
+             target: +g.ENV.to.festivalShow.toFixed(3) };
+  });
+  check('⑥ 换场景（切季节）⇒ 灯会**必须收起**：按钮回落 + 存在性目标归 0',
+    axisExit.was.f === true && axisExit.was.btn === 'true'
+      && axisExit.f === false && axisExit.btn === 'false' && axisExit.target < 0.03,
+    `灯会 ${axisExit.was.f}→${axisExit.f} · 按钮 ${axisExit.was.btn}→${axisExit.btn}`
+    + ` · festivalShow 目标 ${axisExit.was.target}→${axisExit.target}`
+    + `（旧契约是"与季节正交、不许收起"，2026-10-06 老黄改的）`);
   check('① 河灯 ≥20 盏（计划书原文）', on.st.riverN >= 20,
     `河灯 ${on.st.riverN} 盏 · 灯串 ${on.st.stringN} 颗 · draw calls=${on.calls}`);
   check('① 两株桃树的枯枝挂灯全部显现（count=fullCount）',
@@ -238,6 +264,14 @@ const check = (name, ok, detail = '') => {
   const back = await page.evaluate(async () => {
     const g = window.__garden;
     const pick = (n) => { const m = window.__fg.findInst(n); return m ? m.count : -1; };
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
+    /* ⚠️ 2026-10-06：上一段（换场景收起）跑完时灯会已经是关的 ⇒ 这一轮必须**自己重新开一次**
+       再关，否则 toggleFestival(false) 是空操作、_festPrev 恒为 null（我第一版就踩了这个，
+       "回到进来前时段"那条当场假红）。 */
+    g.setEnv('time', 'noon'); g.setEnv('weather', 'clear');
+    await wait(400);
+    g.toggleFestival(true);
+    await wait(600);
     const before = g.festivalState();            // 退出前：这里应记着"进来之前 = noon"
     g.toggleFestival(false);
     await new Promise(r => requestAnimationFrame(r));
@@ -256,27 +290,30 @@ const check = (name, ok, detail = '') => {
       && back.st.treeN === 0 && back.st.treeFull > 0,
     `river=${back.riverCount} flame=${back.flameCount} string=${back.stringCount} · tree=${back.st.treeN}/${back.st.treeFull} · draw calls=${back.calls}`);
 
-  /* ── ⑥b 另一半契约：灯会里**用户自己改过时段**时，退出不许把他拽回去 ──
-     产品注释写明"以他的改动为准，不要把他拽回去"；这条与 ⑥a 一起才有牙 ——
-     只守 ⑥a 的话，"无脑恢复快照"的实现也能全绿，而那是错的（会把用户在灯会里
-     特意调的时段吞掉）。 */
+  /* ── ⑥b 另一半：**换时段**（用户自己在灯会里改时段 = 换场景）同样收起，
+     而且时段以**他的选择**为准（不许拽回进来前的时段）──────────────────────────
+     ⚠️ 2026-10-06 契约翻面：旧判据守的是"灯会里改时段 ⇒ 灯会照旧开着、退出时以他的改动为准"
+     （那时灯会是"与时段正交的第 4 层"）。老黄现在要求"换场景就收起" ⇒ 新的两半是：
+       ① 换时段 ⇒ 灯会当场收起（这条有新牙）；
+       ② 收起后时段 = 他选的（不被 _festPrev 拽回）—— 旧契约那半仍然成立，只是场景变了。 */
   const back2 = await page.evaluate(async () => {
     const g = window.__garden;
+    const wait = (ms) => new Promise(r => setTimeout(r, ms));
     g.setEnv('time', 'noon');
-    await new Promise(r => setTimeout(r, 250));
+    await wait(400);
     g.toggleFestival(true);
-    await new Promise(r => requestAnimationFrame(r));
-    g.setEnv('time', 'morning');                 // 用户在灯会里自己把时段改成「晨」
-    await new Promise(r => setTimeout(r, 300));
-    const inside = g.ENV.time;
-    g.toggleFestival(false);
-    const t0 = performance.now();
-    while (performance.now() - t0 < 1500) await new Promise(r => requestAnimationFrame(r));
-    return { inside, time: g.ENV.time, festival: g.ENV.festival };
+    await wait(500);
+    const inside = { time: g.ENV.time, f: g.ENV.festival };
+    g.setEnv('time', 'morning');                 // 用户在灯会里自己把时段改成「晨」= 换场景
+    await wait(300);
+    const at = { time: g.ENV.time, f: g.ENV.festival, target: +g.ENV.to.festivalShow.toFixed(3) };
+    return { inside, at };
   });
-  check('⑥b 灯会里用户自己改过时段 ⇒ 退出**以他的改动为准**（不拽回进来前的时段）',
-    back2.festival === false && back2.inside === 'morning' && back2.time === 'morning',
-    `他在灯会里改成 morning ⇒ 退出后 time=${back2.time}（被拽回去会是 noon）`);
+  check('⑥b 灯会里自己改时段 ⇒ 灯会同样收起，且时段**以他的改动为准**（不拽回 noon）',
+    back2.inside.f === true && back2.at.f === false && back2.at.time === 'morning'
+      && back2.at.target < 0.03,
+    `灯会 ${back2.inside.f}→${back2.at.f} · 时段 ${back2.inside.time}→${back2.at.time}（应 morning）`
+    + ` · festivalShow 目标 ${back2.at.target}`);
 
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));
   await browser.close();
