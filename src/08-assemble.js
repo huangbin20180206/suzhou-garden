@@ -472,6 +472,174 @@ export const FIG_PALETTE = {
   lilac:   { robe:0xA98BBF, trim:0xE0D6C8, sash:0x4A3A5E },   // 丁香 · 仕女（井边）
 };
 const figMat = (color, rough) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.0, envMapIntensity: 0.3 });
+/* ══ 半写实贴图与皮肤件（2026-10-06 · 用户选"第 3 档：半写实"）══════════════════
+   此前的人物是"纯色积木"：头是一颗无脸黑球、袍是一片单色、手只到袖口为止。
+   半写实升级 = 三件事，全部**程序化**（零外部文件，与 01-materials 的 Canvas 贴图同一套做法）：
+   ① 脸贴图 —— 五官/肤色/发际线直接画在头球的球面 UV 上（一颗球 = 发型 + 脸）；
+   ② 织物贴图 —— 袍/衣缘/腰带加织纹。⚠️ 是**白底乘色**：贴图只提供明度纹样，
+      material.color 保持 FIG_PALETTE 原值 —— probe/figure-audit.mjs 的全部判色
+      （同框 ΔRGB / 草坪距离 / 近黑下限 / 袍=表内色）读的都是 material.color，对 map
+      零感知 ⇒ 配色门禁一条不受影响；
+   ③ 皮肤件 —— 颈（填"立领顶→头底"那段透缝）与手（自袖口探出的肤色椭球；坐姿的掌
+      直接由袍色换肤色）。新增几何只有"颈 + 手"两件，骨架/比例/摆位/动作一概不动
+      —— 那些牵动全部道具挂点与既有门禁，不是本次的事。
+   ⚠️ 纪律（每条都有出处）：
+   · 贴图绘制**零随机**（建场期多抽一次随机都是布局漂移，与 jr/WR 铁律同源）；
+   · 新网格的 noMerge 由 makeXxx 末尾的 root.traverse 统一打，不用另设；
+   · 11-loop 的 figures 循环每帧只写 robe.scale / position / rotation / visible，
+     头与材质无人碰 ⇒ 静态挂接一次生效，不存在"被每帧覆盖"的坑。 */
+
+/* 肤色单例：不参与配色门禁（figure-audit 只认袍/腰/缘/领），全角色统一一版。
+   0xEAC9A6 暖白肤——冷月夜偏灰蓝、暖阳下偏金，两头都立得住。 */
+const FIG_SKIN = 0xEAC9A6;
+const figSkinMat = figMat(FIG_SKIN, 0.68);
+const figTexCache = new Map();
+
+/* 脸贴图（成人 / 孩童两版）。球面 UV 口径（THREE.SphereGeometry 默认）：
+   u=0.25 的经线朝 **+z**（模型正面，与"模型正面 = +z"的全项目约定一致）、
+   v=0 头顶 / v=1 头底。⇒ 脸画在贴图 x≈64（u=0.25）一列，y 就是 v 方向。
+   1px ≈ 2.1mm（头周长 0.54m ÷ 256）—— 眼裂 ~11px、唇线 ~3px 都是写实宽度；
+   粗细按"3m 外可读"画（簪那条教训：画细了等于没画）。 */
+function figFaceTexture(child){
+  const key = child ? 'faceChild' : 'faceAdult';
+  if (figTexCache.has(key)) return figTexCache.get(key);
+  const S = 256;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const x = cv.getContext('2d');
+  const HAIR = '#1C2029';                     // 与 FIG_HAIR 同值：发髻/总角是纯色材质，色必须一致
+  x.fillStyle = HAIR; x.fillRect(0, 0, S, S); // 球面除脸窗外全是头发（后脑/顶/两侧）
+  const cx = 64;                              // u = 0.25 → x = 64
+  const top = child ? 64 : 60, bot = child ? 202 : 198;
+  /* 脸窗：竖椭圆（半宽 33px ≈ ±46°，写实"露耳脸"的角度），窗内画肤色与五官 */
+  x.save();
+  x.beginPath();
+  x.ellipse(cx, (top + bot) / 2, 33, (bot - top) / 2, 0, 0, Math.PI * 2);
+  x.clip();
+  x.fillStyle = '#EAC9A6'; x.fillRect(cx - 40, top - 6, 80, bot - top + 12);
+  /* 皮肤立体感：额颧微亮、颌底微暗（软边带，不描轮廓线——工笔不上线） */
+  const g = x.createLinearGradient(0, top, 0, bot);
+  g.addColorStop(0, 'rgba(255,238,214,0.50)');
+  g.addColorStop(0.45, 'rgba(255,238,214,0)');
+  g.addColorStop(0.80, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(146,96,64,0.28)');
+  x.fillStyle = g; x.fillRect(cx - 40, top - 6, 80, bot - top + 12);
+  const eyeY = child ? 118 : 126;
+  const eyeDX = child ? 15 : 17;
+  const eyeW = child ? 9 : 11;
+  for (const e of [-1, 1]){
+    const ex = cx + e * eyeDX;
+    /* 眉：一道斜弧 */
+    x.strokeStyle = 'rgba(52,40,34,0.9)';
+    x.lineWidth = child ? 2.6 : 3.0;
+    x.beginPath();
+    x.moveTo(ex - eyeW, eyeY - (child ? 16 : 18));
+    x.quadraticCurveTo(ex, eyeY - (child ? 22 : 25), ex + eyeW, eyeY - (child ? 17 : 20));
+    x.stroke();
+    /* 眼：上睑深线 + 瞳点（细长眼在球面上才不像贴纸） */
+    x.strokeStyle = 'rgba(40,28,22,0.95)';
+    x.lineWidth = child ? 3.0 : 2.6;
+    x.beginPath();
+    x.moveTo(ex - eyeW, eyeY);
+    x.quadraticCurveTo(ex, eyeY + (child ? 7 : 5), ex + eyeW, eyeY - 1);
+    x.stroke();
+    x.fillStyle = '#2E2118';
+    x.beginPath();
+    x.arc(ex + e * 1.5, eyeY + 2, child ? 2.6 : 2.2, 0, Math.PI * 2);
+    x.fill();
+    /* 腮红（孩子更浓） */
+    x.fillStyle = child ? 'rgba(214,116,92,0.30)' : 'rgba(201,128,102,0.16)';
+    x.beginPath();
+    x.ellipse(ex, eyeY + (child ? 17 : 14), child ? 8 : 7, child ? 5.5 : 4.5, 0, 0, Math.PI * 2);
+    x.fill();
+  }
+  /* 鼻：一道淡影（竖短线 + 鼻底弧）—— 鼻梁不描线，描了就是哭脸 */
+  x.strokeStyle = 'rgba(176,124,88,0.55)';
+  x.lineWidth = 2.2;
+  x.beginPath(); x.moveTo(cx, eyeY + 5); x.lineTo(cx, eyeY + 13); x.stroke();
+  x.beginPath(); x.moveTo(cx - 3, eyeY + 15); x.quadraticCurveTo(cx, eyeY + 17, cx + 3, eyeY + 15); x.stroke();
+  /* 嘴：唇色一道微弧 */
+  x.strokeStyle = 'rgba(168,93,78,0.95)';
+  x.lineWidth = child ? 3.4 : 3.0;
+  x.beginPath();
+  x.moveTo(cx - 7, eyeY + (child ? 28 : 26));
+  x.quadraticCurveTo(cx, eyeY + (child ? 32 : 30), cx + 7, eyeY + (child ? 28 : 26));
+  x.stroke();
+  x.restore();
+  /* 发际线：脸窗上缘盖回一条发弧（中额高、两鬓低）+ 两撮鬓角 */
+  x.fillStyle = HAIR;
+  x.beginPath();
+  x.moveTo(cx - 33, top + 26);
+  x.quadraticCurveTo(cx, top - 10, cx + 33, top + 26);
+  x.lineTo(cx + 33, top - 8); x.lineTo(cx - 33, top - 8);
+  x.closePath(); x.fill();
+  for (const e of [-1, 1]){
+    x.beginPath();
+    x.ellipse(cx + e * 30, top + 34, 5, 15, 0, 0, Math.PI * 2);
+    x.fill();
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  figTexCache.set(key, t);
+  return t;
+}
+/* 脸材质单例 ×2（成人/孩童）：头材质无人改属性，共享最省。 */
+const figFaceMatA = new THREE.MeshStandardMaterial({ map: figFaceTexture(false), roughness: 0.62, metalness: 0.0, envMapIntensity: 0.35 });
+const figFaceMatC = new THREE.MeshStandardMaterial({ map: figFaceTexture(true), roughness: 0.62, metalness: 0.0, envMapIntensity: 0.35 });
+
+/* 织物贴图（白底乘色）：只提供明度纹样，material.color 继续由 FIG_PALETTE 决定。
+   纹样周期按实物尺度：袍身周长 ~1.2m 铺满 256px ⇒ 1px≈4.7mm —— 斜纹 6px≈2.8cm、
+   团花 128px≈60cm、腰带菱格 16px≈7.5cm。三种纹样对应三处材质。 */
+function figClothTexture(kind){
+  const key = 'cloth_' + kind;
+  if (figTexCache.has(key)) return figTexCache.get(key);
+  const S = 256;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const x = cv.getContext('2d');
+  x.fillStyle = '#FFFFFF'; x.fillRect(0, 0, S, S);
+  if (kind === 'robe'){
+    /* 45° 斜纹（缎纹底） */
+    x.strokeStyle = 'rgba(0,0,0,0.05)'; x.lineWidth = 2;
+    for (let i = -S; i < S * 2; i += 6){
+      x.beginPath(); x.moveTo(i, 0); x.lineTo(i + S, S); x.stroke();
+    }
+    /* 暗团花：两圈四瓣花交错（低对比 —— 远看是"缎面有货"，近看才见花） */
+    x.strokeStyle = 'rgba(0,0,0,0.045)'; x.lineWidth = 1.5;
+    for (const gy of [0, 128]) for (const gx of [0, 128]){
+      for (const r of [22, 40]){
+        for (let k = 0; k < 4; k++){
+          const a = k * Math.PI / 2 + (r === 22 ? 0 : Math.PI / 4);
+          x.beginPath();
+          x.ellipse(gx + Math.cos(a) * r * 0.62, gy + Math.sin(a) * r * 0.62, r * 0.42, r * 0.20, a, 0, Math.PI * 2);
+          x.stroke();
+        }
+      }
+      x.beginPath(); x.arc(gx, gy, 6, 0, Math.PI * 2); x.stroke();
+    }
+  } else if (kind === 'trim'){
+    /* 平纹细格（衣缘的"织边"感） */
+    x.strokeStyle = 'rgba(0,0,0,0.05)'; x.lineWidth = 1;
+    for (let i = 0; i <= S; i += 4){
+      x.beginPath(); x.moveTo(i, 0); x.lineTo(i, S); x.stroke();
+      x.beginPath(); x.moveTo(0, i); x.lineTo(S, i); x.stroke();
+    }
+  } else {
+    /* 织锦菱纹（腰带）：双向斜线成菱格 + 隔点小点 */
+    x.strokeStyle = 'rgba(0,0,0,0.08)'; x.lineWidth = 1.6;
+    for (let i = -S; i < S * 2; i += 16){
+      x.beginPath(); x.moveTo(i, 0); x.lineTo(i + S, S); x.stroke();
+      x.beginPath(); x.moveTo(i + S, 0); x.lineTo(i, S); x.stroke();
+    }
+    x.fillStyle = 'rgba(0,0,0,0.10)';
+    for (let iy = 0; iy <= S; iy += 16) for (let ix = 0; ix <= S; ix += 16){
+      if (((ix + iy) / 16) % 2 === 0){ x.beginPath(); x.arc(ix, iy, 2, 0, Math.PI * 2); x.fill(); }
+    }
+  }
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  figTexCache.set(key, t);
+  return t;
+}
 /* 躯干截面不是正圆（2026-09-18 第六轮 · 老黄选 B）。
    病根：袍身是 LatheGeometry（回转体），肩宽 = 2×0.186 = 0.37m，而头宽 0.172m
    → **肩只有 2.15 个头宽**（真人 ≈3），远看就是个保龄球瓶。这是"不像人"的最大来源，
@@ -534,6 +702,11 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
   const inkLight = figMat(P.trim, 0.85);      // 领边 / 袖口环 / 后中缝
   const hair     = figMat(FIG_HAIR, 0.90);    // 头与发髻：比袍身更暗，剪影才立得住
   const sashMat  = figMat(P.sash, 0.88);      // 腰带
+  /* 半写实（2026-10-06）：织纹挂接（白底乘色，color 不动 ⇒ 配色门禁零影响）；
+     头球另用脸贴图材质（下方 headG 处），发发髻/簪仍用原材质（发色/玉色与贴图发区同值）。 */
+  ink.map = figClothTexture('robe');       ink.needsUpdate = true;
+  inkLight.map = figClothTexture('trim');  inkLight.needsUpdate = true;
+  sashMat.map = figClothTexture('sash');   sashMat.needsUpdate = true;
   // 袍身：肩加宽、腰收窄（7.5 头身）；直裰 A 形剪影
   const prof = [
     new THREE.Vector2(0.001, 0),
@@ -658,6 +831,15 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
     clump.position.set(side * hx, hy, hz);
     clump.scale.set(1.25, 0.9, 0.85);
     g.add(clump);
+    /* 手（肤色，2026-10-06 半写实）：自袖口聚团沿末段方向探出 ~5cm ——
+       "袖 → 腕 → 指尖"三段读得出来。挂 g（与袖管同一坐标系，一起吃椭圆缩放，
+       否则手会从袖口脱节）。⚠️ 不改 scholarClump 的名字/位置 —— attachWoodBucket
+       按它找仕女的右手挂桶，探针也按它实测手位。 */
+    const hDir = new THREE.Vector3(side * (hx - A.pts[2][0]), hy - A.pts[2][1], hz - A.pts[2][2]).normalize();
+    const hand = mesh(new THREE.SphereGeometry(0.040, 8, 7), figSkinMat, { name:'scholarHand' });
+    hand.position.set(side * hx, hy, hz).addScaledVector(hDir, 0.055);
+    hand.scale.set(1.05, 0.72, 1.05);
+    g.add(hand);
     const cuff = mesh(new THREE.TorusGeometry(0.040, 0.007, 5, 10), inkLight, { name:'scholarCuff' });
     cuff.position.set(side * hx, hy - 0.028, hz - 0.006);
     /* 袖口环的朝向：老姿态（负手/捧卷/持盏）用的是"绕 Y 转 90°"的固定写法（法线 = 局部 +x），
@@ -697,7 +879,9 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
   const headG = new THREE.Group();
   headG.position.set(0, 1.445, 0.03);
   headG.rotation.x = headDown;
-  headG.add(mesh(new THREE.SphereGeometry(0.086, 14, 11), hair, { name:'scholarHead' }));
+  /* 头球用脸贴图（2026-10-06 半写实）：一颗球 = 发型 + 脸（贴图里发区与 FIG_HAIR 同值，
+     与下面的发髻/盘髻无缝衔接）。分段 14×11 → 16×13：脸窗 ±46° 需要 ~16 经段才不糊。 */
+  headG.add(mesh(new THREE.SphereGeometry(0.086, 16, 13), figFaceMatA, { name:'scholarHead' }));
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'scholarKnot' });
   knot.position.set(0, 0.098, -0.020);
   knot.scale.set(1, 0.95, 1);
@@ -735,6 +919,13 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
     headG.add(bead);
   }
   root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不能跟着躯干的椭圆缩放一起被压扁
+  /* 颈（肤色，2026-10-06 半写实）：填"立领顶(1.2875) → 头底(1.359)"之间那段透缝
+     —— 原来袍口收在 1.31、头球下缘 1.359，中间是一条看得见的黑缝。
+     圆柱 y 1.245~1.405：下端没入立领、上端没入头球，只露中段 ~7cm 的脖子。
+     挂 root（不挂 g）：不被椭圆缩放压扁，与头球同一套截面语义。 */
+  const neck = mesh(new THREE.CylinderGeometry(0.040, 0.047, 0.16, 10), figSkinMat, { name:'scholarNeck' });
+  neck.position.y = 1.325;
+  root.add(neck);
   // 呼吸相位 + 不参与合并（要每帧微动）
   /* ⚠️ 这三行必须挂 **root**（figures 里存的就是 root）：挂 g 的话
      ① 渲染循环读 `f.userData.robe.scale` 会 undefined 崩、
@@ -973,6 +1164,13 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
   const P = FIG_PALETTE[skin] || FIG_PALETTE.moss;
   const ink  = figMat(P.robe, 0.92);          // 童袍主色
   const hair = figMat(FIG_HAIR, 0.90);
+  /* 半写实（2026-10-06）：同站姿 —— 袍/腰/缘挂织纹（白底乘色，color 不动）；头用孩童脸。
+     原先 cSash/cHem/交领各自内联 figMat（同色重复建材质），顺手各收成一个共享实例再挂 map。 */
+  ink.map = figClothTexture('robe');  ink.needsUpdate = true;
+  const cTrimMat = figMat(P.trim, 0.85);
+  cTrimMat.map = figClothTexture('trim');  cTrimMat.needsUpdate = true;
+  const cSashMat = figMat(P.sash, 0.88);
+  cSashMat.map = figClothTexture('sash');  cSashMat.needsUpdate = true;
   // 童袍：矮圆，微 A 形
   const prof = [
     new THREE.Vector2(0.001, 0),
@@ -988,11 +1186,11 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
   const robe = mesh(new THREE.LatheGeometry(prof, 14), ink, { name:'childRobe' });
   g.add(robe);
   // 童腰带（同成人：一道横带 = 最省成本的"衣服感"）；半径按 y=0.60 处袍半径 0.118 外放 8mm
-  const cSash = mesh(new THREE.CylinderGeometry(0.124, 0.128, 0.05, 12, 1, true), figMat(P.sash, 0.88), { name:'childSash' });
+  const cSash = mesh(new THREE.CylinderGeometry(0.124, 0.128, 0.05, 12, 1, true), cSashMat, { name:'childSash' });
   cSash.position.y = 0.60;
   g.add(cSash);
   // 童下摆衣缘（同先生：给"花瓶轮廓"一条终止线）
-  const cHem = mesh(new THREE.CylinderGeometry(0.152, 0.143, 0.05, 14, 1, true), figMat(P.trim, 0.85), { name:'childHem' });
+  const cHem = mesh(new THREE.CylinderGeometry(0.152, 0.143, 0.05, 14, 1, true), cTrimMat, { name:'childHem' });
   cHem.position.y = 0.055;
   g.add(cHem);
   // 简单垂袖（孩童的袖子贴垂，不拢后）；arms:'up' = 举袖欢呼（两条胳膊举到头顶两侧成 V 形）
@@ -1005,6 +1203,15 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
   for (const side of [-1, 1]){
     const sl = new THREE.CatmullRomCurve3(CHILD_SLEEVE.map(([ax, ay, az]) => new THREE.Vector3(side * ax, ay, az)));
     g.add(mesh(new THREE.TubeGeometry(sl, 5, 0.042, 5, false), ink, { name:'childSleeve' }));
+    /* 手（肤色，2026-10-06 半写实）：同站姿手法 —— 自袖末点沿末段方向探出 ~4cm。
+       举袖欢呼（arms:'up'）的手从袖口上探，读作"举着的手掌"。 */
+    const hd = new THREE.Vector3(side * (CHILD_SLEEVE[2][0] - CHILD_SLEEVE[1][0]),
+                                 CHILD_SLEEVE[2][1] - CHILD_SLEEVE[1][1],
+                                 CHILD_SLEEVE[2][2] - CHILD_SLEEVE[1][2]).normalize();
+    const hand = mesh(new THREE.SphereGeometry(0.030, 8, 6), figSkinMat, { name:'childHand' });
+    hand.position.set(side * CHILD_SLEEVE[2][0], CHILD_SLEEVE[2][1], CHILD_SLEEVE[2][2]).addScaledVector(hd, 0.042);
+    hand.scale.set(1.1, 0.75, 1.1);
+    g.add(hand);
   }
   /* 童交领（第六轮）：与先生同款构件 —— 童装也是交领，缺了同框会看出"两种衣服" */
   for (const side of [-1, 1]){
@@ -1013,13 +1220,16 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
       const x = side * ax, r = profR(prof, y) + 0.010;
       return new THREE.Vector3(x, y, Math.sqrt(Math.max(r * r - x * x, 0.0004)));
     }));
-    g.add(mesh(new THREE.TubeGeometry(lapel, 10, 0.013, 5, false), figMat(P.trim, 0.85), { name:'childLapel' }));
+    g.add(mesh(new THREE.TubeGeometry(lapel, 10, 0.013, 5, false), cTrimMat, { name:'childLapel' }));
   }
   // 大头 + 双总角（孩童发髻：两小揪，不是成人单髻）
   const headG = new THREE.Group();
   headG.position.set(0, 1.02, 0.02);
   headG.rotation.x = 0.10;
-  headG.add(mesh(new THREE.SphereGeometry(0.075, 12, 10), hair, { name:'childHead' }));
+  /* 头球用孩童脸贴图（2026-10-06 半写实）：眼睛更大更圆、腮红更浓。
+     孩子袍口收在 0.96、头下缘 0.945 —— 头和袍本身重叠，没有露颈的缝，不加颈。
+     分段 12×10 → 14×12（同站姿的理由：脸窗要够细）。 */
+  headG.add(mesh(new THREE.SphereGeometry(0.075, 14, 12), figFaceMatC, { name:'childHead' }));
   for (const side of [-1, 1]){
     /* 双总角（第六轮）：原 r=0.026 / ±0.030 / y=0.085 —— 剪影上是两个**带 V 形缺口的小圆包**，
        在 2.5m 视距（样张 10a）直接读成"耳朵"。修法：加大到 0.030、上移、向中线靠拢到 ±0.024，
@@ -1087,6 +1297,10 @@ function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go', skin 
   const inkLight = figMat(P.trim, 0.85);
   const hair     = figMat(FIG_HAIR, 0.90);
   const sashMat  = figMat(P.sash, 0.88);
+  /* 半写实（2026-10-06）：同站姿 —— 织纹挂接（白底乘色，color 不动）；头用成人脸。 */
+  ink.map = figClothTexture('robe');       ink.needsUpdate = true;
+  inkLight.map = figClothTexture('trim');  inkLight.needsUpdate = true;
+  sashMat.map = figClothTexture('sash');   sashMat.needsUpdate = true;
 
   /* 关键高度：全部由坐面推出 + 与站姿同源的两段长度
        腰 HIP_Y = 0.510 · 肩 SHO_Y = 0.880 · 颈顶 NECK_Y = 1.000 · 头心 1.135 */
@@ -1206,13 +1420,16 @@ function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go', skin 
     elbow.position.set(side * A[1][0], A[1][1], A[1][2]);
     g.add(elbow);
     /* 手：掌（压扁的球）+ 沿**前臂轴向**推到袖口之外 0.030 ⇒ 袖 → 腕 → 掌三段分明。
-       ⚠️ 掌 0.050 比前臂 0.046 大一圈、比旧袖管 0.065 小一圈 —— 这才是手的比例。 */
+       ⚠️ 掌 0.050 比前臂 0.046 大一圈、比旧袖管 0.065 小一圈 —— 这才是手的比例。
+       2026-10-06 半写实：掌由袍色换**肤色**（坐姿的袖已拆上臂/前臂两段、袖口环独立，
+       露出的就是"手"本身，用袍色反而读不出手）。⚠️ 名字 seatClump 不改 —— 探针
+       按它实测手位（2026-10-05 的门禁记过这笔账）。 */
     const [hx, hy, hz] = A[3];
     const [px, py, pz] = A[2];
     const ux = hx - px, uy = hy - py, uz = hz - pz;
     const uL = Math.hypot(ux, uy, uz) || 1;        // 前臂轴向（局部坐标；g 的椭圆缩放另算）
     const OUT = 0.030;                              // 掌心推到腕口之外的距离
-    const palm = mesh(new THREE.SphereGeometry(0.050, 9, 7), ink, { name:'seatClump' });
+    const palm = mesh(new THREE.SphereGeometry(0.050, 9, 7), figSkinMat, { name:'seatClump' });
     palm.position.set(side * (hx + ux / uL * OUT), hy + uy / uL * OUT, hz + uz / uL * OUT);
     palm.scale.set(1.10, 0.80, 1.15);               // 压扁成"掌"，不是球
     g.add(palm);
@@ -1227,11 +1444,12 @@ function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go', skin 
     g.add(cuff);
   }
   /* 头 + 发髻 + 簪（与站姿同一套尺寸/构件；坐姿低头角度按姿态给：
-     对弈要盯着盘面 ⇒ 0.40；抚琴盯着弦 ⇒ 0.30；其余 0.24 同站姿） */
+     对弈要盯着盘面 ⇒ 0.40；抚琴盯着弦 ⇒ 0.30；其余 0.24 同站姿）
+     头球用脸贴图（2026-10-06 半写实，同站姿：16×13 分段 + figFaceMatA）。 */
   const headG = new THREE.Group();
   headG.position.set(0, NECK_Y + 0.135, 0.03);
   headG.rotation.x = pose === 'go' ? 0.40 : (pose === 'qin' ? 0.30 : 0.24);
-  headG.add(mesh(new THREE.SphereGeometry(0.086, 14, 11), hair, { name:'seatHead' }));
+  headG.add(mesh(new THREE.SphereGeometry(0.086, 16, 13), figFaceMatA, { name:'seatHead' }));
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'seatKnot' });
   knot.position.set(0, 0.098, -0.020);
   headG.add(knot);
@@ -1248,6 +1466,11 @@ function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go', skin 
     headG.add(bead);
   }
   root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不参与躯干椭圆缩放（同站姿）
+  /* 颈（肤色，2026-10-06 半写实）：同站姿 —— 填"衣缘顶(0.994) → 头底(1.049)"那段透缝。
+     圆柱 y 0.95~1.09：下端没入立领、上端没入头球，露中段 ~5cm。挂 root。 */
+  const seatNeck = mesh(new THREE.CylinderGeometry(0.040, 0.047, 0.14, 10), figSkinMat, { name:'seatNeck' });
+  seatNeck.position.y = 1.02;
+  root.add(seatNeck);
   root.userData.breathPhase = jr() * TAU;
   root.userData.robe = robe;
   /* ⚠️ 坐姿的"接地面"不是脚底（= baseY），而是**坐面**：人物原点在凳心、正下方就是石凳，
