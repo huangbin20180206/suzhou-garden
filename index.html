@@ -554,6 +554,11 @@
            默认俯视机位物理上看不到天上的花（只能看到"庭院被染亮"）。
            它同时是"一键成立"的：点它会把场景设成 冬·夜·晴（烟花的三重门控），见 12-env 的点击分支。 -->
       <button data-view="fireworks">看烟花</button>
+      <!-- 看彩虹（2026-10-06）：与「看烟花」同款的**一键情境**按钮 —— 虹只在 雨后初晴+白天
+           出现（夜里按 uStarAmount 门控消失），所以点它先把场景设成 暮色·雨后初晴（见 12-env
+           的 data-view 分支）再飞到 VIEWPOINTS.rainbow。⛔ 别删：那个机位没有别的入口
+           （既不在巡游清单 TOUR_ORDER 里，也没有其它按钮引用它）。 -->
+      <button data-view="rainbow">看彩虹</button>
       <span class="hint">C</span>
     </div>
     <div class="row">

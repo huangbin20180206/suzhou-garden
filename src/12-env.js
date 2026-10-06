@@ -693,6 +693,12 @@ envEl.addEventListener('click', (e)=>{
     if (b.dataset.view === 'fireworks'){
       setEnv('season', 'winter'); setEnv('time', 'night'); setEnv('weather', 'clear');
     }
+    /* 同理（2026-10-06）：「看彩虹」也必须是**一键成立**的 —— 虹只在 **雨后初晴 + 白天** 出现
+       （夜里按 uStarAmount 门控自动消失；其它天气为 0）。默认状态是 夏·正午，用户点它本意是
+       "我要看那道拱"，不是"我只想挪相机" ⇒ 先把时段与天气设好再飞。
+       季节**不动**（虹与季节无关，别顺手改）；时段取**暮色**（ENV_TIME 的 rainbowMul 在暮色
+       最大、且 afterrain-guard 的参照实测都在暮色）。 */
+    if (b.dataset.view === 'rainbow'){ setEnv('time', 'dusk'); setEnv('weather', 'afterrain'); }
     gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return;
   }
   /* 选"狂风暴雨"自动开启音景 —— 合并后暴雨带闪电，而闪电的核心观感之一就是雷鸣，

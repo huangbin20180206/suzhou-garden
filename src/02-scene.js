@@ -167,9 +167,13 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDir){
          卡片（仰角 −10°~+21°、不透明 0.76~0.95）挡在背后 —— 默认俯视机位的整条
          可见天带都在山后面，强度怎么调都只从山缝里漏几个灰阶（取证见
          outputs/_diag/rb-intensity.mjs + rainbow-natural.png，多模态判"极淡"）。
-         现在虹是**独立透明层 rainbowMesh**（见下方 makeRainbowMesh），renderOrder
-         排在远山之后 ⇒ 画在山前面（中国山水画"山前挂虹"的画法），近景园景
-         （写深度的不透明网格）照常把它挡住。本材质只留天空本体。 */
+         现在虹是**独立透明层 rainbowMesh**（见下方 makeRainbowMesh），虹 renderOrder=−1
+         **小于**远山卡片 0 ⇒ 虹先画、山后画 ⇒ 读作"山前挂虹"的**反面**：虹画在山**后**。
+         ⚠️ 2026-10-06 定案：这个"山压虹"是**要的**（弧带伸进山剪影就在山脊处自然收口，
+         老黄要的"右端藏到山脚、不要硬切"就是靠它），**别去把它翻过来** —— 翻过来虹像素
+         多 12 倍、亮度越过 bloom 阈值、整幅糊成灰白（取证 outputs/_diag/rb-mask.mjs；
+         详见 07-ground 里 renderOrder 那段与 08-assemble 的「看彩虹」机位注释）。
+         近景园景（写深度的不透明网格）照常按深度挡虹。本材质只留天空本体。 */
     },
     vertexShader:`varying vec3 vDir;
       void main(){ vDir = normalize(position); gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
@@ -399,11 +403,11 @@ function makeRainbowMesh(){
          x=78% 列占 15.8%~29.6%、x=85% 列占 10.4%~30.6% ⇒ 118° 端（28.3%）整点落在
          **山体可见区内**（离山体下缘 29.6~30.6% 还有 ~1.5% 余量），不再是悬在天上的切口。
        · 为什么"落进山体"就等于"被藏住"：远山四层是半透明卡片（uOpacity 0.95/0.90/0.84/0.76），
-         而虹 mesh 的 renderOrder=−1 < 山卡片 0 ⇒ 透明趟里**虹先画、山后画**（09-lights 的
-         mergeStatics 重建网格时把 07-ground 设的 −2 丢了，实测 renderOrder 全是 0；
-         A/B 取证 outputs/_diag/rb-order.mjs：把虹提到 +9 后虹像素 164k→847k、均值差 41.6→72.5
-         ⇒ 现状确实是山压虹）。所以弧带一旦伸进山剪影，就被山按 0.76~0.95 的不透明度盖住 ——
-         可见部分在**山脊轮廓**处自然收住（有机边缘），而不是自己切一条直线。
+         而虹 mesh 的 renderOrder=−1 < 山卡片 0 ⇒ 透明趟里**虹先画、山后画** ⇒ 山压虹
+         （⚠️ 这是**要的行为**，2026-10-06 定案：翻过来会让虹像素多 12 倍并顶爆 bloom，
+         见 07-ground 的 renderOrder 长注释与 outputs/_diag/rb-mask.mjs）。所以弧带一旦伸进
+         山剪影，就被山按 0.76~0.95 的不透明度盖住 —— 可见部分在**山脊轮廓**处自然收住
+         （有机边缘），而不是自己切一条直线。
        · 门禁余量：跨度 74.6−17.1=57.5% → 推算 ~63.7%~65%（afterrain-guard 上限 72%）；
          带宽 BAND、亮度 uBright、alpha uAlphaC、羽化边**全部未动**（老黄要求①：不许变粗/变淡/
          变一片彩霞）；几何其余常量（R / DIST / archTopY / T0）也未动。
@@ -520,7 +524,9 @@ function makeRainbowMesh(){
     fog: false,
   });
   const m = new THREE.Mesh(geo, mat);
-  m.renderOrder = -1;         // 山卡片 −2 → 先画；虹 −1 后画 ⇒ 虹在山前；园内透明物 0+ 更后
+  /* ⚠️ 虹 −1 **小于** 远山卡片的 0 ⇒ 虹**先画**、山后画 ⇒ **山压虹**（有意，别翻；
+     理由与取证见 07-ground 的 renderOrder 长注释 / 08-assemble 的「看彩虹」机位注释）。 */
+  m.renderOrder = -1;
   m.frustumCulled = false;
   return m;
 }

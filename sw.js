@@ -49,7 +49,9 @@
    时段条换"细轨道 + 已过段暖色填充 + 精修圆球 + 锚点刻度点"的新样式、
    两个滑杆视觉统一）与 src/12-env.js（气泡位置改由 CSS 变量 --r 统一负责、
    音量滑杆补齐填充比例）。改 SHELL 成员必须升版，否则已装 SW 的浏览器吃旧缓存看不到新面板。 */
-const CACHE = 'suzhou-garden-v18';
+/* 2026-10-06 看彩虹批次 bump v18→v19：又改了 SHELL 成员 index.html
+   （陈设行加「看彩虹」一键情境按钮 —— 同「看烟花」的套路：先设 暮色·雨后初晴 再飞）。 */
+const CACHE = 'suzhou-garden-v19';
 const SHELL = [
   './',
   './index.html',

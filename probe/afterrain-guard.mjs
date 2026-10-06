@@ -366,6 +366,68 @@ const check = (name, ok, detail = '') => {
     arch && arch.coreTopY >= 3 && arch.coreTopY <= 25,
     `拱顶 y=${arch ? arch.coreTopY : '?'}%（低阈值 bbox 顶=${arch ? arch.topY : '?'}%，含 bloom 晕圈；贴顶=0% 是旧坑）`);
 
+  /* ══ §5 「看彩虹」机位（2026-10-06 重挑）════════════════════════════════
+     这是一个**名字承诺了体验**的机位（面板「看彩虹」按钮 → 暮色·雨后初晴 → 飞过去），
+     所以它必须真的看得到虹。守两条：
+       ① **站位在拱的圈外、离拱带足够远** —— 旧机位 pos(2,2.4,12) 站在 r=68m 拱带的
+          **圈内**（拱平面内半径 57m < 内缘 65.4m）、离带只有 **42.9m** ⇒ 5.2m 宽的带子
+          铺满画面上半（实测覆盖 15% 画面、峰值 589/765、贴边被切 3361px），亮度越过
+          后处理 bloom 阈值 ⇒ **整幅糊成灰白**，出图判读"天空均匀灰白、没有彩虹"。
+       ② **判据有牙** —— 同一套判据对**旧机位**必须报红（负例自检；防两条都松到恒绿）。
+     口径同 §3：冻结帧同任务 开虹↔关虹（阈值 45）。
+     实测（本机默认档，2026-10-06 定值）：新机位 离带 65m / 覆盖 3.4% / 峰值 ~248 / 贴边 0；
+     旧机位 离带 42.9m / 覆盖 ~15% / 峰值 ~589 / 贴边数千 ⇒ 三条判据各差 2~5 倍，留了余量。 */
+  await setEnv('dusk', 'afterrain'); await settle();
+  const vpProbe = (which) => page.evaluate((which) => {
+    const G = window.__garden;
+    const v = (G.VIEWPOINTS || []).find(x => x.id === 'rainbow');
+    const rb = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
+                                      && o.material.uniforms.uRainbow && o.geometry.attributes.aT);
+    if (!v || !rb) return { missing: true };
+    /* 旧机位（2026-10-01 口径）—— 只用于负例自检 */
+    const P = which === 'old' ? { pos: [2, 2.4, 12], tgt: [21.44, 0.2, -20.36] }
+                              : { pos: v.pos.toArray(), tgt: v.target.toArray() };
+    const pa = rb.geometry.attributes.position;
+    let dmin = 1e9;
+    for (let i = 0; i < pa.count; i++)
+      dmin = Math.min(dmin, Math.hypot(P.pos[0] - pa.getX(i), P.pos[1] - pa.getY(i), P.pos[2] - pa.getZ(i)));
+    G.camera.position.set(P.pos[0], P.pos[1], P.pos[2]);
+    G.controls.target.set(P.tgt[0], P.tgt[1], P.tgt[2]);
+    G.controls.update();
+    const cam = G.camera.position.toArray().map(n => +n.toFixed(2));
+    const cv = document.createElement('canvas');
+    cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+    const W = cv.width, H = cv.height;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0);
+      return ctx.getImageData(0, 0, W, H); };
+    grab(); grab();                       // 预热两张：别让重编落在被测帧上
+    const A = grab();
+    const u = rb.material.uniforms, keep = u.uRainbow.value;
+    u.uRainbow.value = 0; const B = grab(); u.uRainbow.value = keep;
+    let ink = 0, peak = 0, x0 = 1e9, x1 = -1e9, clip = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++){
+      const i = (y * W + x) * 4;
+      const d = Math.abs(A.data[i]-B.data[i]) + Math.abs(A.data[i+1]-B.data[i+1]) + Math.abs(A.data[i+2]-B.data[i+2]);
+      if (d > peak) peak = d;
+      if (d > 45){ ink++; if (x < x0) x0 = x; if (x > x1) x1 = x;
+        if (x < W*0.01 || x > W*0.99 || y < H*0.01 || y > H*0.99) clip++; }
+    }
+    return { cam, dmin: +dmin.toFixed(1), cov: +(ink / (W * H) * 100).toFixed(2), peak, clip,
+             x0: +(x0 / W * 100).toFixed(1), x1: +(x1 / W * 100).toFixed(1) };
+  }, which);
+  /* 判据集合（新机位要全过、旧机位至少要失手一条） */
+  const vpOK = v => !v.missing && v.dmin >= 55 && v.cov >= 1 && v.cov <= 8
+                 && v.peak >= 90 && v.peak <= 400 && v.clip === 0 && v.x0 < 40 && v.x1 > 60;
+  const vpNew = await vpProbe('new');
+  const vpOld = await vpProbe('old');
+  check('看彩虹机位：站在拱的圈外（离拱带 ≥55m —— 站进去就会被 5.2m 宽的带糊满整幅）',
+    !vpNew.missing && vpNew.dmin >= 55, `离拱带 ${vpNew.dmin}m（旧机位 42.9m）· 相机 ${JSON.stringify(vpNew.cam)}`);
+  check('看彩虹机位：拱完整在画内且不过曝（覆盖 1%~8%、峰值 90~400、贴边 0px）',
+    vpOK(vpNew), `覆盖 ${vpNew.cov}%、峰值 ${vpNew.peak}/765、贴边 ${vpNew.clip}px、横向 ${vpNew.x0}%~${vpNew.x1}%`);
+  check('负例自检：同一套判据必须把**旧机位**判红（否则本门没有牙）', !vpOK(vpOld),
+    `旧机位 覆盖 ${vpOld.cov}%、峰值 ${vpOld.peak}、贴边 ${vpOld.clip}px、离拱带 ${vpOld.dmin}m`);
+
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');
 

@@ -222,14 +222,25 @@ export function makeDistantHills(){
       const m = mesh(hillGeo, mat, { cast:false, receive:false });
       m.position.set(Math.cos(a)*r, 0, Math.sin(a)*r);
       m.lookAt(0, 0, 0);
-      /* ⚠️⚠️ 2026-10-02：远山必须**不写深度**且 renderOrder=−2 —— 彩虹层（02-scene
-         的 rainbowMesh，renderOrder −1）要画在山**前面**（"山前挂虹"，否则整条默认
-         机位可见的天带都被这四层 0.76~0.95 不透明度的卡片挡在背后，虹怎么调都看不见，
-         七轮取证 outputs/_diag/rb-intensity.mjs）。
-         山 transparent 本就按距离排序画（远层先画），去掉 depthWrite 不改变层间
-         视觉；而不透明园景先画并写深度，山 depthTest 照常被园景挡 ⇒ 原遮挡关系不变。 */
+      /* ⚠️⚠️ 2026-10-02 / 2026-10-06 两次定案，**读完整段再动手**：
+         一、depthWrite=false 保留：远山是半透明卡片，不写深度 ⇒ 后面画的园内透明物
+             （涟漪 3/6/7、雾团、水面）不会被这四层挡掉。去掉它不改变层间视觉（山本就按
+             距离排序画），但没必要动。
+         二、renderOrder **显式写 0**（原写 −2）——因为 −2 的用途已经**不成立**了：
+             2026-10-02 虹挂在 r=420 天球上时，确实需要"山 −2 先画、虹 −1 后画"才看得见虹；
+             但 2026-10-03 虹改成 **r=68m 的世界空间大拱**、2026-10-06 又定案"虹画在山**后**"
+             （老黄要的"右端藏到山脚、不要硬切"正是靠山把它盖住收口，见 02-scene 的 T1 注释）。
+         三、⚠️⚠️ **别去"修" renderOrder 丢失**：`09-lights.mergeStatics` 重建网格时会把每张
+             卡片的 renderOrder 丢掉（实测合并后四层全为 0），于是**虹 −1 先画、山 0 后画
+             ⇒ 山压虹**。这个"山压虹"是**要的行为**，不是 bug。2026-10-06 实测把虹提到山前
+             （等价于让 −2 生效）的代价：虹像素 3.1%→**37.9%**（多 12 倍）、峰值 249→349，
+             亮度越过 bloom 阈值 ⇒ **整幅糊成灰白**，正是老黄已经否掉的"太夸张/蒙了层雾"
+             （取证 outputs/_diag/rb-order.mjs、rb-mask.mjs）。真要改，先把 afterrain-guard
+             的全部数值重定一轮。
+         显式写 0（而不是删掉这行）是为了：万一将来真去修 mergeStatics 的 renderOrder，
+         这里不会被"复原"成 −2 而把彩虹顶爆。 */
       m.material.depthWrite = false;
-      m.renderOrder = -2;
+      m.renderOrder = 0;
       grp.add(m);
     }
     return grp;
