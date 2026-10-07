@@ -1,4 +1,4 @@
-# 布局指纹基线（T0）网格数=182 总指纹=2908141425
+# 布局指纹基线（T0）网格数=182 总指纹=2568815901
 # 采样条件：bootDonePromise 已 resolve → season=summer → hour=12.5 → ENV.t>=1 → settle 2 帧
 # 排除：name∈{mistField}、geom∈{RingGeometry}（动画驱动，非流产物）
 -|6|PlaneGeometry	首实例=0.00,0.00,0.00	hash=3755118789
@@ -13,8 +13,8 @@
 #3a4a20|9|CylinderGeometry	首实例=0.00,0.03,0.00	hash=1657172657
 #3c444f|118|CylinderGeometry	首实例=-5.42,0.86,5.10	hash=2239381725
 #3c444f|206|CylinderGeometry	首实例=-12.12,1.13,6.30	hash=3871904661
-#3e7a34|36|ShapeGeometry	首实例=4.60,0.08,1.70	hash=2405957059
-#3e7a34|36|ShapeGeometry	首实例=-0.83,0.08,-0.33	hash=3979651418
+#3e7a34|36|ShapeGeometry	首实例=4.60,0.08,1.70	hash=2179226190
+#3e7a34|36|ShapeGeometry	首实例=-0.83,0.08,-0.33	hash=2845983197
 #3f6b34|30|BufferGeometry	首实例=-6.20,-0.05,7.66	hash=776495719
 #3f6b34|44|BufferGeometry	首实例=0.30,-0.05,0.62	hash=2961899811
 #3f6b34|54|BufferGeometry	首实例=1.45,-0.05,-0.59	hash=890777632
