@@ -59,7 +59,9 @@
 /* 2026-10-06 图标与快捷键补齐批次 bump v21→v22：又改了 SHELL 成员 index.html ——
    全部按钮加图标（data-ic + CSS ::before，不动 DOM 结构、textContent 不变）、
    提示文字补 5~9 机位 / Shift+1~4 画质。 */
-const CACHE = 'suzhou-garden-v22';
+/* 2026-10-07 拆分批次 bump v22→v23：src/01-materials.js 拆出 src/01b-textures.js
+   （23 个程序化贴图生成器整块搬出，纯搬运逐字未改；01-materials 1412→846 行）。 */
+const CACHE = 'suzhou-garden-v23';
 const SHELL = [
   './',
   './index.html',
