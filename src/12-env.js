@@ -831,7 +831,14 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
    一张表 + 一遍遍历把 `data-ic` 打到每个按钮上，图标由 CSS 的 ::before 画出来（见 index.html）。
    ⚠️ **不改 DOM 结构、不加子元素** ⇒ 按钮的 textContent 仍是纯标签文字，
       各探针按文字认按钮的口径（panel-check2 / _ui-click-diag 等）一位不变。
-   图标统一取"淡墨印记"一族的几何/花卉符号（与既有的 ▸ ✦ ▽ 同风格），不用彩色 emoji。 */
+   图标统一取"淡墨印记"一族的几何/花卉符号（与既有的 ▸ ✦ ▽ 同风格），不用彩色 emoji。
+   ⚠️ 图标字形**不许和按钮标签里已有的字符重复**：`巡游▸`/`流转▸`/`长曝▽` 这些标签自带一个
+      状态指示符，若图标也用同一个字形，就成了"▸ 巡游▸"这种叠字（2026-10-07 上色后更明显：
+      前面是彩色 ◈、后面还跟着一个墨色 ▸）。
+      ⇒ act:tour 用 ◈（不是标签里出现过的字符）；act:random 原用 ✦ 而标签「偶得✦」也带 ✦，
+      留档图上照样读成"重复的四角星"（✷ 与 ✦ 在 11px 下看不出差别）⇒ **把标签的 ✦ 去掉**
+      （它只是装饰，不是状态），改成与邻居一致的两字名「偶得」，星形只留给彩色图标。
+      门禁 probe/panel-icons-guard.mjs 有一条专门守"textContent 含 data-ic 字形即报红"。 */
 {
   const ICON = {
     'season:spring': '❀', 'season:summer': '☀', 'season:autumn': '❦', 'season:winter': '❄',
@@ -839,7 +846,7 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
     'act:blind': '⌇', 'act:festival': '◍', 'act:fireworks': '✺', 'act:fish': '◔',
     'quality:auto': 'Ａ', 'quality:high': 'Ｈ', 'quality:balanced': 'Ｂ', 'quality:performance': 'Ｐ',
     'view:rainbow': '◠', 'view:hero': '▲', 'view:stele': '◆', 'view:hall': '⌂', 'view:pavilion': '◇', 'view:overview': '◎',
-    'act:season-demo': '❁', 'act:tour': '▸', 'act:reel': '◔', 'act:random': '✦',
+    'act:season-demo': '❁', 'act:tour': '◈', 'act:reel': '◔', 'act:random': '✷',
     'act:shot': '▤', 'act:long': '✧', 'act:sound': '♪',
   };
   for (const b of envEl.querySelectorAll('button')){

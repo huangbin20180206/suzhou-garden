@@ -215,19 +215,65 @@
   #env .hint-toggle input{ width: 13px; height: 13px; accent-color: var(--江南-木褐); cursor: pointer; }
 
   /* ══ 按钮图标（2026-10-06 老黄："所有按钮都学灯会一样，文字+中式小图标来呈现，
-     形成统一的格式和布景"）══
+     形成统一的格式和布景"；2026-10-07："按钮图标做成彩色的"）══
      ⚠️ 图标走 `data-ic` 属性 + ::before 注入，**不往按钮里塞子元素** ——
      按钮的 textContent 仍是纯标签文字，各探针按 textContent 认按钮的口径一位不变
-     （panel-check2 / _ui-click-diag 都是按文字找按钮的）。 */
+     （panel-check2 / _ui-click-diag 都是按文字找按钮的）。
+     ⚠️ 字形仍然**不用彩色 emoji**：emoji 的形状/配色随系统字体变，不受这里的调色板控制，
+     同一排按钮在 Windows/安卓/iOS 上会长得不一样。要彩色就靠下面"按语义键给色"这一段。 */
   #env button[data-ic]::before{
     content: attr(data-ic);
     font-size: 11px;
-    opacity: .62;
+    opacity: .92;            /* 上色后 0.62/0.8 会把淡色洗掉（留档图上"银装素裹/珠帘"几乎看不见） */
     margin-right: 3px;
     line-height: 1;
-    color: inherit;          /* 一角"淡墨印记"，不用彩色 emoji */
+    color: inherit;          /* 兜底：没配色规则的图标仍是"淡墨印记" */
   }
-  #env button.on[data-ic]::before{ opacity: .92; }
+
+  /* ── 图标配色（2026-10-07 · 老黄："按钮图标做成彩色的"）──
+     颜色**只在这一段定**，按"按钮的语义键"逐条给（轴+值 / act / view / quality），
+     与 12-env 那张 ICON 表的键一一对应 ⇒ 调色不用碰产品代码。
+     色相取自场景本身：四季 = 梅粉/明金/霜橙/冰蓝；天气 = 日金/雨蓝/虹青/雪青/烟灰；
+     陈设 = 竹青/灯红/焰紫/鲤橙；导览 = 虹紫/石青/朱红/荷绿…（都取中等饱和，贴合米白面板）。
+     ⚠️ 三条一起看：① 面板底是米白 ⇒ 别用荧光色；
+       ② **选中态**（.on）底是深木褐 ⇒ 用 filter 提亮，否则深色图标会糊进底里；
+       ③ **禁用态**（如冬季的「狂风暴雨」）要去色压暗，别让它比可用按钮还抢眼。 */
+  #env button[data-axis="season"][data-v="spring"]::before{ color:#E4759E; }     /* 春 · 梅粉 */
+  #env button[data-axis="season"][data-v="summer"]::before{ color:#E8A32C; }     /* 夏 · 明金 */
+  #env button[data-axis="season"][data-v="autumn"]::before{ color:#D2712A; }     /* 秋 · 霜橙 */
+  #env button[data-axis="season"][data-v="winter"]::before{ color:#6FB6E0; }     /* 冬 · 冰蓝 */
+  #env button[data-axis="weather"][data-v="clear"]::before{ color:#E9B33A; }     /* 风和日丽 · 日金 */
+  #env button[data-axis="weather"][data-v="storm"]::before{ color:#63809F; }     /* 狂风暴雨 · 雨蓝 */
+  #env button[data-axis="weather"][data-v="afterrain"]::before{ color:#33A79B; } /* 雨后初晴 · 虹青 */
+  #env button[data-axis="weather"][data-v="snow"]::before{ color:#5FA6D8; }      /* 银装素裹 · 雪青（原 8FC4E6 在米白上太淡） */
+  #env button[data-axis="weather"][data-v="mist"]::before{ color:#7E8C85; }      /* 薄雾烟霭 · 烟灰 */
+  #env button[data-act="blind"]::before{ color:#5B8F49; }                        /* 珠帘 · 竹青（原 74A25F 太淡） */
+  #env button[data-act="festival"]::before{ color:#CF4136; }                     /* 灯会 · 灯红 */
+  #env button[data-act="fireworks"]::before{ color:#BB5FCB; }                    /* 烟花 · 焰紫 */
+  #env button[data-act="fish"]::before{ color:#DC852E; }                         /* 鱼趣 · 鲤橙 */
+  #env button[data-quality="auto"]::before{ color:#8A6A45; }                     /* 自动 · 木褐 */
+  #env button[data-quality="high"]::before{ color:#BE9A22; }                     /* 高 · 鎏金 */
+  #env button[data-quality="balanced"]::before{ color:#A07A46; }                 /* 均衡 · 古铜 */
+  #env button[data-quality="performance"]::before{ color:#4F837E; }              /* 性能 · 青灰 */
+  #env button[data-view="rainbow"]::before{ color:#BE74D0; }                     /* 彩虹 · 虹紫 */
+  #env button[data-view="hero"]::before{ color:#5F8AA0; }                        /* 立峰·云根 · 石青 */
+  #env button[data-view="stele"]::before{ color:#8A7554; }                       /* 云根近观 · 碑褐 */
+  #env button[data-view="hall"]::before{ color:#BC4A36; }                        /* 远香堂 · 朱红 */
+  #env button[data-view="pavilion"]::before{ color:#4F9A5F; }                    /* 荷风四面 · 荷绿 */
+  #env button[data-view="overview"]::before{ color:#42677A; }                    /* 全园 · 墨青 */
+  #env button[data-act="season-demo"]::before{ color:#DB5E92; }                  /* 四季 · 桃红 */
+  #env button[data-act="tour"]::before{ color:#3F76AE; }                         /* 巡游 · 靛蓝 */
+  #env button[data-act="reel"]::before{ color:#D9862C; }                         /* 流转 · 暖橙 */
+  #env button[data-act="random"]::before{ color:#BE9A22; }                       /* 偶得 · 星金 */
+  #env button[data-act="shot"]::before{ color:#A67F4C; }                         /* 明信片 · 宣纸褐 */
+  #env button[data-act="long"]::before{ color:#5586B8; }                         /* 长曝 · 星蓝 */
+  #env button[data-act="sound"]::before{ color:#8F72BF; }                        /* 音景 · 箫紫 */
+  /* 选中态：在深木褐底上提亮一档，别让彩色图标糊进底里 */
+  #env button.on[data-ic]::before{ opacity: 1; filter: brightness(1.34) saturate(1.08); }
+  /* 禁用态（如冬季的「狂风暴雨」/ 夏季的「银装素裹」）：去色压暗，但**别压到看不见** ——
+     0.34 时留档图上这对按钮的图标几乎融进米白面板（多模态两次都点名"几乎看不见"）；
+     0.45 与标签自身的压暗程度相当，读得出"这个按钮现在不能用"。 */
+  #env button:disabled[data-ic]::before{ filter: grayscale(.75); opacity: .45; }
 
   /* ══════════════════════════════════════════════════════════════
      滑块 · 新样式（2026-10-06 老黄第 6 条反馈："这个时段的拖拉滚动条我始终觉得
@@ -608,7 +654,7 @@
   <!-- 抽屉展开内容区 -->
   <div class="drawer-content">
     <!-- 时段行（2026-10-06 老黄第 6 条反馈重排）：本行只剩"一根条 + 四个锚点"——
-         「灯会🏮」挪去陈设行、「流转▸ / 偶得✦」挪去导览行（与那两行的按钮同组）。
+         「灯会🏮」挪去陈设行、「流转▸ / 偶得」挪去导览行（与那两行的按钮同组）。
          结构一个字没丢：滑块 #hourSlider + 四个可点锚点标签 + 跟随气泡 #hourReadout。 -->
     <div class="row">
       <span class="lbl">时段</span>
@@ -698,7 +744,7 @@
       <span class="hint">Shift+1~4 画质</span>
     </div>
     <!-- 导览行（2026-10-06 重排）：「看烟花」挪去陈设行；
-         「流转▸ / 偶得✦」（原在时段行末）并到本行末尾、紧邻快捷键提示 —— 截图里两个蓝框
+         「流转▸ / 偶得」（原在时段行末）并到本行末尾、紧邻快捷键提示 —— 截图里两个蓝框
          框住这两个按钮、蓝箭头指向这段提示。提示文字仍在行末（其余各行的约定一致）。 -->
     <div class="row">
       <span class="lbl">导览</span>
@@ -710,7 +756,7 @@
       <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
       <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
-      <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得✦</button>
+      <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得</button>
       <span class="hint">Z 巡览 / T 巡游 / Y 四季 / 5 6 7 8 9 机位</span>
     </div>
     <div class="row">

@@ -70,7 +70,9 @@
 /* 2026-10-07 梅花"看得见"批次 bump v24→v25：改了 src/*.js（01-materials 的两份花瓣材质、
    01b-textures 的梅瓣贴图、06-vegetation 的梅花几何）—— 按头部规矩"改了 src/*.js 也要升版"，
    否则已装 SW 的浏览器会继续用旧缓存里的花瓣（老黄看到的就是"还是看不出花"）。 */
-const CACHE = 'suzhou-garden-v25';
+/* 2026-10-07 图标上色批次 bump v25→v26：又改了 SHELL 成员 index.html（约 30 条图标配色规则 +
+   禁用态透明度 0.34→0.45 + 「偶得✦」去掉装饰星）与 src/12-env.js（两个图标字形 ◈ / ✷）。 */
+const CACHE = 'suzhou-garden-v26';
 const SHELL = [
   './',
   './index.html',

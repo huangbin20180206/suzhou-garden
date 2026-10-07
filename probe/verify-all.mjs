@@ -145,6 +145,9 @@ const SUITES = [
      老黄："从这个角度看两株梅花，根本看不出颜色，甚至连有花都看不出来" ⇒ 这条门禁守的是
      "花真的画到屏幕上了"，不是"材质还在不在"。 */
   ['梅花 plum-guard', 'probe/plum-guard.mjs'],
+  /* 按钮图标配色（2026-10-07 建，~20s，纯样式读、零像素）：老黄"按钮图标做成彩色的"。
+     守"30/34 上色、≥12 种颜色、字形不进 textContent、选中态提亮、禁用态去色压暗"。 */
+  ['面板图标 panel-icons', 'probe/panel-icons-guard.mjs'],
   ['运行时异常守卫 pageerror-guard','probe/pageerror-guard.mjs'],
   ['时光流转 reel-guard',     'probe/reel-guard.mjs'],
   ['灯笼照明 lamp-guard',     'probe/lamp-guard.mjs'],
