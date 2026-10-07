@@ -78,7 +78,7 @@ const SEASON_PRESENCE = [
   ['wisteriaShow',[MAT.wisteriaLeaf]],
   /* 桃花（2026-09-21）：花/果/落花/叶各自独立材质才能"只开该开的季节"——
      全植物用一种材质的话季节只能整棵树显/隐，做不出"春开花 → 夏结果 → 秋叶黄"。 */
-  ['peachShow',[MAT.peachLeaf]], ['peachBlossomShow',[MAT.peachBlossom]],
+  ['peachShow',[MAT.peachLeaf, MAT.plumLeaf]], ['peachBlossomShow',[MAT.peachBlossom]],
   ['peachFruitShow',[MAT.peachFruit]], ['peachPetalShow',[MAT.peachPetal]],
   /* 梅（2026-10-06）：两株梅的**花**各自独立通道（腊梅深冬开、红梅冬末春初开），
      树干与枝不进表 —— 梅是落叶小乔木，冬天要留"疏影横斜"的骨相（进表就会被整株收掉）。 */
@@ -125,6 +125,7 @@ export function applyPresence(p){
      按乘性散列打散，所以"截前缀"在空间上就是均匀变稀，而不是只掉半边。 */
   for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaShow', false],
                                 [MAT.peachLeaf, 'peachShow', true],
+                                [MAT.plumLeaf, 'peachShow', true],      // 梅叶跟桃叶同一季节通道（冬落尽）
                                 [MAT.peachFruit, 'peachFruitShow', true],
                                 [MAT.peachPetal, 'peachPetalShow', true],
                                 /* 河灯/灯串是 InstancedMesh：count=0 ⇒ three 不提交、GTAO 也改不动

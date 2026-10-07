@@ -3167,6 +3167,46 @@ function makePeachFlowerGeo(){
   return mergeGeometries(parts, false);
 }
 
+/* ══ 梅花几何（2026-10-06 二轮 · 老黄："红梅的花型也不对"、"梅花和树叶和桃树一模一样，
+      远看会觉得就是同一种树"）══════════════════════════════════════════════════════
+   与桃花**刻意做形制差别**（不是同一个小碗换个颜色）：
+     · 桃：瓣长 0.060 / 宽 0.048、rotateX 0.55（深碗、瓣尖朝外，远看是一小撮）；
+     · 梅：瓣长 **0.082** / 宽 **0.070**、rotateX **0.26**（大而近乎平展的浅碟 ——
+       真梅花的花瓣圆整外展，正面看是"五瓣圆片"）＋ **明显花蕊**（中央小球 + 6 根细丝），
+       蕊用**顶点色压深**（暖褐）⇒ 远看是"五瓣 + 深心"的梅花，而不是一团粉点。
+     这也是"太密集"的一半解法：花变大之后**同样朵数**的视觉密度立刻降下来（下面还会减朵数）。
+   ⚠️ 顶点色必须给**每个** part 都写（合并要求属性集一致），所以花瓣也写 (1,1,1) 白。
+   ⚠️ 顶点色是**线性乘子**：与实例色（花色）相乘 ⇒ 花瓣保色、花蕊被压成暗褐。 */
+function makePlumFlowerGeo(){
+  const pl = 0.082, pw = 0.070;
+  const parts = [];
+  const paint = (g, r, gg, b) => {
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++){ col[i*3] = r; col[i*3+1] = gg; col[i*3+2] = b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  };
+  for (let k = 0; k < 5; k++){
+    const q = new THREE.PlaneGeometry(pw, pl, 1, 1);
+    q.translate(0, pl * 0.5 + 0.004, 0);
+    q.rotateX(0.26);                                // 浅碟（桃是 0.55 的深碗）
+    q.rotateZ((k * TAU) / 5);
+    parts.push(paint(q, 1, 1, 1));
+  }
+  const core = new THREE.SphereGeometry(0.013, 7, 5); core.translate(0, 0, 0.004);
+  parts.push(paint(core, 0.34, 0.26, 0.12));
+  for (let s = 0; s < 6; s++){
+    const f = new THREE.CylinderGeometry(0.0022, 0.0022, 0.020, 4);
+    f.translate(0, 0.010, 0);
+    f.rotateX(0.42);
+    f.rotateZ((s * TAU) / 6 + 0.25);
+    f.translate(0, 0, 0.006);
+    parts.push(paint(f, 0.40, 0.30, 0.14));
+  }
+  return mergeGeometries(parts, false);
+}
+
 /* 桃子：心形/卵形，顶端有突尖，腹缝有浅沟
    用 LatheGeometry 沿纵轴旋转出基本形，再压扁一侧做心形凹陷 */
 function makePeachFruitGeo(){
@@ -3310,7 +3350,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
      之后连名字都没了，按名字根本量不到它。留它单飞换来"逐圈量半径"的能力，
      代价是 2 个 draw call / 640 tri（两株）。
      注意：枝与小枝仍然合并（它们同材质同变换，并进世界桶省 draw call，且不易静默变形）。 */
-  const trunkMesh = mesh(trunkGeo, MAT.trunk, { name:'peachTrunk', cast:true });
+  const trunkMesh = mesh(trunkGeo, opts.trunkMat || MAT.trunk, { name:'peachTrunk', cast:true });
   trunkMesh.userData.noMerge = true;
   g.add(trunkMesh);
 
@@ -3527,7 +3567,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   /* ── 叶：桃叶互生，短枝上 3~4 片成簇 ── */
   const leafGeo = makePeachLeafGeo();
   const leafN = Math.round(4000 * (opts.leafMul || 1));
-  const leafInst = new THREE.InstancedMesh(leafGeo, MAT.peachLeaf, leafN);
+  const leafInst = new THREE.InstancedMesh(leafGeo, opts.leafMat || MAT.peachLeaf, leafN);
   leafInst.castShadow = true;
   const leafA = new THREE.Color(0x79B23E), leafB = new THREE.Color(0x44701F);
 
@@ -3587,7 +3627,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
      单朵 12 tri，3000 朵 = 3.6 万 tri（全场 1.5M，可忽略）。
      并且花与叶走**同一套 canopyShell 壳层**：桃是**先花后叶**，盛花期冠里没有叶帮忙遮挡，
      花若全埋在枝心的位置就只剩几个点 —— 推到壳层才读得出"满树花"。 */
-  const flGeo = makePeachFlowerGeo();
+  const flGeo = opts.flowerGeo || makePeachFlowerGeo();
   const flN = opts.flowerN || 3000;          // 梅传 2000：比桃疏（"疏影横斜"）
   const flInst = new THREE.InstancedMesh(flGeo, opts.blossomMat || MAT.peachBlossom, flN);
   const flA = opts.blossomA || new THREE.Color(0xFFE8F0), flB = opts.blossomB || new THREE.Color(0xF490B4);
@@ -3732,21 +3772,24 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
   return makePeachTree(x, z, scale, baseY, {
     noFruit: true,
     blossomMat: red ? MAT.plumBlossomRed : MAT.plumBlossomYellow,
-    /* ⚠️ 花量 5000（2026-10-06 二轮 · 老黄："然后梅花一颗树5000朵吧"）：原来 2000 朵
-       在截图里只读得出"零星几簇"，与桃的满树花完全分不出来 —— 梅要的是"满树繁花"。 */
-    flowerN: 5000,
-    /* ⚠️⚠️ 2026-10-06 三轮 · 老黄："梅花和桃树的结构长得太像了，让梅花树长得更高，
-       枝条和树叶也更多，枝条伸展的范围也更大" ⇒ 四个乘子把"梅 ≠ 桃"做成可读的差别：
-         · heightMul 1.35 —— 梅比桃高一档（桃 H≈4.2，梅≈5.7）；
-         · canopyMul 1.25 —— 冠幅再展 1/4（结合高度，枝展明显更开）；
-         · branchMul 1.30 —— 主枝与小枝各多三成（"枝条更多"）；
-         · leafMul   1.40 —— 叶量多四成（夏天叶更密；冬天叶落只留骨相，不受影响）。
-       这些只改**本树自己的私有流**（R2 由坐标播种），不影响全局布局流。 */
-    heightMul: 1.35, canopyMul: 1.25, branchMul: 1.30, leafMul: 1.40,
-    /* ⚠️ 花色区间（二轮修色）：材质底色已改白、瓣贴图改白底，色相只由这里的实例色给 ——
-       红梅 = 淡胭脂 → 正红；腊梅 = 淡黄 → 正黄（老黄："腊梅是淡黄色到黄色"）。 */
-    blossomA: new THREE.Color(red ? 0xFFA8BC : 0xFFFBDC),
-    blossomB: new THREE.Color(red ? 0xD8213F : 0xF2D24A),
+    /* ⚠️ 花型换掉（老黄："红梅的花型也不对"）：用 makePlumFlowerGeo ——
+       大而平展的五瓣 + 明显花蕊（桃是深碗小瓣，两者远看不再是一回事）。 */
+    flowerGeo: makePlumFlowerGeo(),
+    /* ⚠️⚠️ 朵数 5000 → 1200 → **800**（老黄："开放的状态…就是不可能这么密集"；
+       出图复检多模态也仍判"密成团"）⇒ 再降一档：花更大、朵更少，朵与朵之间留得出空隙，
+       读作**疏影**而不是花球。 */
+    flowerN: 800,
+    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
+       桃 = 矮胖圆球（H≈4.2、冠幅 1.25H、叶满）；梅 = 高挑疏朗（H×1.35、冠幅 **0.85H**、
+       叶量 **0.65**）⇒ 梅的暗色枝干骨架露出来，正是"疏影横斜"，远看轮廓也完全不同。 */
+    heightMul: 1.35, canopyMul: 0.85, branchMul: 1.30, leafMul: 0.65,
+    /* 干/枝与叶也各换一份材质：梅的树皮更冷更暗（灰褐），叶更墨绿 —— 远看的整体色调就分开了。 */
+    trunkMat: MAT.plumTrunk, leafMat: MAT.plumLeaf,
+    /* 花色（老黄："腊梅是淡黄色到黄色"、"黄色腊梅花几乎不可见"）：
+       红梅 = 暖胭脂 → 正红（上一版偏"紫红/暗粉"，出图复检读到的就是紫红 ⇒ 压掉蓝通道）；
+       腊梅 = 淡黄 → **饱和的蜂蜡黄**（旧值太淡，在雪地里几乎看不见）。 */
+    blossomA: new THREE.Color(red ? 0xFF9088 : 0xFFF6C0),
+    blossomB: new THREE.Color(red ? 0xD41525 : 0xE8A800),
   });
 }
 

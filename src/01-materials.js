@@ -1050,8 +1050,16 @@ export const MAT = {
      一点与色相同调的自发光（雪地暗光里也读得出色）。
      ⚠️ 必须是**共享材质**并登进 SEASON_PRESENCE（铁律：进表的名字一律定义在本文件，
      否则 12f 建表时拿到 undefined、整类静默不显隐 —— 竹帘/卷轴踩过）。 */
-  plumBlossomRed: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x3A0A12, emissiveIntensity:0.5 }),
-  plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x3A2E00, emissiveIntensity:0.5 }),
+  plumBlossomRed: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x3A0A12, emissiveIntensity:0.5, vertexColors:true }),
+  plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x3A2E00, emissiveIntensity:0.5, vertexColors:true }),
+  /* ⚠️ `vertexColors:true` 是给**花蕊**用的：makePlumFlowerGeo 给花瓣写 (1,1,1)、花蕊写暖褐
+     (0.34,0.26,0.12) ⇒ 花色仍由实例色决定，而花心被压深 ⇒ 远看是"五瓣 + 深心"的梅花。
+     （桃的花没有顶点色、桃的材质也没开这个开关，不受影响。） */
+  /* 梅的干/枝：比桃的 MAT.trunk（0x6B5B45）更冷更暗的灰褐 —— 远看轮廓与色调与桃分开。 */
+  plumTrunk: new THREE.MeshStandardMaterial({ color:0x4A423C, roughness:0.92, metalness:0.0, envMapIntensity:0.25 }),
+  /* 梅的叶：比 MAT.peachLeaf（0x6BA340）更墨绿更冷 —— 夏季远看也不与桃同色。
+     ⚠️ 要跟 peachShow 一起登记进 12f 的 SEASON_PRESENCE（冬落尽裸枝）。 */
+  plumLeaf: new THREE.MeshStandardMaterial({ color:0x3F6B2E, roughness:0.88, metalness:0.0, envMapIntensity:0.3, side:THREE.DoubleSide }),
   /* ⚠️ 果基色必须是**白**：实例色（frA→frB 的蜜桃黄→粉晕）会与材质 color 相乘，
      而 multiply 走的是线性空间 —— 基色 0xE08050 再乘一个橙红实例色 = 把颜色**平方**，
      出来的是一颗高饱和深红（用户截图里读作"圣女果"）。
