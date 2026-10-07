@@ -227,15 +227,18 @@ const check = (name, ok, detail = '') => {
         年龄 ≥1.52     ⇒ 0.75 万 px、**稳定 5 段**，一直到 3.1s 逐位不变。
      ⇒ 旧写法在机器被占用/低帧时会把取样点推到 1.0 附近，量到"1 段 / 13.7 万 px"的**假红**
      （交接文档记的"两次红点位置与像素都不同"就是这个：红点不同是因为取样年龄不同）。
-     现在先等年龄 ≥1.5 再量，形状是确定性的；并把年龄本身作为**前提断言**打出来。 */
+     现在先等年龄 ≥1.5 再量，形状是确定性的；并把年龄本身作为**前提断言**打出来。
+     ⚠️ 2026-10-07 门槛 1.5 → **2.4s**：老黄要求"燃放过程再长一些"，收拢时长从 0.55s 改成
+        1.25s 且每颗火星再各自错峰 ≤0.45s ⇒ 字要到 **1.7s 之后**才完全成形、之后才是慢摆；
+        还在 1.5s 取样会量到"正在成形"的中间态（笔画没连上，段数会虚高或虚低）。 */
   const fwReady = await page.waitForFunction(() => {
     const a = window.__garden.fireworksState().ages || [];
-    return a.length >= 4 && Math.min(...a) >= 1.5;
+    return a.length >= 4 && Math.min(...a) >= 2.4;
   }, null, { polling: 60, timeout: 30000 }).then(() => true).catch(() => false);
   const finAge = await page.evaluate(() =>
     Math.min(...(window.__garden.fireworksState().ages || [1e9])));
-  check('⑤ 前提：取样时壳年龄已进入"成形稳定窗"（≥1.5s；更早量到的是被 bloom 晕开的一团）',
-    fwReady && finAge >= 1.5, `年龄 ${(+finAge).toFixed(2)}s`);
+  check('⑤ 前提：取样时壳年龄已进入"成形稳定窗"（≥2.4s；更早量到的是还没成形/被 bloom 晕开的一团）',
+    fwReady && finAge >= 2.4, `年龄 ${(+finAge).toFixed(2)}s`);
   const word = await page.evaluate(() => {
     const G = window.__garden;
     let im = null; G.scene.traverse(o => { if (o.name === 'fireworks') im = o; });
@@ -256,7 +259,7 @@ const check = (name, ok, detail = '') => {
       if (on && s0 < 0) s0 = x;
       if ((!on || x === W - 1) && s0 >= 0){ if (x - s0 >= 6) segs.push([s0, x - s0]); s0 = -1; }
     }
-    return { px: n, segs };
+    return { px: n, segs, W };
   });
   /* ⚠️ 上限 6 万 px 是**第二条牙**（2026-10-06 加）：成形稳定窗里贡献约 0.75 万 px，
      而"取样落在闪光峰值期（年龄 ~1.0s）"时是 13.7~61 万 px（整幅被 bloom 晕开）。
@@ -266,6 +269,27 @@ const check = (name, ok, detail = '') => {
       + '贡献 0.3~6 万 px = 稳定窗）',
     word.segs.length >= 4 && word.px > 3000 && word.px < 60000,
     `贡献 ${word.px}px · ${word.segs.length} 段：${word.segs.map(([a, w]) => `${a}+${w}`).join(' ')}`);
+  /* ⚠️ 2026-10-07 新增**第二条牙**：「仍然是 2027」的量化口径 —— 四个数字各成一**大簇**。
+     背景：老黄要"不用做得这么工整，能识别出来是 2027 就行"，于是给点阵加了参差（每字小倾角/
+     大小差、每颗火星落点抖动、成形后慢摆）。第一版抖得偏大（±0.25m + 摆 ±0.30m）时，
+     横向段数从 4 涨到 **11** —— 上面那条 ≥4 照样绿（段数只会更多），可笔画已经碎成断续小点。
+     ⇒ 用"把小间隔并起来的**簇数**"当判据：簇数应当正好 **4**（每个数字一簇），
+       且每簇宽度 ≥40px（太窄就是碎渣）。这才是"看得出来是 2027"的守门人。 */
+  const clust = (() => {
+    const merge = 24, on = new Array(word.W).fill(false);
+    for (const [x0, w] of word.segs) for (let x = x0; x < x0 + w; x++) on[x] = true;
+    const out = [];
+    let s = -1, last = -1;
+    for (let x = 0; x < word.W; x++){
+      if (on[x]){ if (s < 0) s = x; last = x; }
+      else if (s >= 0 && x - last > merge){ if (last - s >= 12) out.push([s, last - s]); s = -1; }
+    }
+    if (s >= 0 && last - s >= 12) out.push([s, last - s]);
+    return out;
+  })();
+  check('⑤ 「仍然是 2027」：横向并成**恰好 4 簇**（每个数字一簇），每簇 ≥40px',
+    clust.length === 4 && clust.every(([, w]) => w >= 40),
+    `${clust.length} 簇：${clust.map(([a, w]) => `${a}+${w}`).join(' ')}`);
   await page.screenshot({ path: path.join(OUT, '03-彩蛋2027.png') });
 
   /* ── ④ 自检：强制关掉 ⇒ flash 恒 0、天上那层贡献 0 ── */

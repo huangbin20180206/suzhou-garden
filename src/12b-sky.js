@@ -345,7 +345,7 @@ const FW_FIN_EVERY = 12;        // 每 N 发普通烟花之后来一次彩蛋
 const FW_FIN_GAP = 11.0;        // 字距（m）：字形宽 ≈0.49×字高刻度 ⇒ 留约 3m 字缝（太开会散）
 const FW_FIN_PAL = [0xFFD24A, 0xFF4A3A, 0xFF4AD0, 0x38E0C8];   // 四字四色：金 / 朱 / 品红 / 青碧
 function makeDigitTargets(nSpark){
-  return [...FW_WORD].map((ch) => {
+  return [...FW_WORD].map((ch, di) => {
     const W = 200, H = 260;
     const c = document.createElement('canvas'); c.width = W; c.height = H;
     const g = c.getContext('2d');
@@ -360,11 +360,27 @@ function makeDigitTargets(nSpark){
       if (d[(y * W + x) * 4] > 128) pts.push([x, y]);
     const out = new Float32Array(nSpark * 3);
     if (!pts.length) return out;             // 兜底：一个字都没描出来（取不到字体）⇒ 全 0、缩成一点
+    /* 「不用特别工整」（老黄 2026-10-07："也不用做得这么工整吧，能够一样识别出来是 2027
+       就可以了，毕竟是烟花，不是无人机"）—— 三件事让点阵读作"炸出来的字"而不是"排好的队"：
+         · 每个数字**各自**有小倾角（±2.9°）、大小差（±6%）、落点错位（±0.4/0.65m）——
+           真实的四发不可能对得整整齐齐；
+         · 每颗火星的落点再抖 ±0.17m（字高刻度 16m、笔画约 2~3m 粗 ⇒ 79m 外约 1.8px）——
+           幅度是**调出来的**：先用 ±0.25m + 慢摆 ±0.30m，字读得出来但笔画"断断续续"
+           （门禁的横段数从 4 涨到 11），收到 ±0.17 / ±0.22 后既保留参差、笔画又不散；
+         · 前后错落（z）在原有的 ±0.27m 上再加 ±0.18m。
+       ⚠️ 全部吃**本模块的私有流 `_fwr`**（种子 20261008）：确定性、不碰全局流（铁律 1）。
+         这会让下面 dir/col/spd/siz 那批抽取整体平移 —— 它们都是**烟花自己的观感参数**，
+         与园林布局无关（烟花实例矩阵恒为单位阵，且已在 layout-fingerprint 的排除名单里）。 */
+    const tilt = (_fwr() - 0.5) * 0.10, scl = 1 + (_fwr() - 0.5) * 0.12;
+    const dx = (_fwr() - 0.5) * 0.8, dy = (_fwr() - 0.5) * 1.3;
+    const ct = Math.cos(tilt), st = Math.sin(tilt);
     for (let i = 0; i < nSpark; i++){
       const p = pts[Math.floor(i * pts.length / nSpark)];
-      out[i*3+0] = (p[0] - W / 2) / H * FW_DIGIT_H;    // 归一：以字心为原点、高 = FW_DIGIT_H
-      out[i*3+1] = (H / 2 - p[1]) / H * FW_DIGIT_H;
-      out[i*3+2] = ((i % 7) - 3) * 0.09;               // 一点点前后错落，别读成一片纸
+      const x0 = (p[0] - W / 2) / H * FW_DIGIT_H * scl;
+      const y0 = (H / 2 - p[1]) / H * FW_DIGIT_H * scl;
+      out[i*3+0] = (x0 * ct - y0 * st) + dx + (_fwr() - 0.5) * 0.34;
+      out[i*3+1] = (x0 * st + y0 * ct) + dy + (_fwr() - 0.5) * 0.34;
+      out[i*3+2] = ((i % 7) - 3) * 0.09 + (_fwr() - 0.5) * 0.36;
     }
     return out;
   });
@@ -398,7 +414,7 @@ export function fireworksState(){
            fin: Array.from(_fwFin),          // 哪几个槽是彩蛋（门禁据此断言"四发齐射"）
            ages: [..._fwStart].map(v => +(FIREWORKS.t - v).toFixed(2)),   // 各槽已飞多久（齐射 ⇒ 四值相等）
            word: FW_WORD, digitH: FW_DIGIT_H,
-           shells: [..._fwStart].filter(v => FIREWORKS.t - v < FW_RISE + FW_LIFE * 1.6 + 0.1).length };
+           shells: [..._fwStart].filter(v => FIREWORKS.t - v < FW_RISE + FW_LIFE * 2.5 + 0.1).length };
 }
 /* 探针用：下一次 tick 立刻来一次彩蛋齐射（产品侧**权威开关** —— 不在探针里重调产品函数） */
 export function fireworksFinaleNow(){ FIREWORKS.sinceFin = FW_FIN_EVERY; FIREWORKS.next = -1e9; }
@@ -468,7 +484,7 @@ const _fwOn = () => {
         int i = int(aShell + 0.5);
         float age = uT - uStart[i];
         /* 彩蛋那四发要多留一会儿（字要读得完）⇒ 存活窗口按 uFin 放长 1.5 倍 */
-        float tot = uRise + uLife * (uFin[i] > 0.5 ? 1.5 : 1.0);
+        float tot = uRise + uLife * (uFin[i] > 0.5 ? 2.5 : 1.0);   // 彩蛋存活 2.4 倍（见下），留一点余量
         if (age < 0.0 || age > tot){          // 没轮到 / 已经灭了：丢到画外（不占填充率）
           gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vA = 0.0; vCol = vec3(0.0); return;
         }
@@ -481,14 +497,22 @@ const _fwOn = () => {
           env = 0.85; rad = 0.26;
         } else if (uFin[i] > 0.5){
           /* ── 彩蛋：先"炸开"一点点、再收拢成字（所以读作**炸出来的字**，不是渐显）──
-             0.55s 内用 easeOutCubic 飞到自己的字形点，之后原地留到淡尽。 */
+             ⚠️ 2026-10-07 加长燃放过程（老黄："燃放过程和持续时间再长一些"＋"也不用做得这么
+                工整…毕竟是烟花，不是无人机"）：
+                  · 收拢时长 0.55 → **1.25s**，而且每颗火星有**各自的起步延迟**（按 aSeed 错峰
+                    ≤0.45s）⇒ 笔画是"一笔一笔亮起来"的，不是齐刷刷一步到位；
+                  · 成形后再叠一层**慢摆**（±0.30m，字高约 10m ⇒ 79m 外约 3px）⇒ 字是"活的"；
+                  · 存活 1.5 → **2.4 倍**（2.7s ⇒ 6.5s），淡出起点 0.45 → 0.62（先稳住再散）。 */
           float e = age - uRise;
-          float k = min(1.0, e / 0.55);
+          float k = clamp((e - aSeed * 0.45) / 1.25, 0.0, 1.0);
           float ease = 1.0 - pow(1.0 - k, 3.0);
           vec3 burst = aDir * (aSpeed * 0.55 * 0.32);       // 起手的球面散开（幅度只要一点点）
-          base = uPos[i] + mix(burst, aTarget, ease);
-          float life2 = uLife * 1.5;
-          env = 1.0 - smoothstep(life2 * 0.45, life2, e);    // 成字后停一会儿再淡
+          vec3 wob = vec3(sin(e * 1.7 + aSeed * 37.0),
+                          cos(e * 1.3 + aSeed * 51.0),
+                          sin(e * 0.9 + aSeed * 23.0)) * (0.22 * smoothstep(0.6, 2.2, e));
+          base = uPos[i] + mix(burst, aTarget, ease) + wob;
+          float life2 = uLife * 2.4;
+          env = 1.0 - smoothstep(life2 * 0.62, life2, e);    // 成字后停一会儿再淡
           /* ⚠️ 火星片尺寸要按"覆盖率"算，不能凭感觉：
              覆盖率 = 190×π(r·aSize)² / 字形墨迹面积（≈0.35×字形屏幕宽×高）。
              实测：字 61×78px + rad 0.16（每片约 5px）⇒ **205%** —— 笔画被糊成实心团，
@@ -502,8 +526,10 @@ const _fwOn = () => {
              判读成"四个发光的彩色圆球"（0/10）；0.12 ⇒ 约 44%，判读成"是 2027"（4/10）。
              ⚠️ 同一份代码同一机位，多模态两次判读会互相矛盾（0.12 说"是 2027"、0.15 说"光球"）
              —— 所以**以像素量与横向分段数为准**（0.12 时正好 4 段、每段 103~116px、间隔均匀），
-             单图判读只作参考。用户的标准是"不用特别工整、看得出来就好"。 */
-          rad = 0.12;
+             单图判读只作参考。用户的标准是"不用特别工整、看得出来就好"。
+             2026-10-07：在 0.12 上再给每颗 ±18% 的大小差（0.82~1.18，均值仍 1.0 ⇒ 覆盖率不变），
+             碎一点的星点更像烟花、也顺带把"整齐的点阵"打散。 */
+          rad = 0.12 * (0.82 + 0.36 * aSeed);
         } else {
           /* ── 绽放：球面炸开 + 空气阻力 + 重力 + 逐星闪烁 ── */
           float e = age - uRise;
@@ -599,7 +625,9 @@ export function tickFireworks(dt){
         }
         F.shots += FW_SHELLS;
         F.lastCol = '彩蛋 · 2027';
-        F.next = F.t + FW_RISE + 5.2;        // 等字读完了再排下一发
+        /* 等字读完再排下一发：彩蛋寿命 = 升空 1.15 + 存活 2.7×2.4 ≈ 7.6s
+           （2026-10-07 从 5.2 加长到 8.8 —— 老黄要"燃放过程和持续时间再长一些"） */
+        F.next = F.t + FW_RISE + 8.8;
       } else {
         const i = _fwCursor % FW_SHELLS; _fwCursor++;
         const bx = FW_VOL.x0 + _fwr() * (FW_VOL.x1 - FW_VOL.x0);
