@@ -270,7 +270,13 @@ const panelState = (page) => page.evaluate(() => {
   }
 
   await browser.close();
+  /* ⚠️ 必须关掉本地静态服务器再退出：探针自己在 127.0.0.1 上开了 http server，
+     不关的话事件循环永远有人守着 —— **全绿时进程也不会退出**（看起来"跑完了"，
+     实际挂在后台，verify-all 的 spawnSync 会等到硬超时把它记成红门）。
+     2026-10-07 真踩到：连跑 5 次留了 5 个孤儿 node 进程。姊妹门都写了这两行。 */
+  server.close();
   const failed = results.filter(r => !r.ok);
   console.log(`\n[mobile-panel-guard] ${failed.length ? 'FAIL' : 'ALL PASS'}（${results.length} 项，${((Date.now() - t0) / 1000).toFixed(1)}s）`);
-  if (failed.length) { console.log('失败项：'); failed.forEach(f => console.log('  · ' + f.name + (f.detail ? ' — ' + f.detail : ''))); process.exit(1); }
+  if (failed.length){ console.log('失败项：'); failed.forEach(f => console.log('  · ' + f.name + (f.detail ? ' — ' + f.detail : ''))); }
+  process.exit(failed.length ? 1 : 0);
 })().catch(e => { console.error('[mobile-panel-guard] 崩溃:', e); process.exit(2); });
