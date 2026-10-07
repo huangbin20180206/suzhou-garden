@@ -61,7 +61,13 @@
    提示文字补 5~9 机位 / Shift+1~4 画质。 */
 /* 2026-10-07 拆分批次 bump v22→v23：src/01-materials.js 拆出 src/01b-textures.js
    （23 个程序化贴图生成器整块搬出，纯搬运逐字未改；01-materials 1412→846 行）。 */
-const CACHE = 'suzhou-garden-v23';
+/* 2026-10-07 手机/平板适配批次 bump v23→v24：又改了 SHELL 成员 index.html ——
+   触屏档的方印 48→56px、面板按钮 40→46px、滑杆圆球 18→26px / 轨道 4→6px
+   （圆球直径与轨道粗细改成 CSS 变量 --thumb/--track，三处定位公式跟着走）、
+   面板加视口宽度上限并在窄窗口换行（同时收紧内边距让放大后仍一屏放得下）、
+   选中锚点的色块挪到 ::before 只画下半截、触屏档隐藏面板下沿小尖角（假滚动 6~8px）；
+   另 11-loop 的首次引导在触控档不再替用户把面板推开（改指方印）。 */
+const CACHE = 'suzhou-garden-v24';
 const SHELL = [
   './',
   './index.html',

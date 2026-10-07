@@ -62,6 +62,13 @@
     position:fixed; left:22px; bottom:18px; z-index:8;
     font-family:"Songti SC","SimSun","Noto Serif SC",serif;
     user-select:none;
+    /* 滑杆的两个几何常量（2026-10-07）：圆球直径与轨道粗细。
+       它们**必须**是变量 —— 圆球的"中心位置"公式在三处被用到
+       （已过段裁宽 background-size、读数气泡 left、四个锚点刻度/标签的 inline left），
+       以前三处都写死 18px/9px，触屏把圆球放大到 26px 后就会集体偏 4px。
+       现在只改这两个变量，三处公式自动跟着走。 */
+    --thumb: 18px;
+    --track: 4px;
   }
 
   /* ── 方印开关（常驻左下角）── */
@@ -96,9 +103,19 @@
     box-shadow:0 10px 28px rgba(0,0,0,.34);
     backdrop-filter:blur(8px);
     white-space:nowrap;
+    /* 面板宽度由"最长的一行"撑出来（约 904px），窗口比它窄就会顶出右缘
+       （实测 900px 窗口超出 25.7px；带鼠标的平板也是 hover:hover 档，同样中招）。
+       下面两条保证它永远收在视口内，配合 .row 的 flex-wrap 换行。
+       ⚠️ `width:max-content` **不能省**：面板是绝对定位的（收缩到适应），
+          一旦允许换行，"最小内容宽"就从 904px 掉到一行里最宽的那个按钮（约 70px），
+          shrink-to-fit 会按它把整块面板缩成一根 242px 的细柱（实测踩到）。
+          显式声明首选宽度、再用 max-width 夹住，窄窗口下才是"换行但仍占满可用宽度"。
+       宽窗口下 max-width 不生效、wrap 也没东西可换 ⇒ **桌面正常宽度版式逐字不变**。 */
+    width: max-content;
+    max-width: calc(100vw - 32px);
     /* ⚠️ 收起态必须用 opacity+visibility，**不能用 display:none**：
        元素要保有布局尺寸，否则窄屏门禁在收起状态下量按钮命中区会得到 0
-       （probe/smoke.mjs「命中区 ≥38px」一条会红）。 */
+       （probe/smoke.mjs「触控命中区 ≥44px」一条会红）。 */
     opacity:0; visibility:hidden; pointer-events:none;
     transform:translateY(10px);
     transition:opacity .26s ease, transform .26s ease, visibility .26s;
@@ -115,9 +132,11 @@
     transform:rotate(45deg);
   }
 
-  /* 每一行 = 标签 + 按钮组，恒排一行（窄屏媒体查询里才放开换行） */
+  /* 每一行 = 标签 + 按钮组，默认恒排一行；只有当面板被上面的 max-width 夹住
+     （窄窗口 / 带鼠标的平板）时才换行，避免把按钮挤成一条细缝。 */
   #env .row {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 7px;
   }
@@ -241,14 +260,14 @@
      --r 缺省 0.5 只作兜底：时段条的 --r 由 placeHourTip / syncEnvUI 写进 .time-track，
      音量滑杆的 --r 由 12-env 的 syncSndVolFill 写在自己身上。 */
   #env input[type="range"]::-webkit-slider-runnable-track {
-    height: 4px;
-    border-radius: 2px;
+    height: var(--track, 4px);
+    border-radius: calc(var(--track, 4px) / 2);
     border: none;
     background-image:
       linear-gradient(90deg, #6A4A2E 0%, #A8793C 60%, #D08A3E 100%),
       linear-gradient(90deg, #7E8B87, #66736F);
     background-size:
-      calc((100% - 18px) * var(--r, 0.5) + 9px) 100%,
+      calc((100% - var(--thumb, 18px)) * var(--r, 0.5) + var(--thumb, 18px) / 2) 100%,
       100% 100%;
     background-repeat: no-repeat;
     box-shadow: inset 0 1px 1px rgba(24,20,14,.20);
@@ -257,9 +276,9 @@
   #env input[type="range"]::-webkit-slider-thumb {
     -webkit-appearance: none;
     appearance: none;
-    width: 18px;
-    height: 18px;
-    margin-top: -7px;                 /* (4px 轨道 − 18px 圆球) / 2 */
+    width: var(--thumb, 18px);
+    height: var(--thumb, 18px);
+    margin-top: calc((var(--track, 4px) - var(--thumb, 18px)) / 2);   /* 圆球在轨道上垂直居中 */
     border-radius: 50%;
     border: 1.5px solid rgba(88,64,40,.92);
     background: radial-gradient(circle at 34% 28%, #FFFDF7 0%, #F2E7CE 44%, #CDA96C 100%);
@@ -336,7 +355,7 @@
       越靠右偏得越多：21.5 时实测偏 11px）。 */
   #env .hint#hourReadout {
     position: absolute; bottom: calc(100% + 2px);
-    left: calc((100% - 18px) * var(--r, 0.52) + 9px);
+    left: calc((100% - var(--thumb, 18px)) * var(--r, 0.52) + var(--thumb, 18px) / 2);
     /* ⚠️ margin-left 必须归零：基类 `#env .hint{margin-left:4px}` 会把这个绝对定位的
        气泡整体右推 4px（实测气泡中心比圆球中心恒偏 +4px）—— 对跟随气泡来说这是错位。 */
     margin-left: 0;
@@ -379,25 +398,52 @@
         那会把方印拉成一条通栏。宽度只加在面板上，且必须收进视口内：
         面板 left:0 相对 10px 的左内边距 → 右缘 = 10 + (100vw-22px) < 100vw ✔ */
   @media (max-width:520px),(hover:none) {
-    #env{ left:10px; right:auto; bottom:10px; }
+    #env{ left:10px; right:auto; bottom:10px;
+      /* 触屏档：圆球与轨道都放大（拇指比鼠标指针钝得多）。三处定位公式共用这两个变量，
+         所以放大后"已过段裁宽 / 读数气泡 / 四个锚点刻度"仍然对准圆球中心。 */
+      --thumb: 26px;
+      --track: 6px;
+    }
+    /* 方印：48px 是"勉强够"，56px 才是手指的舒适区（iOS HIG 44pt 起、Material 48dp）。
+       顺带去掉触屏的 300ms 点击延迟与点完残留的灰色高亮块；
+       hover 那两处（浮动 / 放大）在触屏上没有意义，一起收掉 —— 否则点一下方印它就一直"浮"着。 */
+    #env .drawer-toggle{
+      width:56px; height:56px; border-radius:10px;
+      touch-action:manipulation; -webkit-tap-highlight-color:transparent;
+      box-shadow:0 3px 10px rgba(0,0,0,.40);
+    }
+    #env .drawer-toggle:hover{ transform:none; box-shadow:0 3px 10px rgba(0,0,0,.40); }
+    #env .drawer-toggle::before{ font-size:27px; }
     #env .drawer-content{
       width: calc(100vw - 22px);
       max-width: calc(100vw - 22px);
-      max-height: calc(100vh - 130px);
+      max-height: calc(100vh - 140px);
       overflow-y: auto;
+      overscroll-behavior: contain;      /* 面板滚到底不要带着整个页面一起滚 */
+      -webkit-overflow-scrolling: touch;
       white-space: normal;
-      padding: 11px 12px;
+      /* 内边距 / 行距要**省着给**：按钮一放大到 46px，整块面板就比手机屏还高一截
+         （实测 390×844：内容 816px vs 可见 692px ⇒ 底部两行要滚动才看得到，
+         而放大前面板是"一屏放得下"的）。收到下面这几个值后内容 ≈ 660px，重新放得下。 */
+      padding: 10px 11px;
       gap: 6px;
+      bottom: calc(100% + 12px);         /* 方印变高了，尖角位置的小距离同步加一点 */
     }
-    #env .row{ flex-wrap: wrap; }
+    #env .row{ flex-wrap: wrap; gap: 6px; row-gap: 5px; }
     #env .lbl {
       width: auto;
-      min-width: 2.8em;
+      min-width: 2.7em;
+      font-size: 13px;
     }
+    /* 手指命中区：46px（≥44 是通行的触控下限）。所有按钮一起放大 ——
+       包括时段条下方那四个锚点标签（它们靠这条拿到 min-height，见上面那条注释）。 */
     #env button {
-      min-height: 40px;
-      padding: 8px 10px;
-      font-size: 12.5px;
+      min-height: 46px;
+      padding: 9px 9px;
+      font-size: 13px;
+      border-radius: 8px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
     }
     #env .hint {
       display: none;
@@ -409,12 +455,44 @@
     }
     #env input[type="range"] {
       width: 104px;                 /* 留影行的音量滑杆（时段条由下面一条按 100% 覆盖） */
+      height: 34px;                 /* 输入框本身就是命中区，22px 太薄，拖不住 */
     }
-    /* 时段条在窄屏：容器加高，给"40px 命中区的锚点标签"留位置 ——
-       ⚠️ 标签这条**不写 min-height**，好让上面的 `#env button{min-height:40px}`
-         继续生效（smoke 量 `#env button` 最小高度 ≥38px）。 */
-    #env .time-track{ height: 62px; max-width: none; }
-    #env .time-marks button{ bottom: 0; padding: 0 8px; min-width: 34px; font-size: 11.5px; }
+    #env input[type="range"]:hover::-webkit-slider-thumb{ transform: scale(1); }  /* 触屏别留 hover 放大 */
+    /* 时段条在窄屏：容器 96px —— 要同时容下
+       "34px 的滑杆框（垂直居中，故占 31~65）+ 46px 的锚点标签（贴底，占 50~96）"，
+       这样圆球上半截露在标签**命中框**之外，手指能直接捏到它开始拖
+       （命中框盖住的地方点下去仍是"跳到该锚点"，那是它们本来的职责）。
+       ⚠️ 标签这条**不写 min-height**，好让上面的 `#env button{min-height:46px}`
+         继续生效（smoke 量 `#env button` 最小高度 ≥44px）。 */
+    /* 时段条：容器 96px —— 要同时容下
+       "34px 的滑杆框（垂直居中，占 31~65）+ 46px 的锚点标签（贴底，占 50~96）"。
+       圆球 26px 居中 → 占 35~61；选中色块只画下半 30px → 占 66~96 ⇒ 圆球与色块之间
+       留 **5px 空气**。⚠️ 别把它压到 88px：那样两者只差 1px，实测多模态与肉眼都读成
+       "圆球被色块压住了"（数字上"没重叠"但观感是贴死的）。
+       ⚠️ 标签这条**不写 min-height**，好让上面的 `#env button{min-height:46px}`
+         继续生效（smoke 量 `#env button` 最小高度 ≥44px）。 */
+    #env .time-track{ height: 96px; max-width: none; }
+    /* ⚠️ 触屏档要**去掉面板下沿的小尖角**：它是 `bottom:-6px` 的绝对定位块，
+       而面板在窄屏是 `overflow-y:auto` 的滚动容器 —— 露在盒子外面的伪元素会被算进
+       **可滚动区**，于是面板明明"内容刚好放得下"也要多出 6~8px 的滚动量
+       （实测 scrollH 691 vs clientH 683，最底下一行被啃掉 8px，正是"按钮被裁一半"的观感）。
+       方印在展开态会变深色，指向关系本来就看得出来，这个小尖角可以不要。 */
+    #env .drawer-content::after{ display: none; }
+    #env .time-marks button{ bottom: 0; padding: 0 9px; min-width: 46px; font-size: 12px; }
+    /* ⚠️ 选中/悬停的色块只画**下半截**（30px），别压到圆球上：
+       标签的命中框是 46px，而圆球中心就在它上边 13px 处 —— 实测选中态那块棕色
+       会盖住圆球下缘 **11px**（26px 的球被啃掉四成），而默认时辰 12:30 恰好停在
+       「午」锚点上，所以这是**常驻**的观感缺陷。把色块挪到 ::before 上、高度收到 30px：
+       命中框一点没变小（smoke 仍绿），视觉上圆球完整露出来。 */
+    #env .time-marks button,
+    #env .time-marks button.on{ background: transparent; }
+    #env .time-marks button::before{
+      content:""; position:absolute; left:0; right:0; bottom:0; height:30px;
+      border-radius:5px; background:transparent; transition:background .2s;
+    }
+    #env .time-marks button.on::before{ background: var(--江南-木褐); }
+    #env .time-marks button:hover:not(:disabled){ background: transparent; }
+    #env .time-marks button:hover:not(:disabled)::before{ background: rgba(96,72,48,.12); }
   }
   /* ── Loading：水墨封面（2026-09-20 · B4）──
      原来是纯灰底 + 一行小字，首屏 6 秒盯着一块 #D8DCDA。改用 docs/cover.jpg 做底：
@@ -498,7 +576,8 @@
   }
   /* ── 移动端/窄屏（P1-8 专项）──
      触控设备：面板收进视口内（原 left:22px 会让面板右缘顶出 320px 屏外）、
-     命中区加大（min-height:34px）、键盘提示隐藏（触控没有键盘，还给面板省宽度）。
+     命中区加大（2026-10-07 起按钮 46px / 方印 56px，见上面那条媒体查询）、
+     键盘提示隐藏（触控没有键盘，还给面板省宽度）。
      hourReadout 是时辰读数不是提示，单独恢复显示。stats 限宽防右侧溢出。 */
   @media (max-width:520px),(hover:none){
     /* #env / 按钮 / 滑块的窄屏规则已合并进上一条媒体查询；
@@ -536,20 +615,21 @@
       <div class="time-track" id="timeTrack">
         <input id="hourSlider" type="range" min="0" max="24" step="0.1" value="12.5" aria-label="时段拖动条：一天 0~24 时">
         <!-- 锚点小刻度点：与四个可点标签**共用同一套定位公式**
-             （圆球中心位置 = (100% - 球径) * ratio + 球径/2，球径 18px，与 thumb width 同值）。
+             （圆球中心位置 = (100% - 球径) * ratio + 球径/2；球径 = CSS 变量 --thumb，
+               默认 18px，触屏档 26px —— 别在这里写死像素，否则放大圆球后刻度会偏）。
              差别只在层次：刻度点留在轨道线上，标签沉到轨道下方 ——
              改前标签与圆球在锚点位置完全重合，圆球被盖住（"这条没有能拖的球"）。 -->
         <div class="time-ticks" aria-hidden="true">
-          <i style="left:calc((100% - 18px) * 0.3125 + 9px)"></i>
-          <i style="left:calc((100% - 18px) * 0.5208 + 9px)"></i>
-          <i style="left:calc((100% - 18px) * 0.7292 + 9px)"></i>
-          <i style="left:calc((100% - 18px) * 0.8958 + 9px)"></i>
+          <i style="left:calc((100% - var(--thumb, 18px)) * 0.3125 + var(--thumb, 18px) / 2)"></i>
+          <i style="left:calc((100% - var(--thumb, 18px)) * 0.5208 + var(--thumb, 18px) / 2)"></i>
+          <i style="left:calc((100% - var(--thumb, 18px)) * 0.7292 + var(--thumb, 18px) / 2)"></i>
+          <i style="left:calc((100% - var(--thumb, 18px)) * 0.8958 + var(--thumb, 18px) / 2)"></i>
         </div>
         <div class="time-marks">
-          <button data-axis="time" data-v="morning" style="left:calc((100% - 18px) * 0.3125 + 9px)">晨</button>
-          <button data-axis="time" data-v="noon" style="left:calc((100% - 18px) * 0.5208 + 9px)">午</button>
-          <button data-axis="time" data-v="dusk" style="left:calc((100% - 18px) * 0.7292 + 9px)">暮</button>
-          <button data-axis="time" data-v="night" style="left:calc((100% - 18px) * 0.8958 + 9px)">夜</button>
+          <button data-axis="time" data-v="morning" style="left:calc((100% - var(--thumb, 18px)) * 0.3125 + var(--thumb, 18px) / 2)">晨</button>
+          <button data-axis="time" data-v="noon" style="left:calc((100% - var(--thumb, 18px)) * 0.5208 + var(--thumb, 18px) / 2)">午</button>
+          <button data-axis="time" data-v="dusk" style="left:calc((100% - var(--thumb, 18px)) * 0.7292 + var(--thumb, 18px) / 2)">暮</button>
+          <button data-axis="time" data-v="night" style="left:calc((100% - var(--thumb, 18px)) * 0.8958 + var(--thumb, 18px) / 2)">夜</button>
         </div>
         <span class="hint" id="hourReadout">12:30</span>
       </div>
@@ -693,7 +773,10 @@ import { rockNormalTex, pavingTex, pavingNormalTex, groundTex, waterNormalTex, m
 
 // ═════════════════════════════════════════════════════════════
 // 中式古典江南风格 · 抽屉式 UI 交互
-// ☆ 默认关闭，鼠标悬停或点击开关时优雅展开
+// ☆ 默认**收起**：只有点左下角那枚方印才展开（触屏没有"悬停"，手机/平板只认点击，
+//    点面板之外也收起）；桌面鼠标移开面板 300ms 后自动收起（见下面的 canHover 分支）。
+// ⚠️ 旧注释写的"鼠标悬停即展开"**从来没有实现过**（mouseenter 只清收起计时器），
+//    别再照着它去加悬停展开 —— 触屏上那会变成"点一下就自己弹出来"的观感问题。
 // ═════════════════════════════════════════════════════════════
 (function initDrawerUI() {
   const envEl = document.getElementById('env');

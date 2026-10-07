@@ -134,6 +134,12 @@ const SUITES = [
   ['风场轨迹 wind-trajectory','probe/wind-trajectory.mjs'],
   ['阴影视体覆盖 shadow-cover','probe/shadow-cover.mjs'],
   ['无头回归 smoke',         'probe/smoke.mjs'],
+  /* 手机/平板控制面板（2026-10-07 建，~40s）：进场收起 / 点方印才出 / 触控命中区 /
+     窄窗口不溢出 / 引导在触控档不代开面板（配桌面口径的负例对照）。
+     与 smoke 的 320px 那条**不重复**：smoke 只看"收进视口 + 按钮 ≥44px"，
+     这条还管"引导会不会自己把面板推出来"和"带鼠标的平板（hover:hover）在窄窗口
+     会不会把面板顶出右缘" —— 两者共用同一套 CSS 媒体查询，但入口不同。 */
+  ['移动端控制面板 mobile-panel', 'probe/mobile-panel-guard.mjs'],
   ['运行时异常守卫 pageerror-guard','probe/pageerror-guard.mjs'],
   ['时光流转 reel-guard',     'probe/reel-guard.mjs'],
   ['灯笼照明 lamp-guard',     'probe/lamp-guard.mjs'],

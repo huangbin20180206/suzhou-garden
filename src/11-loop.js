@@ -1881,31 +1881,63 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
       挡住 #env 的按钮，pageerror-guard / smoke 的真实点击会直接超时。
    ② **首次交互即消失**：任何 pointerdown / wheel / keydown（落在 #guide 之外的）都收起。
       用户已经会用了就别再教，顺带保证引导层**不可能**卡在探针的点击路径上。
-   ⚠️ 气泡的按钮刻意**不放进 #env**：smoke 的「aria-pressed 齐全 / 命中区 ≥38px」
+   ⚠️ 气泡的按钮刻意**不放进 #env**：smoke 的「aria-pressed 齐全 / 触控命中区 ≥44px」
       只查 `#env button`，放进去会立刻红。 */
 const GUIDE_STEPS = [
-  { sel:null,                   title:'壹 · 转一转',   text:'按住画布拖动，绕着园子转；滚轮推近拉远。' },
-  { sel:'#env .drawer-toggle',  title:'贰 · 换天时',   text:'这里展开四根轴：时段 / 季节 / 天气 / 时辰 —— 随便换，园子跟着变。' },
-  { sel:'button[data-act="tour"]', title:'叁 · 有人带', text:'「巡游」自动带你逛一圈并讲解；「明信片」把这一刻存成一张画。' },
+  { sel:null,                   title:'壹 · 转一转',   text:'按住画布拖动，绕着园子转；滚轮推近拉远。',
+    textTouch:'按住画面拖动，绕着园子转；两指捏合推近拉远。' },
+  { sel:'#env .drawer-toggle',  title:'贰 · 换天时',   text:'这里展开四根轴：时段 / 季节 / 天气 / 时辰 —— 随便换，园子跟着变。',
+    textTouch:'点一下左下角这枚方印，四根轴（时段 / 季节 / 天气 / 时辰）就在它上面展开 —— 随便换，园子跟着变。' },
+  { sel:'button[data-act="tour"]', title:'叁 · 有人带', text:'「巡游」自动带你逛一圈并讲解；「明信片」把这一刻存成一张画。',
+    textTouch:'点开左下的方印，面板里除了四根轴，还有「巡游」和「明信片」：一个带你逛一圈并讲解，一个把这一刻存成一张画。' },
 ];
 const GUIDE_KEY = 'garden.guided.v1';
 /* ?guide=1 强制弹出：给门禁（以及想预览引导的人）一条绕过"自动化下不自动弹"的路。
    没有它，guide-guard 就只能测 `guideStart()`，测不到真实用户会走的那条自动弹路径。 */
 const GUIDE_FORCE = (() => { try { return /[?&]guide=1/.test(location.search); } catch { return false; } })();
 const GUIDE = { on:false, i:0 };
+/* ── 引导要不要按"触控口径"说话/动手？ ──
+   判据与 CSS 那条窄屏/触控媒体查询**同一条件**（单一真值来源）：面板在
+   `(max-width:520px)` 或 `(hover:none)` 时走的是"手机版式"（见 index.html 同名媒体查询），
+   引导的文案与"要不要替用户把面板推开"必须按同一口径决定，否则手机上会出现
+   "引导按桌面逻辑把面板推出来"这种自相矛盾。
+   `?touch=1 / ?touch=0` 是本项目探针惯例的显式覆盖（同 ?guide=1 / ?tier=）。 */
+function guideTouchUI(){
+  try {
+    if (/[?&]touch=1/.test(location.search)) return true;
+    if (/[?&]touch=0/.test(location.search)) return false;
+  } catch { /* 少见的 location 不可读，按媒体查询走 */ }
+  try { return matchMedia('(max-width:520px), (hover:none)').matches; } catch { return false; }
+}
 function guideEl(){ return document.getElementById('guide'); }
 function guideRender(){
   const el = guideEl(); if (!el) return;
   const step = GUIDE_STEPS[GUIDE.i]; if (!step) return;
   const ring = el.querySelector('.g-ring'), bub = el.querySelector('.g-bubble');
-  /* 目标在抽屉里（如「巡游」）就先把抽屉展开 —— 收起状态量不到矩形，光环会画在 0,0。 */
+  const touchUI = guideTouchUI();
+  /* 目标是抽屉里的按钮（如「巡游」）时，收起状态量不到矩形、光环会画在 0,0 ⇒ 必须先把面板打开。
+     ⚠️ 但**触屏档不许代开**（老黄 2026-10-07："入场功能选项卡不要马上显示，点击那个小按钮
+     再出现"）：手机上替用户推开一整块面板既挡掉半个画面，又抢走了他"点开"的动作 ——
+     实测引导走到第 3 步时手机/平板上的面板就是这么自己弹出来的。
+     所以触屏改把光环打在方印上、文案也改成"点这里"，让用户自己点；
+     桌面（有鼠标）保持代开 —— 鼠标本来就是"指哪打哪"，那一步只有代开才量得到按钮矩形。 */
+  let sel = step.sel;
   if (step.sel && step.sel.indexOf('data-act') >= 0){
-    const env = document.getElementById('env');
-    if (env && !env.classList.contains('expanded')) env.classList.add('expanded');
+    if (touchUI){
+      sel = '#env .drawer-toggle';
+    } else {
+      const env = document.getElementById('env');
+      if (env && !env.classList.contains('expanded')){
+        const t = env.querySelector('.drawer-toggle');
+        /* 走**真实点击**而不是 classList.add：抽屉的 setOpen 会把 aria-expanded 一起写上，
+           直接改类会让"屏幕阅读器听到的"和"眼睛看到的"不一致（本门有一条判据守它）。 */
+        if (t) t.click();
+      }
+    }
   }
   let r = null;
-  if (step.sel){
-    const t = document.querySelector(step.sel);
+  if (sel){
+    const t = document.querySelector(sel);
     if (t){ const b = t.getBoundingClientRect(); r = { left:b.left, top:b.top, width:b.width, height:b.height }; }
   }
   /* 量不到（元素隐藏 / 窄屏折叠）就退化成画布中心的圆，别画出一个 0×0 的光环 */
@@ -1922,7 +1954,10 @@ function guideRender(){
   bub.style.top    = upper ? 'auto' : '16px';
   bub.style.bottom = upper ? '16px' : 'auto';
   bub.querySelector('b').textContent = step.title;
-  bub.querySelector('span').textContent = step.text;
+  /* 触屏档用 textTouch：触屏只有"点"这一条路，所以文案得说"点一下方印"；
+     桌面档保留默认文案（滚轮 / 拖动那些说法在触屏上是错的）。 */
+  bub.querySelector('span').textContent =
+    (touchUI && step.textTouch) ? step.textTouch : step.text;
   const next = bub.querySelector('button[data-g="next"]');
   next.textContent = GUIDE.i === GUIDE_STEPS.length - 1 ? '知道了' : '下一步';
   const dots = bub.querySelector('.g-dots');

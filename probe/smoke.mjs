@@ -361,7 +361,10 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   });
   check('视口缩放画布自适应（480×800）', smallOk);
 
-  // ── 8.5 移动端适配（P1-8）：320px 不溢出 + aria-pressed + 触控命中区 ──
+  // ── 8.5 移动端适配（P1-8 → 2026-10-07 收紧）：320px 不溢出 + aria-pressed + 触控命中区 ──
+  // 命中区门槛 38→44px：老黄 2026-10-07 要求"选项卡的样式和尺寸要能适配用手点击"，
+  // 面板里所有按钮（含时段条下方那四个锚点标签）在窄屏/触控档统一 46px ⇒ 44 是新契约。
+  // 这条有牙：改之前量到的是 40px，按 44 判必红（对照见 probe/mobile-panel-guard.mjs）。
   await page.setViewportSize({ width: 320, height: 640 });
   await sleep(600);
   const mob = await page.evaluate(() => {
@@ -379,7 +382,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     };
   });
   check('移动端 320px：面板收进视口且无横向溢出', mob.inVp && mob.noOverflow);
-  check('移动端：按钮 aria-pressed 齐全、命中区 ≥38px', mob.allPressed && mob.minH >= 38,
+  check('移动端：按钮 aria-pressed 齐全、触控命中区 ≥44px', mob.allPressed && mob.minH >= 44,
         `minH=${Math.round(mob.minH)}`);
 
   // ── 8.6 PWA 离线三件套（P1-3）：manifest 可取 + sw.js 可取 + 注册不报错 ──

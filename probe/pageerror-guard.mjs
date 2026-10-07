@@ -193,7 +193,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }
 
   /* ══ 判据 ③：画面响应性 —— 状态变了，画面必须跟着动 ══
-     先用 setEnv 回到 clear 取基准，再切 storm 比对。
+     ⚠️ 采样**整幅画面**之前必须先把抽屉收起来（2026-10-07）：
+     上面那些真实点击把控制面板留在展开态，而面板是一块米白不透明的板子 ——
+     它的像素会被算进整幅均值，直接改写这两个比值。实测（本门 640×480）：
+     收起时 正午 190.6 → 夜 136.3（72%，绿）；面板展开且**变高**时 193.1 → 148.5（77%，红）
+     —— 同一份产品代码，只差面板占屏多少。要量的是**场景**，不是 UI。
+     （背景：2026-10-07 给窄窗口的桌面/带鼠标平板加了面板宽度上限 + 换行，
+      面板从"904px 宽的一条"变成"608px 宽的一摞"，占屏面积大涨，这条立刻翻红。） */
+  await page.evaluate(() => {
+    const env = document.getElementById('env');
+    if (env && env.classList.contains('expanded')) env.querySelector('.drawer-toggle').click();
+  });
+  await sleep(500);
+  check('画面采样前抽屉已收起（判据前提：量的必须是场景而不是 UI）',
+    (await page.evaluate(() => !document.getElementById('env').classList.contains('expanded'))));
+
+  /* 先用 setEnv 回到 clear 取基准，再切 storm 比对。
      判据取「远大于同状态基线」，因为同状态两帧本来就有 0.87 的差（风在吹）。 */
   await page.evaluate(() => { window.__garden.setEnv('weather', 'clear'); window.__garden.setEnv('season', 'summer'); });
   await settled(); await sleep(600);
