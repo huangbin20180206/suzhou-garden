@@ -62,6 +62,9 @@ const VIEWS = [
   { tag: '手机 390×844',   vp: { width: 390,  height: 844  }, touch: true,  touchUI: true  },
   { tag: '平板 820×1180',  vp: { width: 820,  height: 1180 }, touch: true,  touchUI: true  },
   { tag: '桌面 900×600',   vp: { width: 900,  height: 600  }, touch: false, touchUI: false },
+  /* 宽屏桌面**对照档**：老黄主要在电脑上看，这档必须与改动前逐字一致 ——
+     即"面板宽度不被 max-width 夹、行内不换行"。窄窗口那两条修复不能漏进宽屏。 */
+  { tag: '桌面 1440×900',  vp: { width: 1440, height: 900  }, touch: false, touchUI: false },
 ];
 
 const panelState = (page) => page.evaluate(() => {
@@ -128,6 +131,15 @@ const panelState = (page) => page.evaluate(() => {
     if (!V.touchUI){
       check(`${V.tag}：桌面版式没被换行缩窄（面板宽 ≥780px）`,
         st0.panel.w >= 780, `panel.w=${st0.panel.w}`);
+    }
+    /* 宽屏对照：这一档必须与改动前一致 —— 没有行被换行（面板不会被 max-width 夹住） */
+    if (V.vp.width >= 1400){
+      const wrap = await page.evaluate(() => {
+        const rows = [...document.querySelectorAll('#env .row')];
+        return { n: rows.length, wrapped: rows.filter(r => r.getBoundingClientRect().height > 56).length };
+      });
+      check(`${V.tag}：宽屏下没有一行被换行（桌面版式与改动前一致）`,
+        wrap.wrapped === 0, `${wrap.wrapped}/${wrap.n} 行换行`);
     }
 
     /* ── ④/⑤ 引导在触控口径下不代开面板；桌面口径必须代开（负例对照） ── */
