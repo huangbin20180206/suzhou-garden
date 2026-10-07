@@ -484,8 +484,17 @@ export const MAT = {
      一点与色相同调的自发光（雪地暗光里也读得出色）。
      ⚠️ 必须是**共享材质**并登进 SEASON_PRESENCE（铁律：进表的名字一律定义在本文件，
      否则 12f 建表时拿到 undefined、整类静默不显隐 —— 竹帘/卷轴踩过）。 */
-  plumBlossomRed: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x3A0A12, emissiveIntensity:0.5, vertexColors:true }),
-  plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.42, emissive:0x3A2E00, emissiveIntensity:0.5, vertexColors:true }),
+  /* ── 梅花花瓣（2026-10-07 · 老黄："从这个角度看两株梅花，根本看不出颜色，甚至连有花都看不出来"）──
+     ⚠️ **alphaTest 0.42 → 0.10**：花瓣是"薄片 + 贴图"，远处单朵只有 2px，mip 平均 alpha 低于
+        0.42 ⇒ **整朵被 alpha 测试丢掉**（实测默认机位：藏起全部 800 朵，画面变化 **0 像素**；
+        0.10 时同一测法得到 100+ 像素）。这是"远看根本没有花"的直接原因，不是颜色问题。
+     ⚠️ **emissive 加强到 0x8A1A24 / 0x8A6C00 @0.9**：冬季（银装素裹）太阳只有 0.45 倍、
+        没有硬影，梅花在这种暗光下只剩灰调 —— 实测同一次 A/B：只降 alphaTest 时被改变的
+        像素里"偏红"的只占 5%（读作灰点），补上这层自发光后 81~88% 偏红（这才读得出"红梅"）。
+        自发光取**与花色同色相**的暗红/暗黄，只把背光面托起来一点 —— 花瓣本来就是透光的，
+        近看不会变成"发光贴片"。 */
+  plumBlossomRed: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x9A1620, emissiveIntensity:0.75, vertexColors:true }),
+  plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x96700A, emissiveIntensity:0.75, vertexColors:true }),
   /* ⚠️ `vertexColors:true` 是给**花蕊**用的：makePlumFlowerGeo 给花瓣写 (1,1,1)、花蕊写暖褐
      (0.34,0.26,0.12) ⇒ 花色仍由实例色决定，而花心被压深 ⇒ 远看是"五瓣 + 深心"的梅花。
      （桃的花没有顶点色、桃的材质也没开这个开关，不受影响。） */

@@ -140,6 +140,11 @@ const SUITES = [
      这条还管"引导会不会自己把面板推出来"和"带鼠标的平板（hover:hover）在窄窗口
      会不会把面板顶出右缘" —— 两者共用同一套 CSS 媒体查询，但入口不同。 */
   ['移动端控制面板 mobile-panel', 'probe/mobile-panel-guard.mjs'],
+  /* 梅花（2026-10-07 建，~30~110s）：远处看得见花（默认机位"藏花"必须改变画面的像素、且偏花色）
+     + 近处看得出是梅花（单朵 ≥40px）+ 夏季无花 + **缺陷态负例自检**（alphaTest .42 必须报红）。
+     老黄："从这个角度看两株梅花，根本看不出颜色，甚至连有花都看不出来" ⇒ 这条门禁守的是
+     "花真的画到屏幕上了"，不是"材质还在不在"。 */
+  ['梅花 plum-guard', 'probe/plum-guard.mjs'],
   ['运行时异常守卫 pageerror-guard','probe/pageerror-guard.mjs'],
   ['时光流转 reel-guard',     'probe/reel-guard.mjs'],
   ['灯笼照明 lamp-guard',     'probe/lamp-guard.mjs'],

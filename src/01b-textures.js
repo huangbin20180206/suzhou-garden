@@ -559,12 +559,21 @@ export function makePlumPetalTex(){
   const c = cv.getContext('2d');
   c.clearRect(0, 0, S, S);
   const cx = S / 2;
+  /* 花瓣形状（2026-10-07 改）：**外缘宽而圆、基部收窄** —— 真实梅瓣就长这样。
+     旧版画的是两头尖的柳叶形（上下都是尖点、最宽在正中），近看五片尖瓣呈放射条状；
+     多模态对贴脸图的判读是"花瓣细长、带尖、呈放射条状…像花瓣＋叶片混贴的剪影，不像梅花"。
+     ⚠️ 方向别搞反：canvas 的 y **小端（上）= 花瓣外缘**、y 大端（下）= 花心侧
+        —— three 的 flipY 默认为真（贴图上下与 plane 一致），而 plane 的底边被
+        translate 到了花心（见 06-vegetation 的 makePlumFlowerGeo）。 */
   const drawPetal = (scale, col, yOff = 0) => {
-    const tip = 8 * scale, base = (S - 8) * scale, W = 21 * scale;
+    const yOut = 5 * scale, yIn = (S - 6) * scale;   // 外缘端 / 基部端
+    const wIn = 11 * scale, wOut = 22 * scale;       // 基部半宽 / 最宽处半宽
+    const dy = yIn - yOut;
     c.beginPath();
-    c.moveTo(cx, tip);
-    c.quadraticCurveTo(cx + W, (tip + base) * 0.5, cx, base + yOff);
-    c.quadraticCurveTo(cx - W, (tip + base) * 0.5, cx, tip);
+    c.moveTo(cx - wIn, yIn + yOff);
+    /* 左缘：基部外扩 → 最宽处落在偏外（约 0.4 处）→ 收成圆弧外缘（控制点贴近 yOut 保证不是尖角） */
+    c.bezierCurveTo(cx - wOut * 0.98, yIn - dy * 0.55, cx - wOut, yOut + dy * 0.10, cx, yOut + yOff);
+    c.bezierCurveTo(cx + wOut, yOut + dy * 0.10, cx + wOut * 0.98, yIn - dy * 0.55, cx + wIn, yIn + yOff);
     c.closePath();
     c.fillStyle = col; c.fill();
   };

@@ -67,7 +67,10 @@
    面板加视口宽度上限并在窄窗口换行（同时收紧内边距让放大后仍一屏放得下）、
    选中锚点的色块挪到 ::before 只画下半截、触屏档隐藏面板下沿小尖角（假滚动 6~8px）；
    另 11-loop 的首次引导在触控档不再替用户把面板推开（改指方印）。 */
-const CACHE = 'suzhou-garden-v24';
+/* 2026-10-07 梅花"看得见"批次 bump v24→v25：改了 src/*.js（01-materials 的两份花瓣材质、
+   01b-textures 的梅瓣贴图、06-vegetation 的梅花几何）—— 按头部规矩"改了 src/*.js 也要升版"，
+   否则已装 SW 的浏览器会继续用旧缓存里的花瓣（老黄看到的就是"还是看不出花"）。 */
+const CACHE = 'suzhou-garden-v25';
 const SHELL = [
   './',
   './index.html',

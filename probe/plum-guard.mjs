@@ -1,0 +1,303 @@
+// 梅花门禁：node probe/plum-guard.mjs
+//
+// 守老黄 2026-10-07 那条反馈：
+//   「从这个角度看两株梅花，根本看不出颜色，甚至连有花都看不出来，所以你看看怎么改这个
+//     才能让人看到花，才想换角度放大了看，然后才发现是梅花，给人惊喜」
+// 拆成两条契约：
+//   ① **远处看得见花**：默认机位下"把花藏起来"必须让画面明显变化，且变化的像素要**偏花色的色相**
+//      —— 这是"看得出颜色"的量化口径（不是"材质在不在"，而是"画到屏幕上了没有"）。
+//   ② **近处看得出是梅花**：近景单朵要够大（≥40px），且花瓣是"外缘宽而圆"的梅瓣
+//      （旧版是两头尖的柳叶形，远看近看都像叶片/放射条）。
+//
+// 真因（都在本次改动里，写在代码注释里）：
+//   · alphaTest 0.42 在"单朵只有 2px"的尺度上把整朵丢掉（mip 平均 alpha 低于阈值）
+//     ⇒ 实测藏起全部 800 朵，默认机位画面变化 **0 像素**；
+//   · 冬季太阳只有 0.45 倍、没有硬影，梅花的漫反射只剩灰调 ⇒ 只降 alphaTest 时
+//     "偏红"的像素只占 5%；补一层同色相自发光后才到 80%+。
+//
+// ⚠️ 就绪条件必须等"冬落叶真的落到这两株树上"：梅树是 deferBoot 延迟批装进来的
+//   （本机实测 90~140s），而**季节存在性是在延迟装配收尾的 collectSeasonCaches 之后才生效**。
+//   早量会读到"冬天还挂着 5200 片叶子"（假象）、花还被叶子挡着 ⇒ 基线读数全错。
+//   这里显式调一次产品自己的 collectSeasonCaches()（**幂等**、产品在同一个生命周期点也会调）
+//   把存在性推到位，再断言"叶子 count=0"作为前提。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+function loadPlaywright() {
+  const require = createRequire(import.meta.url);
+  try { return require('playwright'); } catch { /* 走全局 */ }
+  const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+  return require(path.join(globalRoot, 'playwright'));
+}
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.glb': 'model/gltf-binary',
+               '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+
+const results = [];
+const check = (name, ok, detail = '') => {
+  results.push({ name, ok: !!ok, detail });
+  console.log(`${ok ? '  ✓' : '  ✗'} ${name}${detail ? ' — ' + detail : ''}`);
+};
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+const OUT = 'outputs/_diag/plum-guard';
+fs.mkdirSync(OUT, { recursive: true });
+
+(async () => {
+  const t0 = Date.now();
+  const port = await listenEphemeral(server);
+  const { chromium } = loadPlaywright();
+  const browser = await launchChromium(chromium);
+  const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
+  const errs = [];
+  page.on('pageerror', e => errs.push(String(e && e.message || e)));
+
+  console.log(`\n[plum-guard] http://127.0.0.1:${port}/index.html`);
+  await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
+  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
+    null, { timeout: 180000, polling: 300 });
+
+  /* 老黄的状态：银装素裹（冬 + 雪）。
+     ⚠️ 这两行 setEnv **不能省**（本门第二版就是把它们连同旧注释一起替换掉、结果跑在默认的
+        "夏"上：peachShow=1 / plumBlossomShow=0 ⇒ 叶子满树、花不可见、藏花 0 像素 ——
+        正是 premise 判据把它们抓出来的）。 */
+  await page.evaluate(() => { const G = window.__garden; G.setEnv('season', 'winter'); G.setEnv('weather', 'snow'); });
+  /* ⚠️⚠️ 必须**等季节过渡走完**（ENV.t 到 1）再量：季节量是插值的，本机帧率低时
+     ENV.t 会爬好几秒（实测 20s 时才 0.32 ⇒ peachShow 还是 0.79、梅叶只掉到 1/3、
+     冬色降饱和也没生效）—— 早量的读数**看起来像"冬天还挂着叶子"**，其实是过渡途中，
+     会把判据全带偏。这是本项目"判据必须先断言前提"的又一例。 */
+  const waitSettled = async (tag) => {
+    await sleep(1500);                              // 先让 setEnv 真正起步，别在"过渡还没开始"时看到 t=1
+    for (let i = 0; i < 150; i++){
+      const t = await page.evaluate(() => ({ t: window.__garden.ENV.t, s: window.__garden.ENV.season }));
+      if (t.t >= 1 && t.s === tag) return true;   // ⚠️ ENV.season 是小写，别跟大写比（比不对会白等满 75s）
+      await sleep(500);
+    }
+    console.log(`  (提示：${tag} 的 ENV.t 未在 75s 内落定)`);
+    return false;
+  };
+  await waitSettled('winter');
+  await page.evaluate(async () => {
+    const env = await import('/src/12-env.js');
+    env.collectSeasonCaches();                 // 幂等；产品在延迟装配收尾也会调一次
+    env.applyPresence(window.__garden.ENV.cur);
+  });
+
+  /* 等两株梅都进场景（延迟批），再把存在性推到当前季节 */
+  let plums = 0;
+  for (let i = 0; i < 90; i++){
+    plums = await page.evaluate(async () => {
+      const M = await import('/src/01-materials.js');
+      let n = 0;
+      window.__garden.scene.traverse(o => { if (o.isInstancedMesh &&
+        (o.material === M.MAT.plumBlossomRed || o.material === M.MAT.plumBlossomYellow)) n++; });
+      return n;
+    });
+    if (plums >= 2) break;
+    await sleep(3000);
+  }
+  console.log(`  梅树进场景：${plums} 个花瓣网格 @ ${((Date.now() - t0) / 1000).toFixed(0)}s`);
+  check('两株梅都已装配（红梅 + 腊梅）', plums >= 2, `找到 ${plums} 个`);
+
+  const winter = await page.evaluate(async () => {
+    const M = await import('/src/01-materials.js');
+    const st = { leaf: null, red: null, yel: null, peachShow: null, plumShow: null, envT: null };
+    window.__garden.scene.traverse(o => {
+      if (!o.isInstancedMesh) return;
+      if (o.material === M.MAT.plumLeaf) st.leaf = Math.max(st.leaf || 0, o.count);
+      if (o.material === M.MAT.plumBlossomRed) st.red = o.count;
+      if (o.material === M.MAT.plumBlossomYellow) st.yel = o.count;
+    });
+    st.peachShow = +window.__garden.ENV.cur.peachShow.toFixed(3);
+    st.plumShow = +window.__garden.ENV.cur.plumBlossomShow.toFixed(3);
+    st.envT = +window.__garden.ENV.t.toFixed(3);
+    return st;
+  });
+  check('前提：季节过渡已走完（ENV.t=1）—— 否则读到的是过渡途中',
+    winter.envT >= 1, `ENV.t=${winter.envT} peachShow=${winter.peachShow} plumBlossomShow=${winter.plumShow}`);
+  check('前提：冬季梅叶落尽（叶 count=0）—— 否则花会被叶子挡住、判据全不可信',
+    winter.leaf === 0, `叶=${winter.leaf} 红梅花=${winter.red} 腊梅花=${winter.yel}`);
+  check('前提：冬季两株梅的花都在（冬季 1.0）',
+    winter.red > 100 && winter.yel > 100, `红 ${winter.red} / 黄 ${winter.yel}`);
+  await sleep(2500);
+
+  /* ── ① 远处看得见花：默认机位下"藏花"必须改变足够多、且偏花色的像素 ── */
+  const far = await page.evaluate(async () => {
+    const G = window.__garden, T = G.THREE;
+    const M = await import('/src/01-materials.js');
+    const canvas = G.renderer.domElement, W = canvas.width, H = canvas.height;
+    const grab = () => { const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const cx = c.getContext('2d'); cx.drawImage(canvas, 0, 0);
+      return { px: cx.getImageData(0, 0, W, H).data, url: c.toDataURL('image/png') }; };
+    G.waterSurface && (G.waterSurface.userData.reflectEveryFrame = true);
+    const find = mat => { let r = null; G.scene.traverse(o => { if (o.isInstancedMesh && o.material === mat) r = o; }); return r; };
+    const red = find(M.MAT.plumBlossomRed), yel = find(M.MAT.plumBlossomYellow);
+
+    const boxOf = (o) => { const m = new T.Matrix4(), v3 = new T.Vector3(), rt = o.parent;
+      let a = 1e9, b2 = 1e9, c = -1e9, d = -1e9, inF = 0;
+      G.camera.updateMatrixWorld(true); G.camera.updateProjectionMatrix();
+      for (let i = 0; i < o.count; i++){ o.getMatrixAt(i, m); v3.setFromMatrixPosition(m); rt.localToWorld(v3);
+        const v = v3.clone().project(G.camera); const px = (v.x*0.5+0.5)*W, py = (-v.y*0.5+0.5)*H;
+        if (Math.abs(v.x) <= 1 && Math.abs(v.y) <= 1 && v.z <= 1) inF++;
+        a = Math.min(a,px); c = Math.max(c,px); b2 = Math.min(b2,py); d = Math.max(d,py); }
+      return { box: { x0: Math.max(0, Math.floor(a-14)), y0: Math.max(0, Math.floor(b2-14)),
+                      x1: Math.min(W, Math.ceil(c+14)), y1: Math.min(H, Math.ceil(d+14)) }, inF }; };
+
+    /* 色相口径（2026-10-07 改）：冬色是**降饱和 + 冷色调**过的，暗光下"逐像素 r>g+35"
+       会把正确的红梅判成灰（实测偏红只 57% 而平均RGB [156,123,124] 其实是暖的）。
+       所以改成两条一起看：
+         · **均值口径**（主判据）：变化像素的平均色要满足"红：R−G≥25"或"黄：G−B≥30 且 |R−G|≤45"；
+         · **占比口径**（辅判据）：逐像素用宽松线（红 r>g+15 / 黄 g>b+25 且 r>b+25）数占比。 */
+    const measure = (A, B, box) => { let n = 0, redP = 0, yelP = 0, sr = 0, sg = 0, sb = 0;
+      for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++){
+        const i = (y*W+x)*4;
+        const d = Math.abs(A[i]-B[i]) + Math.abs(A[i+1]-B[i+1]) + Math.abs(A[i+2]-B[i+2]);
+        if (d > 24){ n++; sr += A[i]; sg += A[i+1]; sb += A[i+2];
+          const R = A[i], Gc = A[i+1], Bl = A[i+2];
+          if (R > Gc + 15 && Gc >= Bl - 10) redP++;
+          if (Gc > Bl + 25 && R > Bl + 25 && Math.abs(R - Gc) <= 70) yelP++;
+        } }
+      const mean = n ? [sr/n, sg/n, sb/n] : null;
+      return { n, redPct: n ? Math.round(redP/n*100) : 0, yelPct: n ? Math.round(yelP/n*100) : 0,
+               avgRGB: mean ? mean.map(v => Math.round(v)) : null,
+               meanRed: mean ? +(mean[0] - mean[1]).toFixed(1) : null,
+               meanYellow: mean ? +(((mean[0] + mean[1]) / 2) - mean[2]).toFixed(1) : null };
+    };
+
+    const shots = {};
+    const shoot = (key, o, mat) => {
+      const { box, inF } = boxOf(o);
+      if (box.x1 <= box.x0 || box.y1 <= box.y0) return { key, inF, note: '不在画内' };
+      G.composer.render(0.016); const A = grab();
+      mat.__keepRed = red.count; mat.__keepYel = yel.count;
+      red.count = 0; yel.count = 0;
+      G.composer.render(0.016); const B = grab();
+      red.count = mat.__keepRed; yel.count = mat.__keepYel;
+      shots[key] = A.url;
+      return { key, inF, boxPx: `${box.x1-box.x0}×${box.y1-box.y0}`, ...measure(A.px, B.px, box) };
+    };
+
+    /* 默认机位：红梅在画内；腊梅要转向它 */
+    const out = { atDefault: shoot('default', red, M.MAT), camPos: [G.camera.position.x, G.camera.position.y, G.camera.position.z] };
+    const treeY = new T.Vector3(); yel.parent.getWorldPosition(treeY);
+    G.camera.position.set(treeY.x + 9, 4.6, treeY.z - 9);
+    G.camera.lookAt(treeY.x, 2.6, treeY.z);
+    G.camera.updateMatrixWorld(true); G.camera.updateProjectionMatrix();
+    G.composer.render(0.016);
+    out.yellowView = shoot('yellow', yel, M.MAT);
+
+    /* ── ② 近景：单朵像素尺寸（贴到一朵花前 2.5m） ── */
+    const root = red.parent;
+    const m0 = new T.Matrix4(), fp = new T.Vector3();
+    red.getMatrixAt(0, m0); fp.setFromMatrixPosition(m0); root.localToWorld(fp);
+    const dir = new T.Vector3(fp.x - treeY.x * 0, 0, 0);      // 简单取一个侧向
+    const side = new T.Vector3(1, 0, 0.6).normalize();
+    G.camera.position.set(fp.x + side.x * 2.5, fp.y + 0.4, fp.z + side.z * 2.5);
+    G.camera.lookAt(fp.x, fp.y, fp.z);
+    G.camera.updateMatrixWorld(true); G.camera.updateProjectionMatrix();
+    G.composer.render(0.016);
+    const nearShot = grab();
+    shots.near = nearShot.url;
+    const persp = 2 * Math.tan((G.camera.fov * Math.PI / 180) / 2) * G.camera.position.distanceTo(fp);
+    out.near = { flowerPx: +((0.205 / persp) * H).toFixed(1), dist: +G.camera.position.distanceTo(fp).toFixed(2) };
+    return { out, shots };
+  });
+
+  const d = far.out.atDefault;
+  check('默认机位：红梅在画内', d && d.inF > 0, JSON.stringify({ inF: d && d.inF, box: d && d.boxPx }));
+  check('默认机位：藏起花会让画面明显变化（≥200px）',
+    d && d.n > 200, `变化 ${d && d.n}px（修前实测 0px）`);
+  check('默认机位：变化像素的**平均色偏红**（R−G≥25）—— 这才是"看得出颜色"',
+    d && d.meanRed >= 25, `R−G=${d && d.meanRed}  平均RGB ${JSON.stringify(d && d.avgRGB)}  逐像素偏红 ${d && d.redPct}%`);
+  const yv = far.out.yellowView;
+  check('转向腊梅：藏起花会让画面变化（≥120px）', yv && yv.n > 120, `变化 ${yv && yv.n}px`);
+  check('转向腊梅：变化像素的**平均色偏黄**（(R+G)/2−B≥30）',
+    yv && yv.meanYellow >= 30, `(R+G)/2−B=${yv && yv.meanYellow}  平均RGB ${JSON.stringify(yv && yv.avgRGB)}  逐像素偏黄 ${yv && yv.yelPct}%`);
+  check('近景单朵够大（≥40px，看得出花型）', far.out.near.flowerPx >= 40,
+    `${far.out.near.flowerPx}px @ ${far.out.near.dist}m`);
+
+  /* ── ③ 负例自检：把 alphaTest 还原成 0.42，上面那条"看得见花"必须报红 ── */
+  const neg = await page.evaluate(async () => {
+    const G = window.__garden, T = G.THREE;
+    const M = await import('/src/01-materials.js');
+    const canvas = G.renderer.domElement, W = canvas.width, H = canvas.height;
+    const grab = () => { const c = document.createElement('canvas'); c.width = W; c.height = H;
+      const cx = c.getContext('2d'); cx.drawImage(canvas, 0, 0); return cx.getImageData(0, 0, W, H).data; };
+    const find = mat => { let r = null; G.scene.traverse(o => { if (o.isInstancedMesh && o.material === mat) r = o; }); return r; };
+    const red = find(M.MAT.plumBlossomRed), yel = find(M.MAT.plumBlossomYellow);
+    /* 回到默认机位（负例要在同一个机位上比） */
+    G.camera.position.set(-20, 17, 32); G.camera.lookAt(0, 3, 0);
+    G.camera.updateMatrixWorld(true); G.camera.updateProjectionMatrix();
+    const m = new T.Matrix4(), v3 = new T.Vector3(), rt = red.parent;
+    let a = 1e9, b2 = 1e9, c = -1e9, d2 = -1e9;
+    for (let i = 0; i < red.count; i++){ red.getMatrixAt(i, m); v3.setFromMatrixPosition(m); rt.localToWorld(v3);
+      const v = v3.clone().project(G.camera); const px = (v.x*0.5+0.5)*W, py = (-v.y*0.5+0.5)*H;
+      a = Math.min(a,px); c = Math.max(c,px); b2 = Math.min(b2,py); d2 = Math.max(d2,py); }
+    const box = { x0: Math.max(0, Math.floor(a-14)), y0: Math.max(0, Math.floor(b2-14)),
+                  x1: Math.min(W, Math.ceil(c+14)), y1: Math.min(H, Math.ceil(d2+14)) };
+    const keep = { a: M.MAT.plumBlossomRed.alphaTest, ya: M.MAT.plumBlossomYellow.alphaTest,
+                   em: M.MAT.plumBlossomRed.emissive.getHex(), ei: M.MAT.plumBlossomRed.emissiveIntensity };
+    /* 缺陷态：alphaTest 回 0.42 + 自发光回旧值（= 老黄看到的那一版） */
+    M.MAT.plumBlossomRed.alphaTest = 0.42; M.MAT.plumBlossomYellow.alphaTest = 0.42;
+    M.MAT.plumBlossomRed.emissive.setHex(0x3A0A12); M.MAT.plumBlossomRed.emissiveIntensity = 0.5;
+    G.composer.render(0.016); const A = grab();
+    const kr = red.count, ky = yel.count; red.count = 0; yel.count = 0;
+    G.composer.render(0.016); const B = grab();
+    red.count = kr; yel.count = ky;
+    let n = 0;
+    for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++){
+      const i = (y*W+x)*4;
+      if (Math.abs(A[i]-B[i]) + Math.abs(A[i+1]-B[i+1]) + Math.abs(A[i+2]-B[i+2]) > 24) n++; }
+    M.MAT.plumBlossomRed.alphaTest = keep.a; M.MAT.plumBlossomYellow.alphaTest = keep.ya;
+    M.MAT.plumBlossomRed.emissive.setHex(keep.em); M.MAT.plumBlossomRed.emissiveIntensity = keep.ei;
+    return { n };
+  });
+  check('负例自检：缺陷态（alphaTest .42 / 旧自发光）在同机位下**判红**（变化 <200px）',
+    neg.n < 200, `缺陷态变化 ${neg.n}px`);
+
+  /* ── ④ 季节契约不变：夏季无花 ──
+     ⚠️ 花这一档走的是**布尔存在性通道**（`p[key] > 0.03` ⇒ `visible`），**不是 count 通道**
+        —— 夏季 count 仍然是 800 而 visible=false（three 不画）。判据读 count 会误判"夏天还开着花"，
+        读 visible 才是对的口径（本门第一版就栽在这里）。 */
+  await page.evaluate(() => window.__garden.setEnv('season', 'summer'));
+  await waitSettled('summer');
+  const summer = await page.evaluate(async () => {
+    const M = await import('/src/01-materials.js');
+    const G = window.__garden;
+    const st = { redVis: null, yelVis: null, redCnt: null, leaf: null, envT: +G.ENV.t.toFixed(3),
+                 plumShow: +G.ENV.cur.plumBlossomShow.toFixed(3), peachShow: +G.ENV.cur.peachShow.toFixed(3) };
+    G.scene.traverse(o => {
+      if (!o.isInstancedMesh) return;
+      if (o.material === M.MAT.plumBlossomRed){ st.redVis = o.visible; st.redCnt = o.count; }
+      if (o.material === M.MAT.plumBlossomYellow) st.yelVis = o.visible;
+      if (o.material === M.MAT.plumLeaf) st.leaf = Math.max(st.leaf || 0, o.count);
+    });
+    return st;
+  });
+  check('夏季无花（季节契约不变：两株梅的花都不可见）',
+    summer.redVis === false && summer.yelVis === false,
+    `红 visible=${summer.redVis}（count=${summer.redCnt}，该通道不看 count）/ 黄 visible=${summer.yelVis}；夏叶=${summer.leaf}；ENV.t=${summer.envT}`);
+
+  for (const [k, url] of Object.entries(far.shots || {}))
+    fs.writeFileSync(`${OUT}/${k}.png`, Buffer.from(url.split(',')[1], 'base64'));
+  if (errs.length) check('零 pageerror', false, errs.slice(0, 2).join(' | '));
+
+  await browser.close();
+  server.close();                                  // ⚠️ 必须关：否则全绿也不退出（见 mobile-panel-guard 的教训）
+  const failed = results.filter(r => !r.ok);
+  console.log(`\n[plum-guard] ${failed.length ? 'FAIL' : 'ALL PASS'}（${results.length} 项，${((Date.now() - t0) / 1000).toFixed(1)}s）`);
+  if (failed.length){ console.log('失败项：'); failed.forEach(f => console.log('  · ' + f.name + (f.detail ? ' — ' + f.detail : ''))); }
+  process.exit(failed.length ? 1 : 0);
+})().catch(e => { console.error('[plum-guard] 崩溃:', e); process.exit(2); });

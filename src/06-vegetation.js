@@ -3178,7 +3178,10 @@ function makePeachFlowerGeo(){
    ⚠️ 顶点色必须给**每个** part 都写（合并要求属性集一致），所以花瓣也写 (1,1,1) 白。
    ⚠️ 顶点色是**线性乘子**：与实例色（花色）相乘 ⇒ 花瓣保色、花蕊被压成暗褐。 */
 function makePlumFlowerGeo(){
-  const pl = 0.082, pw = 0.070;
+  /* ⚠️ 花瓣尺寸 ×1.25（0.082/0.070 → 0.1025/0.0875）：同一朵花在默认机位下从 2.1px 变成
+     2.6px、树框内"藏花"像素从 253 涨到 345 —— 远处能不能成片，靠的就是这个尺寸。
+     近看单朵仍有 ~15px（11m 处）/ ~60px（2.5m 处），花型照样读得出来。 */
+  const pl = 0.1025, pw = 0.0875;
   const parts = [];
   const paint = (g, r, gg, b) => {
     const n = g.attributes.position.count;
@@ -3194,11 +3197,11 @@ function makePlumFlowerGeo(){
     q.rotateZ((k * TAU) / 5);
     parts.push(paint(q, 1, 1, 1));
   }
-  const core = new THREE.SphereGeometry(0.013, 7, 5); core.translate(0, 0, 0.004);
+  const core = new THREE.SphereGeometry(0.016, 7, 5); core.translate(0, 0, 0.004);
   parts.push(paint(core, 0.34, 0.26, 0.12));
   for (let s = 0; s < 6; s++){
-    const f = new THREE.CylinderGeometry(0.0022, 0.0022, 0.020, 4);
-    f.translate(0, 0.010, 0);
+    const f = new THREE.CylinderGeometry(0.0026, 0.0026, 0.025, 4);
+    f.translate(0, 0.0125, 0);
     f.rotateX(0.42);
     f.rotateZ((s * TAU) / 6 + 0.25);
     f.translate(0, 0, 0.006);
@@ -3787,9 +3790,11 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
     trunkMat: MAT.plumTrunk, leafMat: MAT.plumLeaf,
     /* 花色（老黄："腊梅是淡黄色到黄色"、"黄色腊梅花几乎不可见"）：
        红梅 = 暖胭脂 → 正红（上一版偏"紫红/暗粉"，出图复检读到的就是紫红 ⇒ 压掉蓝通道）；
-       腊梅 = 淡黄 → **饱和的蜂蜡黄**（旧值太淡，在雪地里几乎看不见）。 */
-    blossomA: new THREE.Color(red ? 0xFF9088 : 0xFFF6C0),
-    blossomB: new THREE.Color(red ? 0xD41525 : 0xE8A800),
+       腊梅 = 淡黄 → **饱和的蜂蜡黄**（旧值太淡，在雪地里几乎看不见）。
+       ⚠️ 2026-10-07 再提一档饱和度：冬季预设是**降饱和 0.70 + 冷色调**，原来的花色被洗过一道
+          （实测赋值 0xFF9088 在画面上量到的平均色只有 R−G≈33）⇒ 两头各推一点补回来。 */
+    blossomA: new THREE.Color(red ? 0xFF7A6E : 0xFFF0A8),
+    blossomB: new THREE.Color(red ? 0xDC1220 : 0xF0A400),
   });
 }
 
