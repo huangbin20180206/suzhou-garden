@@ -152,6 +152,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     { axis: 'weather', vals: ['clear', 'storm', 'mist'], key: 'weather' },   // overcast 2026-09-28 从菜单收起
   ];
   for (const { axis, vals, key } of AXES) {
+    /* ⚠️ 2026-10-06 前提修正（老黄："冬季多一个'银装素裹'就少一个'狂风暴雨'，逻辑上才站得住"）：
+       产品现在**冬季禁用「狂风暴雨」**（WEATHER_RULES.storm，按钮置灰、直调被兜底降级）。
+       而 season 轴这一轮跑完停在 winter ⇒ 紧接着点 weather=storm 会被（正确地）拒绝，
+       判据报 "storm:click失败 / storm→实际clear" —— 那是**前提不成立**，不是产品缺陷
+       （项目铁律：判据必须先断言前提）。⇒ 测天气这一轴前先把季节放回夏。
+       圆弧的另一个方向（冬季点 snow 合法）在下面单独有一条，不动。 */
+    if (axis === 'weather') {
+      await page.evaluate(() => window.__garden.setEnv('season', 'summer'));
+      await settled();
+    }
     const before = pageErrors.length;
     const hit = [];
     for (const v of vals) {
