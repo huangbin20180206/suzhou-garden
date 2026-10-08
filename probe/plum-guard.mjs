@@ -144,16 +144,19 @@ fs.mkdirSync(OUT, { recursive: true });
     G.waterSurface && (G.waterSurface.userData.reflectEveryFrame = true);
     const find = mat => { let r = null; G.scene.traverse(o => { if (o.isInstancedMesh && o.material === mat) r = o; }); return r; };
     const red = find(M.MAT.plumBlossomRed), yel = find(M.MAT.plumBlossomYellow);
-    /* ⚠️ 花苞是**另一个网格**（同材质、不同几何，2026-10-08）⇒ "藏起花"的 A/B 必须把它一起藏，
-       否则量到的只是花本身（约占总量的 70%），前提断言名不副实。
-       ⚠️⚠️ 两株梅各有一套花苞网格，不能只拿 traverse 的**最后一个** ——
+    /* ⚠️ 花苞与凋谢花是**另外两个网格**（同株、不同几何；凋谢花 2026-10-08 还换了材质）⇒
+       "藏起花"的 A/B 必须把三者一起藏，否则量到的只是盛开的 60%，前提断言名不副实。
+       ⚠️⚠️ 两株梅各有一套，不能只拿 traverse 的**最后一个** ——
           按"同一棵树的父组"配对才拿到眼前这株的（第一版拿错株，量出"花苞 0 像素"的假红）。 */
-    const budFor = (flowerM) => {
-      let b = null;
-      flowerM.parent.traverse(o => { if (o.isInstancedMesh && o.material === M.MAT.plumBud) b = o; });
-      return b;
+    const pairOf = (flowerM) => {
+      const r = { bud: null, wither: null };
+      flowerM.parent.traverse(o => {
+        if (!o.isInstancedMesh) return;
+        if (o.material === M.MAT.plumBud) r.bud = o;
+        if (o.name === 'plumWithered') r.wither = o;
+      });
+      return r;
     };
-    const budRed = budFor(red), budYel = budFor(yel);
 
     const boxOf = (o) => { const m = new T.Matrix4(), v3 = new T.Vector3(), rt = o.parent;
       let a = 1e9, b2 = 1e9, c = -1e9, d = -1e9, inF = 0;
@@ -190,20 +193,20 @@ fs.mkdirSync(OUT, { recursive: true });
     const shoot = (key, o, mat, withDefect = false) => {
       const { box, inF } = boxOf(o);
       if (box.x1 <= box.x0 || box.y1 <= box.y0) return { key, inF, note: '不在画内' };
-      const bud = budFor(o);
-      const budKeep = bud ? bud.count : 0;
+      const { bud, wither } = pairOf(o);
+      const keep = { bud: bud ? bud.count : 0, wit: wither ? wither.count : 0 };
       G.composer.render(0.016); const A = grab();
       mat.__keepRed = red.count; mat.__keepYel = yel.count;
       red.count = 0; yel.count = 0;
-      if (bud) bud.count = 0;                       // 花苞一起藏（"藏起花"才是完整口径）
+      if (bud) bud.count = 0;                       // 花苞与凋谢花一起藏（"藏起花"才是完整口径）
+      if (wither) wither.count = 0;
       G.composer.render(0.016); const B = grab();
       red.count = mat.__keepRed; yel.count = mat.__keepYel;
-      if (bud) bud.count = budKeep;
+      if (bud) bud.count = keep.bud;
+      if (wither) wither.count = keep.wit;
       shots[key] = A.url;
       const res = { key, inF, boxPx: `${box.x1-box.x0}×${box.y1-box.y0}`, ...measure(A.px, B.px, box),
-                    buds: bud ? bud.count : 0,
-                    flowers: (() => { const mm = o; return mm.count; })(),
-                    withered: o.userData.flWithered || 0 };
+                    buds: keep.bud, withered: keep.wit, flowers: o.count };
       /* ── 缺陷态对照（同机位、同一任务内量）────────────────────────────────
          把两份花瓣材质还原成"老黄看到的那一版"（alphaTest .42 + 旧自发光），再对**同一张
          "花全关"基准 B** 量一次 —— 于是"健康态 vs 缺陷态"是同一个相机、同一个基准下的两个数，
@@ -218,12 +221,14 @@ fs.mkdirSync(OUT, { recursive: true });
         M.MAT.plumBlossomRed.alphaTest = 0.42; M.MAT.plumBlossomYellow.alphaTest = 0.42;
         M.MAT.plumBlossomRed.emissive.setHex(0x3A0A12); M.MAT.plumBlossomRed.emissiveIntensity = 0.5;
         M.MAT.plumBlossomYellow.emissive.setHex(0x3A2E00); M.MAT.plumBlossomYellow.emissiveIntensity = 0.5;
-        /* ⚠️ 缺陷态还要把**花苞也藏起来**：老黄看到的那一版**根本没有能认出来的花苞**
-           （他的原话："没有你说的带花苞的枝条"）——花苞是这一轮才独立出几何/材质的。
-           不藏的话缺陷态会挂着 96 个花苞（实测 361px），比值被抬到 2.4 倍而**假红**。 */
-        const bk = bud ? bud.count : 0; if (bud) bud.count = 0;
+        /* ⚠️ 缺陷态还要把**花苞与凋谢花也藏起来**：老黄看到的那一版**既没有能认出来的花苞**、
+           也没有能认出来的凋谢花（他的原话："没有你说的带花苞的枝条"、"看不出是枯萎花"）——
+           两者都是这一轮才独立出几何/材质的。
+           不藏的话缺陷态会挂着 96 个苞（实测 361px），比值被抬到 2.4 倍而**假红**。 */
+        const bk = bud ? bud.count : 0, wk = wither ? wither.count : 0;
+        if (bud) bud.count = 0; if (wither) wither.count = 0;
         G.composer.render(0.016); const C = grab();
-        if (bud) bud.count = bk;
+        if (bud) bud.count = bk; if (wither) wither.count = wk;
         res.defectN = measure(C.px, B.px, box).n;
         M.MAT.plumBlossomRed.alphaTest = keep.ar; M.MAT.plumBlossomYellow.alphaTest = keep.ay;
         M.MAT.plumBlossomRed.emissive.setHex(keep.er); M.MAT.plumBlossomRed.emissiveIntensity = keep.ei;

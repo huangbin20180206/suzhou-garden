@@ -77,7 +77,11 @@
 /* 2026-10-08 梅花三态批次 bump v30→v31：改了 src/06-vegetation.js（花苞独立几何 makePlumBudGeo +
    三态按 60/30/10 分配 + 凋谢态 + 枝条加长 longTwig）、src/01-materials.js（新增 MAT.plumBud）、
    src/12f-season.js（花苞材质登进季节存在性）、src/12f 表与本批无关的部分不动。 */
-const CACHE = 'suzhou-garden-v31';
+/* 2026-10-08 梅花尺寸/形态按真实资料重做批次 bump v31→v32：改了 src/06-vegetation.js
+   （花苞改成圆润椭球 + 瓣脊 + 花萼杯、尺寸收到盛开花宽的 0.51 倍；凋谢花独立几何；
+   开花加不规则；间距加疏密变化）、src/01-materials.js（新增 MAT.plumWithered）、
+   src/12f-season.js（凋谢材质登进季节存在性）。 */
+const CACHE = 'suzhou-garden-v32';
 const SHELL = [
   './',
   './index.html',

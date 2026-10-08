@@ -500,7 +500,15 @@ export const MAT = {
      这里不要贴图、不要 alphaTest：颜色交给**实例色**（每株的嫩色），萼片的深色靠顶点色。
      自发光取暖褐一档 @0.6（苞比花闷，不能像花那样亮）。
      ⚠️ 必须登进 12f 的 SEASON_PRESENCE（键 `plumBlossomShow`），否则夏天花谢了苞还挂着。 */
-  plumBud: new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.78, metalness:0.0, envMapIntensity:0.28, emissive:0x3A2A08, emissiveIntensity:0.6, vertexColors:true }),
+  plumBud: new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.42, metalness:0.0, envMapIntensity:0.35, emissive:0x3A2A08, emissiveIntensity:0.55, vertexColors:true }),
+  /* ── 梅花的**凋谢**材质（2026-10-08 · 老黄给的真实梅资料："花瓣失去张力向下卷曲…颜色略微变暗，
+        花心和雄蕊暴露"）────────────────────────────────────────────────────────────
+     ⚠️ 凋谢花必须**换一份材质**：花瓣材质带**红色自发光 @0.75**，实例色再往枯黄压也会被这层
+        红自发光盖住 ⇒ 结果是"凋谢花照样鲜红"（2.6m 处实测判读原话："看不出是枯萎花还是背光"）。
+     这份材质：自发光降到 0.18 的暗褐（只留一点环境感）、roughness 提到 0.95（干、不反光）、
+     基色白 ⇒ 颜色完全由实例色决定（= 花色往枯黄/枯褐压过的值）。沿用花瓣贴图（残瓣的形状）。
+     ⚠️ 同样要登进 12f 的 SEASON_PRESENCE + 距离放大名单。 */
+  plumWithered: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.95, metalness:0.0, envMapIntensity:0.18, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x2A1A06, emissiveIntensity:0.18, vertexColors:true }),
   /* ⚠️ `vertexColors:true` 是给**花蕊**用的：makePlumFlowerGeo 给花瓣写 (1,1,1)、花蕊写暖褐
      (0.34,0.26,0.12) ⇒ 花色仍由实例色决定，而花心被压深 ⇒ 远看是"五瓣 + 深心"的梅花。
      （桃的花没有顶点色、桃的材质也没开这个开关，不受影响。） */
@@ -597,7 +605,7 @@ Object.values(MAT).forEach(m => registry.mats++);
    ⚠️ 缩放作用于 `transformed`（**实例局部**位置）：instanceMatrix 的平移在校验之后才乘，
       所以是"以每朵花自己为原点放大"，不会让花沿冠心方向位移。 */
 export function installBlossomDistanceScale(){
-  for (const m of [MAT.plumBlossomRed, MAT.plumBlossomYellow, MAT.plumBud]){
+  for (const m of [MAT.plumBlossomRed, MAT.plumBlossomYellow, MAT.plumBud, MAT.plumWithered]){
     if (m.userData.blossomScale) continue;
     m.userData.blossomScale = true;
     m.onBeforeCompile = (sh) => {

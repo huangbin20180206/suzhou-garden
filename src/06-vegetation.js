@@ -3183,7 +3183,10 @@ function makePlumFlowerGeo(){
      2026-10-08 老黄指出真问题是**形态**（"开成紫藤那种效果…现实中的梅花不是这种密集型开放"）：
      花太大（0.17m）又太多 ⇒ 冠内必然互相叠成一团。⇒ 单朵回到 **0.10m 直径**（pl=0.050），
      远处靠**距离放大**（见 01-materials 的 installBlossomDistanceScale）保住"看得见花色"：
-     近处 1.0 倍（真实尺寸 ⇒ 疏枝点花），50m 外 2.2 倍（0.10→0.22m ⇒ 3.7px，仍读得出红/黄）。 */
+     近处 1.0 倍（真实尺寸 ⇒ 疏枝点花），50m 外 2.6 倍（0.10→0.26m ⇒ 4.4px，仍读得出红/黄）。
+     ⚠️ 2026-10-08 二轮（老黄给的真实梅形态资料）：**花瓣长短/倾角要有一点不规则、花心略偏**
+        ——"避免画面像图标或剪纸"。这里给每一瓣一个**确定性**的长度与倾角微差
+        （用瓣序 k 的正弦，不抽随机、不额外消耗随机流），花心也略偏 3mm。 */
   const K = 0.488, pl = 0.1025 * K, pw = 0.0875 * K;
   const parts = [];
   const paint = (g, r, gg, b) => {
@@ -3194,20 +3197,24 @@ function makePlumFlowerGeo(){
     return g;
   };
   for (let k = 0; k < 5; k++){
-    const q = new THREE.PlaneGeometry(pw, pl, 1, 1);
-    q.translate(0, pl * 0.5 + 0.004, 0);
-    q.rotateX(0.26);                                // 浅碟（桃是 0.55 的深碗）
-    q.rotateZ((k * TAU) / 5);
+    const lk = pl * (1 + 0.150 * Math.sin(k * 2.17));       // 瓣长 ±15%
+    const wk = pw * (1 + 0.120 * Math.cos(k * 1.61));       // 瓣宽 ±12%
+    const q = new THREE.PlaneGeometry(wk, lk, 1, 1);
+    q.translate(0, lk * 0.5 + 0.004, 0);
+    q.rotateX(0.26 + 0.20 * Math.sin(k * 1.33));            // 浅碟：每瓣开合角差更大（自然重叠）
+    q.rotateY(0.30 * Math.sin(k * 1.9));                    // ⚠️ 绕**瓣长轴**翻卷 ±17°：五瓣不再共面
+    q.rotateZ((k * TAU) / 5 + 0.10 * Math.sin(k * 2.7));    // 瓣间不是严格等分
     parts.push(paint(q, 1, 1, 1));
   }
-  const core = new THREE.SphereGeometry(0.016 * K, 7, 5); core.translate(0, 0, 0.004);
+  const core = new THREE.SphereGeometry(0.016 * K, 7, 5);
+  core.translate(0.003 * K, 0.002 * K, 0.004);              // 花心略偏 ⇒ 不像打印出来的对称图标
   parts.push(paint(core, 0.34, 0.26, 0.12));
   for (let s = 0; s < 6; s++){
     const f = new THREE.CylinderGeometry(0.0026 * K, 0.0026 * K, 0.025 * K, 4);
     f.translate(0, 0.0125 * K, 0);
-    f.rotateX(0.42);
+    f.rotateX(0.42 + 0.10 * Math.sin(s * 2.1));             // 雄蕊长短/角度也带微差
     f.rotateZ((s * TAU) / 6 + 0.25);
-    f.translate(0, 0, 0.006);
+    f.translate(0.003 * K, 0.002 * K, 0.006);
     parts.push(paint(f, 0.40, 0.30, 0.14));
   }
   return mergeGeometries(parts, false);
@@ -3230,13 +3237,91 @@ function makePlumBudGeo(){
     g.setAttribute('color', new THREE.BufferAttribute(col, 3));
     return g;
   };
-  const body = new THREE.SphereGeometry(0.052 * K, 9, 7);
-  body.scale(1, 1.34, 1);                       // 竖长 → 水滴状（真实花苞的形）
-  body.translate(0, 0.040 * K, 0);
-  parts.push(paint(body, 1, 1, 1));             // 苞身：白 ⇒ 实例色（嫩黄 / 嫩红）
-  const calyx = new THREE.CylinderGeometry(0.020 * K, 0.030 * K, 0.026 * K, 6);
-  calyx.translate(0, 0.010 * K, 0);
-  parts.push(paint(calyx, 0.30, 0.26, 0.14));   // 萼片：压深（暖褐），一眼看出"这是没开的"
+  /* ⚠️ 尺寸（老黄给的真实梅资料："花苞直径约为盛开花朵的**一半**、体积约其 1/8~1/4、
+     不要画成圆球"）：盛开花直径 0.100m ⇒ 苞直径取 **0.052（0.52 倍，落在资料的 1/3~2/3 内）、
+     高 0.068（长径比 1.3 ⇒ 椭圆/近圆锥）**。
+     ⚠️ 上一版的教训（连踩两次）：0.102 的圆球"太大"（老黄原话），改成 0.045 的收尖椭球后
+       又"太小、不成形"（2.6m 处读成红色贴片）⇒ 现在**直径 0.052 且做出"瓣包"的层次**：
+       外层花瓣**是苞的外表面**（不是埋在球里），所以近看有纵向瓣脊、远看成饱满椭圆。 */
+  const R = 0.0533 * K;                 // 苞半径 ≈0.026m ⇒ 直径 0.052m（≈ 盛开花宽的一半）
+  const H = R * 2.6;                    // 苞高 ≈0.068m（长径比 1.3 ⇒ 椭圆/近圆锥）
+  /* ⚠️ 本体必须是**圆润的高分段椭球**（2026-10-08 三轮）：
+     上一版用 6 片平板围一圈当"包裹的花瓣"，0.3m 贴脸实测判读是"**方块/棱柱状**、平直色块、
+     看不出瓣脊"—— 6 个 60° 的大平面就是一个六棱柱。现在：
+       · 本体：14×10 段椭球（贴脸 147px 下分瓣足够圆）→ 剪影是椭圆；
+       · 瓣脊：本体表面再压 5 条**更暗的细长凸肋**（顺着经线方向）⇒ 近看读得出"外层花瓣包着"；
+       · 顶部轻微收细（顶点位移，幅度小 ⇒ 不会又变成多面体）。 */
+  const body = new THREE.SphereGeometry(R, 14, 10);
+  body.scale(1, 1.30, 1);
+  body.translate(0, H * 0.50, 0);
+  {
+    const pos = body.attributes.position;
+    const yTop = H * 0.50 + R * 1.30;
+    for (let i = 0; i < pos.count; i++){
+      const y = pos.getY(i);
+      const k2 = Math.max(0, (y - (H * 0.50)) / (yTop - H * 0.50));   // 0..1（下半→顶）
+      if (k2 > 0){ const s = 1 - 0.22 * k2 * k2; pos.setX(i, pos.getX(i) * s); pos.setZ(i, pos.getZ(i) * s); }
+    }
+    pos.needsUpdate = true; body.computeVertexNormals();
+  }
+  parts.push(paint(body, 1, 1, 1));                 // 苞身：白 ⇒ 实例色（嫩黄 / 嫩红）
+  /* 瓣脊：5 条凸肋（细长椭球），**要真的凸出本体之外**、且明显更暗 ⇒ 近看是"包着的花瓣缝"
+     ⚠️ 顺序必须是"先倾斜、后向外平移"：绕**原点**旋转会把已经推到外面的肋又拉回本体内
+        （实测：translate 之后 rotateZ(0.18) 让肋心从 x=0.026 缩到 0.0195 < 本体半径 0.026
+         ⇒ 肋整条埋进去，"表面光滑得像糖豆、看不出瓣脊"）。 */
+  for (let k = 0; k < 5; k++){
+    const rib = new THREE.SphereGeometry(R * 0.19, 6, 8);
+    rib.scale(1, 3.0, 1);
+    rib.rotateZ(0.18);                              // ① 先绕自身倾斜（上端收）
+    rib.translate(R * 1.00, H * 0.50, 0);           // ② 再沿径向推出去 ⇒ 凸出本体约 5mm
+    rib.rotateY((k * TAU) / 5 + 0.5);               // ③ 绕苞轴分布
+    parts.push(paint(rib, 0.60, 0.58, 0.53));
+  }
+  /* 花萼：**明显**的深色小杯，托在苞身下沿（资料："花萼明显"）—— 比本体略宽 ⇒ 露出一圈 */
+  const calyx = new THREE.CylinderGeometry(R * 0.78, R * 1.12, R * 0.92, 8);
+  calyx.translate(0, R * 0.22, 0);
+  parts.push(paint(calyx, 0.16, 0.13, 0.06));
+  /* 短花梗（资料："花梗短"）：**很短**、大半藏在花萼里 —— 上一版给到 R*1.5 且挂在萼下，
+     实测它把花苞的包围盒高度抬到 0.103m（= 盛开花宽的 0.87 倍），量出来的"花苞"变成一根手指。 */
+  const pedicel = new THREE.CylinderGeometry(R * 0.16, R * 0.22, R * 0.9, 5);
+  pedicel.translate(0, R * 0.05, 0);
+  parts.push(paint(pedicel, 0.19, 0.15, 0.07));
+  return mergeGeometries(parts, false);
+}
+
+/* ══ 梅花的**凋谢**几何（2026-10-08 二轮 · 老黄给的真实梅资料）═════════════════════════
+   资料："花瓣失去张力，**向下卷曲**或松散脱落，颜色略微变暗，**花心和雄蕊暴露**，
+        部分花瓣残留在花托上，花梗略显干燥"。
+   ⇒ 单独一份几何：花瓣**短一档**且**向下折**（rotateX 大角 ⇒ 碟变成"倒扣的碗"），
+     只留 4 片（"部分脱落"），花心/雄蕊照旧露着（雄蕊相对更长一点 —— 花瓣合上了，蕊才显得露出来）。 */
+function makePlumWitheredGeo(){
+  const K = 0.488, pl = 0.1025 * K * 0.86, pw = 0.0875 * K * 0.92;
+  const parts = [];
+  const paint = (g, r, gg, b) => {
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++){ col[i*3] = r; col[i*3+1] = gg; col[i*3+2] = b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  };
+  for (let k = 0; k < 4; k++){                       // 4 片（脱落了一片）
+    const lk = pl * (1 + 0.14 * Math.sin(k * 1.9));
+    const q = new THREE.PlaneGeometry(pw * (1 + 0.10 * Math.cos(k * 2.3)), lk, 1, 1);
+    q.translate(0, lk * 0.5 + 0.004, 0);
+    q.rotateX(0.92 + 0.22 * Math.sin(k * 1.7));      // **向下折**（0.92~1.14 rad ≈ 53°~65°）
+    q.rotateZ((k * TAU) / 4 + 0.22 * Math.sin(k * 2.9));
+    parts.push(paint(q, 0.92, 0.90, 0.88));          // 残瓣略暗
+  }
+  const core = new THREE.SphereGeometry(0.019 * K, 7, 5); core.translate(0, 0, 0.004);
+  parts.push(paint(core, 0.46, 0.35, 0.15));          // 花托：亮一档 ⇒ 花瓣下垂时读得出"花心外露"
+  for (let s = 0; s < 6; s++){                        // 雄蕊露出来（更长、更亮 = 凋谢最硬的识别特征）
+    const f = new THREE.CylinderGeometry(0.0030 * K, 0.0030 * K, 0.040 * K, 4);
+    f.translate(0, 0.020 * K, 0);
+    f.rotateX(0.26 + 0.12 * Math.sin(s * 2.4));
+    f.rotateZ((s * TAU) / 6 + 0.25);
+    f.translate(0, 0, 0.006);
+    parts.push(paint(f, 0.58, 0.46, 0.20));
+  }
   return mergeGeometries(parts, false);
 }
 
@@ -3316,6 +3401,8 @@ export const treeLanternInsts = [];
 /* 梅树的花苞网格（2026-10-08）：与花分开一份几何/材质，门禁按 `plumBuds` 名字或这份清单找得到
    （项目惯例：新加的网格要能**显式**被探针拿到，别让它去 traverse 猜）。 */
 const budMeshes = [];
+/* 凋谢花的网格清单（2026-10-08）：与花苞同理，显式暴露给探针/门禁（别让它去 traverse 猜）。 */
+const witheredMeshes = [];
 /* 材质：MeshBasic + toneMapped:false —— 自发光色直接进 bloom，不吃光照也不被色调映射压暗。 */
 export const TREE_LANTERN_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false,
                                                             transparent: true, opacity: 0.95,
@@ -3730,7 +3817,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         · 35% 的停点**并生第 2 朵**（真实梅常 2 朵并生，截图里也成对）；
         · 加点用枝长比例算，短枝自然少花、长枝多花（不再"每枝一律 3~5 簇"）。 */
   const pushStop = (curve, t) => {
-    flRaw.push({ p: curve.getPointAt(t), tan: curve.getTangentAt(t).normalize() });
+    flRaw.push({ p: curve.getPointAt(t), tan: curve.getTangentAt(t).normalize(), t });
   };
   for (const tw of twigs){
     const L = tw.getLength();
@@ -3739,7 +3826,9 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       const t = s / L;
       if (rr2(0, 1) > 0.30) pushStop(tw, t);      // 30% 留白（"疏影横斜"的节奏靠这个）
       if (rr2(0, 1) < 0.35) pushStop(tw, Math.min(0.99, t + rr2(0.012, 0.030)));   // 并生（花苞对）
-      s += rr2(0.10, 0.22);
+      /* ⚠️ 间距也要**疏密不均**（2026-10-08 二轮：实测"花朵像均匀撒在枝上的图标…疏密不足"）：
+         0.10~0.22 → **0.08~0.30**（近的成小簇、远的一段空枝）—— 真实梅就是这样。 */
+      s += rr2(0.08, 0.30);
     }
   }
   for (const br of mainBranches){                    // 主枝梢端也开花
@@ -3762,75 +3851,92 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
 
   /* ══ 三种状态按比例分（2026-10-08 · 老黄："总归有 60% 左右的花、30% 左右的苞（嫩黄色）、
         还有 10% 左右是开始凋谢的花（花苞枯黄），按这个比例来重新修改两株梅花的造型"）══
-     槽位是同一批（`flSlots`，沿枝点生），只是**按状态分给两个网格**：
-       · 前 budN 个槽位 → **花苞**（独立几何 + 独立材质，见 makePlumBudGeo）；
-       · 其余 → 开放花，其中 witherN 个做成**凋谢**（缩小 + 偏枯黄 + 花盘下垂）。
+     槽位是同一批（`flSlots`，沿枝点生），按**生长顺序**分给三个网格（老黄给的真实梅资料：
+     "花苞靠近枝梢，盛开花朵位于中部，凋谢花朵位于较低位置"）：
+       打分 k = 1.25×（沿枝位置 t） + 相对冠心的高度 ⇒ 高的=枝梢=**花苞**、低的=**凋谢**、中间=**盛开**。
+       打分是确定性的（不抽随机），比例仍是他要的 30/10/60。
      计数全部挂到 userData 上，供门禁直接断言比例（不靠"看图数"）。 */
   const budFrac = opts.budFrac || 0;
   const budN = Math.min(flSlots.length, Math.round(flSlots.length * budFrac));
-  const openSlots = flSlots.slice(budN);
-  const witherN = Math.min(openSlots.length, Math.round(flSlots.length * (opts.witherFrac || 0)));
+  const witherN = Math.min(flSlots.length - budN, Math.round(flSlots.length * (opts.witherFrac || 0)));
   const witherCol = opts.witherColor || null;      // 枯黄 / 枯褐（每株一色，由 makePlumTree 给）
+  const scored = flSlots.map((o, i) => ({ o, i, k: (o.t || 0) * 1.25 + (o.p.y - canopyC.y) / CAN_B }))
+    .sort((a, b) => (b.k - a.k) || (a.i - b.i));
+  const budSlots = scored.slice(0, budN);
+  const witherSlots = scored.slice(scored.length - witherN);
+  const openSlots = scored.slice(budN, scored.length - witherN);
   flInst.userData.flBuds = budN;
   flInst.userData.flWithered = witherN;
+  flInst.userData.flOpen = openSlots.length;
 
-  for (let i = 0; i < openSlots.length; i++){
-    const o = openSlots[i];
-    const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
-    const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();   // 花盘朝外上方
-    _p.copy(o.p).addScaledVector(face, rr2(0.010, 0.045));   // 花梗 1~4.5cm（原来一律 8mm：同簇几朵几乎重合 ⇒ 一坨）
-    /* ⚠️ 花与叶**不同**：叶要把冠填满（两个方向都夹进壳层），花要**贴在自己的枝上**
-       （只收外沿、冠内不动）—— 否则冠内的花全被推到同一个椭球面上，读成"紫藤式花串"。
-       见 canopyShell 的 outwardOnly 注释（实测真因：最近邻中位 0.19 倍花径）。 */
-    canopyShell(_p, opts.flowerOutwardOnly === true);
-    /* ⚠️ 花盘朝向要在**夹壳之后**重算：夹壳挪了位置，若还用夹之前的方向，
-       被推到壳上的那批花会有一半朝冠内（背面）—— 花盘是 2 tri 的单面卡，
-       朝内就是看不见。同叶面处理：朝冠外偏上。 */
-    face.copy(_p).sub(canopyC).normalize();
-    face.addScaledVector(_up, 0.85).normalize();
-    _q.setFromUnitVectors(_ax.set(0, 0, 1), face);        // 花盘法线 +Z → 朝外上方
-    _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));   // 绕花轴自转（花瓣朝向不整齐划一）
-    /* ── 凋谢的那一档（10%）：花缩小一档、颜色往**枯黄**压、花盘**朝下耷拉** ──
-       （真实梅的凋花就是这样：色褪成枯黄、瓣松、朝下垂） */
-    const isWither = i < witherN;
-    if (isWither){
-      _q2.setFromAxisAngle(_ax.set(1, 0, 0), rr2(0.55, 1.05));   // 绕自身横轴垂下 32°~60°
-      _q.multiply(_q2);
+  /* 一处放置逻辑，三个网格共用（花 / 凋谢 / 花苞）——避免三份几乎一样的代码各自漂。
+     opts: axis('Z'|'Y' 几何的"花盘/苞轴"方向) / droop(凋谢的垂角) / scaleLo-Hi / tint(实例色) */
+  const placeBlossoms = (slots, inst, o) => {
+    for (let i = 0; i < slots.length; i++){
+      const s = slots[i].o;
+      const lat = aroundAxis(s.tan, i * 2.39996 + rr2(-0.50, 0.50));
+      const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();
+      _p.copy(s.p).addScaledVector(face, rr2(o.stemLo, o.stemHi));
+      /* ⚠️ 花与叶**不同**：叶要把冠填满（两个方向都夹进壳层），花要**贴在自己的枝上**
+         （只收外沿、冠内不动）—— 否则冠内的花被挤到同一个椭球面上，读成"紫藤式花串"。 */
+      canopyShell(_p, opts.flowerOutwardOnly === true);
+      /* 朝向要在**夹壳之后**重算（夹壳挪了位置）：朝冠外偏上；花盘是单面卡，朝内就看不见。
+         ⚠️ upMix 支持传**区间**：逐朵抽 ⇒ 有的花朝天、有的侧向外（实测"朝向一致"会被读成图标）。 */
+      const upMix = Array.isArray(o.upMix) ? rr2(o.upMix[0], o.upMix[1]) : o.upMix;
+      face.copy(_p).sub(canopyC).normalize().addScaledVector(_up, upMix).normalize();
+      _q.setFromUnitVectors(_ax.set(o.axis === 'Y' ? 0 : 0, o.axis === 'Y' ? 1 : 0, o.axis === 'Y' ? 0 : 1), face);
+      _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));          // 绕自身轴自转（不整齐划一）
+      if (o.droop){                                                // 凋谢：整朵往下垂
+        _q2.setFromAxisAngle(_ax.set(1, 0, 0), rr2(o.droop[0], o.droop[1]));
+        _q.multiply(_q2);
+      }
+      _s.setScalar(rr2(o.scale[0], o.scale[1]));
+      _m.compose(_p, _q, _s); inst.setMatrixAt(i, _m);
+      inst.setColorAt(i, o.color());
     }
-    _s.setScalar(isWither ? rr2(0.72, 0.92) : rr2(0.85, 1.20));
-    _m.compose(_p, _q, _s); flInst.setMatrixAt(i, _m);
-    const base = flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03,0.03), rr2(0,0.06), rr2(-0.03,0.04));
-    if (isWither && witherCol) base.lerp(witherCol, rr2(0.62, 0.85));   // 往枯黄/枯褐压
-    flInst.setColorAt(i, base);
-  }
-  flInst.count = openSlots.length;
-  flInst.instanceMatrix.needsUpdate = true;
-  if (flInst.instanceColor) flInst.instanceColor.needsUpdate = true;
-  g.add(flInst);
+    inst.count = slots.length;
+    inst.instanceMatrix.needsUpdate = true;
+    if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
+    g.add(inst);
+  };
 
-  /* ── 花苞网格（独立几何 + 独立材质：花瓣材质带花瓣 alpha 贴图，套在球上会被裁破）──
-     嫩色调 = 往花色的**浅端**靠（老黄："30% 左右的苞（嫩黄色）"）⇒ lerp 偏向 flA。 */
+  /* ① 盛开（60%）：花色随机深浅 + 轻微色相/明度抖动；
+        ⚠️ 尺度/朝向**要散开**（2026-10-08 二轮，实测判读"形状雷同、大小接近、朝向一致、
+        平贴枝条 ⇒ 像均匀撒在枝上的图标"）：尺寸 0.85~1.20 → **0.72~1.35**，
+        花盘抬升混合系数 upMix 也逐朵抽（0.25~1.15）⇒ 有的朝天、有的侧向外。 */
+  placeBlossoms(openSlots, flInst, {
+    axis: 'Z', upMix: [0.25, 1.15], stemLo: 0.010, stemHi: 0.045, scale: [0.72, 1.35],
+    color: () => flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04)),
+  });
+  /* ② 凋谢（10%）：**自己的几何**（花瓣短一档 + 向下折 53°~65°、只 4 片、雄蕊外露）+
+     **自己的材质**（花瓣材质那层红自发光会把枯色盖掉 ⇒ 凋花照样鲜红，实测判读"看不出是枯萎花"）
+     + 颜色往枯黄/枯褐压 + 整朵再往下垂。 */
+  if (witherN > 0){
+    const wInst = new THREE.InstancedMesh(makePlumWitheredGeo(), MAT.plumWithered, witherN);
+    wInst.name = 'plumWithered';
+    wInst.castShadow = false;
+    wInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    placeBlossoms(witherSlots, wInst, {
+      axis: 'Z', upMix: [0.10, 0.45], stemLo: 0.014, stemHi: 0.050, scale: [0.78, 1.00], droop: [0.45, 0.90],
+      color: () => {
+        const c = flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04));
+        return witherCol ? c.lerp(witherCol, rr2(0.70, 0.92)) : c;      // 往枯黄/枯褐压（比上一版更狠）
+      },
+    });
+    witheredMeshes.push(wInst);
+  }
+  /* ③ 花苞（30%）：独立几何 + 独立材质（花瓣材质带花瓣 alpha 贴图，套在球上会被裁破）。
+     嫩色调 = 往花色的**浅端**（blossomA）靠并提亮（老黄要的"嫩黄色"）。 */
   if (opts.budMat && budN > 0){
     const budInst = new THREE.InstancedMesh(makePlumBudGeo(), opts.budMat, budN);
     budInst.name = 'plumBuds';
     budInst.castShadow = false;
     budInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
-    for (let i = 0; i < budN; i++){
-      const o = flSlots[i];
-      const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
-      const face = lat.clone().addScaledVector(_up, rr2(0.55, 1.05)).normalize();   // 苞朝外上方（比花更挺）
-      _p.copy(o.p).addScaledVector(face, rr2(0.006, 0.030));
-      canopyShell(_p, opts.flowerOutwardOnly === true);
-      face.copy(_p).sub(canopyC).normalize().addScaledVector(_up, 0.95).normalize();
-      _q.setFromUnitVectors(_ax.set(0, 1, 0), face);       // ⚠️ 苞的轴是 **+Y**（几何把苞做在 +Y 上），不是花的 +Z
-      _s.setScalar(rr2(0.80, 1.15));
-      _m.compose(_p, _q, _s); budInst.setMatrixAt(i, _m);
-      budInst.setColorAt(i, flA.clone().lerp(flB, R2() * 0.45)
-        .offsetHSL(rr2(-0.02,0.02), rr2(0.02,0.10), rr2(0.02,0.10)));   // 嫩：偏浅端 + 提亮
-    }
-    budInst.instanceMatrix.needsUpdate = true;
-    if (budInst.instanceColor) budInst.instanceColor.needsUpdate = true;
-    g.add(budInst);
+    placeBlossoms(budSlots, budInst, {
+      axis: 'Y', upMix: 1.05, stemLo: 0.004, stemHi: 0.026, scale: [0.90, 1.15],
+      color: () => flA.clone().lerp(flB, R2() * 0.45)
+        .offsetHSL(rr2(-0.02, 0.02), rr2(0.02, 0.10), rr2(0.02, 0.10)),   // 嫩：偏浅端 + 提亮
+    });
     budMeshes.push(budInst);
   }
 
