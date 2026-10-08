@@ -177,7 +177,7 @@ fs.mkdirSync(OUT, { recursive: true });
     };
 
     const shots = {};
-    const shoot = (key, o, mat) => {
+    const shoot = (key, o, mat, withDefect = false) => {
       const { box, inF } = boxOf(o);
       if (box.x1 <= box.x0 || box.y1 <= box.y0) return { key, inF, note: '不在画内' };
       G.composer.render(0.016); const A = grab();
@@ -186,11 +186,32 @@ fs.mkdirSync(OUT, { recursive: true });
       G.composer.render(0.016); const B = grab();
       red.count = mat.__keepRed; yel.count = mat.__keepYel;
       shots[key] = A.url;
-      return { key, inF, boxPx: `${box.x1-box.x0}×${box.y1-box.y0}`, ...measure(A.px, B.px, box) };
+      const res = { key, inF, boxPx: `${box.x1-box.x0}×${box.y1-box.y0}`, ...measure(A.px, B.px, box) };
+      /* ── 缺陷态对照（同机位、同一任务内量）────────────────────────────────
+         把两份花瓣材质还原成"老黄看到的那一版"（alphaTest .42 + 旧自发光），再对**同一张
+         "花全关"基准 B** 量一次 —— 于是"健康态 vs 缺陷态"是同一个相机、同一个基准下的两个数，
+         可以**直接比大小**。
+         ⚠️ 2026-10-08 改成**比值**判据：原来写的是"缺陷态贡献 <200px"，朵数 800→1500 之后
+           缺陷态也能画到 247px（朵多了、总会有几朵越过 alpha 测试）⇒ 那条会假红。
+           比值才是不随朵数漂的口径：实测健康 762 / 缺陷 247 ≈ 3.1 倍。 */
+      if (withDefect){
+        const keep = { ar: M.MAT.plumBlossomRed.alphaTest, ay: M.MAT.plumBlossomYellow.alphaTest,
+                       er: M.MAT.plumBlossomRed.emissive.getHex(), ei: M.MAT.plumBlossomRed.emissiveIntensity,
+                       ey: M.MAT.plumBlossomYellow.emissive.getHex(), eiy: M.MAT.plumBlossomYellow.emissiveIntensity };
+        M.MAT.plumBlossomRed.alphaTest = 0.42; M.MAT.plumBlossomYellow.alphaTest = 0.42;
+        M.MAT.plumBlossomRed.emissive.setHex(0x3A0A12); M.MAT.plumBlossomRed.emissiveIntensity = 0.5;
+        M.MAT.plumBlossomYellow.emissive.setHex(0x3A2E00); M.MAT.plumBlossomYellow.emissiveIntensity = 0.5;
+        G.composer.render(0.016); const C = grab();
+        res.defectN = measure(C.px, B.px, box).n;
+        M.MAT.plumBlossomRed.alphaTest = keep.ar; M.MAT.plumBlossomYellow.alphaTest = keep.ay;
+        M.MAT.plumBlossomRed.emissive.setHex(keep.er); M.MAT.plumBlossomRed.emissiveIntensity = keep.ei;
+        M.MAT.plumBlossomYellow.emissive.setHex(keep.ey); M.MAT.plumBlossomYellow.emissiveIntensity = keep.eiy;
+      }
+      return res;
     };
 
     /* 默认机位：红梅在画内；腊梅要转向它 */
-    const out = { atDefault: shoot('default', red, M.MAT), camPos: [G.camera.position.x, G.camera.position.y, G.camera.position.z] };
+    const out = { atDefault: shoot('default', red, M.MAT, true), camPos: [G.camera.position.x, G.camera.position.y, G.camera.position.z] };
     const treeY = new T.Vector3(); yel.parent.getWorldPosition(treeY);
     G.camera.position.set(treeY.x + 9, 4.6, treeY.z - 9);
     G.camera.lookAt(treeY.x, 2.6, treeY.z);
@@ -211,7 +232,9 @@ fs.mkdirSync(OUT, { recursive: true });
     const nearShot = grab();
     shots.near = nearShot.url;
     const persp = 2 * Math.tan((G.camera.fov * Math.PI / 180) / 2) * G.camera.position.distanceTo(fp);
-    out.near = { flowerPx: +((0.205 / persp) * H).toFixed(1), dist: +G.camera.position.distanceTo(fp).toFixed(2) };
+    /* ⚠️ 单朵直径常量要跟着产品走：花瓣 ×1.05 时约 0.172m（2026-10-07 的 ×1.25 是 0.205m）。
+       写死旧值会让明细行虚高（判据是"≥40px"的下限，虚高不会假绿，但数字不实）。 */
+    out.near = { flowerPx: +((0.172 / persp) * H).toFixed(1), dist: +G.camera.position.distanceTo(fp).toFixed(2) };
     return { out, shots };
   });
 
@@ -228,44 +251,11 @@ fs.mkdirSync(OUT, { recursive: true });
   check('近景单朵够大（≥40px，看得出花型）', far.out.near.flowerPx >= 40,
     `${far.out.near.flowerPx}px @ ${far.out.near.dist}m`);
 
-  /* ── ③ 负例自检：把 alphaTest 还原成 0.42，上面那条"看得见花"必须报红 ── */
-  const neg = await page.evaluate(async () => {
-    const G = window.__garden, T = G.THREE;
-    const M = await import('/src/01-materials.js');
-    const canvas = G.renderer.domElement, W = canvas.width, H = canvas.height;
-    const grab = () => { const c = document.createElement('canvas'); c.width = W; c.height = H;
-      const cx = c.getContext('2d'); cx.drawImage(canvas, 0, 0); return cx.getImageData(0, 0, W, H).data; };
-    const find = mat => { let r = null; G.scene.traverse(o => { if (o.isInstancedMesh && o.material === mat) r = o; }); return r; };
-    const red = find(M.MAT.plumBlossomRed), yel = find(M.MAT.plumBlossomYellow);
-    /* 回到默认机位（负例要在同一个机位上比） */
-    G.camera.position.set(-20, 17, 32); G.camera.lookAt(0, 3, 0);
-    G.camera.updateMatrixWorld(true); G.camera.updateProjectionMatrix();
-    const m = new T.Matrix4(), v3 = new T.Vector3(), rt = red.parent;
-    let a = 1e9, b2 = 1e9, c = -1e9, d2 = -1e9;
-    for (let i = 0; i < red.count; i++){ red.getMatrixAt(i, m); v3.setFromMatrixPosition(m); rt.localToWorld(v3);
-      const v = v3.clone().project(G.camera); const px = (v.x*0.5+0.5)*W, py = (-v.y*0.5+0.5)*H;
-      a = Math.min(a,px); c = Math.max(c,px); b2 = Math.min(b2,py); d2 = Math.max(d2,py); }
-    const box = { x0: Math.max(0, Math.floor(a-14)), y0: Math.max(0, Math.floor(b2-14)),
-                  x1: Math.min(W, Math.ceil(c+14)), y1: Math.min(H, Math.ceil(d2+14)) };
-    const keep = { a: M.MAT.plumBlossomRed.alphaTest, ya: M.MAT.plumBlossomYellow.alphaTest,
-                   em: M.MAT.plumBlossomRed.emissive.getHex(), ei: M.MAT.plumBlossomRed.emissiveIntensity };
-    /* 缺陷态：alphaTest 回 0.42 + 自发光回旧值（= 老黄看到的那一版） */
-    M.MAT.plumBlossomRed.alphaTest = 0.42; M.MAT.plumBlossomYellow.alphaTest = 0.42;
-    M.MAT.plumBlossomRed.emissive.setHex(0x3A0A12); M.MAT.plumBlossomRed.emissiveIntensity = 0.5;
-    G.composer.render(0.016); const A = grab();
-    const kr = red.count, ky = yel.count; red.count = 0; yel.count = 0;
-    G.composer.render(0.016); const B = grab();
-    red.count = kr; yel.count = ky;
-    let n = 0;
-    for (let y = box.y0; y < box.y1; y++) for (let x = box.x0; x < box.x1; x++){
-      const i = (y*W+x)*4;
-      if (Math.abs(A[i]-B[i]) + Math.abs(A[i+1]-B[i+1]) + Math.abs(A[i+2]-B[i+2]) > 24) n++; }
-    M.MAT.plumBlossomRed.alphaTest = keep.a; M.MAT.plumBlossomYellow.alphaTest = keep.ya;
-    M.MAT.plumBlossomRed.emissive.setHex(keep.em); M.MAT.plumBlossomRed.emissiveIntensity = keep.ei;
-    return { n };
-  });
-  check('负例自检：缺陷态（alphaTest .42 / 旧自发光）在同机位下**判红**（变化 <200px）',
-    neg.n < 200, `缺陷态变化 ${neg.n}px`);
+  /* ── ③ 负例自检：缺陷态必须**明显更弱**（比值口径，见上面 withDefect 的注释） ── */
+  const dn = (d && d.defectN) || 0;
+  check('负例自检：缺陷态（alphaTest .42 / 旧自发光）在同机位同基准下贡献**不到健康态的 40%**'
+      + '（比值口径，不随朵数漂）',
+    d && d.n > 0 && dn < d.n * 0.4, `健康 ${d && d.n}px / 缺陷 ${dn}px ＝ ${d && d.n ? (d.n / Math.max(1, dn)).toFixed(1) : '?'} 倍`);
 
   /* ── ④ 季节契约不变：夏季无花 ──
      ⚠️ 花这一档走的是**布尔存在性通道**（`p[key] > 0.03` ⇒ `visible`），**不是 count 通道**

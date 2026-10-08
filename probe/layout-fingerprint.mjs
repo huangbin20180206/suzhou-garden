@@ -33,7 +33,11 @@
 //   node probe/layout-fingerprint.mjs --update-baseline # 有意改布局后重新基线（并在 commit 里写明）
 //   node probe/layout-fingerprint.mjs --selfcheck       # 自检：3 连跑指纹必须逐位相同 + "戳一下"必须变
 //
-// ⚠️ 本门是**纯状态门（零像素）** ⇒ 不受 GPU 档位/并发负载影响（铁律 6 对它无效），比像素门可靠。
+// ⚠️ 本门是**纯状态门（零像素）** ⇒ 不受**并发负载**影响（铁律 6 对它无效），比像素门可靠。
+// ⚠️ 但它**不是**与 GPU 档位无关（2026-10-08 更正，原先这句写的是"不受档位影响"，是错的）：
+//    档位会改"只有高档位才建的物件"⇒ 影响 Three 创建对象的次数 ⇒ 竹叶那批仍吃 Math.random
+//    的残留排布跟着变。实测同一份代码 low 档 2274053820 / high 档 1722320837。
+//    ⇒ 本门现在**钉 `?tier=`**（TIER=low|mid|high，默认 low），开销为零、换来可比性。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -173,10 +177,30 @@ const render = (fp) => [
         本门会以**偶发红**报出来 —— 那是真缺陷，别用"再冻结一次 Math.random"把它盖掉，
         正确做法是给那块布局**自己的种子流**（同 jr 的写法）。 */
 
+  /* ⚠️⚠️ 档位必须**显式钉住**（2026-10-08 加，血泪）：
+     本门头部原写"纯状态门、不受 GPU 档位影响"，**实测不成立** —— 同一份代码，
+     把**基线那一版**（4936f06 的 src/ + index.html）签出来跑，今天给出 3050414324，
+     而基线记的是 2268734805（今天的值 3 连跑逐位一致、且自检绿 ⇒ 不是噪声）。
+     ⇒ 差异来自**环境**：ANGLE 每次挑哪块 GPU 不固定 → GPU_TIER 变 → 只有高档位才建的物件
+        （灯笼体积光等）改了"Three 创建对象的次数"，而竹叶的条数/洗牌仍有吃 Math.random
+        的残留 ⇒ 竹子在低档/高档下排布不同（差异明细正是 #7fa84c 竹节 + #4e8c36 竹叶）。
+        这不是"谁把布局接回了共享流"，也不是代码漂。
+     ⇒ 现在钉 `?tier=`（TIER=low|mid|high，默认 low —— 与本机无头常落的档位一致），
+        并把**观测到的档位**（阴影图尺寸）打进输出：以后任何一次红门都能立刻对上档位。 */
+  const TIER = (process.env.TIER || 'low');
   const load = async () => {
-    await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0', { waitUntil: 'domcontentloaded' });
+    await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0&tier=' + TIER, { waitUntil: 'domcontentloaded' });
     await page.waitForFunction(() => window.__garden && document.getElementById('loading')
       && document.getElementById('loading').classList.contains('done'), null, { timeout: 240000 });
+  };
+  const tierProbe = async () => {
+    try {
+      return await page.evaluate(() => {
+        const g = window.__garden; let sh = null;
+        g.scene.traverse(o => { if (o.isDirectionalLight && o.shadow && o.shadow.mapSize) sh = o.shadow.mapSize.width; });
+        return `tier=${g.GPU_TIER !== undefined ? g.GPU_TIER : '(未暴露)'} 阴影=${sh}`;
+      });
+    } catch { return 'tier=?'; }
   };
 
   if (MODE === 'selfcheck'){
@@ -250,7 +274,7 @@ const render = (fp) => [
         const cntKey = (arr) => { const m = new Map(); for (const l of arr){ const k = l.split('\t')[0]; m.set(k, (m.get(k) || 0) + 1); } return m; };
         const wc = cntKey(want), gc = cntKey(got);
         const countMismatch = [...new Set([...wc.keys(), ...gc.keys()])].filter(k => (wc.get(k) || 0) !== (gc.get(k) || 0));
-        console.log(`  [指纹] 网格 ${fp.rows.length} ｜ 总指纹 ${fp.global} ｜ 变化 ${changed.length} 新增 ${added.length} 消失 ${removed.length} 同键条数不齐 ${countMismatch.length}`);
+        console.log(`  [指纹] 网格 ${fp.rows.length} ｜ 总指纹 ${fp.global} ｜ 变化 ${changed.length} 新增 ${added.length} 消失 ${removed.length} 同键条数不齐 ${countMismatch.length} ｜ ${await tierProbe()}`);
         changed.slice(0, 6).forEach(k => console.log(`    · 变了：${k}\n        基线 ${wantMap.get(k)}\n        现在 ${gotMap.get(k)}`));
         added.slice(0, 6).forEach(k => console.log(`    · 新增：${gotMap.get(k)}`));
         removed.slice(0, 6).forEach(k => console.log(`    · 消失：${wantMap.get(k)}`));

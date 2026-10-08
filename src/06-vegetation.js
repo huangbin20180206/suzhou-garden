@@ -3178,10 +3178,13 @@ function makePeachFlowerGeo(){
    ⚠️ 顶点色必须给**每个** part 都写（合并要求属性集一致），所以花瓣也写 (1,1,1) 白。
    ⚠️ 顶点色是**线性乘子**：与实例色（花色）相乘 ⇒ 花瓣保色、花蕊被压成暗褐。 */
 function makePlumFlowerGeo(){
-  /* ⚠️ 花瓣尺寸 ×1.25（0.082/0.070 → 0.1025/0.0875）：同一朵花在默认机位下从 2.1px 变成
-     2.6px、树框内"藏花"像素从 253 涨到 345 —— 远处能不能成片，靠的就是这个尺寸。
-     近看单朵仍有 ~15px（11m 处）/ ~60px（2.5m 处），花型照样读得出来。 */
-  const pl = 0.1025, pw = 0.0875;
+  /* ⚠️ 花瓣尺寸：2026-10-07 曾放大 ×1.25（0.082/0.070 → 0.1025/0.0875）—— 那是"远处能画出来"
+     的关键之一（默认机位单朵 2.1→2.6px、"藏花"贡献 253→345px）。
+     2026-10-08 老黄要"增加花朵数量"：**朵数 800→1500，同时把单朵收小到 ×1.05**
+     （0.1025→0.0861），让他要的"更多朵"成立、又靠"更小的单朵"把冠内空隙还回来
+     （近景不再糊成一团）；远看总覆盖仍比 800 版高约 50%。
+     近看单朵仍有 ~72px（2.5m 处），花型照样读得出来。 */
+  const K = 0.84, pl = 0.1025 * K, pw = 0.0875 * K;
   const parts = [];
   const paint = (g, r, gg, b) => {
     const n = g.attributes.position.count;
@@ -3197,11 +3200,11 @@ function makePlumFlowerGeo(){
     q.rotateZ((k * TAU) / 5);
     parts.push(paint(q, 1, 1, 1));
   }
-  const core = new THREE.SphereGeometry(0.016, 7, 5); core.translate(0, 0, 0.004);
+  const core = new THREE.SphereGeometry(0.016 * K, 7, 5); core.translate(0, 0, 0.004);
   parts.push(paint(core, 0.34, 0.26, 0.12));
   for (let s = 0; s < 6; s++){
-    const f = new THREE.CylinderGeometry(0.0026, 0.0026, 0.025, 4);
-    f.translate(0, 0.0125, 0);
+    const f = new THREE.CylinderGeometry(0.0026 * K, 0.0026 * K, 0.025 * K, 4);
+    f.translate(0, 0.0125 * K, 0);
     f.rotateX(0.42);
     f.rotateZ((s * TAU) / 6 + 0.25);
     f.translate(0, 0, 0.006);
@@ -3643,7 +3646,15 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       const t = rr2(0.12, 0.96);
       const o = { p: tw.getPointAt(t), tan: tw.getTangentAt(t).normalize() };
       const m = 1 + (i2(3));               // 每簇 1~3 朵（桃多为单生或两朵并生）
-      for (let j = 0; j < m; j++) flRaw.push(o);
+      /* ⚠️ 同簇的几朵**不能共用一个点**（2026-10-08）：原写法把 m 朵都挂在同一个
+         `tw.getPointAt(t)` 上、彼此只差 8mm 花梗 ⇒ 投影上就是"一坨花团"。近景多模态
+         判读正是"花太集中在几团、分布不均、像花团堆在枝上"。
+         ⇒ 给每朵**各自的 t**（沿枝 ±3.5%）并把花梗拉长到 1~4.5cm，簇就散成一小撮。 */
+      for (let j = 0; j < m; j++){
+        const tj = Math.min(0.995, Math.max(0.02, t + rr2(-0.035, 0.035)));
+        const o = { p: tw.getPointAt(tj), tan: tw.getTangentAt(tj).normalize() };
+        flRaw.push(o);
+      }
     }
   }
   for (const br of mainBranches){                    // 主枝梢端也开花
@@ -3660,8 +3671,8 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     const o = flSlots[i];
     const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
     const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();   // 花盘朝外上方
-    _p.copy(o.p).addScaledVector(face, 0.008);            // 花梗 ~8mm
-    canopyShell(_p);                                      // 与叶同一壳层（盛花期无叶可遮，全埋枝心就只剩几个点）
+    _p.copy(o.p).addScaledVector(face, rr2(0.010, 0.045));   // 花梗 1~4.5cm（原来一律 8mm：同簇几朵几乎重合 ⇒ 一坨）
+    canopyShell(_p);                                      // 与叶同一壳层（盛花期无叶可遮，全埋枝心就只剩几个点；夹壳在花梗之后 ⇒ 拉长花梗也不会顶出冠轮廓）
     /* ⚠️ 花盘朝向要在**夹壳之后**重算：夹壳挪了位置，若还用夹之前的方向，
        被推到壳上的那批花会有一半朝冠内（背面）—— 花盘是 2 tri 的单面卡，
        朝内就是看不见。同叶面处理：朝冠外偏上。 */
@@ -3778,10 +3789,16 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
     /* ⚠️ 花型换掉（老黄："红梅的花型也不对"）：用 makePlumFlowerGeo ——
        大而平展的五瓣 + 明显花蕊（桃是深碗小瓣，两者远看不再是一回事）。 */
     flowerGeo: makePlumFlowerGeo(),
-    /* ⚠️⚠️ 朵数 5000 → 1200 → **800**（老黄："开放的状态…就是不可能这么密集"；
-       出图复检多模态也仍判"密成团"）⇒ 再降一档：花更大、朵更少，朵与朵之间留得出空隙，
-       读作**疏影**而不是花球。 */
-    flowerN: 800,
+    /* ⚠️⚠️ 朵数沿革：5000 → 1200 → 800 → **1500**（2026-10-08 老黄："梅花增加花朵数量"）。
+       5000 被否是"不可能这么密集"（那时花瓣还小 0.082）；降到 800 是为了"大花+稀疏"的
+       "疏影横斜"；2026-10-07 花瓣放大到 0.1025 后老黄看过成品仍要**更多花**。
+       1500 是**配着单朵收小**一起给的（花几何 ×0.84 ⇒ 单朵回到 ×1.05）：
+       只加朵数会让近景糊成一团（实测 1500 + 大花瓣被多模态判成"挤成一片花球、枝骨全被盖没"，
+       正是他当年否掉 5000 的那句话）；"更多朵 + 稍小的单朵"两头都占 ✓。
+       ⚠️ 这个数只吃本函数的**私有流**（rr2/R2/i2）—— `makePeachTree` 函数体内**零**全局
+         `rr()/rnd()/Math.random`（已核）⇒ 改朵数**不会**动全园布局；但它会改这株梅的实例条数
+         ⇒ layout-fingerprint 需要**重出基线**（这是有意的布局变更，不是漂）。 */
+    flowerN: 1500,
     /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
        桃 = 矮胖圆球（H≈4.2、冠幅 1.25H、叶满）；梅 = 高挑疏朗（H×1.35、冠幅 **0.85H**、
        叶量 **0.65**）⇒ 梅的暗色枝干骨架露出来，正是"疏影横斜"，远看轮廓也完全不同。 */
