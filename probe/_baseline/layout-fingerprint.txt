@@ -1,4 +1,4 @@
-# 布局指纹基线（T0）网格数=186 总指纹=1962941897
+# 布局指纹基线（T0）网格数=186 总指纹=2523152416
 # 采样条件：bootDonePromise 已 resolve → season=summer → hour=12.5 → ENV.t>=1 → settle 2 帧
 # 排除：name∈{mistField}、geom∈{RingGeometry}（动画驱动，非流产物）
 -|6|PlaneGeometry	首实例=0.00,0.00,0.00	hash=3755118789
@@ -156,21 +156,23 @@
 #ffffff|0|BufferGeometry	首实例=-16.40,3.43,1.47	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=9.77,3.09,1.06	hash=2166136261
 #ffffff|0|BufferGeometry	首实例=-29.53,4.46,-22.03	hash=2166136261
+#ffffff|115|BufferGeometry	首实例=-0.36,3.90,-1.41	hash=2729618265
+#ffffff|116|BufferGeometry	首实例=0.01,3.62,0.76	hash=2134403328
 #ffffff|117|PlaneGeometry	首实例=0.27,0.04,-0.15	hash=3645126396
 #ffffff|117|PlaneGeometry	首实例=0.58,0.02,-0.82	hash=4006881317
 #ffffff|130|LatheGeometry	首实例=1.07,3.13,0.42	hash=1820560187
 #ffffff|130|LatheGeometry	首实例=0.47,2.67,-0.27	hash=582089024
 #ffffff|1695|BufferGeometry	首实例=-4.55,-0.16,0.08	hash=4028518140
-#ffffff|192|BufferGeometry	首实例=-0.38,2.20,-0.07	hash=1841825616
-#ffffff|192|BufferGeometry	首实例=-0.46,3.00,0.43	hash=976537541
 #ffffff|2212|BufferGeometry	首实例=-2.38,-1.09,0.29	hash=4188878859
+#ffffff|229|BufferGeometry	首实例=-1.17,3.80,-0.55	hash=1405939383
+#ffffff|230|BufferGeometry	首实例=1.20,2.63,-0.31	hash=1743586116
 #ffffff|3000|BufferGeometry	首实例=0.93,3.13,0.30	hash=2478373507
 #ffffff|3000|BufferGeometry	首实例=-0.44,2.85,0.26	hash=2284383139
-#ffffff|32|BufferGeometry	首实例=-0.38,2.16,-0.27	hash=1805250087
-#ffffff|32|BufferGeometry	首实例=0.75,2.82,0.06	hash=1503695774
 #ffffff|375|BufferGeometry	首实例=-1.44,-0.18,0.04	hash=476056537
 #ffffff|375|BufferGeometry	首实例=-1.63,-0.50,0.14	hash=3717628951
+#ffffff|38|BufferGeometry	首实例=-0.41,2.39,-0.15	hash=2281377505
 #ffffff|385|BufferGeometry	首实例=-1.54,-0.84,0.08	hash=1721644711
+#ffffff|39|BufferGeometry	首实例=0.76,2.29,-0.25	hash=886867575
 #ffffff|42|TorusGeometry	首实例=0.10,-0.06,0.02	hash=149961590
 #ffffff|425|BufferGeometry	首实例=-1.56,-0.42,0.12	hash=3476213080
 #ffffff|430|BufferGeometry	首实例=-1.51,-0.72,0.07	hash=2715617964
@@ -185,5 +187,3 @@
 #ffffff|8268|PlaneGeometry	首实例=2.13,3.43,0.33	hash=2954558451
 #ffffff|8635|PlaneGeometry	首实例=2.12,4.02,-0.77	hash=3314919094
 #ffffff|8655|PlaneGeometry	首实例=-1.05,3.43,0.11	hash=74858788
-#ffffff|96|BufferGeometry	首实例=0.01,3.61,0.77	hash=3237899228
-#ffffff|96|BufferGeometry	首实例=-0.36,3.91,-1.41	hash=1531255987

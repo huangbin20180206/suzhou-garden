@@ -3447,7 +3447,8 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         _q = new THREE.Quaternion(), _q2 = new THREE.Quaternion(),
         _s = new THREE.Vector3(), _e = new THREE.Euler(),
         _up = new THREE.Vector3(0, 1, 0), _ax = new THREE.Vector3(),
-        _basis = new THREE.Matrix4(), _bx = new THREE.Vector3();   // 叶面定向用（见叶块）
+        _basis = new THREE.Matrix4(), _bx = new THREE.Vector3(),   // 叶面定向用（见叶块）
+        _p2 = new THREE.Vector3();                                   // 簇生偏移用（梅花一节 2~3 朵）
 
   /* 主干：地面 → **低分叉点（0.48H）**，基部根盘隆起、向上渐细。
      ⚠️ 分叉点 0.66H → 0.48H（二轮重建）：桃的招牌是**低分叉的杯状骨架** ——
@@ -3806,8 +3807,9 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
      并且花与叶走**同一套 canopyShell 壳层**：桃是**先花后叶**，盛花期冠里没有叶帮忙遮挡，
      花若全埋在枝心的位置就只剩几个点 —— 推到壳层才读得出"满树花"。 */
   const flGeo = opts.flowerGeo || makePeachFlowerGeo();
-  const flN = opts.flowerN || 3000;          // 梅传 2000：比桃疏（"疏影横斜"）
-  const flInst = new THREE.InstancedMesh(flGeo, opts.blossomMat || MAT.peachBlossom, flN);
+  const flN = opts.flowerN || 3000;          // 梅传 140（簇心）；桃用默认 3000
+  const CL = !!opts.blossomCluster;           // 簇生开关（只给梅开；桃不传 ⇒ 逐字不变）
+  const flInst = new THREE.InstancedMesh(flGeo, opts.blossomMat || MAT.peachBlossom, CL ? Math.ceil(flN * 3) : flN);
   const flA = opts.blossomA || new THREE.Color(0xFFE8F0), flB = opts.blossomB || new THREE.Color(0xF490B4);
 
   const twigPool = woodPts.filter(o => o.w > 0.9);
@@ -3875,8 +3877,12 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   flInst.userData.flOpen = openSlots.length;
 
   /* 一处放置逻辑，三个网格共用（花 / 凋谢 / 花苞）——避免三份几乎一样的代码各自漂。
-     opts: axis('Z'|'Y' 几何的"花盘/苞轴"方向) / droop(凋谢的垂角) / scaleLo-Hi / tint(实例色) */
+     opts: axis('Z'|'Y' 几何的"花盘/苞轴"方向) / droop(凋谢的垂角) / scaleLo-Hi / tint(实例色)
+     ⚠️ cluster [nMin,nMax] + clusterOff = **簇生**（老黄 2026-10-08："梅花应该是一小簇一小簇的，
+        一个小枝节会并列开出好几朵花朵，同样花骨朵也是两个或者三个长一起…把一个大的花苞
+        变成挨着的两个或者三个"）。梅是腋生花芽（每节 2~3 花并生），玉兰是单朵顶生。 */
   const placeBlossoms = (slots, inst, o) => {
+    let idx = 0;
     for (let i = 0; i < slots.length; i++){
       const s = slots[i].o;
       const lat = aroundAxis(s.tan, i * 2.39996 + rr2(-0.50, 0.50));
@@ -3890,16 +3896,33 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       const upMix = Array.isArray(o.upMix) ? rr2(o.upMix[0], o.upMix[1]) : o.upMix;
       face.copy(_p).sub(canopyC).normalize().addScaledVector(_up, upMix).normalize();
       _q.setFromUnitVectors(_ax.set(o.axis === 'Y' ? 0 : 0, o.axis === 'Y' ? 1 : 0, o.axis === 'Y' ? 0 : 1), face);
-      _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));          // 绕自身轴自转（不整齐划一）
-      if (o.droop){                                                // 凋谢：整朵往下垂
+      _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));
+      if (o.droop){
         _q2.setFromAxisAngle(_ax.set(1, 0, 0), rr2(o.droop[0], o.droop[1]));
         _q.multiply(_q2);
       }
-      _s.setScalar(rr2(o.scale[0], o.scale[1]));
-      _m.compose(_p, _q, _s); inst.setMatrixAt(i, _m);
-      inst.setColorAt(i, o.color());
+      /* 簇生：同一节 2~3 朵紧挨着（共享朝向，只有位置和颜色不同） */
+      const nC = o.cluster
+        ? Math.max(o.cluster[0], Math.min(o.cluster[1], Math.round(rr2(o.cluster[0], o.cluster[1] + 0.999))))
+        : 1;
+      for (let c = 0; c < nC; c++){
+        if (c > 0 && o.clusterOff){
+          _p2.copy(_p);
+          _p2.x += rr2(-o.clusterOff, o.clusterOff);
+          _p2.y += rr2(-o.clusterOff * 0.5, o.clusterOff * 0.5);
+          _p2.z += rr2(-o.clusterOff, o.clusterOff);
+          _s.setScalar(rr2(o.scale[0], o.scale[1]) * rr2(0.85, 0.97));
+          _m.compose(_p2, _q, _s);
+        } else {
+          _s.setScalar(rr2(o.scale[0], o.scale[1]));
+          _m.compose(_p, _q, _s);
+        }
+        inst.setMatrixAt(idx, _m);
+        inst.setColorAt(idx, o.color());
+        idx++;
+      }
     }
-    inst.count = slots.length;
+    inst.count = idx;
     inst.instanceMatrix.needsUpdate = true;
     if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
     g.add(inst);
@@ -3910,22 +3933,25 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         平贴枝条 ⇒ 像均匀撒在枝上的图标"）：尺寸 0.85~1.20 → **0.72~1.35**，
         花盘抬升混合系数 upMix 也逐朵抽（0.25~1.15）⇒ 有的朝天、有的侧向外。 */
   placeBlossoms(openSlots, flInst, {
-    axis: 'Z', upMix: [0.25, 1.15], stemLo: 0.010, stemHi: 0.045, scale: [0.85, 1.35],
+    axis: 'Z', upMix: [0.25, 1.15], stemLo: 0.010, stemHi: 0.045,
+    scale: CL ? [0.60, 0.95] : [0.85, 1.35],
+    ...(CL ? { cluster: [2, 3], clusterOff: 0.016 } : {}),
     color: () => flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04)),
   });
   /* ② 凋谢（10%）：**自己的几何**（花瓣短一档 + 向下折 53°~65°、只 4 片、雄蕊外露）+
      **自己的材质**（花瓣材质那层红自发光会把枯色盖掉 ⇒ 凋花照样鲜红，实测判读"看不出是枯萎花"）
      + 颜色往枯黄/枯褐压 + 整朵再往下垂。 */
   if (witherN > 0){
-    const wInst = new THREE.InstancedMesh(makePlumWitheredGeo(), MAT.plumWithered, witherN);
+    const wInst = new THREE.InstancedMesh(makePlumWitheredGeo(), MAT.plumWithered, witherN * 3);
     wInst.name = 'plumWithered';
     wInst.castShadow = false;
     wInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     placeBlossoms(witherSlots, wInst, {
-      axis: 'Z', upMix: [0.10, 0.45], stemLo: 0.014, stemHi: 0.050, scale: [0.85, 1.05], droop: [0.45, 0.90],
+      axis: 'Z', upMix: [0.10, 0.45], stemLo: 0.014, stemHi: 0.050, scale: [0.60, 0.85],
+      droop: [0.45, 0.90], cluster: [2, 3], clusterOff: 0.014,
       color: () => {
         const c = flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04));
-        return witherCol ? c.lerp(witherCol, rr2(0.70, 0.92)) : c;      // 往枯黄/枯褐压（比上一版更狠）
+        return witherCol ? c.lerp(witherCol, rr2(0.70, 0.92)) : c;
       },
     });
     witheredMeshes.push(wInst);
@@ -3933,14 +3959,15 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   /* ③ 花苞（30%）：独立几何 + 独立材质（花瓣材质带花瓣 alpha 贴图，套在球上会被裁破）。
      嫩色调 = 往花色的**浅端**（blossomA）靠并提亮（老黄要的"嫩黄色"）。 */
   if (opts.budMat && budN > 0){
-    const budInst = new THREE.InstancedMesh(makePlumBudGeo(), opts.budMat, budN);
+    const budInst = new THREE.InstancedMesh(makePlumBudGeo(), opts.budMat, budN * 3);
     budInst.name = 'plumBuds';
     budInst.castShadow = false;
     budInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     placeBlossoms(budSlots, budInst, {
-      axis: 'Y', upMix: 1.05, stemLo: 0.004, stemHi: 0.026, scale: [0.85, 1.05],
+      axis: 'Y', upMix: 1.05, stemLo: 0.004, stemHi: 0.026, scale: [0.55, 0.75],
+      cluster: [2, 3], clusterOff: 0.010,
       color: () => flA.clone().lerp(flB, R2() * 0.45)
-        .offsetHSL(rr2(-0.02, 0.02), rr2(0.02, 0.10), rr2(0.02, 0.10)),   // 嫩：偏浅端 + 提亮
+        .offsetHSL(rr2(-0.02, 0.02), rr2(0.02, 0.10), rr2(0.02, 0.10)),
     });
     budMeshes.push(budInst);
   }
@@ -4056,7 +4083,7 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
        ⚠️ 这个数只吃本函数的**私有流**（rr2/R2/i2）—— `makePeachTree` 函数体内**零**全局
          `rr()/rnd()/Math.random`（已核）⇒ 改朵数**不会**动全园布局；但它会改这株梅的实例条数
          ⇒ layout-fingerprint 需要**重出基线**（这是有意的布局变更，不是漂）。 */
-    flowerN: 320,    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
+    flowerN: 140,    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
        桃 = 矮胖圆球（H≈4.2、冠幅 1.25H、叶满）；梅 = 高挑疏朗（H×1.35、冠幅 **0.85H**、
        叶量 **0.65**）⇒ 梅的暗色枝干骨架露出来，正是"疏影横斜"，远看轮廓也完全不同。
        ⚠️ twigMul / subTwig（2026-10-08）：梅要**更多枝条与分叉**承载"每条枝上点几朵花"，
@@ -4067,7 +4094,7 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
           还有 10% 左右是开始凋谢的花（花苞枯黄），按这个比例来重新修改两株梅花的造型"）──
        槽位总数仍 320（`flowerN`）：30% 分给花苞（独立几何/材质），其余 70% 里再切 1/7
        （= 全树 10%）做凋谢。⇒ 实际 60% 盛开 / 30% 花苞 / 10% 凋谢。 */
-    budFrac: 0.30, witherFrac: 0.10, budMat: MAT.plumBud,
+    budFrac: 0.30, witherFrac: 0.10, budMat: MAT.plumBud, blossomCluster: true,
     /* 凋谢色（每株一色）：腊梅的枯花是**枯黄**、红梅的枯花是**枯褐红** ——
        都往"褪色发暗"那一头压，与盛开的花一眼分得开。
        ⚠️ 腊梅这头跟着"调黄"一起走：0xA8842E（偏褐金）→ 0xBBA52E（枯黄偏绿）。 */

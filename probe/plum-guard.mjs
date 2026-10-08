@@ -337,17 +337,23 @@ fs.mkdirSync(OUT, { recursive: true });
     const root = o.parent, m = new T.Matrix4(), v = new T.Vector3(), pts = [];
     for (let i = 0; i < o.count; i++){ o.getMatrixAt(i, m); v.setFromMatrixPosition(m); pts.push(root.localToWorld(v.clone())); }
     const dia = 0.100;                       // 基础花径（远处着色器会按距离放大，那是视觉尺寸）
+    /* ⚠️ 2026-10-08 簇生改动：梅花每节 2~3 朵并生（老黄："一小簇一小簇的"）⇒ 簇内最近邻必然很近
+       （clusterOff ≈0.016m = 0.16× 花径），原"最近邻中位 ≥0.6×"恒红。
+       改量**第 3 近邻**：跳过最多 2 个同节簇内花，量的是簇间距离 = 沿枝分布的自然结果。 */
     const nn = [];
-    for (let i = 0; i < pts.length; i++){ let best = 1e9;
-      for (let j = 0; j < pts.length; j++){ if (i === j) continue; const d = pts[i].distanceTo(pts[j]); if (d < best) best = d; }
-      nn.push(best); }
+    for (let i = 0; i < pts.length; i++){
+      const ds = [];
+      for (let j = 0; j < pts.length; j++){ if (i === j) continue; ds.push(pts[i].distanceTo(pts[j])); }
+      ds.sort((a, b) => a - b);
+      nn.push(ds[Math.min(2, ds.length - 1)]);   // 第 3 近邻（跳过簇内 2 个）
+    }
     nn.sort((a, b) => a - b);
     return { n: o.count, med: +(nn[(nn.length / 2) | 0] / dia).toFixed(2),
              p90: +(nn[(nn.length * 0.9) | 0] / dia).toFixed(2),
              declared: o.userData.flDeclared, natural: o.userData.flNatural,
              fabricated: o.userData.flFabricated };
   });
-  check('⑥ 「不是紫藤」：最近邻花距中位 ≥0.6 倍花径（紫藤式花串会掉到 0.2 倍以下）',
+  check('⑥ 「不是紫藤」：第3近邻花距中位 ≥0.6 倍花径（跳过簇内2朵，量簇间距离；紫藤式花串会掉到 0.2 倍以下）',
     sp && sp.med >= 0.6, `中位 ${sp && sp.med}× / P90 ${sp && sp.p90}× 花径（实测 1500 朵那版是 0.19×）`);
   check('⑥ 「不是把花堆出来」：朵数 ≤ 枝条自然槽位数（fillTo 没在凑数）',
     sp && sp.fabricated === 0, `声明 ${sp && sp.declared} / 自然槽位 ${sp && sp.natural} / 凑数 ${sp && sp.fabricated}`);
