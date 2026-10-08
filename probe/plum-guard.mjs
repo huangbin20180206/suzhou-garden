@@ -284,17 +284,47 @@ fs.mkdirSync(OUT, { recursive: true });
      口径直接读**产品挂出来的计数**（`userData.flBuds` / `flWithered` + 花网格 count），不靠看图数；
      容差 ±5 个百分点（他要的是"左右"）。同时断"那棵树上真有花苞网格"（他上一轮的抱怨就是
      "没有你说的带花苞的枝条"⇒ 光有比例不够，得**真有那个网格**）。 */
+  /* ⚠️ 比例口径：凋谢花**已经是独立网格**（2026-10-08）⇒ 花网格的 count 里**只剩盛开的花**，
+     不能再减一次 flWithered（旧式 (flowers−withered)/total 会算成 56/33/11，等于把凋谢重复扣掉）。
+     正确：total = 盛开 + 花苞 + 凋谢。 */
   const mixOf = (s) => (s && s.flowers != null)
-    ? { total: s.flowers + s.buds, buds: s.buds, withered: s.withered,
-        pctBud: Math.round(s.buds / Math.max(1, s.flowers + s.buds) * 100),
-        pctWither: Math.round(s.withered / Math.max(1, s.flowers + s.buds) * 100),
-        pctOpen: Math.round((s.flowers - s.withered) / Math.max(1, s.flowers + s.buds) * 100) } : null;
+    ? { total: s.flowers + s.buds + s.withered, buds: s.buds, withered: s.withered, open: s.flowers,
+        pctBud: Math.round(s.buds / Math.max(1, s.flowers + s.buds + s.withered) * 100),
+        pctWither: Math.round(s.withered / Math.max(1, s.flowers + s.buds + s.withered) * 100),
+        pctOpen: Math.round(s.flowers / Math.max(1, s.flowers + s.buds + s.withered) * 100) } : null;
   const mixRed = mixOf(d), mixYel = mixOf(yv);
   for (const [tag, mix] of [['红梅', mixRed], ['腊梅', mixYel]]){
     check(`⑦ 「${tag}」三态比例 ≈60% 盛开 / 30% 花苞 / 10% 凋谢（容差 ±5 点）`,
       mix && Math.abs(mix.pctOpen - 60) <= 5 && Math.abs(mix.pctBud - 30) <= 5 && Math.abs(mix.pctWither - 10) <= 5,
-      mix ? `盛开 ${mix.pctOpen}% / 花苞 ${mix.pctBud}% / 凋谢 ${mix.pctWither}%（花网格 ${mix.total - mix.buds} + 花苞网格 ${mix.buds}）` : '没读到计数');
+      mix ? `盛开 ${mix.pctOpen}% / 花苞 ${mix.pctBud}% / 凋谢 ${mix.pctWither}%（盛开 ${mix.open} + 花苞 ${mix.buds} + 凋谢 ${mix.withered}）` : '没读到计数');
   }
+  /* ── ⑧ 花苞必须**明显更小**（2026-10-08 · 老黄二次反馈："花苞还是跟花朵差不多大"）──
+     视觉尺寸 = 几何宽 × 实例缩放区间，**两处都要量**：上一版几何 0.5 倍却读成一样大，正是因为
+     缩放区间重叠（苞 0.90~1.15 / 花 0.72~1.35 ⇒ 只差 1.2 倍）。
+     判据：**最小盛开的花 ÷ 最大的花苞 ≥1.6**（当前实测 2.02；修前 1.2 ✗）。 */
+  const sizeGrad = await page.evaluate(async () => {
+    const G = window.__garden, T = G.THREE;
+    const M = await import('/src/01-materials.js');
+    let fl = null;
+    G.scene.traverse(o => { if (!fl && o.isInstancedMesh && o.material === M.MAT.plumBlossomRed) fl = o; });
+    if (!fl) return null;
+    let bud = null;
+    fl.parent.traverse(o => { if (o.isInstancedMesh && o.material === M.MAT.plumBud) bud = o; });
+    const geomW = (o) => { o.geometry.computeBoundingBox(); const s = new T.Vector3(); o.geometry.boundingBox.getSize(s); return s.x; };
+    const sr = (o) => { if (!o || !o.count) return null;
+      const m = new T.Matrix4(), q = new T.Quaternion(), v = new T.Vector3(), sc = new T.Vector3();
+      let lo = 1e9, hi = -1e9;
+      for (let i = 0; i < o.count; i++){ o.getMatrixAt(i, m); m.decompose(v, q, sc); lo = Math.min(lo, sc.x); hi = Math.max(hi, sc.x); }
+      return [lo, hi]; };
+    const fRange = sr(fl), bRange = bud ? sr(bud) : null;
+    if (!fRange || !bRange) return null;
+    const minFlower = geomW(fl) * fRange[0], maxBud = geomW(bud) * bRange[1];
+    return { minFlower: +minFlower.toFixed(3), maxBud: +maxBud.toFixed(3), grad: +(minFlower / maxBud).toFixed(2) };
+  });
+  check('⑧ 花苞明显更小：最小盛开的花 ÷ 最大的花苞 ≥1.6（"花苞跟花差不多大"的根因是缩放区间重叠）',
+    sizeGrad && sizeGrad.grad >= 1.6,
+    sizeGrad ? `最小花 ${sizeGrad.minFlower}m / 最大苞 ${sizeGrad.maxBud}m ＝ **${sizeGrad.grad} 倍**` : '没量到');
+
   /* ── ⑤ "不是紫藤"的量化判据（2026-10-08 新加）──────────────────────────────
      老黄："梅花开出来紫藤这种花的效果，现实中的梅花不是这种密集型开放"。
      口径取**花距 / 花径**（沿枝分布的自然结果）：真实梅是 1~2 倍花径，紫藤式花串则花与花几乎重合。

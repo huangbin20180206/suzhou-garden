@@ -494,7 +494,9 @@ export const MAT = {
         自发光取**与花色同色相**的暗红/暗黄，只把背光面托起来一点 —— 花瓣本来就是透光的，
         近看不会变成"发光贴片"。 */
   plumBlossomRed: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x9A1620, emissiveIntensity:0.75, vertexColors:true }),
-  plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x96700A, emissiveIntensity:0.75, vertexColors:true }),
+  /* ⚠️ 腊梅自发光要跟着"调黄"：0x96700A 是**琥珀金**（R 比 G 高约 0.15），暗处会把花往金色拉 ⇒
+     换成 0x8F8200（R≈G 的正黄）。红梅那份不动。 */
+  plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x8F8200, emissiveIntensity:0.75, vertexColors:true }),
   /* ── 梅花**花苞**材质（2026-10-08 · 老黄："30% 左右的苞（嫩黄色）"）────────────────────
      ⚠️ **不能复用花瓣材质**：它带花瓣形 alpha 贴图（套在球面上会被 alpha 裁破）+ alphaTest 0.10。
      这里不要贴图、不要 alphaTest：颜色交给**实例色**（每株的嫩色），萼片的深色靠顶点色。

@@ -3243,8 +3243,13 @@ function makePlumBudGeo(){
      ⚠️ 上一版的教训（连踩两次）：0.102 的圆球"太大"（老黄原话），改成 0.045 的收尖椭球后
        又"太小、不成形"（2.6m 处读成红色贴片）⇒ 现在**直径 0.052 且做出"瓣包"的层次**：
        外层花瓣**是苞的外表面**（不是埋在球里），所以近看有纵向瓣脊、远看成饱满椭圆。 */
-  const R = 0.0533 * K;                 // 苞半径 ≈0.026m ⇒ 直径 0.052m（≈ 盛开花宽的一半）
-  const H = R * 2.6;                    // 苞高 ≈0.068m（长径比 1.3 ⇒ 椭圆/近圆锥）
+  const R = 0.042 * K;                  // 苞半径 ≈0.0205m ⇒ 直径 **0.041m**（≈ 盛开花宽的 0.41 倍）
+  const H = R * 2.6;                    // 苞高 ≈0.053m（长径比 1.3 ⇒ 椭圆/近圆锥）
+  /* ⚠️ 视觉尺寸是**两处一起**决定的：几何 × 实例缩放区间。上一版几何 0.52 倍却被读成
+     "还是跟花朵差不多大" —— 因为**区间重叠**：花苞缩放 0.90~1.15（最大 0.069m）、
+     花缩放 0.72~1.35（最小 0.085m）⇒ 只差 1.2 倍，眼睛读成一样大。
+     现在几何收到 **0.41 倍**、区间改花苞 0.85~1.05 / 花 0.85~1.35
+     ⇒ 最大的苞 0.051m vs 最小的花 0.100m = **差 2 倍** ✓ 梯度一眼可见。 */
   /* ⚠️ 本体必须是**圆润的高分段椭球**（2026-10-08 三轮）：
      上一版用 6 片平板围一圈当"包裹的花瓣"，0.3m 贴脸实测判读是"**方块/棱柱状**、平直色块、
      看不出瓣脊"—— 6 个 60° 的大平面就是一个六棱柱。现在：
@@ -3905,7 +3910,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         平贴枝条 ⇒ 像均匀撒在枝上的图标"）：尺寸 0.85~1.20 → **0.72~1.35**，
         花盘抬升混合系数 upMix 也逐朵抽（0.25~1.15）⇒ 有的朝天、有的侧向外。 */
   placeBlossoms(openSlots, flInst, {
-    axis: 'Z', upMix: [0.25, 1.15], stemLo: 0.010, stemHi: 0.045, scale: [0.72, 1.35],
+    axis: 'Z', upMix: [0.25, 1.15], stemLo: 0.010, stemHi: 0.045, scale: [0.85, 1.35],
     color: () => flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04)),
   });
   /* ② 凋谢（10%）：**自己的几何**（花瓣短一档 + 向下折 53°~65°、只 4 片、雄蕊外露）+
@@ -3917,7 +3922,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     wInst.castShadow = false;
     wInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     placeBlossoms(witherSlots, wInst, {
-      axis: 'Z', upMix: [0.10, 0.45], stemLo: 0.014, stemHi: 0.050, scale: [0.78, 1.00], droop: [0.45, 0.90],
+      axis: 'Z', upMix: [0.10, 0.45], stemLo: 0.014, stemHi: 0.050, scale: [0.85, 1.05], droop: [0.45, 0.90],
       color: () => {
         const c = flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04));
         return witherCol ? c.lerp(witherCol, rr2(0.70, 0.92)) : c;      // 往枯黄/枯褐压（比上一版更狠）
@@ -3933,7 +3938,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     budInst.castShadow = false;
     budInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     placeBlossoms(budSlots, budInst, {
-      axis: 'Y', upMix: 1.05, stemLo: 0.004, stemHi: 0.026, scale: [0.90, 1.15],
+      axis: 'Y', upMix: 1.05, stemLo: 0.004, stemHi: 0.026, scale: [0.85, 1.05],
       color: () => flA.clone().lerp(flB, R2() * 0.45)
         .offsetHSL(rr2(-0.02, 0.02), rr2(0.02, 0.10), rr2(0.02, 0.10)),   // 嫩：偏浅端 + 提亮
     });
@@ -4064,17 +4069,19 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
        （= 全树 10%）做凋谢。⇒ 实际 60% 盛开 / 30% 花苞 / 10% 凋谢。 */
     budFrac: 0.30, witherFrac: 0.10, budMat: MAT.plumBud,
     /* 凋谢色（每株一色）：腊梅的枯花是**枯黄**、红梅的枯花是**枯褐红** ——
-       都往"褪色发暗"那一头压，与盛开的花一眼分得开。 */
-    witherColor: new THREE.Color(red ? 0x8A5238 : 0xA8842E),
+       都往"褪色发暗"那一头压，与盛开的花一眼分得开。
+       ⚠️ 腊梅这头跟着"调黄"一起走：0xA8842E（偏褐金）→ 0xBBA52E（枯黄偏绿）。 */
+    witherColor: new THREE.Color(red ? 0x8A5238 : 0xBBA52E),
     /* 干/枝与叶也各换一份材质：梅的树皮更冷更暗（灰褐），叶更墨绿 —— 远看的整体色调就分开了。 */
     trunkMat: MAT.plumTrunk, leafMat: MAT.plumLeaf,
-    /* 花色（老黄："腊梅是淡黄色到黄色"、"黄色腊梅花几乎不可见"）：
-       红梅 = 暖胭脂 → 正红（上一版偏"紫红/暗粉"，出图复检读到的就是紫红 ⇒ 压掉蓝通道）；
-       腊梅 = 淡黄 → **饱和的蜂蜡黄**（旧值太淡，在雪地里几乎看不见）。
-       ⚠️ 2026-10-07 再提一档饱和度：冬季预设是**降饱和 0.70 + 冷色调**，原来的花色被洗过一道
-          （实测赋值 0xFF9088 在画面上量到的平均色只有 R−G≈33）⇒ 两头各推一点补回来。 */
-    blossomA: new THREE.Color(red ? 0xFF7A6E : 0xFFF0A8),
-    blossomB: new THREE.Color(red ? 0xDC1220 : 0xF0A400),
+    /* 花色（老黄："腊梅是淡黄色到黄色"；2026-10-08 二次："腊梅的花朵的颜色再黄一些，
+       这个颜色感觉有点偏金色，不是黄色"）：
+       红梅 = 暖胭脂 → 正红（上一版偏"紫红/暗粉" ⇒ 压掉蓝通道）；
+       腊梅 = 淡黄 → **正黄**：金色是"红多绿少"（h≈45° 偏橙），黄色要"红≈绿、蓝低"（h≈55°）
+       ⇒ 旧值 0xF0A400（琥珀金）换成 **0xFFDD22**（正黄）、浅端 0xFFF0A8 → **0xFFF8C8**。
+       冬季预设会降饱和 0.70 + 冷色调，所以两头各留一点余量。 */
+    blossomA: new THREE.Color(red ? 0xFF7A6E : 0xFFF8C8),
+    blossomB: new THREE.Color(red ? 0xDC1220 : 0xFFDD22),
   });
 }
 
