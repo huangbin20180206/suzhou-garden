@@ -577,6 +577,43 @@ export const MAT = {
   scrollArtWarm: new THREE.MeshStandardMaterial({ map: _inkTex, color: 0xD8C39A, roughness: 0.90, metalness: 0.0 }),
 };
 Object.values(MAT).forEach(m => registry.mats++);
+
+/* ══ 花按距离放大（2026-10-08 · 解决"疏枝点花 vs 远处看得见"的硬冲突）═════════════════════
+   冲突：本项目的花是**夸张尺寸**。要"像真实梅那样疏枝点花"，单朵必须小到 ~0.10m；
+   可 0.10m 的花在 60m 外只有 1.7px，整株读不出颜色（老黄 2026-10-07 的原话是
+   "根本看不出颜色，甚至连有花都看不出来"）。两者在固定尺寸下不可兼得。
+   ⇒ 顶点着色器里**按到相机的距离缩放**：≤12m 保持 1.0（真实尺寸，近看疏朗点花），
+     ≥50m 放大到 2.6 倍（0.10→0.26m ≈ 4.4px，远看仍有花色）。中间的过渡是线性的，
+     走位时看不出"花在变大"（12~50m 之间才有变化，且相机本身在动）。
+   ⚠️ 用 onBeforeCompile **注入共享材质**（不能克隆：12f 的季节存在性表按材质**同一性**认领，
+      克隆会让"冬梅开/夏梅不开"整条通道失效）。副作用：兰草的花葶也复用同一份材质，
+      距离放大同样作用在它身上 —— 那朵花只有 2cm，放大到 4cm 仍不可辨，无碍。
+   ⚠️ 缩放作用于 `transformed`（**实例局部**位置）：instanceMatrix 的平移在校验之后才乘，
+      所以是"以每朵花自己为原点放大"，不会让花沿冠心方向位移。 */
+export function installBlossomDistanceScale(){
+  for (const m of [MAT.plumBlossomRed, MAT.plumBlossomYellow]){
+    if (m.userData.blossomScale) continue;
+    m.userData.blossomScale = true;
+    m.onBeforeCompile = (sh) => {
+      sh.vertexShader = sh.vertexShader.replace('#include <begin_vertex>', `
+        #include <begin_vertex>
+        /* ⚠️ 必须走 USE_INSTANCING 分支：同一份材质也被**非实例网格**用（兰草的花葶），
+           那种 program 里没有 instanceMatrix —— 不判会 GLSL 编译失败，而症状是"天空/某层不画"
+           （本项目踩过：报 undeclared identifier 时页面照常显示）。 */
+        #ifdef USE_INSTANCING
+          vec4 _bp = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+        #else
+          vec4 _bp = vec4(0.0, 0.0, 0.0, 1.0);
+        #endif
+        float _bd = -(modelViewMatrix * _bp).z;
+        float _bk = clamp((_bd - 12.0) / 38.0, 0.0, 1.0);
+        transformed *= mix(1.0, 2.6, _bk);
+      `);
+    };
+    m.needsUpdate = true;
+  }
+}
+installBlossomDistanceScale();
 /* 竹叶基色快照（applyEnv 春提亮用，见该处注释） */
 MAT._leafBase = new THREE.Color(0x4E8C36);
 MAT._leafDeepBase = new THREE.Color(0x3A6B2C);

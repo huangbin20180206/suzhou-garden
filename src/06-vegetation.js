@@ -3180,11 +3180,11 @@ function makePeachFlowerGeo(){
 function makePlumFlowerGeo(){
   /* ⚠️ 花瓣尺寸：2026-10-07 曾放大 ×1.25（0.082/0.070 → 0.1025/0.0875）—— 那是"远处能画出来"
      的关键之一（默认机位单朵 2.1→2.6px、"藏花"贡献 253→345px）。
-     2026-10-08 老黄要"增加花朵数量"：**朵数 800→1500，同时把单朵收小到 ×1.05**
-     （0.1025→0.0861），让他要的"更多朵"成立、又靠"更小的单朵"把冠内空隙还回来
-     （近景不再糊成一团）；远看总覆盖仍比 800 版高约 50%。
-     近看单朵仍有 ~72px（2.5m 处），花型照样读得出来。 */
-  const K = 0.84, pl = 0.1025 * K, pw = 0.0875 * K;
+     2026-10-08 老黄指出真问题是**形态**（"开成紫藤那种效果…现实中的梅花不是这种密集型开放"）：
+     花太大（0.17m）又太多 ⇒ 冠内必然互相叠成一团。⇒ 单朵回到 **0.10m 直径**（pl=0.050），
+     远处靠**距离放大**（见 01-materials 的 installBlossomDistanceScale）保住"看得见花色"：
+     近处 1.0 倍（真实尺寸 ⇒ 疏枝点花），50m 外 2.2 倍（0.10→0.22m ⇒ 3.7px，仍读得出红/黄）。 */
+  const K = 0.488, pl = 0.1025 * K, pw = 0.0875 * K;
   const parts = [];
   const paint = (g, r, gg, b) => {
     const n = g.attributes.position.count;
@@ -3442,7 +3442,9 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   const twigGeos = [];
   const TW_SEG = 6, TW_RAD = 5;
   for (const br of mainBranches){
-    const nTwig = Math.round((8 + (i2(5))) * (opts.branchMul || 1));
+    /* twigMul（2026-10-08）：梅要"枝条数量与分叉更多 ⇒ 花点满枝"（老黄："现实中的梅花
+       不是这种密集型开放"，参照图是真实蜡梅/梅的**疏枝点花**）。桃不传 ⇒ 逐字不变。 */
+    const nTwig = Math.round((8 + (i2(5))) * (opts.branchMul || 1) * (opts.twigMul || 1));
     for (let k = 0; k < nTwig; k++){
       const t = rr2(0.20, 0.96);
       const base = br.getPointAt(t);
@@ -3466,6 +3468,41 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         s => 0.013 - 0.009 * s));
     }
   }
+  /* ⚠️ 挂灯只看**二级枝**：下面的三级枝是 2026-10-08 新增的枝层，而 `treeLanterns` 的数量
+     与 festival-guard / festival-lanterns-guard 的口径绑着 —— 不能被新枝层带着一起变。 */
+  const baseTwigs = twigs.slice();
+  /* ⚠️ 新增枝层必须**在 twigMesh 建之前**推进 twigGeos（并进同一个合并网格 ⇒ 仍只 1 个 draw call）。 */
+  if (opts.subTwig){
+    /* ── 三级枝（2026-10-08 · 梅专用）──────────────────────────────────────
+       老黄："把树的枝条数量和分叉再增加，每条枝条和分叉上的花苞和花朵如截图所示，
+       这样也能形成壮观的场景"。真实梅/蜡梅是"疏枝点花"：花单生或 2~3 朵并生于**枝节**、
+       贴枝、无长梗；繁茂感来自**枝条多**，不是把花堆在少数几根枝上（那样读成紫藤）。
+       ⇒ 每条二级枝再抽 2~3 根 10~22cm 的三级枝，花与叶都挂到这些新枝上。 */
+    const parents = twigs.slice();
+    for (const tw of parents){
+      const nSub = 2 + (i2(2));
+      for (let k = 0; k < nSub; k++){
+        const t = rr2(0.25, 0.92);
+        const base = tw.getPointAt(t);
+        const tan = tw.getTangentAt(t).normalize();
+        const a = rr2(0, TAU);
+        const dir = new THREE.Vector3()
+          .addScaledVector(new THREE.Vector3(Math.cos(a), 0, Math.sin(a)), rr2(0.35, 0.80))
+          .addScaledVector(_up, rr2(0.30, 0.70))
+          .addScaledVector(tan, rr2(0.05, 0.45))
+          .normalize();
+        const len = rr2(0.10, 0.22);
+        const tip = base.clone().addScaledVector(dir, len);
+        const mid = base.clone().addScaledVector(dir, len * 0.5);
+        mid.y += rr2(0.01, 0.04);                 // 同样微微上拱
+        const c = new THREE.CatmullRomCurve3([base.clone(), mid, tip.clone()]);
+        twigs.push(c);
+        twigGeos.push(tubeRadiusRamp(
+          new THREE.TubeGeometry(c, TW_SEG, 1, TW_RAD, false), c, TW_SEG, TW_RAD,
+          s => 0.008 - 0.006 * s));               // 末级枝更细：8mm → 2mm
+      }
+    }
+  }
   const twMesh = new THREE.Mesh(mergeGeometries(twigGeos, false), MAT.trunk);
   twMesh.name = 'peachTwig';
   twMesh.castShadow = true;
@@ -3486,7 +3523,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       hangPts.push(br.getPointAt(t).clone());
     }
   }
-  for (const tw of twigs){
+  for (const tw of baseTwigs){
     if (rr2(0, 1) < 0.55) continue;               // 一半小枝挂灯：太密会糊成一团
     hangPts.push(tw.getPointAt(rr2(0.45, 0.92)).clone());
   }
@@ -3560,12 +3597,19 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   const CAN_B = R * 0.84;                 // 竖向半轴（杯状骨架的冠比旧版更高瘦一点）
   const SHELL_LO = 0.30, SHELL_HI = 1.0;
   const _cs = new THREE.Vector3();
-  const canopyShell = (p) => {
+  /* ⚠️ `outwardOnly`（2026-10-08 · 梅专用）：只把**甩到壳外**的收回壳面，**不把冠内的推出去**。
+     为什么：老黄说梅"开成了紫藤那种密集花串" —— 量出来的真因不是朵数，而是这条夹壳把
+     **冠内**的花统统推到同一个椭球面上（实测最近邻中位 0.033m ＝ **0.19 倍花径**、
+     1500 朵里 1421 朵与邻居挤在半朵之内）。真实梅是"花贴在自己那根枝上"，
+     所以梅改成"只收外沿、不动冠内" ⇒ 花沿枝自然分布（间隔＝沿枝点距 0.10~0.22m），
+     同时仍保住"不许顶出冠轮廓"这条（叶幕/轮廓由叶子负责）。 */
+  const canopyShell = (p, outwardOnly = false) => {
     _cs.copy(p).sub(canopyC);
     const nx = _cs.x / CAN_A, ny = _cs.y / CAN_B, nz = _cs.z / CAN_A;
     const q = Math.sqrt(nx * nx + ny * ny + nz * nz);
     if (q < 1e-4) return p;
-    const s = Math.min(SHELL_HI, Math.max(SHELL_LO, q));
+    const lo = outwardOnly ? 0 : SHELL_LO;
+    const s = Math.min(SHELL_HI, Math.max(lo, q));
     if (s === q) return p;
     return p.copy(_cs).multiplyScalar(s / q).add(canopyC);
   };
@@ -3640,21 +3684,26 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
 
   const twigPool = woodPts.filter(o => o.w > 0.9);
   const flRaw = [];
+  /* ⚠️⚠️ 花的着生方式（2026-10-08 重写，老黄："梅花开出来紫藤这种花的效果，现实中的梅花不是
+     这种密集型开放…把枝条数量和分叉再增加，每条枝条和分叉上的花苞和花朵如截图所示"）：
+     旧写法 = 每条小枝 3~5 簇 × 每簇 1~3 朵挂在**同一个点**上（只差 8mm 花梗），
+     加上 `fillTo` 又把不足的朵数用轮转重复堆在既有槽位 ⇒ 投影上就是一串一坨（紫藤感）。
+     新写法 = **沿枝点花**，与真实梅一致：花单生或 2~3 朵并生于枝节、贴枝、无长梗；
+        · 沿每根二级/三级枝按 0.10~0.22m 的**间隔**走（间隔按枝长给，末级枝短就 1~2 个点）；
+        · 每个停点先掷一次"**留白**"（22% 跳过）⇒ 出现裸枝段，这正是"疏影横斜"的节奏；
+        · 35% 的停点**并生第 2 朵**（真实梅常 2 朵并生，截图里也成对）；
+        · 加点用枝长比例算，短枝自然少花、长枝多花（不再"每枝一律 3~5 簇"）。 */
+  const pushStop = (curve, t) => {
+    flRaw.push({ p: curve.getPointAt(t), tan: curve.getTangentAt(t).normalize() });
+  };
   for (const tw of twigs){
-    const n = 3 + (i2(3));                 // 每条小枝 3~5 簇
-    for (let k = 0; k < n; k++){
-      const t = rr2(0.12, 0.96);
-      const o = { p: tw.getPointAt(t), tan: tw.getTangentAt(t).normalize() };
-      const m = 1 + (i2(3));               // 每簇 1~3 朵（桃多为单生或两朵并生）
-      /* ⚠️ 同簇的几朵**不能共用一个点**（2026-10-08）：原写法把 m 朵都挂在同一个
-         `tw.getPointAt(t)` 上、彼此只差 8mm 花梗 ⇒ 投影上就是"一坨花团"。近景多模态
-         判读正是"花太集中在几团、分布不均、像花团堆在枝上"。
-         ⇒ 给每朵**各自的 t**（沿枝 ±3.5%）并把花梗拉长到 1~4.5cm，簇就散成一小撮。 */
-      for (let j = 0; j < m; j++){
-        const tj = Math.min(0.995, Math.max(0.02, t + rr2(-0.035, 0.035)));
-        const o = { p: tw.getPointAt(tj), tan: tw.getTangentAt(tj).normalize() };
-        flRaw.push(o);
-      }
+    const L = tw.getLength();
+    let s = rr2(0.04, 0.18) * L;                  // 梢端留一小段裸枝
+    while (s < L * rr2(0.86, 1.0)){
+      const t = s / L;
+      if (rr2(0, 1) > 0.30) pushStop(tw, t);      // 30% 留白（"疏影横斜"的节奏靠这个）
+      if (rr2(0, 1) < 0.35) pushStop(tw, Math.min(0.99, t + rr2(0.012, 0.030)));   // 并生（花苞对）
+      s += rr2(0.10, 0.22);
     }
   }
   for (const br of mainBranches){                    // 主枝梢端也开花
@@ -3664,15 +3713,26 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       flRaw.push({ p: br.getPointAt(t), tan: br.getTangentAt(t).normalize() });
     }
   }
+  /* fillTo 只是**兜底**：枝条够多时自然槽位已超过 flN，spread+slice 只做均匀抽稀，不会堆叠。
+     ⚠️ 但"够不够多"必须**量**出来（2026-10-08）：自然槽位 < flN 时，fillTo 会按
+     `pool[(i*37)%n]` 轮转把同一批点重复塞进来 ⇒ 一个点上落好几朵 ⇒ 投影上就是"花串"
+     （老黄："开成紫藤那种效果"的机械原因之一）。所以把两个数挂到网格上，供探针/门禁读。 */
+  const flNatural = flRaw.length;
   fillTo(flRaw, flN, twigPool);
   const flSlots = spread(flRaw).slice(0, flN);
+  flInst.userData.flDeclared = flN;
+  flInst.userData.flNatural = flNatural;
+  flInst.userData.flFabricated = Math.max(0, flN - flNatural);   // >0 = 有朵数是"凑"出来的（会堆叠）
 
   for (let i = 0; i < flSlots.length; i++){
     const o = flSlots[i];
     const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
     const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();   // 花盘朝外上方
     _p.copy(o.p).addScaledVector(face, rr2(0.010, 0.045));   // 花梗 1~4.5cm（原来一律 8mm：同簇几朵几乎重合 ⇒ 一坨）
-    canopyShell(_p);                                      // 与叶同一壳层（盛花期无叶可遮，全埋枝心就只剩几个点；夹壳在花梗之后 ⇒ 拉长花梗也不会顶出冠轮廓）
+    /* ⚠️ 花与叶**不同**：叶要把冠填满（两个方向都夹进壳层），花要**贴在自己的枝上**
+       （只收外沿、冠内不动）—— 否则冠内的花全被推到同一个椭球面上，读成"紫藤式花串"。
+       见 canopyShell 的 outwardOnly 注释（实测真因：最近邻中位 0.19 倍花径）。 */
+    canopyShell(_p, opts.flowerOutwardOnly === true);
     /* ⚠️ 花盘朝向要在**夹壳之后**重算：夹壳挪了位置，若还用夹之前的方向，
        被推到壳上的那批花会有一半朝冠内（背面）—— 花盘是 2 tri 的单面卡，
        朝内就是看不见。同叶面处理：朝冠外偏上。 */
@@ -3680,9 +3740,13 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     face.addScaledVector(_up, 0.85).normalize();
     _q.setFromUnitVectors(_ax.set(0, 0, 1), face);        // 花盘法线 +Z → 朝外上方
     _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));   // 绕花轴自转（花瓣朝向不整齐划一）
-    _s.setScalar(rr2(0.85, 1.20));
+    /* ── 花苞与开放花并存（2026-10-08 · 老黄参照图里"圆球状花苞 + 展开的花"两种状态都在）──
+       35% 的槽位当**花苞**：整朵缩到 0.42~0.62（读作圆鼓的小苞，不成五瓣）、
+       颜色往花色的深端靠（真实花苞比开放花更闷更浓）。其余是开放花，尺寸照旧。 */
+    const isBud = rr2(0, 1) < 0.35;
+    _s.setScalar(isBud ? rr2(0.42, 0.62) : rr2(0.85, 1.20));
     _m.compose(_p, _q, _s); flInst.setMatrixAt(i, _m);
-    flInst.setColorAt(i, flA.clone().lerp(flB, R2())
+    flInst.setColorAt(i, flA.clone().lerp(flB, Math.min(1, R2() + (isBud ? 0.45 : 0)))
       .offsetHSL(rr2(-0.03,0.03), rr2(0,0.06), rr2(-0.03,0.04)));
   }
   flInst.count = flN;
@@ -3789,20 +3853,25 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
     /* ⚠️ 花型换掉（老黄："红梅的花型也不对"）：用 makePlumFlowerGeo ——
        大而平展的五瓣 + 明显花蕊（桃是深碗小瓣，两者远看不再是一回事）。 */
     flowerGeo: makePlumFlowerGeo(),
-    /* ⚠️⚠️ 朵数沿革：5000 → 1200 → 800 → **1500**（2026-10-08 老黄："梅花增加花朵数量"）。
-       5000 被否是"不可能这么密集"（那时花瓣还小 0.082）；降到 800 是为了"大花+稀疏"的
-       "疏影横斜"；2026-10-07 花瓣放大到 0.1025 后老黄看过成品仍要**更多花**。
-       1500 是**配着单朵收小**一起给的（花几何 ×0.84 ⇒ 单朵回到 ×1.05）：
-       只加朵数会让近景糊成一团（实测 1500 + 大花瓣被多模态判成"挤成一片花球、枝骨全被盖没"，
-       正是他当年否掉 5000 的那句话）；"更多朵 + 稍小的单朵"两头都占 ✓。
+    /* ⚠️⚠️ 朵数沿革：5000 → 1200 → 800 → 1500 → 700 → **320**（2026-10-08 第三轮收口）。
+       前几轮都在"加朵数"，老黄 2026-10-08 指出真问题是**形态**："梅花开出来紫藤这种花的效果，
+       现实中的梅花不是这种密集型开放…把枝条数量和分叉再增加，每条枝条和分叉上的花苞和花朵
+       如截图所示"。
+       量出来的硬约束（两轮实测）：本项目单朵花是**夸张尺寸**。要让"花-枝比例"像真实梅
+       （参考图：覆盖率约三成、花间有裸枝），在 2.7m 冠幅上只需 ~200~350 朵；
+       朵数一多，花必然互相叠（700 朵时冠心仍连成红块、1420/1500 朵时最近邻只有 0.19 倍花径）。
+       ⇒ 取 **320 朵**（≈ 冠部投影三成覆盖 ⇒ 疏枝点花）+ **枝条网络 1700+ 根**
+         （繁茂感来自枝，不来自花量）+ **远处按距离放大 2.6 倍**保住"看得见花色"。
        ⚠️ 这个数只吃本函数的**私有流**（rr2/R2/i2）—— `makePeachTree` 函数体内**零**全局
          `rr()/rnd()/Math.random`（已核）⇒ 改朵数**不会**动全园布局；但它会改这株梅的实例条数
          ⇒ layout-fingerprint 需要**重出基线**（这是有意的布局变更，不是漂）。 */
-    flowerN: 1500,
-    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
+    flowerN: 320,    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
        桃 = 矮胖圆球（H≈4.2、冠幅 1.25H、叶满）；梅 = 高挑疏朗（H×1.35、冠幅 **0.85H**、
-       叶量 **0.65**）⇒ 梅的暗色枝干骨架露出来，正是"疏影横斜"，远看轮廓也完全不同。 */
+       叶量 **0.65**）⇒ 梅的暗色枝干骨架露出来，正是"疏影横斜"，远看轮廓也完全不同。
+       ⚠️ twigMul / subTwig（2026-10-08）：梅要**更多枝条与分叉**承载"每条枝上点几朵花"，
+       否则花只能堆在少数枝上、读成紫藤。桃不传这两个键 ⇒ 桃树逐字不变。 */
     heightMul: 1.35, canopyMul: 0.85, branchMul: 1.30, leafMul: 0.65,
+    twigMul: 2.2, subTwig: true, flowerOutwardOnly: true,
     /* 干/枝与叶也各换一份材质：梅的树皮更冷更暗（灰褐），叶更墨绿 —— 远看的整体色调就分开了。 */
     trunkMat: MAT.plumTrunk, leafMat: MAT.plumLeaf,
     /* 花色（老黄："腊梅是淡黄色到黄色"、"黄色腊梅花几乎不可见"）：

