@@ -3213,9 +3213,35 @@ function makePlumFlowerGeo(){
   return mergeGeometries(parts, false);
 }
 
+/* ══ 梅花的花苞几何（2026-10-08 · 老黄："没有你说的带花苞的枝条…30% 左右的苞（嫩黄色）"）══
+   ⚠️ 为什么**必须另做一个几何**，不能"把花缩小当苞"：
+     · 花瓣材质带**花瓣形 alpha 贴图**，套在球面上会被 alpha 裁掉一半（画出来是破的）；
+     · 而且实测"缩小版的花"读不出来 —— 近景里它仍是一朵小花，不是"圆鼓的苞"（老黄的原话就是
+       "没有你说的带花苞的枝条"）。
+   ⇒ 单独做一个"水滴状小苞"：竖长椭球（苞身，顶点色全白 ⇒ 颜色交给实例色 = 嫩黄/嫩红）
+     + 基部一圈**深色萼片**（顶点色压暖褐，与花瓣/花蕊同一套写法）。 */
+function makePlumBudGeo(){
+  const K = 0.488;
+  const parts = [];
+  const paint = (g, r, gg, b) => {
+    const n = g.attributes.position.count;
+    const col = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++){ col[i*3] = r; col[i*3+1] = gg; col[i*3+2] = b; }
+    g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+    return g;
+  };
+  const body = new THREE.SphereGeometry(0.052 * K, 9, 7);
+  body.scale(1, 1.34, 1);                       // 竖长 → 水滴状（真实花苞的形）
+  body.translate(0, 0.040 * K, 0);
+  parts.push(paint(body, 1, 1, 1));             // 苞身：白 ⇒ 实例色（嫩黄 / 嫩红）
+  const calyx = new THREE.CylinderGeometry(0.020 * K, 0.030 * K, 0.026 * K, 6);
+  calyx.translate(0, 0.010 * K, 0);
+  parts.push(paint(calyx, 0.30, 0.26, 0.14));   // 萼片：压深（暖褐），一眼看出"这是没开的"
+  return mergeGeometries(parts, false);
+}
+
 /* 桃子：心形/卵形，顶端有突尖，腹缝有浅沟
-   用 LatheGeometry 沿纵轴旋转出基本形，再压扁一侧做心形凹陷 */
-function makePeachFruitGeo(){
+   用 LatheGeometry 沿纵轴旋转出基本形，再压扁一侧做心形凹陷 */function makePeachFruitGeo(){
   const h = 0.07;     // 纵长 ~7cm（带尖）
   const maxR = 0.048; // 最大横径
   const pts = [];
@@ -3287,6 +3313,9 @@ function makeTreeLanternGeo(){
 }
 /* 已挂上的挂灯网格（12-env 的 applyPresence 按 count 开/关；门禁也读它） */
 export const treeLanternInsts = [];
+/* 梅树的花苞网格（2026-10-08）：与花分开一份几何/材质，门禁按 `plumBuds` 名字或这份清单找得到
+   （项目惯例：新加的网格要能**显式**被探针拿到，别让它去 traverse 猜）。 */
+const budMeshes = [];
 /* 材质：MeshBasic + toneMapped:false —— 自发光色直接进 bloom，不吃光照也不被色调映射压暗。 */
 export const TREE_LANTERN_MAT = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false,
                                                             transparent: true, opacity: 0.95,
@@ -3457,15 +3486,21 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         .addScaledVector(_up, rr2(0.35, 0.75))
         .addScaledVector(tan, rr2(-0.10, 0.35))
         .normalize();
-      const len = rr2(0.22, 0.42);
+      /* ⚠️ 枝条长度（2026-10-08 老黄："通常我们看到的腊梅和红梅都是一个**细长的枝条**上
+         （部分枝条和分叉可以再长一些）"）：梅 0.22~0.42 → **0.30~0.58**（更长、变化更大 ⇒
+         有长有短才像"细长枝条"而不是一圈齐刷刷的短枝），管径也收细一档（13mm→11.5mm 起）。
+         ⚠️ **桃树不传 `longTwig` ⇒ 逐字保持原样**（这一个函数是桃/梅共用的，长度一改，
+            桃的株形也变 —— 老黄没要求动桃）。 */
+      const len = opts.longTwig ? rr2(0.30, 0.58) : rr2(0.22, 0.42);
       const tip = base.clone().addScaledVector(dir, len);
       const mid = base.clone().addScaledVector(dir, len * 0.5);
       mid.y += rr2(0.02, 0.07);                 // 小枝稍微向上拱
       const twCurve = new THREE.CatmullRomCurve3([base.clone(), mid, tip.clone()]);
       twigs.push(twCurve);
+      const rad0 = opts.longTwig ? 0.0115 : 0.013, rad1 = opts.longTwig ? 0.0080 : 0.009;
       twigGeos.push(tubeRadiusRamp(
         new THREE.TubeGeometry(twCurve, TW_SEG, 1, TW_RAD, false), twCurve, TW_SEG, TW_RAD,
-        s => 0.013 - 0.009 * s));
+        s => rad0 - rad1 * s));
     }
   }
   /* ⚠️ 挂灯只看**二级枝**：下面的三级枝是 2026-10-08 新增的枝层，而 `treeLanterns` 的数量
@@ -3477,7 +3512,8 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
        老黄："把树的枝条数量和分叉再增加，每条枝条和分叉上的花苞和花朵如截图所示，
        这样也能形成壮观的场景"。真实梅/蜡梅是"疏枝点花"：花单生或 2~3 朵并生于**枝节**、
        贴枝、无长梗；繁茂感来自**枝条多**，不是把花堆在少数几根枝上（那样读成紫藤）。
-       ⇒ 每条二级枝再抽 2~3 根 10~22cm 的三级枝，花与叶都挂到这些新枝上。 */
+       ⇒ 每条二级枝再抽 2~3 根三级枝（2026-10-08 二轮把长度 0.10~0.22 → **0.14~0.30**：
+         老黄要"部分枝条和分叉可以再长一些"；三级枝只在 `opts.subTwig`（梅）时才建）。 */
     const parents = twigs.slice();
     for (const tw of parents){
       const nSub = 2 + (i2(2));
@@ -3491,7 +3527,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
           .addScaledVector(_up, rr2(0.30, 0.70))
           .addScaledVector(tan, rr2(0.05, 0.45))
           .normalize();
-        const len = rr2(0.10, 0.22);
+        const len = rr2(0.14, 0.30);
         const tip = base.clone().addScaledVector(dir, len);
         const mid = base.clone().addScaledVector(dir, len * 0.5);
         mid.y += rr2(0.01, 0.04);                 // 同样微微上拱
@@ -3724,8 +3760,22 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   flInst.userData.flNatural = flNatural;
   flInst.userData.flFabricated = Math.max(0, flN - flNatural);   // >0 = 有朵数是"凑"出来的（会堆叠）
 
-  for (let i = 0; i < flSlots.length; i++){
-    const o = flSlots[i];
+  /* ══ 三种状态按比例分（2026-10-08 · 老黄："总归有 60% 左右的花、30% 左右的苞（嫩黄色）、
+        还有 10% 左右是开始凋谢的花（花苞枯黄），按这个比例来重新修改两株梅花的造型"）══
+     槽位是同一批（`flSlots`，沿枝点生），只是**按状态分给两个网格**：
+       · 前 budN 个槽位 → **花苞**（独立几何 + 独立材质，见 makePlumBudGeo）；
+       · 其余 → 开放花，其中 witherN 个做成**凋谢**（缩小 + 偏枯黄 + 花盘下垂）。
+     计数全部挂到 userData 上，供门禁直接断言比例（不靠"看图数"）。 */
+  const budFrac = opts.budFrac || 0;
+  const budN = Math.min(flSlots.length, Math.round(flSlots.length * budFrac));
+  const openSlots = flSlots.slice(budN);
+  const witherN = Math.min(openSlots.length, Math.round(flSlots.length * (opts.witherFrac || 0)));
+  const witherCol = opts.witherColor || null;      // 枯黄 / 枯褐（每株一色，由 makePlumTree 给）
+  flInst.userData.flBuds = budN;
+  flInst.userData.flWithered = witherN;
+
+  for (let i = 0; i < openSlots.length; i++){
+    const o = openSlots[i];
     const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
     const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();   // 花盘朝外上方
     _p.copy(o.p).addScaledVector(face, rr2(0.010, 0.045));   // 花梗 1~4.5cm（原来一律 8mm：同簇几朵几乎重合 ⇒ 一坨）
@@ -3740,19 +3790,49 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     face.addScaledVector(_up, 0.85).normalize();
     _q.setFromUnitVectors(_ax.set(0, 0, 1), face);        // 花盘法线 +Z → 朝外上方
     _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));   // 绕花轴自转（花瓣朝向不整齐划一）
-    /* ── 花苞与开放花并存（2026-10-08 · 老黄参照图里"圆球状花苞 + 展开的花"两种状态都在）──
-       35% 的槽位当**花苞**：整朵缩到 0.42~0.62（读作圆鼓的小苞，不成五瓣）、
-       颜色往花色的深端靠（真实花苞比开放花更闷更浓）。其余是开放花，尺寸照旧。 */
-    const isBud = rr2(0, 1) < 0.35;
-    _s.setScalar(isBud ? rr2(0.42, 0.62) : rr2(0.85, 1.20));
+    /* ── 凋谢的那一档（10%）：花缩小一档、颜色往**枯黄**压、花盘**朝下耷拉** ──
+       （真实梅的凋花就是这样：色褪成枯黄、瓣松、朝下垂） */
+    const isWither = i < witherN;
+    if (isWither){
+      _q2.setFromAxisAngle(_ax.set(1, 0, 0), rr2(0.55, 1.05));   // 绕自身横轴垂下 32°~60°
+      _q.multiply(_q2);
+    }
+    _s.setScalar(isWither ? rr2(0.72, 0.92) : rr2(0.85, 1.20));
     _m.compose(_p, _q, _s); flInst.setMatrixAt(i, _m);
-    flInst.setColorAt(i, flA.clone().lerp(flB, Math.min(1, R2() + (isBud ? 0.45 : 0)))
-      .offsetHSL(rr2(-0.03,0.03), rr2(0,0.06), rr2(-0.03,0.04)));
+    const base = flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03,0.03), rr2(0,0.06), rr2(-0.03,0.04));
+    if (isWither && witherCol) base.lerp(witherCol, rr2(0.62, 0.85));   // 往枯黄/枯褐压
+    flInst.setColorAt(i, base);
   }
-  flInst.count = flN;
+  flInst.count = openSlots.length;
   flInst.instanceMatrix.needsUpdate = true;
   if (flInst.instanceColor) flInst.instanceColor.needsUpdate = true;
   g.add(flInst);
+
+  /* ── 花苞网格（独立几何 + 独立材质：花瓣材质带花瓣 alpha 贴图，套在球上会被裁破）──
+     嫩色调 = 往花色的**浅端**靠（老黄："30% 左右的苞（嫩黄色）"）⇒ lerp 偏向 flA。 */
+  if (opts.budMat && budN > 0){
+    const budInst = new THREE.InstancedMesh(makePlumBudGeo(), opts.budMat, budN);
+    budInst.name = 'plumBuds';
+    budInst.castShadow = false;
+    budInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
+    for (let i = 0; i < budN; i++){
+      const o = flSlots[i];
+      const lat = aroundAxis(o.tan, i * 2.39996 + rr2(-0.50, 0.50));
+      const face = lat.clone().addScaledVector(_up, rr2(0.55, 1.05)).normalize();   // 苞朝外上方（比花更挺）
+      _p.copy(o.p).addScaledVector(face, rr2(0.006, 0.030));
+      canopyShell(_p, opts.flowerOutwardOnly === true);
+      face.copy(_p).sub(canopyC).normalize().addScaledVector(_up, 0.95).normalize();
+      _q.setFromUnitVectors(_ax.set(0, 1, 0), face);       // ⚠️ 苞的轴是 **+Y**（几何把苞做在 +Y 上），不是花的 +Z
+      _s.setScalar(rr2(0.80, 1.15));
+      _m.compose(_p, _q, _s); budInst.setMatrixAt(i, _m);
+      budInst.setColorAt(i, flA.clone().lerp(flB, R2() * 0.45)
+        .offsetHSL(rr2(-0.02,0.02), rr2(0.02,0.10), rr2(0.02,0.10)));   // 嫩：偏浅端 + 提亮
+    }
+    budInst.instanceMatrix.needsUpdate = true;
+    if (budInst.instanceColor) budInst.instanceColor.needsUpdate = true;
+    g.add(budInst);
+    budMeshes.push(budInst);
+  }
 
   /* ⚠️ 梅（opts.noFruit）**不挂桃**：株形骨相可以借桃的骨架，果实不能借 ——
      一棵"梅树"上挂着蜜桃是硬伤。整块跳过（该函数只用私有随机流 rr2/R2，
@@ -3871,7 +3951,15 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
        ⚠️ twigMul / subTwig（2026-10-08）：梅要**更多枝条与分叉**承载"每条枝上点几朵花"，
        否则花只能堆在少数枝上、读成紫藤。桃不传这两个键 ⇒ 桃树逐字不变。 */
     heightMul: 1.35, canopyMul: 0.85, branchMul: 1.30, leafMul: 0.65,
-    twigMul: 2.2, subTwig: true, flowerOutwardOnly: true,
+    twigMul: 2.2, subTwig: true, longTwig: true, flowerOutwardOnly: true,
+    /* ── 三种状态的比例（2026-10-08 老黄："总归有 60% 左右的花、30% 左右的苞（嫩黄色）、
+          还有 10% 左右是开始凋谢的花（花苞枯黄），按这个比例来重新修改两株梅花的造型"）──
+       槽位总数仍 320（`flowerN`）：30% 分给花苞（独立几何/材质），其余 70% 里再切 1/7
+       （= 全树 10%）做凋谢。⇒ 实际 60% 盛开 / 30% 花苞 / 10% 凋谢。 */
+    budFrac: 0.30, witherFrac: 0.10, budMat: MAT.plumBud,
+    /* 凋谢色（每株一色）：腊梅的枯花是**枯黄**、红梅的枯花是**枯褐红** ——
+       都往"褪色发暗"那一头压，与盛开的花一眼分得开。 */
+    witherColor: new THREE.Color(red ? 0x8A5238 : 0xA8842E),
     /* 干/枝与叶也各换一份材质：梅的树皮更冷更暗（灰褐），叶更墨绿 —— 远看的整体色调就分开了。 */
     trunkMat: MAT.plumTrunk, leafMat: MAT.plumLeaf,
     /* 花色（老黄："腊梅是淡黄色到黄色"、"黄色腊梅花几乎不可见"）：

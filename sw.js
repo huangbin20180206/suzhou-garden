@@ -74,10 +74,10 @@
    老黄："燃放过程和持续时间再长一些"＋"也不用做得这么工整，能够识别出是 2027 就可以了，
    毕竟是烟花，不是无人机"。收拢 0.55→1.25s（每颗火星再各自错峰 ≤0.45s）、存活 1.5→2.4 倍、
    成形后加慢摆、每个数字各自有小倾角/大小差/落点错位。 */
-/* 2026-10-08 相机可达性批次 bump v29→v30：改了 src/02-scene.js（CAM_MIN_DIST 9→1.6、
-   新增双击聚焦）、src/08-assemble.js（新增「红梅」「腊梅」两个机位）、src/12-env.js（机位
-   入口把季节设冬 + 两个快捷键 , .）、src/11-loop.js（提示文案）、index.html（两个按钮＋图标色）。 */
-const CACHE = 'suzhou-garden-v30';
+/* 2026-10-08 梅花三态批次 bump v30→v31：改了 src/06-vegetation.js（花苞独立几何 makePlumBudGeo +
+   三态按 60/30/10 分配 + 凋谢态 + 枝条加长 longTwig）、src/01-materials.js（新增 MAT.plumBud）、
+   src/12f-season.js（花苞材质登进季节存在性）、src/12f 表与本批无关的部分不动。 */
+const CACHE = 'suzhou-garden-v31';
 const SHELL = [
   './',
   './index.html',

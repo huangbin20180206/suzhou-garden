@@ -117,12 +117,19 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
              geos: r.info.memory.geometries, tex: r.info.memory.textures };
   });
   const oneFrame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(r)));
+  /* ⚠️⚠️ 读之前先把状态**钉在"晴·夏"**（2026-10-08 第二次修，同一族的坑）：
+     上面的步骤测过天气轴，结束时可能停在**暴雨/雨**，而 `waterBusy()` 在下雨时为真
+     ⇒ 水面反射**每帧满速刷**、多出一整趟镜像渲染（实测基线 674 → **817**，直接撞 800 上限）。
+     这也是"按需多付"的另一种形态：要量**场景基础量**，就得先回到确定的状态。
+     改天气会让阴影贴图置脏 ⇒ 再多等 4 帧让那趟过去，然后 6 帧取最小。 */
+  await page.evaluate(() => { window.__garden.setEnv('weather', 'clear'); window.__garden.setEnv('season', 'summer'); });
+  for (let i = 0; i < 4; i++) await oneFrame();
   const reads = [];
   for (let i = 0; i < 6; i++){ reads.push(await readBudget()); await oneFrame(); }
   info = reads.reduce((a, b) => (b.calls < a.calls ? b : a));
-  check(`draw calls 上限（${info.calls} < 800）`, info.calls < 800,
+  check(`draw calls 上限（${info.calls} < 800 · 晴夏基线）`, info.calls < 800,
     `6 帧读数 ${reads.map(r => r.calls).join('/')}（取最小＝基线；大值那几帧含反射/阴影那趟）`);
-  check(`三角形上限（${info.tris.toLocaleString()} < 4,200,000）`, info.tris < 4_200_000);
+  check(`三角形上限（${info.tris.toLocaleString()} < 4,200,000 · 晴夏基线）`, info.tris < 4_200_000);
   check('几何/纹理数量健康', info.geos < 800 && info.tex < 300, `geos=${info.geos} tex=${info.tex}`);
 
   // ── 4. GLB 资产到齐且动起来 ──

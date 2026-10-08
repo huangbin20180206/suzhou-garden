@@ -144,6 +144,16 @@ fs.mkdirSync(OUT, { recursive: true });
     G.waterSurface && (G.waterSurface.userData.reflectEveryFrame = true);
     const find = mat => { let r = null; G.scene.traverse(o => { if (o.isInstancedMesh && o.material === mat) r = o; }); return r; };
     const red = find(M.MAT.plumBlossomRed), yel = find(M.MAT.plumBlossomYellow);
+    /* ⚠️ 花苞是**另一个网格**（同材质、不同几何，2026-10-08）⇒ "藏起花"的 A/B 必须把它一起藏，
+       否则量到的只是花本身（约占总量的 70%），前提断言名不副实。
+       ⚠️⚠️ 两株梅各有一套花苞网格，不能只拿 traverse 的**最后一个** ——
+          按"同一棵树的父组"配对才拿到眼前这株的（第一版拿错株，量出"花苞 0 像素"的假红）。 */
+    const budFor = (flowerM) => {
+      let b = null;
+      flowerM.parent.traverse(o => { if (o.isInstancedMesh && o.material === M.MAT.plumBud) b = o; });
+      return b;
+    };
+    const budRed = budFor(red), budYel = budFor(yel);
 
     const boxOf = (o) => { const m = new T.Matrix4(), v3 = new T.Vector3(), rt = o.parent;
       let a = 1e9, b2 = 1e9, c = -1e9, d = -1e9, inF = 0;
@@ -180,13 +190,20 @@ fs.mkdirSync(OUT, { recursive: true });
     const shoot = (key, o, mat, withDefect = false) => {
       const { box, inF } = boxOf(o);
       if (box.x1 <= box.x0 || box.y1 <= box.y0) return { key, inF, note: '不在画内' };
+      const bud = budFor(o);
+      const budKeep = bud ? bud.count : 0;
       G.composer.render(0.016); const A = grab();
       mat.__keepRed = red.count; mat.__keepYel = yel.count;
       red.count = 0; yel.count = 0;
+      if (bud) bud.count = 0;                       // 花苞一起藏（"藏起花"才是完整口径）
       G.composer.render(0.016); const B = grab();
       red.count = mat.__keepRed; yel.count = mat.__keepYel;
+      if (bud) bud.count = budKeep;
       shots[key] = A.url;
-      const res = { key, inF, boxPx: `${box.x1-box.x0}×${box.y1-box.y0}`, ...measure(A.px, B.px, box) };
+      const res = { key, inF, boxPx: `${box.x1-box.x0}×${box.y1-box.y0}`, ...measure(A.px, B.px, box),
+                    buds: bud ? bud.count : 0,
+                    flowers: (() => { const mm = o; return mm.count; })(),
+                    withered: o.userData.flWithered || 0 };
       /* ── 缺陷态对照（同机位、同一任务内量）────────────────────────────────
          把两份花瓣材质还原成"老黄看到的那一版"（alphaTest .42 + 旧自发光），再对**同一张
          "花全关"基准 B** 量一次 —— 于是"健康态 vs 缺陷态"是同一个相机、同一个基准下的两个数，
@@ -201,7 +218,12 @@ fs.mkdirSync(OUT, { recursive: true });
         M.MAT.plumBlossomRed.alphaTest = 0.42; M.MAT.plumBlossomYellow.alphaTest = 0.42;
         M.MAT.plumBlossomRed.emissive.setHex(0x3A0A12); M.MAT.plumBlossomRed.emissiveIntensity = 0.5;
         M.MAT.plumBlossomYellow.emissive.setHex(0x3A2E00); M.MAT.plumBlossomYellow.emissiveIntensity = 0.5;
+        /* ⚠️ 缺陷态还要把**花苞也藏起来**：老黄看到的那一版**根本没有能认出来的花苞**
+           （他的原话："没有你说的带花苞的枝条"）——花苞是这一轮才独立出几何/材质的。
+           不藏的话缺陷态会挂着 96 个花苞（实测 361px），比值被抬到 2.4 倍而**假红**。 */
+        const bk = bud ? bud.count : 0; if (bud) bud.count = 0;
         G.composer.render(0.016); const C = grab();
+        if (bud) bud.count = bk;
         res.defectN = measure(C.px, B.px, box).n;
         M.MAT.plumBlossomRed.alphaTest = keep.ar; M.MAT.plumBlossomYellow.alphaTest = keep.ay;
         M.MAT.plumBlossomRed.emissive.setHex(keep.er); M.MAT.plumBlossomRed.emissiveIntensity = keep.ei;
@@ -252,6 +274,22 @@ fs.mkdirSync(OUT, { recursive: true });
     yv && yv.meanYellow >= 30, `(R+G)/2−B=${yv && yv.meanYellow}  平均RGB ${JSON.stringify(yv && yv.avgRGB)}  逐像素偏黄 ${yv && yv.yelPct}%`);
   check('近景单朵够大（≥40px，看得出花型）', far.out.near.flowerPx >= 40,
     `${far.out.near.flowerPx}px @ ${far.out.near.dist}m（贴到 1.6m 看）`);
+  /* ── ⑦ 三态比例 60/30/10（2026-10-08 · 老黄："总归有 60% 左右的花（黄色）、30% 左右的苞
+        （嫩黄色）、还有 10% 左右是开始凋谢的花（花苞枯黄），按这个比例来重新修改两株梅花的造型"）──
+     口径直接读**产品挂出来的计数**（`userData.flBuds` / `flWithered` + 花网格 count），不靠看图数；
+     容差 ±5 个百分点（他要的是"左右"）。同时断"那棵树上真有花苞网格"（他上一轮的抱怨就是
+     "没有你说的带花苞的枝条"⇒ 光有比例不够，得**真有那个网格**）。 */
+  const mixOf = (s) => (s && s.flowers != null)
+    ? { total: s.flowers + s.buds, buds: s.buds, withered: s.withered,
+        pctBud: Math.round(s.buds / Math.max(1, s.flowers + s.buds) * 100),
+        pctWither: Math.round(s.withered / Math.max(1, s.flowers + s.buds) * 100),
+        pctOpen: Math.round((s.flowers - s.withered) / Math.max(1, s.flowers + s.buds) * 100) } : null;
+  const mixRed = mixOf(d), mixYel = mixOf(yv);
+  for (const [tag, mix] of [['红梅', mixRed], ['腊梅', mixYel]]){
+    check(`⑦ 「${tag}」三态比例 ≈60% 盛开 / 30% 花苞 / 10% 凋谢（容差 ±5 点）`,
+      mix && Math.abs(mix.pctOpen - 60) <= 5 && Math.abs(mix.pctBud - 30) <= 5 && Math.abs(mix.pctWither - 10) <= 5,
+      mix ? `盛开 ${mix.pctOpen}% / 花苞 ${mix.pctBud}% / 凋谢 ${mix.pctWither}%（花网格 ${mix.total - mix.buds} + 花苞网格 ${mix.buds}）` : '没读到计数');
+  }
   /* ── ⑤ "不是紫藤"的量化判据（2026-10-08 新加）──────────────────────────────
      老黄："梅花开出来紫藤这种花的效果，现实中的梅花不是这种密集型开放"。
      口径取**花距 / 花径**（沿枝分布的自然结果）：真实梅是 1~2 倍花径，紫藤式花串则花与花几乎重合。

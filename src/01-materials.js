@@ -495,6 +495,12 @@ export const MAT = {
         近看不会变成"发光贴片"。 */
   plumBlossomRed: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x9A1620, emissiveIntensity:0.75, vertexColors:true }),
   plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x96700A, emissiveIntensity:0.75, vertexColors:true }),
+  /* ── 梅花**花苞**材质（2026-10-08 · 老黄："30% 左右的苞（嫩黄色）"）────────────────────
+     ⚠️ **不能复用花瓣材质**：它带花瓣形 alpha 贴图（套在球面上会被 alpha 裁破）+ alphaTest 0.10。
+     这里不要贴图、不要 alphaTest：颜色交给**实例色**（每株的嫩色），萼片的深色靠顶点色。
+     自发光取暖褐一档 @0.6（苞比花闷，不能像花那样亮）。
+     ⚠️ 必须登进 12f 的 SEASON_PRESENCE（键 `plumBlossomShow`），否则夏天花谢了苞还挂着。 */
+  plumBud: new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.78, metalness:0.0, envMapIntensity:0.28, emissive:0x3A2A08, emissiveIntensity:0.6, vertexColors:true }),
   /* ⚠️ `vertexColors:true` 是给**花蕊**用的：makePlumFlowerGeo 给花瓣写 (1,1,1)、花蕊写暖褐
      (0.34,0.26,0.12) ⇒ 花色仍由实例色决定，而花心被压深 ⇒ 远看是"五瓣 + 深心"的梅花。
      （桃的花没有顶点色、桃的材质也没开这个开关，不受影响。） */
@@ -591,7 +597,7 @@ Object.values(MAT).forEach(m => registry.mats++);
    ⚠️ 缩放作用于 `transformed`（**实例局部**位置）：instanceMatrix 的平移在校验之后才乘，
       所以是"以每朵花自己为原点放大"，不会让花沿冠心方向位移。 */
 export function installBlossomDistanceScale(){
-  for (const m of [MAT.plumBlossomRed, MAT.plumBlossomYellow]){
+  for (const m of [MAT.plumBlossomRed, MAT.plumBlossomYellow, MAT.plumBud]){
     if (m.userData.blossomScale) continue;
     m.userData.blossomScale = true;
     m.onBeforeCompile = (sh) => {
