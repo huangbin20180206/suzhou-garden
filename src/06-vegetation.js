@@ -4173,6 +4173,18 @@ function makeBananaFruit(x, y, z){
   const g = new THREE.Group();
   g.position.set(x, y, z);
 
+  /* 果梗 peduncle（2026-10-08 · 扫图定性"果串像糊在干上"）：真实芭蕉的花序从**冠心**
+     抽出、向外弧弯后垂下果串 —— 旧版只有果串自己的短果轴、没有"冠心→挂点"这一段，
+     远看果串就贴在假茎上（多模态原话"像粘在树腰上"）。局部坐标：挂点在 (0,0,0)、
+     冠心在 −z 方向 0.44（对上 makeBananaPlant 的挂点 z=+0.44）。 */
+  const pedCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(0, 0.05, -0.44),   // 冠心（假茎顶端）
+    new THREE.Vector3(0, 0.13, -0.30),   // 上拱
+    new THREE.Vector3(0, 0.10, -0.15),   // 外伸
+    new THREE.Vector3(0, 0, 0),           // 下弯到挂点
+  ]);
+  g.add(mesh(new THREE.TubeGeometry(pedCurve, 10, 0.024, 5, false), MAT.bambooB, { name:'fruitPeduncle', cast:false }));
+
   // 果轴：自挂点斜出再垂下（真实蕉束都从冠里斜着扎出来）
   const stalkCurve = new THREE.CatmullRomCurve3([
     new THREE.Vector3(0, 0, 0),
@@ -4406,9 +4418,11 @@ export function makeBananaPlant(x, z, trunkH = 2.8, leafScale = 1.0, withFruit =
     attachLeaf(sub);
   });
   if (offFail) g.userData.__bananaOffFail = offFail;
-  // 蕉果：挂在假茎顶端偏一侧
+  // 蕉果：从冠侧弧出后垂挂（2026-10-08：挂点外推 0.26→0.44、抬高 0.15→0.05 ——
+  // 旧值离干太近，果串贴在假茎上读作"粘上去的"；配合 makeBananaFruit 里新加的果梗，
+  // 现在是"冠心抽梗、弧出、垂串"的完整形态）
   if (withFruit){
-    const fr = makeBananaFruit(0, trunkH - 0.15, 0.26);
+    const fr = makeBananaFruit(0, trunkH - 0.05, 0.44);
     fr.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });   // 同上：要跟着冠层缩放
     crown.add(fr);
   }
