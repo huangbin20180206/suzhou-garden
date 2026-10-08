@@ -112,9 +112,14 @@ controls.panSpeed = 0.7;
 controls.zoomSpeed = 0.85;
 /* 默认最小机位距离。⚠️ OrbitControls.update() 每帧都会把相机半径夹在 [minDistance, maxDistance]，
    而渲染循环里 updateCamFly() 之后紧跟 controls.update() —— 所以"近观"机位（字心前 2.8m）
-   必须先把这个下限放开，否则镜头一到位就被弹回 9m（近观白做）。
-   做法：机位可自带 minDist；飞行途中整体放开、落位后再按目标机位恢复。 */
-export const CAM_MIN_DIST = 9;
+   必须先把这个下限放开，否则镜头一到位就被弹回下限（近观白做）。
+   做法：机位可自带 minDist；飞行途中整体放开、落位后再按目标机位恢复。
+   ⚠️⚠️ 2026-10-08：**9 → 1.6**（老黄："我始终无法有效地观察到院子四个角落的细节，这两颗梅花树
+   我就怎么都不能拉近镜头看到细节"）。原值 9 的含义是"别把自己推到园心水面上/钻到房子里面"，
+   代价却是**任何地方最近只能看 9m**——0.1m 的花在 9m 外只有 13px，"看细节"这件事根本不成立。
+   现在放开到 1.6m：四角/花/碑/窗格都能推近看；俯仰仍被 [9.9°, 88.6°] 夹住（抬不起头、
+   也钻不到地下），`0`/`Home` 一键复位。近观机位仍可用自带 minDist 单独收紧。 */
+export const CAM_MIN_DIST = 1.6;
 controls.minDistance = CAM_MIN_DIST;
 controls.maxDistance = 170;
 controls.maxPolarAngle = Math.PI * 0.492;   // 限制俯仰，避免钻入地面
@@ -130,6 +135,34 @@ controls.addEventListener('change', ()=>{
   t.z = Math.max(-28, Math.min(28, t.z));
   t.y = Math.max(0.2, Math.min(16, t.y));
 });
+/* ── 双击聚焦（2026-10-08 · 老黄："始终无法有效地观察到院子四个角落的细节…这两颗梅花树
+      我就怎么都不能拉近镜头看到细节，你看这个问题怎么有效的解决一下"）────────────────
+   根因不止一个（三个叠在一起，缺一都会"到不了角上"）：
+     ① 注视点默认钉在园心、**最近只能到 9m** ⇒ 就算对准了角，也只能在 20m 外看；
+     ② 想把注视点挪到墙角得**右键/双指平移**，而面板提示里从来没写过平移；
+     ③ 于是"四角细节"实际上没有入口。
+   这里补上最直接的一条：**双击画面里的任何东西 → 注视点落到它上面**（相机不动，只改写 target），
+   之后滚轮就能一路推近到 1.6m。配合下面把 minDistance 放到 1.6，四角与花都能看细节。
+   ⚠️ 只对 `world` 里的物体做射线：天空球/彩虹层挂在 scene 上（不在 world 里）⇒ 天然排除
+      （若被天空命中会把注视点甩到 400m 外）。⭐ 项目铁律：Raycaster **不检查父级 .visible**，
+      所以这里自己沿父链查一遍，别把已隐藏季节件的点位当焦点。 */
+const _pickRay = new THREE.Raycaster(), _pickNdc = new THREE.Vector2();
+renderer.domElement.addEventListener('dblclick', (e) => {
+  const rect = renderer.domElement.getBoundingClientRect();
+  _pickNdc.set(((e.clientX - rect.left) / rect.width) * 2 - 1,
+               -((e.clientY - rect.top) / rect.height) * 2 + 1);
+  _pickRay.setFromCamera(_pickNdc, camera);
+  const hits = _pickRay.intersectObjects(world.children, true);
+  for (const h of hits){
+    if (h.distance > 220) break;                      // 远山/天幕不进焦点
+    let vis = true;                                   // 沿父链复核可见性（Raycaster 自己不看）
+    for (let o = h.object; o; o = o.parent) if (o.visible === false){ vis = false; break; }
+    if (!vis) continue;
+    controls.target.set(h.point.x, Math.max(0.4, Math.min(16, h.point.y)), h.point.z);
+    controls.update();
+    return;
+  }
+}, { passive: true });
 export function resetCamera(){
   camera.position.copy(CAM_HOME.pos);
   controls.target.copy(CAM_HOME.target);

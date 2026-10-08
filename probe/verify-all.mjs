@@ -148,6 +148,10 @@ const SUITES = [
   /* 按钮图标配色（2026-10-07 建，~20s，纯样式读、零像素）：老黄"按钮图标做成彩色的"。
      守"30/34 上色、≥12 种颜色、字形不进 textContent、选中态提亮、禁用态去色压暗"。 */
   ['面板图标 panel-icons', 'probe/panel-icons-guard.mjs'],
+  /* 相机可达性（2026-10-08 建，~33s）：老黄"我始终无法有效地观察到院子四个角落的细节"。
+     守：全局最近可推到 ≤2m、两个看梅机位一键到位且**点它就真的看得到花**（季节自动设冬）、
+     到机位后能继续推近到单朵 ≥60px、双击任意物体=聚焦、注视点能到院角（钳制不拦）。 */
+  ['相机可达 camera-reach', 'probe/camera-reach-guard.mjs'],
   ['运行时异常守卫 pageerror-guard','probe/pageerror-guard.mjs'],
   ['时光流转 reel-guard',     'probe/reel-guard.mjs'],
   ['灯笼照明 lamp-guard',     'probe/lamp-guard.mjs'],

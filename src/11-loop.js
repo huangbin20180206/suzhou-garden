@@ -1390,7 +1390,8 @@ function animate(){
       `textures    ${info.memory.textures}\n` +
       `${weatherTag()} · ${timeLabelNow()}${ENV_SEASON[ENV.season].label}\n` +
       `画质 ${q.mode === 'auto' ? '自动' : q.mode === 'high' ? '高' : q.mode === 'balanced' ? '均衡' : '性能'} · ${q.tierLabel}档 · ${q.ao ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n` +
-      `按 0 复位视角 · 拖动旋转 / 滚轮缩放`;
+      `按 0 复位视角 · 拖动旋转 / 滚轮缩放（可推到 1.6m）\n` +
+      `双击任意物体＝聚焦到它 · 右键拖动＝平移（走到院角看细节）`;
     acc = 0; frames = 0;
   }
 
@@ -1884,8 +1885,8 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
    ⚠️ 气泡的按钮刻意**不放进 #env**：smoke 的「aria-pressed 齐全 / 触控命中区 ≥44px」
       只查 `#env button`，放进去会立刻红。 */
 const GUIDE_STEPS = [
-  { sel:null,                   title:'壹 · 转一转',   text:'按住画布拖动，绕着园子转；滚轮推近拉远。',
-    textTouch:'按住画面拖动，绕着园子转；两指捏合推近拉远。' },
+  { sel:null,                   title:'壹 · 转一转',   text:'按住画布拖动，绕着园子转；滚轮推近拉远（能一路推到 1.6m 看细节）；双击某个东西＝把镜头对准它；右键拖动＝平移，走到院角去。',
+    textTouch:'单指拖动绕着园子转；两指捏合推近拉远（能一路推到 1.6m 看细节）；双击某个东西＝把镜头对准它；两指拖动＝平移，走到院角去。' },
   { sel:'#env .drawer-toggle',  title:'贰 · 换天时',   text:'这里展开四根轴：时段 / 季节 / 天气 / 时辰 —— 随便换，园子跟着变。',
     textTouch:'点一下左下角这枚方印，四根轴（时段 / 季节 / 天气 / 时辰）就在它上面展开 —— 随便换，园子跟着变。' },
   { sel:'button[data-act="tour"]', title:'叁 · 有人带', text:'「巡游」自动带你逛一圈并讲解；「明信片」把这一刻存成一张画。',

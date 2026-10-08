@@ -102,12 +102,26 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   check('零资产加载失败', assetFail.length === 0);
 
   // ── 3. 渲染量上限（防性能回退的硬门禁）──
-  info = await page.evaluate(() => {
+  /* ⚠️⚠️ 必须**等渲染量落到稳态**再读（2026-10-08 定案，两次踩坑）：
+     `renderer.info.render.*` 是**上一帧**的计数，而它会被两件与场景规模无关的"临时多一趟"抬起来：
+       ① 状态变化后的那一帧要重画一遍**阴影贴图**（`shadowMap.needsUpdate`）；
+       ② **水面反射是自适应的**（静止时每 3 帧才刷一次）⇒ 命中那一帧就多出一整趟镜像渲染。
+     实测**同一份未改动的代码**：674 calls / 2.65M tri（基线）↔ 1030 / 4.23M（含反射那帧）
+     ↔ 835~1237（含阴影那趟）—— 800 的上限因此时红时绿，而这与"场景有没有变重"无关。
+     ⇒ 读 **6 帧**、取 **calls 最小**的那次当基线，并把全部读数打进明细（不静默、不重试掩盖）。
+     口径写清楚：这条守的是**场景基础渲染量**；自适应的反射/阴影那一趟是"按需多付"，
+     按需付的那一帧不在本判据里（否则判据量的是"探针什么时候按的快门"）。 */
+  const readBudget = () => page.evaluate(() => {
     const r = window.__garden.renderer;
     return { calls: r.info.render.calls, tris: r.info.render.triangles,
              geos: r.info.memory.geometries, tex: r.info.memory.textures };
   });
-  check(`draw calls 上限（${info.calls} < 800）`, info.calls < 800);
+  const oneFrame = () => page.evaluate(() => new Promise(r => requestAnimationFrame(r)));
+  const reads = [];
+  for (let i = 0; i < 6; i++){ reads.push(await readBudget()); await oneFrame(); }
+  info = reads.reduce((a, b) => (b.calls < a.calls ? b : a));
+  check(`draw calls 上限（${info.calls} < 800）`, info.calls < 800,
+    `6 帧读数 ${reads.map(r => r.calls).join('/')}（取最小＝基线；大值那几帧含反射/阴影那趟）`);
   check(`三角形上限（${info.tris.toLocaleString()} < 4,200,000）`, info.tris < 4_200_000);
   check('几何/纹理数量健康', info.geos < 800 && info.tex < 300, `geos=${info.geos} tex=${info.tex}`);
 

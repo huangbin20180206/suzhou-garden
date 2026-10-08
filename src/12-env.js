@@ -770,8 +770,17 @@ envEl.addEventListener('click', (e)=>{
        季节**不动**（虹与季节无关，别顺手改）；时段取**暮色**（ENV_TIME 的 rainbowMul 在暮色
        最大、且 afterrain-guard 的参照实测都在暮色）。 */
     if (b.dataset.view === 'rainbow'){
-      setFireworksForce(null);                 // 换场景 ⇒ 交还门控（用户可能刚按过"看烟花"的关）
+      setFireworksForce(null);                 // 换场景 ⇒ 交还门控（用户可能刚按过"看烟花的关）
       setEnv('time', 'dusk'); setEnv('weather', 'afterrain');
+    }
+    /* ── 「红梅」「腊梅」同理（2026-10-08 · 老黄："这两颗梅花树我就怎么都不能拉近镜头看到细节"）──
+       梅是**冬季开花**（plumBlossomShow 冬 1.0 / 夏 0），默认状态是夏 ⇒ 飞过去只会看到一株
+       长满绿叶的树（实测留档图判读"没拍到梅花，中央是一团深绿色叶球"）。
+       机位的名字承诺了"看梅"，就必须把那个体验所需的状态设好 ——
+       ⇒ 只把**季节**设成冬（花就在），**天气/时段不动**（他可能就是想在"银装素裹"或夜里看梅，
+         替他改天气反而会毁掉他要的场景）。 */
+    if (b.dataset.view === 'plumRed' || b.dataset.view === 'plumYellow'){
+      setEnv('season', 'winter');
     }
     gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return;
   }
@@ -846,6 +855,7 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
     'act:blind': '⌇', 'act:festival': '◍', 'act:fireworks': '✺', 'act:fish': '◔',
     'quality:auto': 'Ａ', 'quality:high': 'Ｈ', 'quality:balanced': 'Ｂ', 'quality:performance': 'Ｐ',
     'view:rainbow': '◠', 'view:hero': '▲', 'view:stele': '◆', 'view:hall': '⌂', 'view:pavilion': '◇', 'view:overview': '◎',
+    'view:plumRed': '✿', 'view:plumYellow': '✽',
     'act:season-demo': '❁', 'act:tour': '◈', 'act:reel': '◔', 'act:random': '✷',
     'act:shot': '▤', 'act:long': '✧', 'act:sound': '♪',
   };
@@ -1024,6 +1034,10 @@ if (e.key >= '5' && e.key <= '9'){
   const id = ['hero', 'stele', 'hall', 'pavilion', 'overview'][+e.key - 5];
   document.querySelector('[data-view="' + id + '"]')?.click(); return;
 }
+/* 2026-10-08 两个看梅机位：`,` 红梅 / `.` 腊梅
+   （5~9 已给前五个机位、0/Home 是复位 ⇒ 取右手边这两个相邻键）。 */
+if (e.key === ',' || e.key === '<'){ document.querySelector('[data-view="plumRed"]')?.click(); return; }
+if (e.key === '.' || e.key === '>'){ document.querySelector('[data-view="plumYellow"]')?.click(); return; }
 if (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '$'){
   HOOKS.setQuality?.(['auto', 'high', 'balanced', 'performance']['!@#$'.indexOf(e.key)]); return;
 }
