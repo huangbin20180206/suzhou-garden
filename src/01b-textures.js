@@ -585,3 +585,62 @@ export function makePlumPetalTex(){
   return tex;
 }
 
+/* ══ 梅树皮 bump 贴图（2026-10-09 · 老黄："主干和主枝条太过光滑像不锈钢一样光滑还带着
+      光泽感，没有树干该有的纹理和树疤（结）"）════════════════════════════════════
+   参考图（老黄给的蜡梅/梅实拍）：深褐近黑、带冷灰调；**细枝相对光滑但有细纵向皮纹**，
+   分枝节点颜色更深、花簇着生处略膨大有环状芽鳞痕（= 树疤/结）。
+   ⇒ 生成一张**竖向沟纹 + 椭圆树疤**的灰度 bump（亮=凸、暗=凹）：
+     · 纵纹：竖向窄条带（宽度不均、略带倾斜），模拟纵向皮裂；
+     · 树疤：随机散布的小椭圆深色环（外亮内暗），模拟节疤/芽鳞痕；
+     · 噪声底：低频明暗让整体不发闷。
+   ⚠️ 纹理 wrap 设 RepeatWrapping + repeat 高值（主干细长，UV 是 TubeGeometry 的
+      u=环向/v=轴向，v 0→1 走整条干——repeat.y 高一些让纹路密）。 */
+let _plumBarkTex = null;
+export function makePlumBarkTex(){
+  if (_plumBarkTex) return _plumBarkTex;
+  const S = 128;
+  const cv = document.createElement('canvas'); cv.width = S; cv.height = S;
+  const c = cv.getContext('2d');
+  /* 底改**近白**（2026-10-09 二轮）：这张贴图同时做 map 与 bumpMap——
+     map 走"材质色 × 贴图"，底色偏灰会把干/枝整体压暗一档；近白底让 color(0x4A423C)
+     主导色相、贴图只出明暗变化。 */
+  c.fillStyle = '#f2f2f2'; c.fillRect(0, 0, S, S);
+  // 低频噪声底
+  for (let i = 0; i < 300; i++){
+    const x = Math.random() * S, y = Math.random() * S, r = 2 + Math.random() * 6;
+    c.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 120},${Math.random() > 0.5 ? 255 : 120},${Math.random() > 0.5 ? 255 : 120},0.07)`;
+    c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
+  }
+  // 纵向皮纹：竖向窄条带（宽度不均、略倾斜），模拟纵向皮裂 —— 加深加重（bump 也靠它）
+  for (let i = 0; i < 30; i++){
+    const x0 = Math.random() * S;
+    const w = 1.5 + Math.random() * 4;
+    const tilt = (Math.random() - 0.5) * 14;
+    const shade = Math.random() > 0.45;
+    c.strokeStyle = shade ? 'rgba(40,40,40,0.75)' : 'rgba(255,255,255,0.55)';
+    c.lineWidth = w;
+    c.beginPath();
+    c.moveTo(x0, -4);
+    c.quadraticCurveTo(x0 + tilt * 0.5, S * 0.5, x0 + tilt, S + 4);
+    c.stroke();
+  }
+  // 树疤/芽鳞痕：随机散布的小椭圆环（外亮环+内暗心）—— 加大加深让 2m 外读得出
+  for (let i = 0; i < 9; i++){
+    const x = 10 + Math.random() * (S - 20), y = 10 + Math.random() * (S - 20);
+    const rx = 4 + Math.random() * 6, ry = rx * (0.65 + Math.random() * 0.3);
+    c.fillStyle = 'rgba(35,35,35,0.85)';
+    c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); c.fill();
+    c.strokeStyle = 'rgba(255,255,255,0.7)';
+    c.lineWidth = 2;
+    c.beginPath(); c.ellipse(x, y, rx + 2, ry + 2, 0, 0, Math.PI * 2); c.stroke();
+  }
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
+  /* repeat：主干 UV 是 u=环向/v=轴向、各段 0→1 —— repeat(2,3) 让 3m 干上竖纹密到
+     "细纵向皮纹"的密度（repeat 1 的话整条干只有一圈纹，拉成宽条 = 假）。 */
+  tex.repeat.set(2, 3);
+  tex.colorSpace = THREE.NoColorSpace;          // bump 走线性；map 也只出明度（色相交给 color）
+  _plumBarkTex = tex;
+  return tex;
+}
+

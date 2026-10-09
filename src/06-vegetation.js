@@ -2613,7 +2613,21 @@ export function makeWillow(x, z, scale = 1){
        ⚠️ 只改 y 系数、rr 的次数与顺序不变 ⇒ 全局随机流一位不漂（铁律 1）。 */
     new THREE.Vector3(rr(-0.3,0.3),  H*1.15, rr(-0.25,0.25)),
   ]);
-  g.add(mesh(new THREE.TubeGeometry(trunkCurve, 18, 0.185 * rr(0.9, 1.15), 8, false), MAT.willowBark, { name:'willowTrunk' }));
+  /* 端盖（2026-10-09）：柳干也是开口管（TubeGeometry closed=false）⇒ 鸟瞰同样看进管心
+     读作"半圆环薄片"（老黄："估计柳树也有这个问题"—— 实锤）。在干顶补一个圆盘封口；
+     干底埋进土里/有根盘遮着，不需要。
+     ⚠️ 半径：**提前一次 rr 取值共用**（次数与位置不变 ⇒ 布局不漂），圆盘略缩进管壁。
+     ⚠️ 朝向：CircleGeometry 默认面朝 +Z，rotateX(-π/2) 才转到 +Y（朝上、俯视可见）——
+        第一版写 +π/2 转到了朝下，俯视被背面剔除 = 白加。 */
+  const trunkR_w = 0.185 * rr(0.9, 1.15);   // 先取值（原 TubeGeometry 的同一笔 rr，挪到前面共用，次数位置不变 ⇒ 布局不漂）
+  {
+    const capTop = new THREE.CircleGeometry(trunkR_w * 0.98, 8);
+    capTop.rotateX(-Math.PI / 2);                                   // 面朝 +Y（俯视可见）
+    const pTop = trunkCurve.getPointAt(1);
+    capTop.translate(pTop.x, pTop.y, pTop.z);
+    g.add(mesh(capTop, MAT.willowBark, { name:'willowTrunkCap', cast:false }));
+  }
+  g.add(mesh(new THREE.TubeGeometry(trunkCurve, 18, trunkR_w, 8, false), MAT.willowBark, { name:'willowTrunk' }));
   /* ── 主干在**给定高度**的真实中心点（2026-10-01 冬季缺陷根因修复）──
      主干是一条会左右摆动的 CatmullRom 曲线（控制点横向偏 ±0.25~0.4m），而下面的
      **主枝起点原来写死在"竖直轴"上**（`rr(-0.2,0.2), y0, rr(-0.2,0.2)`）——
@@ -3119,7 +3133,7 @@ export function makeWillow(x, z, scale = 1){
    生成顶点时用的函数；改用 getPoint() 会让圈心偏离真正的中轴，径向缩放变成"把整圈拍回轴上"。
    ⚠️ 传入的 geo 必须是以 radius=1 建的：这样 (v − center) 才是单位向量，缩放系数就是真半径。
    TubeGeometry 的顶点序 = 圈号 × (radialSegments + 1) + 圈内序号（见其 generateSegment）。 */
-function tubeRadiusRamp(geo, path, tubularSegments, radialSegments, radiusAt){
+function tubeRadiusRamp(geo, path, tubularSegments, radialSegments, radiusAt, opts){
   const pos = geo.attributes.position;
   const per = radialSegments + 1;
   const c = new THREE.Vector3(), v = new THREE.Vector3();
@@ -3131,6 +3145,60 @@ function tubeRadiusRamp(geo, path, tubularSegments, radialSegments, radiusAt){
       const idx = i * per + j;
       v.fromBufferAttribute(pos, idx).sub(c).multiplyScalar(r).add(c);
       pos.setXYZ(idx, v.x, v.y, v.z);
+    }
+  }
+  /* ⚠️ 端盖（2026-10-09 · 老黄鸟瞰截图："主干变成了一个半圆环的薄片"）：
+     TubeGeometry 不封口（closed=false ⇒ 两端是开口圆环）+ 材质 FrontSide ⇒
+     从正上方俯视主干时——① 看进管子内部（空心）；② 远侧半圈管壁法线朝下背离相机
+     被背面剔除；③ 只剩近侧半圈 ⇒ 正是截图里的"C 形半圆环薄片"。
+     柳树干（makeWillow 的 TubeGeometry）同病。加端盖 = 在 t=0 / t=1 两端各补一个
+     圆盘（三向扇形），从任何方向看都是实心截面。
+     opts.caps: undefined = 不加端盖（叶/细枝等不需要，多端盖费三角形）；
+                'both' = 两端都加；'top' = 只加 t=1 端（主干底端埋土里不需要）。 */
+  if (opts && opts.caps){
+    const capAt = (t, flip) => {
+      const r = radiusAt(t);
+      path.getPointAt(t, c);
+      const tan = path.getTangentAt(t).normalize();
+      // 求端盖圆盘的局部基（法线 = 切线方向）
+      const ref = Math.abs(tan.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+      const nrm = new THREE.Vector3().crossVectors(tan, ref).normalize();
+      const binm = new THREE.Vector3().crossVectors(tan, nrm).normalize();
+      const segs = Math.max(8, radialSegments);
+      const verts = [c.clone()];
+      for (let k = 0; k <= segs; k++){
+        const a = (k / segs) * TAU;
+        verts.push(new THREE.Vector3().copy(c)
+          .addScaledVector(nrm, Math.cos(a) * r)
+          .addScaledVector(binm, Math.sin(a) * r));
+      }
+      const positions = [], normals = [], uvs = [], indices = [];
+      for (const p of verts){ positions.push(p.x, p.y, p.z); normals.push(tan.x, tan.y, tan.z); }
+      for (let k = 0; k < verts.length; k++) uvs.push(0, 0);   // ⚠️ 补 uv：TubeGeometry 有 uv，缺了 mergeGeometries 会失败
+      for (let k = 1; k <= segs; k++){
+        if (flip) indices.push(0, k + 1, k);
+        else indices.push(0, k, k + 1);
+      }
+      const capGeo = new THREE.BufferGeometry();
+      capGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      capGeo.setAttribute('normal', new THREE.Float32BufferAttribute(normals, 3));
+      capGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+      capGeo.setIndex(indices);
+      return capGeo;
+    };
+    const caps = [];
+    /* ⚠️ 绕向（2026-10-09 实算，第一版就是这里反了）：本基（nrm,binm）下环角 a 增大
+       从上方看是**逆时针** ⇒ 三角 (0,k,k+1) 从上看 CCW=正面（顶盖要用这个）、
+       (0,k+1,k) 从上看 CW=背面（底盖用这个、从下方看才是正面）。 */
+    if (opts.caps === 'both' || opts.caps === 'bottom') caps.push(capAt(0, true));
+    if (opts.caps === 'both' || opts.caps === 'top') caps.push(capAt(1, false));
+    if (caps.length) {
+      const merged = mergeGeometries([geo, ...caps], false);
+      /* ⚠️ mergeGeometries 返回的 BufferGeometry 没有 .parameters —— 而 peach-form-guard
+         的 trunkOf 按 `geometry.parameters.tubularSegments/path` 逐圈量主干半径。
+         手动把原 TubeGeometry 的 parameters 挂回去（只影响探针读数，不影响渲染）。 */
+      merged.parameters = geo.parameters;
+      return merged;
     }
   }
   geo.computeVertexNormals();
@@ -3472,13 +3540,19 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   const TR_SEG = 16, TR_RAD = 10;
   const trunkGeo = tubeRadiusRamp(
     new THREE.TubeGeometry(trunkCurve, TR_SEG, 1, TR_RAD, false), trunkCurve, TR_SEG, TR_RAD,
-    t => trunkR * (1 - 0.40 * t) * (1 + 0.38 * Math.pow(1 - t, 6)));
+    t => trunkR * (1 - 0.40 * t) * (1 + 0.38 * Math.pow(1 - t, 6)),
+    { caps: 'both' });    // 端盖：修"鸟瞰主干 = 半圆环薄片"（无盖时俯视看进管心+背剔只剩半圈）
   /* ⚠️ 主干**不进 mergeStatics**（userData.noMerge）：它是这个园子里唯一会"静默塌成刀片"
      的构件 —— 手工锥化那版让主干上半段整圈塌掉，而 30 道门禁没有一道看得见：合并进世界材质桶
      之后连名字都没了，按名字根本量不到它。留它单飞换来"逐圈量半径"的能力，
      代价是 2 个 draw call / 640 tri（两株）。
      注意：枝与小枝仍然合并（它们同材质同变换，并进世界桶省 draw call，且不易静默变形）。 */
-  const trunkMesh = mesh(trunkGeo, opts.trunkMat || MAT.trunk, { name:'peachTrunk', cast:true });
+  /* ⚠️ 干系材质统一走 trunkMat（2026-10-09 · 老黄"主枝条也光滑像不锈钢"）：
+     旧版只有主干用 opts.trunkMat，主枝/小枝/根颈/斜根全是写死的 MAT.trunk（桃的浅棕、
+     无纹理）—— 梅传了 plumTrunk（深灰褐 + 树皮 bump）也只有主干生效，主枝照旧光滑浅色。
+     ⇒ 定义一次 trunkMat，五处全用（桃不传 ⇒ 仍是 MAT.trunk，逐字不变）。 */
+  const trunkMat = opts.trunkMat || MAT.trunk;
+  const trunkMesh = mesh(trunkGeo, trunkMat, { name:'peachTrunk', cast:true });
   trunkMesh.userData.noMerge = true;
   g.add(trunkMesh);
 
@@ -3495,7 +3569,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
                      s: rr2(0.75, 1.30) });
   }
   /* ① 根颈：主干基部一圈低矮外扩 —— 读作"干脚自然变粗"，而不是"插了几块石头" */
-  const rootFlare = mesh(new THREE.SphereGeometry(trunkR * 1.45, 12, 7), MAT.trunk, { name:'peachRootFlare', cast:true });
+  const rootFlare = mesh(new THREE.SphereGeometry(trunkR * 1.45, 12, 7), trunkMat, { name:'peachRootFlare', cast:true });
   rootFlare.position.set(0, 0.015, 0);
   rootFlare.scale.set(1.22, 0.40, 1.22);
   g.add(rootFlare);
@@ -3516,7 +3590,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     }
     const rc = new THREE.CatmullRomCurve3(pts);
     g.add(mesh(tubeRadiusRamp(new THREE.TubeGeometry(rc, 12, 1, 7, false), rc, 12, 7,
-                              t => r0 * (1 - 0.70 * t)), MAT.trunk, { name:'peachRoot', cast:true }));
+                              t => r0 * (1 - 0.70 * t)), trunkMat, { name:'peachRoot', cast:true }));
   }
 
   /* 主枝：5~7 根，从主干 **0.16~0.38H**（低位）处分叉斜向上外张 —— 杯状骨架。
@@ -3553,7 +3627,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       new THREE.TubeGeometry(c, BR_SEG, 1, BR_RAD, false), c, BR_SEG, BR_RAD,
       t => 0.041 - 0.030 * t));
   }
-  const brMesh = new THREE.Mesh(mergeGeometries(branchGeos, false), MAT.trunk);
+  const brMesh = new THREE.Mesh(mergeGeometries(branchGeos, false), trunkMat);
   brMesh.name = 'peachBranch';
   brMesh.castShadow = true;
   g.add(brMesh);
@@ -3590,7 +3664,10 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       mid.y += rr2(0.02, 0.07);                 // 小枝稍微向上拱
       const twCurve = new THREE.CatmullRomCurve3([base.clone(), mid, tip.clone()]);
       twigs.push(twCurve);
-      const rad0 = opts.longTwig ? 0.0115 : 0.013, rad1 = opts.longTwig ? 0.0080 : 0.009;
+      /* ⚠️ 枝径加粗（2026-10-09 · 参考图判读："单朵花径明显大于枝条直径（枝粗约为花径的
+         1/4~1/5）"⇒ 花径 0.10m ⇒ 枝粗 20~25mm）。旧 11.5mm→8mm 只有花径的 1/8~1/10，
+         多模态判"花浮在黑铁丝上"。梅（longTwig）加粗到 **16mm→11mm**；桃不传 ⇒ 逐字不变。 */
+      const rad0 = opts.longTwig ? 0.016 : 0.013, rad1 = opts.longTwig ? 0.011 : 0.009;
       twigGeos.push(tubeRadiusRamp(
         new THREE.TubeGeometry(twCurve, TW_SEG, 1, TW_RAD, false), twCurve, TW_SEG, TW_RAD,
         s => rad0 - rad1 * s));
@@ -3628,11 +3705,11 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         twigs.push(c);
         twigGeos.push(tubeRadiusRamp(
           new THREE.TubeGeometry(c, TW_SEG, 1, TW_RAD, false), c, TW_SEG, TW_RAD,
-          s => 0.008 - 0.006 * s));               // 末级枝更细：8mm → 2mm
+          s => (opts.longTwig ? 0.011 : 0.008) - (opts.longTwig ? 0.005 : 0.006) * s));   // 末级枝：梅 11mm→6mm / 桃 8mm→2mm（参考图枝粗=花径/4~5，2026-10-09）
       }
     }
   }
-  const twMesh = new THREE.Mesh(mergeGeometries(twigGeos, false), MAT.trunk);
+  const twMesh = new THREE.Mesh(mergeGeometries(twigGeos, false), trunkMat);
   twMesh.name = 'peachTwig';
   twMesh.castShadow = true;
   g.add(twMesh);
@@ -3831,11 +3908,13 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     let s = rr2(0.04, 0.18) * L;                  // 梢端留一小段裸枝
     while (s < L * rr2(0.86, 1.0)){
       const t = s / L;
-      if (rr2(0, 1) > 0.30) pushStop(tw, t);      // 30% 留白（"疏影横斜"的节奏靠这个）
+      if (rr2(0, 1) > 0.18) pushStop(tw, t);      // 18% 留白（2026-10-09 参考图：节距 = 1~1.5 花径、枝被花裹成串）
       if (rr2(0, 1) < 0.35) pushStop(tw, Math.min(0.99, t + rr2(0.012, 0.030)));   // 并生（花苞对）
-      /* ⚠️ 间距也要**疏密不均**（2026-10-08 二轮：实测"花朵像均匀撒在枝上的图标…疏密不足"）：
-         0.10~0.22 → **0.08~0.30**（近的成小簇、远的一段空枝）—— 真实梅就是这样。 */
-      s += rr2(0.08, 0.30);
+      /* ⚠️ 节距收紧（2026-10-09 · 老黄给的参考图判读："节距大约等于 1~1.5 朵花的直径，
+         使簇与簇之间只露出一点光枝，形成糖葫芦/穗状的串"）：花径 0.10m ⇒ 节距
+         0.10~0.15m。旧 0.08~0.30 平均 0.19m 偏疏 ⇒ 多模态判"花均匀撒在枝上、
+         读不成节点上的绒球"。收紧到 **0.06~0.17**（平均 ~0.11m，近的密、远的留缝）。 */
+      s += rr2(0.06, 0.17);
     }
   }
   for (const br of mainBranches){                    // 主枝梢端也开花
@@ -3901,18 +3980,31 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         _q2.setFromAxisAngle(_ax.set(1, 0, 0), rr2(o.droop[0], o.droop[1]));
         _q.multiply(_q2);
       }
-      /* 簇生：同一节 2~3 朵紧挨着（共享朝向，只有位置和颜色不同） */
+      /* 簇生（2026-10-09 二轮 · 老黄："梅花成簇开放是指环绕枝条一圈的那种环绕"，参考图：
+         同一节的花朝**四面八方**放射——左、右、前、后都有，"从镜头看枝条像被花裹住"）。
+         ⇒ 簇成员不再随机偏移，而是**绕枝条轴一圈均匀分布**（角度错开 + 半径小偏移），
+         每朵的朝向也各自朝自己的外向（不再共享朝向）。 */
       const nC = o.cluster
         ? Math.max(o.cluster[0], Math.min(o.cluster[1], Math.round(rr2(o.cluster[0], o.cluster[1] + 0.999))))
         : 1;
+      const ringBase = rr2(0, TAU);                          // 本簇的起始角（逐簇不同）
       for (let c = 0; c < nC; c++){
-        if (c > 0 && o.clusterOff){
-          _p2.copy(_p);
-          _p2.x += rr2(-o.clusterOff, o.clusterOff);
-          _p2.y += rr2(-o.clusterOff * 0.5, o.clusterOff * 0.5);
-          _p2.z += rr2(-o.clusterOff, o.clusterOff);
-          _s.setScalar(rr2(o.scale[0], o.scale[1]) * rr2(0.85, 0.97));
-          _m.compose(_p2, _q, _s);
+        const ang = ringBase + (c / nC) * TAU + rr2(-0.25, 0.25);   // 环向角度 + 少量抖动
+        const off = o.clusterOff || 0;
+        if (o.cluster && off){
+          /* 沿枝条法平面（垂直于 tan）的环向偏移：前后左右各一朵，围住枝条 */
+          _p2.copy(s.tan).multiplyScalar(rr2(-off * 0.4, off * 0.4));       // 沿枝向微移（节距内）
+          _p2.addScaledVector(lat, Math.cos(ang) * off * 0.9);                // 环向偏移
+          _p2.y += Math.sin(ang) * off * 0.9;                                 // 上下偏移
+          _p2.add(_p);                                                        // 加到花梗端点
+          _s.setScalar(rr2(o.scale[0], o.scale[1]) * (c === 0 ? 1 : rr2(0.85, 0.97)));
+          /* 簇成员朝向：以各自偏移方向为主（各自朝外），而非共享一朵的朝向 */
+          const face2 = _p2.clone().sub(canopyC).normalize().addScaledVector(_up, upMix * rr2(0.5, 1.2)).normalize();
+          const q2 = new THREE.Quaternion().setFromUnitVectors(
+            new THREE.Vector3(o.axis === 'Y' ? 0 : 0, o.axis === 'Y' ? 1 : 0, o.axis === 'Y' ? 0 : 1), face2);
+          q2.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rr2(0, TAU)));
+          if (o.droop) q2.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rr2(o.droop[0], o.droop[1])));
+          _m.compose(_p2, q2, _s);
         } else {
           _s.setScalar(rr2(o.scale[0], o.scale[1]));
           _m.compose(_p, _q, _s);
@@ -4083,7 +4175,7 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
        ⚠️ 这个数只吃本函数的**私有流**（rr2/R2/i2）—— `makePeachTree` 函数体内**零**全局
          `rr()/rnd()/Math.random`（已核）⇒ 改朵数**不会**动全园布局；但它会改这株梅的实例条数
          ⇒ layout-fingerprint 需要**重出基线**（这是有意的布局变更，不是漂）。 */
-    flowerN: 140,    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
+    flowerN: 260,    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
        桃 = 矮胖圆球（H≈4.2、冠幅 1.25H、叶满）；梅 = 高挑疏朗（H×1.35、冠幅 **0.85H**、
        叶量 **0.65**）⇒ 梅的暗色枝干骨架露出来，正是"疏影横斜"，远看轮廓也完全不同。
        ⚠️ twigMul / subTwig（2026-10-08）：梅要**更多枝条与分叉**承载"每条枝上点几朵花"，
@@ -4177,11 +4269,13 @@ function makeBananaFruit(x, y, z){
      抽出、向外弧弯后垂下果串 —— 旧版只有果串自己的短果轴、没有"冠心→挂点"这一段，
      远看果串就贴在假茎上（多模态原话"像粘在树腰上"）。局部坐标：挂点在 (0,0,0)、
      冠心在 −z 方向 0.44（对上 makeBananaPlant 的挂点 z=+0.44）。 */
+  /* 果梗 peduncle（2026-10-09 二轮 · 老黄："挂果实的枝条再向下垂一些效果可能更好"）：
+     把弧顶压低、下弯段提前 —— 果串从冠心抽出后更明显地**垂挂**而非平伸。 */
   const pedCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, 0.05, -0.44),   // 冠心（假茎顶端）
-    new THREE.Vector3(0, 0.13, -0.30),   // 上拱
-    new THREE.Vector3(0, 0.10, -0.15),   // 外伸
-    new THREE.Vector3(0, 0, 0),           // 下弯到挂点
+    new THREE.Vector3(0, 0.06, -0.44),   // 冠心（假茎顶端）
+    new THREE.Vector3(0, 0.08, -0.30),   // 微拱即收（旧 0.13 → 0.08，弧顶压低）
+    new THREE.Vector3(0, 0.02, -0.15),   // 提前下弯（旧 0.10 → 0.02）
+    new THREE.Vector3(0, -0.05, 0),       // 挂点已在冠心下方（旧 0 → -0.05）
   ]);
   g.add(mesh(new THREE.TubeGeometry(pedCurve, 10, 0.024, 5, false), MAT.bambooB, { name:'fruitPeduncle', cast:false }));
 

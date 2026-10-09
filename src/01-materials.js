@@ -4,7 +4,7 @@ import { CFG, rnd, rr, mulberry32, TAU, registry, BOOT, bootMark } from './00-co
 /* ══════════════════════════════════════════════════════════════
    1 · 材质库（命名角色，全局复用）
    ══════════════════════════════════════════════════════════════ */
-import { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex } from './01b-textures.js';
+import { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex, makePlumBarkTex } from './01b-textures.js';
 export { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex };   // 先 import 再 export：别写成 export { X } from …（探针 import-audit 会误报"用到 X 但没 import"）
 export const WATER_REFLECT_SHADER = {
   uniforms: {
@@ -514,8 +514,16 @@ export const MAT = {
   /* ⚠️ `vertexColors:true` 是给**花蕊**用的：makePlumFlowerGeo 给花瓣写 (1,1,1)、花蕊写暖褐
      (0.34,0.26,0.12) ⇒ 花色仍由实例色决定，而花心被压深 ⇒ 远看是"五瓣 + 深心"的梅花。
      （桃的花没有顶点色、桃的材质也没开这个开关，不受影响。） */
-  /* 梅的干/枝：比桃的 MAT.trunk（0x6B5B45）更冷更暗的灰褐 —— 远看轮廓与色调与桃分开。 */
-  plumTrunk: new THREE.MeshStandardMaterial({ color:0x4A423C, roughness:0.92, metalness:0.0, envMapIntensity:0.25 }),
+  /* 梅的干/枝：比桃的 MAT.trunk（0x6B5B45）更冷更暗的灰褐 —— 远看轮廓与色调与桃分开。
+     ⚠️ 2026-10-09（老黄："主干和主枝条太过光滑像不锈钢一样光滑还带着光泽感，没有
+        树干该有的纹理和树疤"）：① envMapIntensity 0.25 的环境反射 + 纯色光滑表面 =
+        "不锈钢光泽" ⇒ 压到 0.12；② makePlumBarkTex 同时做 map（近白底出明暗变化，
+        色相仍由 color 主导）与 bumpMap；③ bumpScale 0.006 → **0.022**（第一版 6mm
+        在 2.7m 外只有 1~2 像素、多模态判"光滑塑料"—— 22mm 的沟脊才在近景读得出，
+        参考图老梅干皮裂本就有 3~5mm，这里是园子"放大保可读"的既有约定）；④
+        roughness 0.92 → 0.97（磨砂面，不再有镜面高光）。 */
+  plumTrunk: new THREE.MeshStandardMaterial({ color:0x4A423C, roughness:0.97, metalness:0.0, envMapIntensity:0.12,
+    map: makePlumBarkTex(), bumpMap: makePlumBarkTex(), bumpScale: 0.022 }),
   /* 梅的叶：比 MAT.peachLeaf（0x6BA340）更墨绿更冷 —— 夏季远看也不与桃同色。
      ⚠️ 要跟 peachShow 一起登记进 12f 的 SEASON_PRESENCE（冬落尽裸枝）。 */
   plumLeaf: new THREE.MeshStandardMaterial({ color:0x3F6B2E, roughness:0.88, metalness:0.0, envMapIntensity:0.3, side:THREE.DoubleSide }),
