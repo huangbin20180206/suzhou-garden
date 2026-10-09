@@ -3274,11 +3274,15 @@ function makePlumFlowerGeo(){
     q.rotateZ((k * TAU) / 5 + 0.10 * Math.sin(k * 2.7));    // 瓣间不是严格等分
     parts.push(paint(q, 1, 1, 1));
   }
-  const core = new THREE.SphereGeometry(0.016 * K, 7, 5);
+  /* ⚠️ 花蕊段（2026-10-09 四轮精简）：花量要翻一倍，三角形预算必须先腾出来 ——
+     花蕊柱 4 棱**带盖**(16 tri/根 ×6=96) → **3 棱开口**(6 tri/根 ×6=36)；
+     花心球 7×5(56) → 4×3(16)。单朵 162 → **62 tri（38%）**。
+     半径只有 1.3mm、长度 1.2cm，3 棱开口在近景也读不出棱（而腾出的预算够把朵数翻倍）。 */
+  const core = new THREE.SphereGeometry(0.016 * K, 4, 3);
   core.translate(0.003 * K, 0.002 * K, 0.004);              // 花心略偏 ⇒ 不像打印出来的对称图标
   parts.push(paint(core, 0.34, 0.26, 0.12));
   for (let s = 0; s < 6; s++){
-    const f = new THREE.CylinderGeometry(0.0026 * K, 0.0026 * K, 0.025 * K, 4);
+    const f = new THREE.CylinderGeometry(0.0026 * K, 0.0026 * K, 0.025 * K, 3, 1, true);   // 3 棱、开口
     f.translate(0, 0.0125 * K, 0);
     f.rotateX(0.42 + 0.10 * Math.sin(s * 2.1));             // 雄蕊长短/角度也带微差
     f.rotateZ((s * TAU) / 6 + 0.25);
@@ -3324,7 +3328,7 @@ function makePlumBudGeo(){
        · 本体：14×10 段椭球（贴脸 147px 下分瓣足够圆）→ 剪影是椭圆；
        · 瓣脊：本体表面再压 5 条**更暗的细长凸肋**（顺着经线方向）⇒ 近看读得出"外层花瓣包着"；
        · 顶部轻微收细（顶点位移，幅度小 ⇒ 不会又变成多面体）。 */
-  const body = new THREE.SphereGeometry(R, 14, 10);
+  const body = new THREE.SphereGeometry(R, 12, 8);   // 2026-10-09 四轮精简 14×10→12×8（仍足够圆润，省 84 tri/苞）
   body.scale(1, 1.30, 1);
   body.translate(0, H * 0.50, 0);
   {
@@ -3343,7 +3347,7 @@ function makePlumBudGeo(){
         （实测：translate 之后 rotateZ(0.18) 让肋心从 x=0.026 缩到 0.0195 < 本体半径 0.026
          ⇒ 肋整条埋进去，"表面光滑得像糖豆、看不出瓣脊"）。 */
   for (let k = 0; k < 5; k++){
-    const rib = new THREE.SphereGeometry(R * 0.19, 6, 8);
+    const rib = new THREE.SphereGeometry(R * 0.19, 6, 4);   // 2026-10-09 四轮精简：8→4 段（肋是 4mm 细条，读不出段数）
     rib.scale(1, 3.0, 1);
     rib.rotateZ(0.18);                              // ① 先绕自身倾斜（上端收）
     rib.translate(R * 1.00, H * 0.50, 0);           // ② 再沿径向推出去 ⇒ 凸出本体约 5mm
@@ -3351,12 +3355,12 @@ function makePlumBudGeo(){
     parts.push(paint(rib, 0.60, 0.58, 0.53));
   }
   /* 花萼：**明显**的深色小杯，托在苞身下沿（资料："花萼明显"）—— 比本体略宽 ⇒ 露出一圈 */
-  const calyx = new THREE.CylinderGeometry(R * 0.78, R * 1.12, R * 0.92, 8);
+  const calyx = new THREE.CylinderGeometry(R * 0.78, R * 1.12, R * 0.92, 6);   // 8→6 段（口径 3cm，6 段看不出棱）
   calyx.translate(0, R * 0.22, 0);
   parts.push(paint(calyx, 0.16, 0.13, 0.06));
   /* 短花梗（资料："花梗短"）：**很短**、大半藏在花萼里 —— 上一版给到 R*1.5 且挂在萼下，
      实测它把花苞的包围盒高度抬到 0.103m（= 盛开花宽的 0.87 倍），量出来的"花苞"变成一根手指。 */
-  const pedicel = new THREE.CylinderGeometry(R * 0.16, R * 0.22, R * 0.9, 5);
+  const pedicel = new THREE.CylinderGeometry(R * 0.16, R * 0.22, R * 0.9, 4);   // 5→4 段
   pedicel.translate(0, R * 0.05, 0);
   parts.push(paint(pedicel, 0.19, 0.15, 0.07));
   return mergeGeometries(parts, false);
@@ -3385,10 +3389,10 @@ function makePlumWitheredGeo(){
     q.rotateZ((k * TAU) / 4 + 0.22 * Math.sin(k * 2.9));
     parts.push(paint(q, 0.92, 0.90, 0.88));          // 残瓣略暗
   }
-  const core = new THREE.SphereGeometry(0.019 * K, 7, 5); core.translate(0, 0, 0.004);
+  const core = new THREE.SphereGeometry(0.019 * K, 4, 3); core.translate(0, 0, 0.004);   // 2026-10-09 四轮精简 7×5→4×3
   parts.push(paint(core, 0.46, 0.35, 0.15));          // 花托：亮一档 ⇒ 花瓣下垂时读得出"花心外露"
   for (let s = 0; s < 6; s++){                        // 雄蕊露出来（更长、更亮 = 凋谢最硬的识别特征）
-    const f = new THREE.CylinderGeometry(0.0030 * K, 0.0030 * K, 0.040 * K, 4);
+    const f = new THREE.CylinderGeometry(0.0030 * K, 0.0030 * K, 0.040 * K, 3, 1, true);   // 4 棱带盖→3 棱开口
     f.translate(0, 0.020 * K, 0);
     f.rotateX(0.26 + 0.12 * Math.sin(s * 2.4));
     f.rotateZ((s * TAU) / 6 + 0.25);
@@ -3516,7 +3520,8 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         _s = new THREE.Vector3(), _e = new THREE.Euler(),
         _up = new THREE.Vector3(0, 1, 0), _ax = new THREE.Vector3(),
         _basis = new THREE.Matrix4(), _bx = new THREE.Vector3(),   // 叶面定向用（见叶块）
-        _p2 = new THREE.Vector3();                                   // 簇生偏移用（梅花一节 2~3 朵）
+        _p2 = new THREE.Vector3(), _p3 = new THREE.Vector3(),
+        _p4 = new THREE.Vector3(), _p5 = new THREE.Vector3();        // 簇生/贴枝面定向用（花：环向+径向）
 
   /* 主干：地面 → **低分叉点（0.48H）**，基部根盘隆起、向上渐细。
      ⚠️ 分叉点 0.66H → 0.48H（二轮重建）：桃的招牌是**低分叉的杯状骨架** ——
@@ -3636,6 +3641,11 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
      是挂叶/花/果的主要位置。同样并成一个 mesh —— 旧版 40~50 根小枝 = 40~50 个 draw call。 */
   const twigs = [];
   const twigGeos = [];
+  /* 与 twigs 逐位对齐的**枝半径表**（2026-10-09 · 修"花悬空/穿模"）：
+     花的挂点要贴在**枝面**上（枝心 + 本处半径），而不是拿一个固定偏移 ——
+     梅枝半径 16mm→5mm 逐级变化，固定偏移必然两头都不对（细梢悬空、粗根埋进枝里）。
+     存 {r0, r1}：局部半径 = r0 − r1·t。 */
+  const twigRad = [];
   const TW_SEG = 6, TW_RAD = 5;
   for (const br of mainBranches){
     /* twigMul（2026-10-08）：梅要"枝条数量与分叉更多 ⇒ 花点满枝"（老黄："现实中的梅花
@@ -3668,6 +3678,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
          1/4~1/5）"⇒ 花径 0.10m ⇒ 枝粗 20~25mm）。旧 11.5mm→8mm 只有花径的 1/8~1/10，
          多模态判"花浮在黑铁丝上"。梅（longTwig）加粗到 **16mm→11mm**；桃不传 ⇒ 逐字不变。 */
       const rad0 = opts.longTwig ? 0.016 : 0.013, rad1 = opts.longTwig ? 0.011 : 0.009;
+      twigRad.push([rad0, rad1]);
       twigGeos.push(tubeRadiusRamp(
         new THREE.TubeGeometry(twCurve, TW_SEG, 1, TW_RAD, false), twCurve, TW_SEG, TW_RAD,
         s => rad0 - rad1 * s));
@@ -3678,15 +3689,19 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   const baseTwigs = twigs.slice();
   /* ⚠️ 新增枝层必须**在 twigMesh 建之前**推进 twigGeos（并进同一个合并网格 ⇒ 仍只 1 个 draw call）。 */
   if (opts.subTwig){
-    /* ── 三级枝（2026-10-08 · 梅专用）──────────────────────────────────────
-       老黄："把树的枝条数量和分叉再增加，每条枝条和分叉上的花苞和花朵如截图所示，
-       这样也能形成壮观的场景"。真实梅/蜡梅是"疏枝点花"：花单生或 2~3 朵并生于**枝节**、
-       贴枝、无长梗；繁茂感来自**枝条多**，不是把花堆在少数几根枝上（那样读成紫藤）。
-       ⇒ 每条二级枝再抽 2~3 根三级枝（2026-10-08 二轮把长度 0.10~0.22 → **0.14~0.30**：
-         老黄要"部分枝条和分叉可以再长一些"；三级枝只在 `opts.subTwig`（梅）时才建）。 */
+    /* ── 三级枝（2026-10-08 新增 · 2026-10-09 二轮按老黄反馈重塑）───────────
+       老黄 2026-10-09："末端（长花骨朵和开花）的细支直径再缩一倍，长度增加一倍，
+       这样花骨朵和花就有足够的空间落位了"＋"树的中下部仍有大量枯枝，要么大量减少
+       要么给这些枝也加上花朵"。
+       ⇒ ① **长度 0.14~0.30 → 0.30~0.62（×2）**：末级枝更长 ⇒ 沿枝的停点更多、
+          每根枝上能落下的花簇更多（花有地方站）。
+          ② **直径 ÷2**（11mm→6mm 起 / 5mm→2.5mm 梢）：细枝才承得住"花裹枝"的形态
+          （花径 0.10m，枝径 6mm 时花是枝的 16 倍粗 ⇒ 读作"花串挂在细枝上"）。
+          ③ **每根二级枝的三级枝数 2~3 → 1~2（大量减少）**：枝少了，同样多的花
+          摊到每根枝上的密度就高（配合 flowerN 翻倍 ⇒ 中下部枯枝被花盖住）。 */
     const parents = twigs.slice();
     for (const tw of parents){
-      const nSub = 2 + (i2(2));
+      const nSub = 1 + (i2(2));
       for (let k = 0; k < nSub; k++){
         const t = rr2(0.25, 0.92);
         const base = tw.getPointAt(t);
@@ -3697,15 +3712,16 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
           .addScaledVector(_up, rr2(0.30, 0.70))
           .addScaledVector(tan, rr2(0.05, 0.45))
           .normalize();
-        const len = rr2(0.14, 0.30);
+        const len = rr2(0.30, 0.62);              // ×2：末级枝更长（花有落位空间）
         const tip = base.clone().addScaledVector(dir, len);
         const mid = base.clone().addScaledVector(dir, len * 0.5);
         mid.y += rr2(0.01, 0.04);                 // 同样微微上拱
         const c = new THREE.CatmullRomCurve3([base.clone(), mid, tip.clone()]);
         twigs.push(c);
+        twigRad.push([opts.longTwig ? 0.0055 : 0.008, opts.longTwig ? 0.0025 : 0.006]);   // 与下面的半径剖面逐位对齐
         twigGeos.push(tubeRadiusRamp(
           new THREE.TubeGeometry(c, TW_SEG, 1, TW_RAD, false), c, TW_SEG, TW_RAD,
-          s => (opts.longTwig ? 0.011 : 0.008) - (opts.longTwig ? 0.005 : 0.006) * s));   // 末级枝：梅 11mm→6mm / 桃 8mm→2mm（参考图枝粗=花径/4~5，2026-10-09）
+          s => (opts.longTwig ? 0.0055 : 0.008) - (opts.longTwig ? 0.0025 : 0.006) * s));   // 末级枝：梅 5.5mm→3mm（÷2）/ 桃 8mm→2mm
       }
     }
   }
@@ -3802,6 +3818,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
   const CAN_A = R;                        // 水平半轴（冠幅半径）
   const CAN_B = R * 0.84;                 // 竖向半轴（杯状骨架的冠比旧版更高瘦一点）
   const SHELL_LO = 0.30, SHELL_HI = 1.0;
+  const SHELL_HI_FLOWER = 2.0;            // 花的宽松兜底（见下：花不按冠壳收）
   const _cs = new THREE.Vector3();
   /* ⚠️ `outwardOnly`（2026-10-08 · 梅专用）：只把**甩到壳外**的收回壳面，**不把冠内的推出去**。
      为什么：老黄说梅"开成了紫藤那种密集花串" —— 量出来的真因不是朵数，而是这条夹壳把
@@ -3815,7 +3832,13 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     const q = Math.sqrt(nx * nx + ny * ny + nz * nz);
     if (q < 1e-4) return p;
     const lo = outwardOnly ? 0 : SHELL_LO;
-    const s = Math.min(SHELL_HI, Math.max(lo, q));
+    /* ⚠️⚠️ 花**不再按冠壳收**（2026-10-09 三轮）：花已经精确挂在枝面上（见 placeBlossoms），
+       枝伸到哪里花就跟到哪里 —— 这才是"每根枝上都有花"。旧的 `min(SHELL_HI=1.0, q)` 把
+       壳外的花**全部吸回 q=1 的椭球面**：三级枝加长一倍（0.30~0.62）后大量花点在壳外
+       ⇒ 花聚成中间一个球、壳外的长枝全秃（多模态实测判读："花聚成中间一个球、
+       外围长枝是秃的""花不像沿枝的串"）。这里只留**宽松兜底 2.0** 防异常离群。 */
+    const hi = outwardOnly ? SHELL_HI_FLOWER : SHELL_HI;
+    const s = Math.min(hi, Math.max(lo, q));
     if (s === q) return p;
     return p.copy(_cs).multiplyScalar(s / q).add(canopyC);
   };
@@ -3900,16 +3923,25 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         · 每个停点先掷一次"**留白**"（22% 跳过）⇒ 出现裸枝段，这正是"疏影横斜"的节奏；
         · 35% 的停点**并生第 2 朵**（真实梅常 2 朵并生，截图里也成对）；
         · 加点用枝长比例算，短枝自然少花、长枝多花（不再"每枝一律 3~5 簇"）。 */
-  const pushStop = (curve, t) => {
-    flRaw.push({ p: curve.getPointAt(t), tan: curve.getTangentAt(t).normalize(), t });
+  /* ⚠️ 每个花点带**枝编号** w（2026-10-09）：下面的取样要"按枝交错"，
+     保证每一根枝都拿到花 —— 老黄："树的中下部仍有大量枯枝，要么大量减少要么给这些枝也加上花朵"。 */
+  const pushStop = (curve, t, w) => {
+    /* ⚠️ 存**该处的枝半径**（2026-10-09 三轮 · 修"花悬空/穿模"）：梅枝半径 16mm→5mm
+       逐级变化，花若按固定偏移挂必然两头都不对（细梢 5mm 的枝挂到 1cm 外 = 悬空；
+       粗根 16mm 的枝挂 1cm 外 = 仍贴着枝心附近）。挂点 = 枝心 + 本处半径 + 小贴面偏移
+       （见 placeBlossoms 的 stemLo/stemHi）⇒ 花/苞都贴在**枝面**上。
+       w ≥ 100000 是主枝梢端的点（没进 twigRad）⇒ 用 0.02 兜底（主枝半径 11~41mm）。 */
+    const r = (w < 100000 && twigRad[w]) ? (twigRad[w][0] - twigRad[w][1] * t) : 0.02;
+    flRaw.push({ p: curve.getPointAt(t), tan: curve.getTangentAt(t).normalize(), t, w, r });
   };
-  for (const tw of twigs){
+  for (let twi = 0; twi < twigs.length; twi++){
+    const tw = twigs[twi];
     const L = tw.getLength();
     let s = rr2(0.04, 0.18) * L;                  // 梢端留一小段裸枝
     while (s < L * rr2(0.86, 1.0)){
       const t = s / L;
-      if (rr2(0, 1) > 0.18) pushStop(tw, t);      // 18% 留白（2026-10-09 参考图：节距 = 1~1.5 花径、枝被花裹成串）
-      if (rr2(0, 1) < 0.35) pushStop(tw, Math.min(0.99, t + rr2(0.012, 0.030)));   // 并生（花苞对）
+      if (rr2(0, 1) > 0.18) pushStop(tw, t, twi);  // 18% 留白（2026-10-09 参考图：节距 = 1~1.5 花径、枝被花裹成串）
+      if (rr2(0, 1) < 0.35) pushStop(tw, Math.min(0.99, t + rr2(0.012, 0.030)), twi);   // 并生（花苞对）
       /* ⚠️ 节距收紧（2026-10-09 · 老黄给的参考图判读："节距大约等于 1~1.5 朵花的直径，
          使簇与簇之间只露出一点光枝，形成糖葫芦/穗状的串"）：花径 0.10m ⇒ 节距
          0.10~0.15m。旧 0.08~0.30 平均 0.19m 偏疏 ⇒ 多模态判"花均匀撒在枝上、
@@ -3917,11 +3949,12 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       s += rr2(0.06, 0.17);
     }
   }
-  for (const br of mainBranches){                    // 主枝梢端也开花
+  for (let bi = 0; bi < mainBranches.length; bi++){    // 主枝梢端也开花
+    const br = mainBranches[bi];
     const n = 4 + (i2(4));
     for (let k = 0; k < n; k++){
       const t = rr2(0.55, 0.98);
-      flRaw.push({ p: br.getPointAt(t), tan: br.getTangentAt(t).normalize() });
+      flRaw.push({ p: br.getPointAt(t), tan: br.getTangentAt(t).normalize(), w: 100000 + bi });
     }
   }
   /* fillTo 只是**兜底**：枝条够多时自然槽位已超过 flN，spread+slice 只做均匀抽稀，不会堆叠。
@@ -3930,7 +3963,46 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
      （老黄："开成紫藤那种效果"的机械原因之一）。所以把两个数挂到网格上，供探针/门禁读。 */
   const flNatural = flRaw.length;
   fillTo(flRaw, flN, twigPool);
-  const flSlots = spread(flRaw).slice(0, flN);
+  /* ⚠️ 取样 = **按枝长比例分配 + 沿枝均匀取样**（2026-10-09 三轮 · 老黄："树的中下部仍有
+     大量枯枝，要么大量减少要么给这些枝也加上花朵"）：
+     旧写法 `spread(flRaw).slice(0, flN)` 从全部停点里**随机抽** N 个 —— 自然停点 2535
+     远多于声明朵数 800 ⇒ 只覆盖约三成枝段，没抽中的枝就是**光枝**（中下部枝多 ⇒ "大量枯枝"）。
+     ⚠️ 也不能用"轮转按第 k 个停点取"：停点按 t 递增排列，轮转第 1 轮取的全是每根枝的
+        **最基部**那个点 ⇒ 花全挤在枝根、枝梢照样秃（把枯枝从"整体"挪到"梢部"而已）。
+     ⇒ 正解：每根枝先保底 1 个，余下按**枝的停点数占比**分配（停点间距相近 ⇒ 占比∝枝长），
+        再在每根枝内部**按等分位置**取点 ⇒ 花沿每根枝从根到梢铺开，没有整根秃的枝。 */
+  const flSlots = [];
+  {
+    const groups = new Map();
+    for (const o of flRaw){
+      const g = groups.get(o.w);
+      if (g) g.push(o); else groups.set(o.w, [o]);
+    }
+    const lists = [...groups.values()];
+    const total = flRaw.length || 1;
+    let alloc = 0;
+    const picks = lists.map(list => {
+      const n = Math.max(1, Math.round(flN * (list.length / total)));
+      alloc += n;
+      return n;
+    });
+    /* 分配总和可能略偏离 flN（取整）—— 按比例微调：多了从最长的枝减、少了给最长的枝加 */
+    let diff = alloc - flN;
+    for (let i = 0; diff > 0 && i < 4000; i++){
+      const idx = i % picks.length;
+      if (picks[idx] > 1){ picks[idx]--; diff--; }
+    }
+    for (let i = 0; diff < 0 && i < 4000; i++){
+      picks[i % picks.length]++; diff++;
+    }
+    for (let gi = 0; gi < lists.length; gi++){
+      const list = lists[gi], n = picks[gi];
+      for (let k = 0; k < n; k++){
+        const idx = Math.min(list.length - 1, Math.round((k + 0.5) / n * list.length - 0.5));
+        flSlots.push(list[Math.max(0, idx)]);
+      }
+    }
+  }
   flInst.userData.flDeclared = flN;
   flInst.userData.flNatural = flNatural;
   flInst.userData.flFabricated = Math.max(0, flN - flNatural);   // >0 = 有朵数是"凑"出来的（会堆叠）
@@ -3966,7 +4038,10 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
       const s = slots[i].o;
       const lat = aroundAxis(s.tan, i * 2.39996 + rr2(-0.50, 0.50));
       const face = lat.clone().addScaledVector(_up, rr2(0.35, 0.95)).normalize();
-      _p.copy(s.p).addScaledVector(face, rr2(o.stemLo, o.stemHi));
+      /* 挂点 = 枝心 + (**本处枝半径** + 小贴面偏移) —— 贴在枝面上（2026-10-09 三轮：
+         旧写法用固定 1~4.5cm 偏移，而梅枝半径沿枝 16mm→3mm 逐级变化 ⇒ 细梢悬空、
+         粗根处仍埋着；现在偏移跟着枝半径走，正是"花裹着枝"该有的贴面）。 */
+      _p.copy(s.p).addScaledVector(face, (s.r || 0.02) + rr2(o.stemLo, o.stemHi));
       /* ⚠️ 花与叶**不同**：叶要把冠填满（两个方向都夹进壳层），花要**贴在自己的枝上**
          （只收外沿、冠内不动）—— 否则冠内的花被挤到同一个椭球面上，读成"紫藤式花串"。 */
       canopyShell(_p, opts.flowerOutwardOnly === true);
@@ -3992,19 +4067,25 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         const ang = ringBase + (c / nC) * TAU + rr2(-0.25, 0.25);   // 环向角度 + 少量抖动
         const off = o.clusterOff || 0;
         if (o.cluster && off){
-          /* 沿枝条法平面（垂直于 tan）的环向偏移：前后左右各一朵，围住枝条 */
-          _p2.copy(s.tan).multiplyScalar(rr2(-off * 0.4, off * 0.4));       // 沿枝向微移（节距内）
-          _p2.addScaledVector(lat, Math.cos(ang) * off * 0.9);                // 环向偏移
-          _p2.y += Math.sin(ang) * off * 0.9;                                 // 上下偏移
-          _p2.add(_p);                                                        // 加到花梗端点
+          /* 沿枝条法平面（垂直于 tan）的环向偏移：前后左右各一朵，围住枝条。
+             ⚠️ 环半径 = **本处枝半径 + clusterOff**（2026-10-09 三轮）：直接拿 clusterOff
+             当环半径的话，细梢（枝半径 3mm）处花瓣会穿进枝里、粗根处又离枝太远。
+             ⚠️ 环的第二个基向量必须是 **tan × lat**（垂直于枝轴），不能用世界上方向
+             (0,1,0)——斜枝下它不垂直于枝轴，环会退化成椭圆、花沿枝滑动而不是绕枝一圈。 */
+          const ringR = (s.r || 0.02) + off;
+          _p3.copy(lat);                                       // 基1（⟂ tan）
+          _p4.crossVectors(s.tan, lat).normalize();            // 基2（⟂ tan 且 ⟂ 基1）⇒ 真环
+          _p2.copy(s.tan).multiplyScalar(rr2(-off * 0.4, off * 0.4));   // 沿枝向微移（节距内）
+          _p2.addScaledVector(_p3, Math.cos(ang) * ringR);     // 环向（横）
+          _p2.addScaledVector(_p4, Math.sin(ang) * ringR);     // 环向（纵）
+          _p2.add(_p);                                         // 加到挂点
           _s.setScalar(rr2(o.scale[0], o.scale[1]) * (c === 0 ? 1 : rr2(0.85, 0.97)));
-          /* 簇成员朝向：以各自偏移方向为主（各自朝外），而非共享一朵的朝向 */
-          const face2 = _p2.clone().sub(canopyC).normalize().addScaledVector(_up, upMix * rr2(0.5, 1.2)).normalize();
-          const q2 = new THREE.Quaternion().setFromUnitVectors(
-            new THREE.Vector3(o.axis === 'Y' ? 0 : 0, o.axis === 'Y' ? 1 : 0, o.axis === 'Y' ? 0 : 1), face2);
-          q2.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), rr2(0, TAU)));
-          if (o.droop) q2.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), rr2(o.droop[0], o.droop[1])));
-          _m.compose(_p2, q2, _s);
+          /* 簇成员朝向：各自朝"自己的外向"（不再共享一朵的朝向） */
+          _p5.copy(_p2).sub(canopyC).normalize().addScaledVector(_up, upMix * rr2(0.5, 1.2)).normalize();
+          _q.setFromUnitVectors(_ax.set(0, o.axis === 'Y' ? 1 : 0, o.axis === 'Y' ? 0 : 1), _p5);
+          _q.multiply(_q2.setFromAxisAngle(_ax, rr2(0, TAU)));
+          if (o.droop){ _q2.setFromAxisAngle(_ax.set(1, 0, 0), rr2(o.droop[0], o.droop[1])); _q.multiply(_q2); }
+          _m.compose(_p2, _q, _s);
         } else {
           _s.setScalar(rr2(o.scale[0], o.scale[1]));
           _m.compose(_p, _q, _s);
@@ -4025,7 +4106,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
         平贴枝条 ⇒ 像均匀撒在枝上的图标"）：尺寸 0.85~1.20 → **0.72~1.35**，
         花盘抬升混合系数 upMix 也逐朵抽（0.25~1.15）⇒ 有的朝天、有的侧向外。 */
   placeBlossoms(openSlots, flInst, {
-    axis: 'Z', upMix: [0.25, 1.15], stemLo: 0.010, stemHi: 0.045,
+    axis: 'Z', upMix: [0.25, 1.15], stemLo: 0.002, stemHi: 0.010,
     scale: CL ? [0.60, 0.95] : [0.85, 1.35],
     ...(CL ? { cluster: [2, 3], clusterOff: 0.016 } : {}),
     color: () => flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04)),
@@ -4039,7 +4120,7 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     wInst.castShadow = false;
     wInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     placeBlossoms(witherSlots, wInst, {
-      axis: 'Z', upMix: [0.10, 0.45], stemLo: 0.014, stemHi: 0.050, scale: [0.60, 0.85],
+      axis: 'Z', upMix: [0.10, 0.45], stemLo: 0.002, stemHi: 0.012, scale: [0.60, 0.85],
       droop: [0.45, 0.90], cluster: [2, 3], clusterOff: 0.014,
       color: () => {
         const c = flA.clone().lerp(flB, R2()).offsetHSL(rr2(-0.03, 0.03), rr2(0, 0.06), rr2(-0.03, 0.04));
@@ -4056,10 +4137,15 @@ export function makePeachTree(x, z, scale = 1, baseY = 0, opts = {}){
     budInst.castShadow = false;
     budInst.instanceMatrix.setUsage(THREE.StaticDrawUsage);
     placeBlossoms(budSlots, budInst, {
-      axis: 'Y', upMix: 1.05, stemLo: 0.004, stemHi: 0.026, scale: [0.55, 0.75],
-      cluster: [2, 3], clusterOff: 0.010,
-      color: () => flA.clone().lerp(flB, R2() * 0.45)
-        .offsetHSL(rr2(-0.02, 0.02), rr2(0.02, 0.10), rr2(0.02, 0.10)),
+      axis: 'Y', upMix: 1.05, stemLo: 0.001, stemHi: 0.006, scale: [0.55, 0.75],
+      cluster: [2, 3], clusterOff: 0.009,   // 贴面：环半径 = 枝半径 + 9mm（2026-10-09 三轮）
+      /* ⚠️ 花苞色（2026-10-09 三轮 · 老黄："花苞的颜色也要再加深，现在看起来已经偏白色了"）：
+         旧式 `lerp(flB, R2()*0.45)` 只往深端走 45%（基本停在浅端）+ **提亮 L +0.02~0.10**
+         ⇒ 在浅端本身就是近白奶油色时，花苞当然读成白色（腊梅那边尤其明显）。
+         改为：往深端走 **0.35~0.75**（更靠蜡黄）+ 明度**不再提亮**（-0.04~+0.02）、
+         饱和度提一点 ⇒ 花苞是"比盛开的花更沉一点的蜡黄小圆球"。 */
+      color: () => flA.clone().lerp(flB, 0.35 + R2() * 0.40)
+        .offsetHSL(rr2(-0.02, 0.02), rr2(0.04, 0.12), rr2(-0.04, 0.02)),
     });
     budMeshes.push(budInst);
   }
@@ -4175,7 +4261,17 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
        ⚠️ 这个数只吃本函数的**私有流**（rr2/R2/i2）—— `makePeachTree` 函数体内**零**全局
          `rr()/rnd()/Math.random`（已核）⇒ 改朵数**不会**动全园布局；但它会改这株梅的实例条数
          ⇒ layout-fingerprint 需要**重出基线**（这是有意的布局变更，不是漂）。 */
-    flowerN: 260,    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
+    /* ⚠️ 朵数（2026-10-09 四轮 · 实测驱动）：上一版 800 簇心 ÷ 约 700 根枝 = **1.1 簇/枝**，
+       而参考图的节距是 1~1.5 花径（0.10~0.15m）、一根 0.3~0.6m 的枝上应落 2~5 簇 ——
+       多模态看整树图判读"花聚成中间一个球、外围长枝秃"（实测花确实都在枝上：平均离枝
+       3.0cm、只有 4.4% 超 5cm ⇒ 不是位置 bug，是**每枝簇数太少**）。
+       ⇒ 翻到 **1600**（≈2.3 簇/枝）。腾预算的手段是**精简花几何**（见三个 makeXxxGeo：
+       单朵 162→62 tri、单苞 724→约 340 tri）⇒ 朵数翻倍而总三角形几乎不变。
+       ⚠️ 这个数只吃本函数的**私有流**（rr2/R2/i2）—— `makePeachTree` 函数体内**零**全局
+         `rr()/rnd()/Math.random`（已核）⇒ 改朵数**不会**动全园布局；但它会改这株梅的实例条数
+         ⇒ layout-fingerprint 需要**重出基线**（这是有意的布局变更，不是漂）。 */
+    flowerN: 1600,
+    /* ⚠️ 树形与桃**反着调**（老黄："远看会觉得就是同一种树，这个肯定不对"）：
        桃 = 矮胖圆球（H≈4.2、冠幅 1.25H、叶满）；梅 = 高挑疏朗（H×1.35、冠幅 **0.85H**、
        叶量 **0.65**）⇒ 梅的暗色枝干骨架露出来，正是"疏影横斜"，远看轮廓也完全不同。
        ⚠️ twigMul / subTwig（2026-10-08）：梅要**更多枝条与分叉**承载"每条枝上点几朵花"，
@@ -4193,14 +4289,15 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
     witherColor: new THREE.Color(red ? 0x8A5238 : 0xBBA52E),
     /* 干/枝与叶也各换一份材质：梅的树皮更冷更暗（灰褐），叶更墨绿 —— 远看的整体色调就分开了。 */
     trunkMat: MAT.plumTrunk, leafMat: MAT.plumLeaf,
-    /* 花色（老黄："腊梅是淡黄色到黄色"；2026-10-08 二次："腊梅的花朵的颜色再黄一些，
-       这个颜色感觉有点偏金色，不是黄色"）：
-       红梅 = 暖胭脂 → 正红（上一版偏"紫红/暗粉" ⇒ 压掉蓝通道）；
-       腊梅 = 淡黄 → **正黄**：金色是"红多绿少"（h≈45° 偏橙），黄色要"红≈绿、蓝低"（h≈55°）
-       ⇒ 旧值 0xF0A400（琥珀金）换成 **0xFFDD22**（正黄）、浅端 0xFFF0A8 → **0xFFF8C8**。
-       冬季预设会降饱和 0.70 + 冷色调，所以两头各留一点余量。 */
-    blossomA: new THREE.Color(red ? 0xFF7A6E : 0xFFF8C8),
-    blossomB: new THREE.Color(red ? 0xDC1220 : 0xFFDD22),
+    /* 花色（老黄三连："腊梅是淡黄色到黄色"、"再黄一些，感觉有点偏金色"、
+       2026-10-09 三轮："腊梅花黄色还是不够正，颜色再调得蜡黄"）：
+       红梅 = 暖胭脂 → 正红（压掉蓝通道，避免"紫红/暗粉"）；
+       腊梅 = **蜡黄**（蜂蜡那种略带暖调、饱和的黄）：浅端 0xFFF8C8（近白奶油 → 就是
+       "花苞看起来偏白"的根源之一）换成 **0xFFE566**、深端 0xFFDD22 → **0xE0A800**
+       （更沉、更"蜡"；纯 0xFFDD22 偏亮偏薄，在雪地里读作淡黄）。
+       冬季预设会降饱和 0.70 + 冷色调 ⇒ 底色必须比目标色更饱和一档。 */
+    blossomA: new THREE.Color(red ? 0xFF7A6E : 0xFFE566),
+    blossomB: new THREE.Color(red ? 0xDC1220 : 0xE0A800),
   });
 }
 

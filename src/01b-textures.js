@@ -611,28 +611,58 @@ export function makePlumBarkTex(){
     c.fillStyle = `rgba(${Math.random() > 0.5 ? 255 : 120},${Math.random() > 0.5 ? 255 : 120},${Math.random() > 0.5 ? 255 : 120},0.07)`;
     c.beginPath(); c.arc(x, y, r, 0, Math.PI * 2); c.fill();
   }
-  // 纵向皮纹：竖向窄条带（宽度不均、略倾斜），模拟纵向皮裂 —— 加深加重（bump 也靠它）
+  // 纵向皮纹：竖向窄条带（宽度不均、略倾斜），模拟纵向皮裂 —— 2026-10-09 三轮调浅：
+  // 旧 rgba(40,40,40) 近黑 ⇒ 整体读成"深黑褐"而非老黄要的"常见树干灰褐" ⇒ 提到 96 档灰。
   for (let i = 0; i < 30; i++){
     const x0 = Math.random() * S;
     const w = 1.5 + Math.random() * 4;
     const tilt = (Math.random() - 0.5) * 14;
     const shade = Math.random() > 0.45;
-    c.strokeStyle = shade ? 'rgba(40,40,40,0.75)' : 'rgba(255,255,255,0.55)';
+    c.strokeStyle = shade ? 'rgba(96,92,86,0.70)' : 'rgba(255,255,255,0.55)';
     c.lineWidth = w;
     c.beginPath();
     c.moveTo(x0, -4);
     c.quadraticCurveTo(x0 + tilt * 0.5, S * 0.5, x0 + tilt, S + 4);
     c.stroke();
   }
-  // 树疤/芽鳞痕：随机散布的小椭圆环（外亮环+内暗心）—— 加大加深让 2m 外读得出
+  // 树疤/芽鳞痕：随机散布的小椭圆环（外亮环+内暗心）—— 同样调浅（35→84 档）
   for (let i = 0; i < 9; i++){
     const x = 10 + Math.random() * (S - 20), y = 10 + Math.random() * (S - 20);
     const rx = 4 + Math.random() * 6, ry = rx * (0.65 + Math.random() * 0.3);
-    c.fillStyle = 'rgba(35,35,35,0.85)';
+    c.fillStyle = 'rgba(84,80,74,0.80)';
     c.beginPath(); c.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2); c.fill();
     c.strokeStyle = 'rgba(255,255,255,0.7)';
     c.lineWidth = 2;
     c.beginPath(); c.ellipse(x, y, rx + 2, ry + 2, 0, 0, Math.PI * 2); c.stroke();
+  }
+  /* 不规则裂纹（2026-10-09 二轮 · 老黄："布有不规则的裂纹和树疤"）：
+     6 条**折线**裂纹（每段随机转向、35% 概率分叉），模拟老树皮的龟裂 —— 折线比竖条更像
+     裂纹、方向杂乱（不只竖向）⇒ 近看是"开裂的糙树皮"而不是"竖条纹路"。 */
+  for (let i = 0; i < 6; i++){
+    let x = Math.random() * S, y = Math.random() * S;
+    let ang = Math.random() * Math.PI * 2;
+    c.strokeStyle = 'rgba(74,70,66,' + (0.50 + Math.random() * 0.25).toFixed(2) + ')';   // 2026-10-09 三轮：25→74 档（别读成近黑）
+    c.lineWidth = 1.5 + Math.random() * 2;
+    c.beginPath(); c.moveTo(x, y);
+    const segs = 4 + ((Math.random() * 4) | 0);
+    for (let k = 0; k < segs; k++){
+      ang += (Math.random() - 0.5) * 1.6;
+      x += Math.cos(ang) * (5 + Math.random() * 9);
+      y += Math.sin(ang) * (5 + Math.random() * 9);
+      c.lineTo(x, y);
+      if (Math.random() < 0.35){
+        c.moveTo(x, y);
+        let bx = x, by = y, ba = ang + (Math.random() - 0.5) * 1.2;
+        for (let m = 0; m < 3; m++){
+          ba += (Math.random() - 0.5) * 1.2;
+          bx += Math.cos(ba) * (4 + Math.random() * 6);
+          by += Math.sin(ba) * (4 + Math.random() * 6);
+          c.lineTo(bx, by);
+        }
+        c.moveTo(x, y);
+      }
+    }
+    c.stroke();
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping;
