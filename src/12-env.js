@@ -855,7 +855,7 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
     'act:blind': '⌇', 'act:festival': '◍', 'act:fireworks': '✺', 'act:fish': '◔',
     'quality:auto': 'Ａ', 'quality:high': 'Ｈ', 'quality:balanced': 'Ｂ', 'quality:performance': 'Ｐ',
     'view:rainbow': '◠', 'view:hero': '▲', 'view:stele': '◆', 'view:hall': '⌂', 'view:pavilion': '◇', 'view:overview': '◎',
-    'view:plumRed': '✿', 'view:plumYellow': '✽',
+    'view:plumRed': '✿', 'view:plumYellow': '✽', 'view:stable': '❖',
     'act:season-demo': '❁', 'act:tour': '◈', 'act:reel': '◔', 'act:random': '✷',
     'act:shot': '▤', 'act:long': '✧', 'act:sound': '♪',
   };
@@ -1038,6 +1038,9 @@ if (e.key >= '5' && e.key <= '9'){
    （5~9 已给前五个机位、0/Home 是复位 ⇒ 取右手边这两个相邻键）。 */
 if (e.key === ',' || e.key === '<'){ document.querySelector('[data-view="plumRed"]')?.click(); return; }
 if (e.key === '.' || e.key === '>'){ document.querySelector('[data-view="plumYellow"]')?.click(); return; }
+/* 2026-10-09 马厩机位：`/`（接着 `.` 往右一个键，与"机位键在右手边一排"的约定一致）。
+   ⚠️ 用 e.key === '/' 判 —— 中文输入法/不同键盘布局下 e.key 仍稳定为 '/'。 */
+if (e.key === '/'){ document.querySelector('[data-view="stable"]')?.click(); return; }
 if (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '$'){
   HOOKS.setQuality?.(['auto', 'high', 'balanced', 'performance']['!@#$'.indexOf(e.key)]); return;
 }

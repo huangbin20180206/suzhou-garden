@@ -131,8 +131,14 @@ controls.target.set(0, 3.5, -1);
 export const CAM_HOME = { pos: camera.position.clone(), target: controls.target.clone() };
 controls.addEventListener('change', ()=>{
   const t = controls.target;
-  t.x = Math.max(-34, Math.min(34, t.x));
-  t.z = Math.max(-28, Math.min(28, t.z));
+  /* ⚠️ 2026-10-09 扩范围：原来 z 只夹到 ±28、x 只到 ±34 —— 那是"园墙内 + 一点余量"。
+     现在**南墙外 z≈27.5~36.5 有马厩院子**（15-stable，中心 z=32）⇒ 旧范围会把所有
+     指向马厩的注视点**静默夹回 z=28**：① 「马厩」机位的 target(6,1.4,31) 被改成 28、
+     镜头实际看向院门口而不是厩身；② 用户双击马厩里的马/马车，焦点也被夹回、
+     永远推不近（这正是我这边"近景机位拍不到马、镜头朝北"的真因）。
+     ⇒ 放宽到含院外场院（x ±40 / z −30~38）；仍是"防拖到天外/地下"的护栏。 */
+  t.x = Math.max(-40, Math.min(40, t.x));
+  t.z = Math.max(-30, Math.min(38, t.z));
   t.y = Math.max(0.2, Math.min(16, t.y));
 });
 /* ── 双击聚焦（2026-10-08 · 老黄："始终无法有效地观察到院子四个角落的细节…这两颗梅花树

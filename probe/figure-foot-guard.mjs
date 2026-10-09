@@ -48,9 +48,11 @@ const SELFTEST = process.env.FIGURE_FOOT_SELFTEST === '1';
 /* 脚下面与脚底的允许偏差。标定：静态人物实测 0.003~0.006；散步者沿全程实测 ≤0.11
    （他走的是**廊道铺装**，比地形公式平，取常数 y 比跟地形更准）。0.15 留约 1.4 倍余量。 */
 const TOL = Number(process.env.FIGURE_FOOT_TOL || 0.15);
-const EXPECT_FIGS = 15;                     // 先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴（坐姿 3）
+const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴（坐姿 3）
                                             // + 看烟花的一家 5（2 大人 + 3 孩童，2026-10-05 春节烟花配套）
                                             // + 观鱼人（拱桥）+ 仕女（井边）（2026-10-05）
+                                            // + 马夫（南墙外马厩，2026-10-09 —— 他站在**马厩台基**上
+                                            //   而不是地形上，本门用"向下射线取真实命中面"量，所以照过）
 
 (async () => {
   const t0 = Date.now();
@@ -164,7 +166,7 @@ const EXPECT_FIGS = 15;                     // 先生 + 2 书童 + 品茗 + 夜�
     return { figs: out, walkerScan };
   }, SELFTEST);
 
-  check(`点景人物数量 = ${EXPECT_FIGS}（先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴 + 看烟花的一家 5 + 观鱼人 + 仕女）`,
+  check(`点景人物数量 = ${EXPECT_FIGS}（先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴 + 看烟花的一家 5 + 观鱼人 + 仕女 + 马夫）`,
     data.figs.length === EXPECT_FIGS, `实测 ${data.figs.length} 个：${data.figs.map(d => d.pose).join('、')}`);
 
   let worstGap = 0, worstWhere = '', waterHits = [];

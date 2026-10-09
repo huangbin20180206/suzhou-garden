@@ -1407,6 +1407,12 @@ function koiStartleOffset(lx, lz, tNow){
   return { x: cl.x, z: cl.z };
 }
 export { koiStartleOffset };
+/* 变速管（2026-10-09 导出给 15-stable.js 复用）：把 TubeGeometry 的每圈缩放到目标半径 ——
+   马/牛的躯干、脖颈、腿都是"沿曲线变径的管"，正是它做的事。
+   ⚠️ 它有一个**必须沿用**的实现细节：圈心用 `path.getPointAt(i/n)`（弧长参数化，
+      与 TubeGeometry 生成顶点时同一个函数），改用 getPoint() 会让圈心偏离中轴、
+      径向缩放变成"把整圈拍回轴上"（树干当年就是这么塌成刀片的）。 */
+export { tubeRadiusRamp };
 
 /* 惊扰"加速"信号：供调用方（如需给该鱼 d.speed 一个短暂加成）读取当前惊扰能量。
    本模块不直接改 11-loop 的 d.t（那是调用方的事），只暴露纯读的强度函数。 */

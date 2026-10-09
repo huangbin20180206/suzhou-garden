@@ -80,7 +80,7 @@
 /* 2026-10-08 花苞再缩小 + 腊梅调黄批次 bump v32→v33：改了 src/06-vegetation.js（花苞几何
    0.53→0.42 倍、实例缩放区间改成不再与花重叠、腊梅花色/枯色改成正黄）与 src/01-materials.js
    （腊梅自发光 0x96700A 琥珀金 → 0x8F8200 正黄）。 */
-const CACHE = 'suzhou-garden-v33';
+const CACHE = 'suzhou-garden-v34';
 const SHELL = [
   './',
   './index.html',

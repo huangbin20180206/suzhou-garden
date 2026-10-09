@@ -1,4 +1,4 @@
-# 布局指纹基线（T0）网格数=186 总指纹=1621870471
+# 布局指纹基线（T0）网格数=188 总指纹=1022579009
 # 采样条件：bootDonePromise 已 resolve → season=summer → hour=12.5 → ENV.t>=1 → settle 2 帧
 # 排除：name∈{mistField}、geom∈{RingGeometry}（动画驱动，非流产物）
 -|6|PlaneGeometry	首实例=0.00,0.00,0.00	hash=3755118789
@@ -24,6 +24,7 @@
 #3f6b34|9|BufferGeometry	首实例=0.05,0.16,0.00	hash=4106083976
 #4a2610|1|BoxGeometry	首实例=0.00,0.00,0.00	hash=1486284357
 #4a2610|1|BoxGeometry	首实例=0.00,0.00,0.00	hash=1486284357
+#4a2610|1|BoxGeometry	首实例=0.00,0.00,0.00	hash=1486284357
 #4a2610|20|BoxGeometry	首实例=-3.50,2.92,1.34	hash=238815653
 #4a2610|28|BoxGeometry	首实例=-5.00,2.92,1.34	hash=3010697893
 #4a2610|3|BoxGeometry	首实例=-1.88,0.00,0.00	hash=362337309
@@ -33,6 +34,7 @@
 #4a2610|3|BoxGeometry	首实例=-1.63,0.00,0.00	hash=377212829
 #4a2610|3|BoxGeometry	首实例=0.00,-0.72,0.00	hash=2203260613
 #4a2610|33|BoxGeometry	首实例=-9.94,-0.25,0.00	hash=3264193421
+#4a2610|4|BoxGeometry	首实例=-1.02,0.00,0.00	hash=3325031621
 #4a2610|4|BoxGeometry	首实例=0.00,-0.98,0.00	hash=3301398853
 #4a2610|4|BoxGeometry	首实例=0.00,-0.98,0.00	hash=3301398853
 #4a2610|44|BoxGeometry	首实例=-8.00,2.92,1.34	hash=707116133

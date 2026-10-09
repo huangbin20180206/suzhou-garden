@@ -21,6 +21,10 @@ import { makeFogBanks, makeCenserSmoke } from './06b-atmos.js';
 import { makeGround, makeDistantHills, makeWalls, makePaving, makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGeo } from './07-ground.js';
 import { makePond, makeBankRocks, makeArchBridge, makeSteppingStones, POND_RADII, markUnderwater, groundHeight } from './05-water.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildings.js';
+/* 15-stable（2026-10-09 · 老黄："院子外围做一个马厩：停 4 匹马、2 驾双轮马车、一个马夫喂草料"）：
+   建筑 + 马 + 马车 + 场院杂物整组在那个模块里；**马夫不在这里建** —— 人物工厂 makeScholar
+   就在本文件下方，马厩模块持有它会造成循环 import。这里只import 马厩整体与"手里的草料捆"。 */
+import { makeStable, makeFeedBale } from './15-stable.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles, makeDuckWakeTex } from './01-materials.js';
 import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS, makeWoodBucket, BUCKET_HANDLE_H, setGoPiecesVisible } from './14-props.js';
@@ -1036,6 +1040,20 @@ const D_SCHEDULES = [
     yaw: Math.atan2(PROP_SPOTS.well.x - PROP_SPOTS.ladyWell.x, PROP_SPOTS.well.z - PROP_SPOTS.ladyWell.z),
     s: 0.97, lady: true, leanX: 0.17, headDown: 0.42,
     h0: 7.5, h1: 12.0, stroll: null },
+  /* 马夫（2026-10-09 · 老黄："再设计一个马夫在帮忙给马喂草料或者帮马匹梳理毛皮"）。
+     · 站位：马厩台基上（y = 台基面 **0.14**）—— ⚠️ 这里**不能省 y 让 makeScholar 用
+       groundHeight**：台基面比它下面的地形高 0.5m 以上，人会陷进台基里（井边仕女那条同源教训）。
+       落点在院心那匹**低头就食**的马（world ≈ (6.9, 31.8)，头朝西）**西侧 1.4m**、
+       面朝 +x（yaw = π/2）⇒ 他的右手正对马嘴，读作"递草喂马"。
+     · 姿态 **'pointDown'**（只有右臂用 `down` 袖型：手相对肩"前 0.49 / 下 0.19"⇒ 离垂直 ~69°
+       = 手真的伸出去；左臂仍是负手）。⚠️ 第一版用 'take'（手相对肩只前 0.098 ⇒ 落在身侧），
+       出图判读是"**背手站着**，不像喂马" —— 这正是项目里"看肩→手的方向、别看手的绝对位置"
+       那条老教训（观鱼人/仕女都踩过）。手落点 (5.5+0.52, 0.14+0.965) ≈ (6.0, 1.10)，
+       与低头那匹马的嘴 (5.88, 0.94) 正对，草料捆垂下去刚好搭在嘴边。
+     · 手里挂一捆草料（attachFeedBale → 右手拢手球）。 */
+  { pose:'pointDown', skin:'ochre', x: 5.2, z: 31.75, y: 0.14,
+    yaw: Math.PI / 2, s: 0.96, leanX: 0.10, headDown: 0.34,
+    h0: 7.5, h1: 18.0, stroll: null, feed: true },
 ];
 D_SCHEDULES.forEach((d, i)=>{
   const fg = makeScholar({ x: d.x, z: d.z, y: d.y, yaw: d.yaw, s: d.s, pose: d.pose, skin: d.skin,
@@ -1046,6 +1064,7 @@ D_SCHEDULES.forEach((d, i)=>{
   world.add(fg);
   if (d.walk) attachWalker(fg);              // 巡游观鱼者：沿 WALK_PATH 走（见下面 driveWalkers）
   if (d.lady) attachWoodBucket(fg);          // 井边仕女：右手提一只木桶（老黄 A4）
+  if (d.feed) attachFeedBale(fg);            // 马夫：右手一捆草料（2026-10-09 马厩）
 });
 
 /* ══ 巡游观鱼者的行走驱动（2026-10-06 · 老黄反馈 B）· 函数部分 ══════════════════
@@ -1119,6 +1138,37 @@ function driveWalkers(dt){
       代价：5 个 draw call（桶身/底/两道箍/提梁各一个网格）—— 要能跟着人动就得付。
    ⚠️ 桶的尺度：BUCKET_R 0.095 / BUCKET_H 0.20（可提的实物尺度）。挂完桶底在
       她脚面上方约 0.68m（手 y ≈ 0.975 − 提梁 0.293），是"垂手提桶"的高度，不蹭地。 */
+/* 马夫手里的草料捆（2026-10-09 · 马厩）—— 与 attachWoodBucket **同一套挂法**：
+   取拢手球的**世界坐标**再转回 root 局部（刚 world.add 完、matrixWorld 由
+   getWorldPosition 现刷，不会是上一帧残值）。
+   ⚠️⚠️ **挂哪只手要跟着姿态走**（本轮踩到）：`makeScholar` 的袖型是按 `side` 分侧的 ——
+      `pointDown` 只让 **side > 0（局部 +x）**那条胳膊前伸，另一条仍是 'back'（负手在身后）。
+      `attachWoodBucket` 用的是 `x < 0`，那是为仕女的 'draw'（**两臂都前伸**）写的；马夫直接
+      照抄就把草料捆挂到了**背在身后的那只手**上 —— 出图判读原话："草料插在人物背后，
+      伸出去的手是空的"，喂马的动作直接散架。这里按 `x > 0` 取前伸的那只手。
+   ⚠️ 与木桶同一条硬约束：草料捆的全部网格 `noMerge` —— mergeStatics 会把它们并进
+      MAT.straw 的静态大网、世界矩阵烘死 ⇒ 人一动草料就留在原地。 */
+function attachFeedBale(root){
+  let hand = null;
+  root.traverse(o => {
+    if (hand || !o.isMesh || o.name !== 'scholarClump') return;
+    if (o.position.x > 0) hand = o;                 // +x 侧 = 'pointDown' 前伸的那条胳膊
+  });
+  if (!hand){
+    console.warn('[马夫] 找不到前伸手的拢手球（scholarClump），草料捆未挂');
+    return null;
+  }
+  const local = root.worldToLocal(hand.getWorldPosition(new THREE.Vector3()));
+  const b = makeFeedBale();
+  b.name = 'propFeedBaleHand';
+  b.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
+  /* 捆的原点在**捆腰**（makeFeedBale 里草茎从 −0.10 到 +0.14）⇒ 让它落在手心里：
+     手 y ≈ 0.96（'take' 点列的拢手球高度）⇒ 捆心与手同高，草茎上下各露一截。 */
+  b.position.copy(local);
+  b.rotation.set(0.25, 0.4, 0.15);
+  root.add(b);
+  return b;
+}
 function attachWoodBucket(root){
   let hand = null;
   root.traverse(o => {
@@ -2730,6 +2780,17 @@ const DUCK_ORBITS = [0, 6, 2, 3];
   .forEach(([x, z, by]) => deferBoot('兰@' + x + ',' + z,
     () => deferRoot.add(makeOrchidPot(x, z, by))));
 
+/* ══ 马厩（2026-10-09 · 老黄："在院子的外围区域设计一个马厩，用于主人的出行或者客人到访，
+      需要做一个可以停 4 匹马匹的马厩，2 驾 2 轮马车（2 匹马拉），再设计一个马夫在帮忙给马
+      喂草料或者帮马匹梳理毛皮"）══════════════════════════════════════════════════════
+   落点 (6, 32)：**实测挑的**（outputs/_diag/stable-flat.mjs 扫南墙外 x −18~20 / z 25~34
+   的每个候选，按 16×9 足迹的地形高差排序）—— (6,32) 高差 0.383 是全场最平之一；
+   baseY = 足迹最高地形(0.038) + 0.10 = **0.14**：台基顶比最高处再高 10cm（地面不会戳穿台面），
+   而台基厚 1.1m ⇒ 底 −0.96 比足迹最低处(−0.384)还低 0.6m，**坡上也不会悬空**。
+   z 32 离南墙 9.5m、x 6 紧邻月洞门（x=0）东侧 —— 主人出门/客人到访从月洞门进出最顺。
+   延迟装配用 deferBootFirst（大件、又不依赖别的东西，插队先建）。 */
+deferBootFirst('马厩', () => deferRoot.add(makeStable(6, 32, { baseY: 0.14 })));
+
 // 青竹丛（沿墙根密植，四角加倍）—— P1-4 延迟装配（竹竿几何 + 叶实例，量最大）
 // 北排只保留主堂檐口以外的位置，并整体退到 z=-20 以内，避免竹叶穿出围墙内壁（22.2）
 [[-25.5, -20.0, 22], [-21.0, -20.0, 18], [-17.0, -20.1, 24], [-14.5, -20.0, 20],
@@ -3202,6 +3263,13 @@ export const VIEWPOINTS = (()=>{
       pos: new THREE.Vector3(18.63, 2.9, -13.66), target: new THREE.Vector3(22.5, 2.6, -16.5), minDist: 1.2 },
     { id:'plumYellow', label:'腊梅',
       pos: new THREE.Vector3(-19.61, 2.9, 14.19), target: new THREE.Vector3(-23.5, 2.6, 17.0), minDist: 1.2 },
+    /* 「马厩」机位（2026-10-09）：马厩在**南墙外 (6, 32)**，默认机位在园内朝北 ⇒ 完全看不到，
+       所以必须给一个入口（否则这个功能用户找不到）。
+       机位选在**园内北侧、高处越过南墙俯看**：pos(0, 9, 20) → target(6, 1.4, 31)。
+       视线在 z=22.5（南墙）处的高度 = 9 − 7.6×0.227 = **7.27m**，比墙顶 4.5m 高 2.8m
+       ⇒ 从园内越过墙看进马厩院子，构图是"墙外有厩"而不是贴墙拍砖。 */
+    { id:'stable', label:'马厩',
+      pos: new THREE.Vector3(0, 9, 20), target: new THREE.Vector3(6, 1.4, 31), minDist: 3.0 },
     /* 「看彩虹」机位（**2026-10-06 重挑**，取代 2026-10-01 的旧口径）：
        老黄要的是"雨后初晴 + 一道跨越全园的彩虹"，所以这是一个**一键情境机位**
        （面板「看彩虹」按钮，见 12-env 的 data-view 分支：先把场景设成 暮色·雨后初晴 再飞）。

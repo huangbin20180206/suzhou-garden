@@ -602,6 +602,16 @@ export const MAT = {
   // 用**存在性通道**换画而不是运行时换 map —— 复用"存在性每帧重申"机制，不必在 applyEnv 里加分支。
   scrollArtCool: new THREE.MeshStandardMaterial({ map: _inkTex, color: 0xBFD2D8, roughness: 0.90, metalness: 0.0 }),
   scrollArtWarm: new THREE.MeshStandardMaterial({ map: _inkTex, color: 0xD8C39A, roughness: 0.90, metalness: 0.0 }),
+  /* ── 马厩 / 马 / 马车（2026-10-09 · 老黄："院子外围设计一个马厩，停 4 匹马、2 驾双轮马车、
+        一个马夫在喂草料/梳理毛皮"）──
+     马是**程序化低模**（与点景人物、水禽同一路数，零外部资产）：靠**毛色差异**读成 4 匹不同的马 ——
+     骝（栗）/ 骊（黑）/ 骕（白），鬃、尾、蹄统一深褐（真实马也多是"深鬃浅身"）。 */
+  horseChestnut: new THREE.MeshStandardMaterial({ color: 0x7A4423, roughness: 0.86, metalness: 0.0, envMapIntensity: 0.35 }),
+  horseBlack:    new THREE.MeshStandardMaterial({ color: 0x302A26, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.35 }),
+  horseWhite:    new THREE.MeshStandardMaterial({ color: 0xD9D3C6, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.35 }),
+  horseMane:     new THREE.MeshStandardMaterial({ color: 0x2E241C, roughness: 0.92, metalness: 0.0, envMapIntensity: 0.30 }),
+  straw:         new THREE.MeshStandardMaterial({ color: 0xC7B173, roughness: 0.95, metalness: 0.0, envMapIntensity: 0.30 }),
+  harness:       new THREE.MeshStandardMaterial({ color: 0x53341E, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.35 }),
 };
 Object.values(MAT).forEach(m => registry.mats++);
 
@@ -713,6 +723,11 @@ export function registerWeatherRoles(mat, { snow = 0, wet = 0 } = {}){
 registerWeatherRoles(MAT.leaf,     { snow: 1 });
 registerWeatherRoles(MAT.leafDeep, { snow: 1 });
 registerWeatherRoles(MAT.willowLeaf, { snow: 1 });   // 雪压柳帘
+/* 马厩新增材质（2026-10-09）：马的背/草料堆/马车木件都该落雪、都能打湿
+   （⚠️ 必须在 SNOW_COVER_MATS 声明**之后**调用 —— registerWeatherRoles 里读那张表，
+      在它之前调会撞 TDZ，症状是启动即炸）。 */
+for (const m of [MAT.horseChestnut, MAT.horseBlack, MAT.horseWhite, MAT.horseMane, MAT.straw, MAT.harness])
+  registerWeatherRoles(m, { snow: 1, wet: 1 });
 /* 竹帘也是户外陈设：雪要积在竹篾上、雨要把它打亮（同 14-props 的 porcelain/celadon 那一批）。
    ⚠️ 登记**只能在这里**、不能塞进上面的 MAT 字面量：registerWeatherRoles 会碰 SNOW_COVER_MATS，
    而那张表声明在 MAT **之后** ⇒ 写在字面量里是 TDZ，启动即炸（本轮实测踩到：
