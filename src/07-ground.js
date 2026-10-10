@@ -11,7 +11,14 @@ import { mesh, makeWallRun, makeWallCap, box } from './03-factory.js';
 export function makeGround(){
   const g = new THREE.Group();
   const W = CFG.garden.w, D = CFG.garden.d;
-  const geo = new THREE.PlaneGeometry(W + 26, D + 26, 48, 40);
+  /* ⚠️⚠️ 2026-10-10 草皮**东扩**（老黄："扩大外部草皮的面积，让马厩建在草皮上"）：
+     旧尺寸 W+26 × D+26 = 86×71m（地面只到 x=±43 / z=±35.5），而马厩移到**东侧院外
+     (40,−2)** 后足迹要到 x=44.5 ⇒ 会压在地面边缘外（露出悬空的边）。
+     扩到 **W+44 × D+34 = 104×79m**（x=±52 / z=±39.5）：院外东侧留出 ~7m 草皮，
+     南侧也顺带更宽裕。贴图 repeat 按面积同步放大（12,10 → 14.5,11），
+     否则草叶色块会跟着变大（贴图是"一格 7.2m"调出来的尺度感）。
+     分段数 48×40 → 56×48：顶点间距仍 ~1.8m，最短波长 8.5m 的那档顶点色仍有 ~4.7 采样/周期。 */
+  const geo = new THREE.PlaneGeometry(W + 44, D + 34, 56, 48);
   geo.rotateX(-Math.PI/2);
   const p = geo.attributes.position;
   for (let i = 0; i < p.count; i++){      // 自然微起伏 + 池内下挖（保证不冒出水面）
@@ -61,7 +68,7 @@ export function makeGround(){
   }
   geo.setAttribute('color', new THREE.BufferAttribute(col, 3));
   const gt = groundTex.clone();
-  gt.needsUpdate = true; gt.repeat.set(12, 10);   // 配合 1024² 多尺度贴图，让色块有明显的尺寸感
+  gt.needsUpdate = true; gt.repeat.set(14.5, 11);   // 配合 1024² 多尺度贴图，让色块有明显的尺寸感（随草皮东扩同步，保持"一格 ≈7.2m"）
   const mat = registerSeasonTint(MAT.grass.clone(), 'tinGrass'); mat.map = gt;
   mat.vertexColors = true;                        // 缺这行上面那层顶点色会被整层忽略
   registerWeatherRoles(mat, { snow: 1, wet: 1 });    // 地面是最大的一块可见面，必须进雪/湿表
