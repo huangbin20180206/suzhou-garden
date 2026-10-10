@@ -14,6 +14,18 @@
   html,body{width:100%;height:100%;overflow:hidden;background:#D8DCDA;
     font-family:"Songti SC","SimSun","Noto Serif SC",serif}
   #app{position:fixed;inset:0}
+  /* ⚠️⚠️ 2026-10-10：画布**必须有自己的一层不透明底色**。
+     为什么：three r184 申请 WebGL 上下文时把 `alpha` **硬写成 true**
+     （vendor.js 里是 `let S={alpha:!0,depth:a,...}`，与构造参数里的 alpha 无关），
+     也就是说这个画布**天生允许透明**。于是只要某一帧有哪个区域**没被画到**
+     （viewport/合成层面的意外，见下），那块就 α=0、直接**透出网页底色 #D8DCDA** ——
+     观感就是"一大块惨白的屏幕"。老黄 2026-10-10 报的正是这个：
+     他那张截图里那块白的颜色**逐像素等于 #D8DCDA**（216,220,218，整块只有这一个颜色、
+     完美轴对齐矩形、无边框无内容），而 body 底色就是 #D8DCDA ⇒ 不是场景里的东西。
+     给画布一层深色底之后：同样的意外只会留下**一块暗斑**（夜里几乎看不出），
+     而不是一块惨白。⇒ 这是**兜底**，不是修复；根因（哪块区域为什么没被画到）仍待定位。
+     ⚠️ 只改 CSS 背景，不动画布像素 —— 读画布取像素的路径（明信片/长曝光）不受影响。 */
+  #app canvas{background:#0B0E12}
   canvas{display:block;width:100%;height:100%}
   /* UI 可读性：文字浮在"任意背景"上，只调字色永远不稳（正午雾色算出的 luminance 是 0.724，
      旧的 dark<0.10 判据几乎从不成立，于是永远是 34% 白底 + 深灰字 + 标签 opacity .66，
@@ -265,6 +277,7 @@
   #env button[data-view="plumRed"]::before{ color:#C0392B; }                     /* 红梅 · 梅红 */
   #env button[data-view="plumYellow"]::before{ color:#C9A227; }                  /* 腊梅 · 蜡黄 */
   #env button[data-view="stable"]::before{ color:#8C6A3F; }                       /* 马厩 · 鞍棕 */
+  #env button[data-view="stableNear"]::before{ color:#A87C4A; }                   /* 厩内 · 浅鞍棕 */
   #env button[data-act="season-demo"]::before{ color:#DB5E92; }                  /* 四季 · 桃红 */
   #env button[data-act="tour"]::before{ color:#3F76AE; }                         /* 巡游 · 靛蓝 */
   #env button[data-act="reel"]::before{ color:#D9862C; }                         /* 流转 · 暖橙 */
@@ -767,6 +780,10 @@
       <!-- 马厩（2026-10-09）：南墙外的马厩院子（4 匹马 + 2 驾双轮马车 + 马夫）。
            它开在**墙外**，默认机位在园内朝北根本看不见 ⇒ 这个按钮是这个功能的唯一入口。 -->
       <button data-view="stable">马厩</button>
+      <!-- 厩内近观（2026-10-10 · 老黄："马厩无法近距离观察，可以设置一个专门的观察机位吗？"）：
+           站位在院门外、视线正好从院门穿进院场（门框把院场框住），minDist 放开到 1.2
+           ⇒ 进来之后还能一路推到马与马车跟前。与「马厩」（越墙远看）互为远近两档。 -->
+      <button data-view="stableNear" aria-label="进马厩院近距离观察" title="厩内：站院门口看院场，可一路推到马与马车跟前（0 后面的那个键）">厩内</button>
       <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
       <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>

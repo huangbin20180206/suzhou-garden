@@ -87,7 +87,10 @@
 /* 2026-10-10 流星雨批次 bump v35→v36：改了 SHELL 成员 index.html（「陈设」行加「流星雨」按钮 +
    图标色 + 快捷键提示 `;`），并新增 src/12b-sky.js 的流星雨段（src/*.js 不在 SW 缓存里、本不影响，
    但 SHELL 成员变了必须升版，让已装 SW 的浏览器换缓存）。 */
-const CACHE = 'suzhou-garden-v36';
+/* 2026-10-10 bump v37→v38：改了 SHELL 成员 index.html —— 给画布加一层不透明底色
+   （`#app canvas{background:#0B0E12}`；原因见 index.html 里那段注释：three r184 申请上下文时
+   alpha 恒为 true ⇒ 画布"没被画到的区域"会 α=0 透出网页底色 #D8DCDA，观感就是一大块惨白）。 */
+const CACHE = 'suzhou-garden-v38';
 const SHELL = [
   './',
   './index.html',
