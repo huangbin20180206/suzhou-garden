@@ -761,6 +761,13 @@ const MT_N = 30;                                   // 同时在飞的条数上�
    一道亮痕压在山脊前读作"流星划过山脊上方"，观感成立 ✓ 优于"什么都看不到"。 */
 const MT_R = 96;
 const MT_K = MT_R / 360;
+/* 单条亮痕的亮度 × 出口限幅（2026-10-10 修"大面积白屏"定的两个常数）：
+   加法混合下屏幕贡献 = vC × a，而 a 的峰值是 3.4（片元的 core×tail×head 在头部取到）
+   ⇒ **芯亮度 ≈ MT_BR_HI × 3.4**。夜里 bloom 阈值 0.90、强度 0.50：芯一旦远超 1.0，
+   光晕就被最大一级 mip 铺满整幅（见 mtSpawn 里那段实测表）。
+   取 0.62 ⇒ 芯 ≈ 2.1（够白：ACES 后 ≈ 241/255），再叠 MT_CEIL=1.8 的出口限幅兜住极端。 */
+const MT_BR_LO = 0.30, MT_BR_HI = 0.62, MT_CEIL = 1.8, MT_FB_MUL = 1.6;
+const MT_BR_MAX = MT_BR_HI * MT_FB_MUL;      // 单条最亮（火流星）—— 门禁按它守上限
 const _mtStart = new Float32Array(MT_N).fill(-1e9);
 const _mtPos = new Float32Array(MT_N * 3);
 const _mtDir = new Float32Array(MT_N * 3);
@@ -835,15 +842,26 @@ function mtSpawn(tNow){
   }
   /* 亮火流星约 7%（资料："很亮的火流星"才容易看出颜色）；速度/长度/粗细/寿命/亮度逐条抽。
      ⚠️ 世界尺度全部乘 MT_K（半径缩进来的换算）⇒ 角尺寸/角速度与 r=360 版一致。
-     ⚠️ 亮度 2026-10-10 上调（实测第一版"切实例数只影响 27 个像素、最亮 23/765" ⇒
-        谈不上"壮丽"）：基础 0.55~1.15 → **0.85~1.75**，火流星 ×2.2 → **×2.4**；
-        淡出窗口同时收短（片元里 0.60 → 0.72），让"亮着"的时间更长。 */
+     ⚠️⚠️ 亮度 2026-10-10 **第二次**修正（老黄报的 bug："任何一个季节的流星雨都会出现大面积
+        的无规则闪烁白屏幕"）。上一版为了"壮丽"把基础亮度从 0.55~1.15 提到 **0.85~1.75**、
+        火流星 ×2.4 ⇒ 单条亮痕的**加法贡献 = vC × a** 最高 **14.3**（火流星）—— 而夜里 bloom
+        的阈值只有 **0.90**、强度 0.50 ⇒ 亮痕把 bloom 顶爆，**最大那一级 mip 把光晕铺满整幅**
+        （取证 outputs/_diag/bloom-repro-many.mjs：把"亮痕 + bloom"这条链单独复刻出来量整幅平均亮度）
+            原式 同时 15 条 ⇒ **46**；30 条 ⇒ **75.7**；30 条全火流星 ⇒ **170.7**
+                  （= 满屏白。产品常态 5~8 条、阵发 12~15 条 ⇒ 一进流星雨就白屏；流星一亮一灭
+                    ⇒ 整幅跟着脉动 = 老黄说的"无规则闪烁"）
+            修正后 同时 15 条 ⇒ **7.9**；30 条 ⇒ **14.1**（而亮痕芯仍是 237/255 = 白）
+        ⇒ 根因是**亮度被双重计入**（一次进颜色 vC、一次进 alpha a；加法混合下贡献 = vC×a），
+          于是"调亮度"实际是**平方级**地推 bloom。现在基础亮度回到 **0.30~0.62**、火流星 ×1.6
+          （最高 0.99 ⇒ 芯 ≈3.4，被出口限幅压住），并给出口加**限幅**（见片元 shader 的 uCeil）。
+        ⚠️ 条数（"壮丽"）**没动** —— 该砍的是单条亮度而不是密度：芯亮到 237 与 250 肉眼无差，
+          但 bloom 的进料差一个数量级。 */
   const fb = _mtr() < 0.07;
   const c = mtPickColor(fb ? mtR(0.07, 0.15) : 0);
   const spd = mtR(85, 210) * MT_K * (fb ? 1.25 : 1);
   const len = spd * mtR(0.16, 0.34) * (fb ? 1.8 : 1);
   const wid = mtR(1.4, 3.2) * MT_K * (fb ? 1.7 : 1);
-  const br = mtR(0.85, 1.75) * (fb ? 2.4 : 1);
+  const br = mtR(MT_BR_LO, MT_BR_HI) * (fb ? MT_FB_MUL : 1);
   const back = mtR(20, 90) * MT_K;                // 出生点沿方向后移（从画面外一点点飞进来）
   _mtPos[i*3] = px - _mtTmp.x * back;
   _mtPos[i*3+1] = py - _mtTmp.y * back;
@@ -865,7 +883,7 @@ function mtSpawn(tNow){
     uT: { value: 0 }, uStart: { value: _mtStart },
     uPos: { value: _mtPos }, uDir: { value: _mtDir }, uCol: { value: _mtCol },
     uLife: { value: _mtLife }, uSpd: { value: _mtSpd }, uLen: { value: _mtLen },
-    uWid: { value: _mtWid }, uBr: { value: _mtBr },
+    uWid: { value: _mtWid }, uBr: { value: _mtBr }, uCeil: { value: MT_CEIL },
   };
   _mtU = u;
   const mat = new THREE.ShaderMaterial({
@@ -907,6 +925,7 @@ function mtSpawn(tNow){
         gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
       }`,
     fragmentShader: `
+      uniform float uCeil;
       varying vec2 vUv; varying vec3 vC; varying float vA;
       void main(){
         float k = vUv.x;
@@ -915,7 +934,15 @@ function mtSpawn(tNow){
         float head = 1.0 + 2.4 * exp(-(1.0 - k) * 9.0);        /* 头更亮（流星招牌） */
         float a = core * tail * head * vA;
         if (a <= 0.004) discard;
-        gl_FragColor = vec4(vC, a);
+        /* ⚠️⚠️ 2026-10-10 修"大面积无规则闪烁白屏"：出口**限幅**。
+           原式是 vec4(vC, a) —— 加法混合（SrcAlphaFactor/OneFactor）下屏幕贡献 = vC × a，
+           所以亮度被算了两次，火流星峰值能到 14.3，而 bloom 阈值只有 0.90 ⇒ 光晕铺满整幅。
+           现在把**已乘完 alpha 的颜色**（= 真正的屏幕贡献）限到 uCeil，并把 alpha 置 1
+           （贡献 = rgb 本身，与原来逐字等价、只是被限住）。
+           取值依据（同上取证表）：限到 1.8 后亮痕芯仍是 237~244/255（肉眼照旧是"白"），
+           而 15 条同时在场时整幅平均亮度从 46 掉到 7.9。 */
+        vec3 c = min(vC * a, vec3(uCeil));
+        gl_FragColor = vec4(c, 1.0);
       }`,
   });
   const im = new THREE.InstancedMesh(geo, mat, MT_N);
@@ -963,7 +990,10 @@ export function meteorState(){
   return { on: M.on, force: M.force, t: +M.t.toFixed(2), spawned: M.spawned, bursts: M.bursts,
            fireballs: M.fireballs, active: list.length, list: list.slice(0, 10),
            radiant: MT_RADIANT[ENV.season] || MT_RADIANT.summer, mesh: !!_mtMesh,
-           count: _mtMesh ? _mtMesh.count : -1 };
+           count: _mtMesh ? _mtMesh.count : -1,
+           /* 亮度上限三件套（2026-10-10 修"白屏"）：门禁按这三条守，别再靠调大它们找"壮丽"。
+              peakRadiance = 单条亮痕在屏幕上的最大加法贡献（vC × a），必须 ≤ ceil（被限幅压住）。 */
+           brLo: MT_BR_LO, brHi: MT_BR_HI, ceil: MT_CEIL, peakRadiance: +(MT_BR_MAX * 3.4).toFixed(3) };
 }
 export function tickMeteors(dt){
   const M = METEORS;

@@ -285,14 +285,12 @@ const check = (name, ok, detail = '') => {
        ③ `page.screenshot()` 开↔关对照：**不是冻结帧**（两张相隔近 1 秒，云/雾/水/风全在动），
           负例自检实测 62.8 万像素差 ⇒ 这条判据量的是"场景在动"而不是流星；
        ④ 门禁自己写 12 条确定性流星再拍：仍只有 25 亮像素（被 ③ 的噪声淹没）。
-     ⇒ 结论：本无头环境里没有可用的自动化像素判决；**像素贡献由留档截图人工核对**
+     ⇒ 结论：本无头环境里没有可用的**局部**像素判决；**流星画了没有**由留档截图人工核对
         （outputs/_diag/meteor-show/a.png · b.png —— 四轮出图都清楚看到 4~6 条流星、
-        头亮尾淡、辐射感正确、无过曝）。本门只守 11 条**结构性**判据：
-        门控（正午/夜晴/暴雨/雪/薄雾）+ 四季都有 + 辐射点随季节 + 落在画面里 + 前提 + 零报错。
+        头亮尾淡、辐射感正确）。本门守 11 条结构性判据 + §7 的**整幅平均亮度**上限
+        （白屏是整幅效应，均值口径在无头环境里信噪比很高，见 §7 的注释）。
      ⚠️ 这是一条**如实记录的边界**，不是"忘了写"：真机（有 GPU）上若要做像素断言，
      请用项目标准的冻结帧法并**先自证可复现**，再决定阈值。 */
-
-  /* ── ⑦ 落在画面里（相机抬不起来 ⇒ 必须按 NDC 出生）──────────────────── */
 
   /* ── ⑦ 落在画面里（相机抬不起来 ⇒ 必须按 NDC 出生）──────────────────── */
   const proj = await page.evaluate(() => {
@@ -317,6 +315,95 @@ const check = (name, ok, detail = '') => {
   check('流星落在画面里（在家机位下头部投影在框内的比例 ≥50% —— 相机抬不起来，必须按 NDC 出生）',
     proj.n > 0 && proj.inFrame / proj.n >= 0.5,
     `${proj.inFrame}/${proj.n} 在框内 · 样本 ${JSON.stringify(proj.sample)}`);
+
+  /* ── ⑨ 亮度上限：单条亮痕的加法贡献必须被"出口限幅"压住 ──────────────────
+     老黄 2026-10-10 报的是"任何一个季节的流星雨都会出现大面积的无规则闪烁白屏幕"；
+     与本门这条不同的是 —— 我用小 repro（outputs/_diag/bloom-repro-many.mjs）复现出的是
+     "亮痕把 bloom 顶爆、光晕铺开"这一条链，而在**产品真场景**里量到的量级小得多
+     （见下表的实测值）。所以这条判据**不自称**守住了那个白屏 —— 它守的是"亮度别再把
+     bloom 顶爆"这条**已经被量实的**过亮问题，白屏那条另有专项（见交付说明）。
+     机制：加法混合下屏幕贡献 = vC × a ⇒ **亮度被算了两次**（一次进颜色、一次进 alpha），
+     而 bloom（夜档 阈值 0.90 / 强度 0.50）会把亮痕放大一个数量级。
+     ⚠️ 与 §6 的取舍不同：这条判据取**整幅平均亮度**（不是局部热点）—— §6b 记的四条失败
+        记录都是"局部口径在本无头环境里量不到"，而这条量的是整幅效应，信噪比足够。
+     ⚠️ 做法：把 15 条**确定性流星**直接写进 uniform（绕开产品的随机排程 ⇒ 可复现），
+        并在**同一个 evaluate 任务内**连渲两张取第二张（项目既有纪律：状态写入后的首帧会变样）。
+     ⚠️ 放在最后跑：它会写流星的全部 uniform（含 uStart），跑完就把这一层的状态搅了 ——
+        放中间会把后面"落在画面里"那条判据的取样搅空（2026-10-10 实测：先跑它 ⇒ 那条报 0/0）。
+     ⚠️ 牙齿：把亮度换回 4.2 必须被这条判据抓到。 */
+  const bright = await page.evaluate(() => {
+    const G = window.__garden, T = G.THREE;
+    let mesh = null;
+    G.scene.traverse(o => { if (!mesh && o.name === 'meteorShower') mesh = o; });
+    if (!mesh) return { err: '没找到 meteorShower' };
+    const u = mesh.material.uniforms;
+    const N = u.uStart.value.length;
+    const st = G.meteorState();
+    const cv = document.createElement('canvas');
+    cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+    const ctx = cv.getContext('2d', { willReadFrequently: true });
+    const meanOf = () => {
+      ctx.drawImage(G.renderer.domElement, 0, 0);
+      const d = ctx.getImageData(0, 0, cv.width, cv.height).data;
+      let s = 0;
+      for (let i = 0; i < d.length; i += 4) s += 0.2126 * d[i] + 0.7152 * d[i+1] + 0.0722 * d[i+2];
+      return s / (d.length / 4);
+    };
+    /* 15 条合成流星：位置/朝向按产品的量级给（len 12m、wid 0.7m —— 产品真值是 len 3.6~19、
+       wid 0.37~0.85，取中段），仰角 15~20°、方位 ±31° ⇒ 都在画面里。 */
+    const M = 15, life = 0.9, spd = 40, len = 12, wid = 0.7;
+    const cam = G.camera.position.clone();
+    const writeSet = (br) => {
+      for (let i = 0; i < N; i++){
+        const on = i < M;
+        u.uStart.value[i] = on ? 0 : -1e9;
+        const k = i / Math.max(1, M - 1);
+        const az = -0.55 + k * 1.10, el = 0.26 + (i % 3) * 0.07;
+        u.uPos.value[i*3]     = cam.x + Math.sin(az) * Math.cos(el) * 96;
+        u.uPos.value[i*3 + 1] = cam.y + Math.sin(el) * 96;
+        u.uPos.value[i*3 + 2] = cam.z - Math.cos(az) * Math.cos(el) * 96;
+        const d2 = new T.Vector3(1 - 2 * (i % 2), 0.15 * ((i % 3) - 1), 0.1).normalize();
+        u.uDir.value[i*3] = d2.x; u.uDir.value[i*3+1] = d2.y; u.uDir.value[i*3+2] = d2.z;
+        u.uCol.value[i*3] = 1; u.uCol.value[i*3+1] = 1; u.uCol.value[i*3+2] = 1;
+        u.uLife.value[i] = life; u.uSpd.value[i] = spd; u.uLen.value[i] = len;
+        u.uWid.value[i] = wid;   u.uBr.value[i]  = on ? br : 0;
+      }
+      u.uT.value = life * 0.5;                 // 生命中期：vA=1、亮度拉满
+      mesh.count = M;
+    };
+    const measure = (br, hide) => {
+      writeSet(br); mesh.visible = !hide;
+      G.composer.render(); G.composer.render();   // 状态写入后的首帧可能不同 ⇒ 取第二张
+      return meanOf();
+    };
+    const base  = measure(0.01, true);         // 基准：这一层几乎不可见
+    const fixed = measure(st.brHi, false);     // 现状（产品自己的 brHi）
+    const old   = measure(4.2, false);         // 缺陷版
+    /* 跑完把这一层交回给 tick：uStart 全清 ⇒ 下一帧自然按门控重新排程（不污染后续） */
+    for (let i = 0; i < N; i++) u.uStart.value[i] = -1e9;
+    mesh.count = 0; mesh.visible = true;
+    return { base: +base.toFixed(2), fixed: +fixed.toFixed(2), old: +old.toFixed(2),
+             dFixed: +(fixed - base).toFixed(2), dOld: +(old - base).toFixed(2),
+             brHi: st.brHi, ceil: st.ceil, peakRadiance: st.peakRadiance, M };
+  });
+  /* 预算按**产品真场景**实测定（outputs/_diag/bloom-in-product.log，1200×700、夜·晴）：
+     br 0.62 ⇒ Δ1.71 ｜ br 1.75（旧标称上限）⇒ Δ5.44 ｜ br 4.2 ⇒ Δ9.48。
+     取 3.0：现状 1.71 有余量，而"把亮度抬回 1.75"就会顶红（5.44 > 3.0）—— 这才是有牙的位置。 */
+  const BUDGET = 3.0;
+  if (bright.err){
+    check('亮度上限：能读到流星网格与 uniform', false, bright.err);
+  } else {
+    const eff = Math.min(bright.peakRadiance, bright.ceil);
+    check('亮度上限：单条亮痕的有效加法贡献被出口限幅压住（min(峰值, 限幅) ≤ 1.9）',
+      eff <= 1.9,
+      `峰值 ${bright.peakRadiance}（= brHi ${bright.brHi} × 3.4）· 限幅 ${bright.ceil} · 有效 ${eff.toFixed(2)}`);
+    check(`亮度上限：15 条流星在场时整幅平均亮度抬高 ≤ ${BUDGET}（br1.75 实测 +5.44、br4.2 实测 +9.48）`,
+      bright.dFixed <= BUDGET,
+      `基准 ${bright.base} → 现状 ${bright.fixed}（Δ ${bright.dFixed}）`);
+    check('亮度上限的负例自检：把亮度换回缺陷版 4.2 必须被这条判据抓到（有牙）',
+      bright.dOld > BUDGET * 2,
+      `缺陷版 Δ ${bright.dOld}（基准 ${bright.base} → ${bright.old}）`);
+  }
 
   check('全程零 pageerror / console error', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');
