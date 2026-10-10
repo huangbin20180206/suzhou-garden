@@ -162,7 +162,13 @@ if (AO_ENABLED){
   gtao.render = function (...args){
     for (let i = 0; i < aoSkipped.length; i++) gtaoPrevVis[i] = aoSkipped[i].visible;
     for (const m of aoSkipped) m.visible = false;
-    /* 相机下挂的镜头粒子（镜前雨帘/雪粒）不在 world 里，走 AUX_PASS_HIDDEN 单独存/还原 */
+    /* 相机下挂的镜头粒子（镜前雨帘/雪粒）不在 world 里，走 AUX_PASS_HIDDEN 单独存/还原。
+       ⚠️⚠️ 2026-10-10 踩过的坑（真 bug，值得写在这里）：`auxPrev` 是在**隐藏 aoSkipped 之后**
+       才抓的 ⇒ 任何**同时**出现在 `aoSkipped`（带 userData.aoSkip 且在 world/scene 里）和
+       `AUX_PASS_HIDDEN` 里的对象，被抓到的状态是 false，最后一行还原时又把它写回 false
+       —— 于是"跑过一次 AO pass 之后**永久不可见**"。实测：流星雨那层切几次天气/季节就再也
+       不出现（`visible:false`、实例数 30、有效期内的槽位 7 个，却 0 像素）。
+       ⇒ **一个对象只能进一个名单**；两个名单都要参与的话，必须把 `auxPrev` 改到隐藏**之前**抓。 */
     const auxPrev = AUX_PASS_HIDDEN.map(o => o.visible);
     for (const o of AUX_PASS_HIDDEN) o.visible = false;
     /* ⚠️ 辅助 pass 期间还要把两件事按下去：

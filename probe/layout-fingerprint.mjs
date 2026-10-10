@@ -115,7 +115,9 @@ async function sample(page, { poke = false } = {}){
      （那条红是"新实例网格让网格计数 +1"，不是随机流漂）。
      ⚠️ 教训：换渲染载体（Points→InstancedMesh）之后**必须复跑这条门** —— 我当时只跑了 check
      与 fireworks-guard，漏了它，于是这个红一直挂到下一次跑 verify:quick 才暴露。 */
-  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke', 'fireworks']);
+  /* ⚠️ meteorShower（2026-10-10）：流星雨的实例矩阵**恒为单位阵**（位置在顶点着色器里按
+     uPos/uDir/uSpd 算），与 mistField / fireworks 同一类 —— 矩阵里没有布局信息 ⇒ 同排除。 */
+  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke', 'fireworks', 'meteorShower']);
     const EXCLUDE_GEOM = new Set(['RingGeometry']);
     const rows = [];
     let global = 0;

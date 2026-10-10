@@ -713,3 +713,284 @@ export function tickFireworks(dt){
     amb.color.copy(FW_AMB0); hemiLight.color.copy(FW_HS0); hemiLight.groundColor.copy(FW_HG0);
   }
 }
+
+/* ══ 流星雨（2026-10-10 · 老黄："再加一个比较吸引人的场景 -- 流星雨，四季都有，晴朗的夜间
+      设计一场壮丽的流星雨"，并给了江南流星雨的资料）════════════════════════════════
+   ── 资料 → 参数（每条都能对上，不是随手填的）────────────────────────────────
+     · "单颗流星（偶发）四季都有；**流星雨**由地球每年过不同尘埃带决定 ⇒ 有季节性"
+       老黄要**四季都有** ⇒ 不设季节门槛；但**辐射点按季节挪**（夏=英仙座 / 秋=猎户座 /
+       冬=双子座 / 春=天琴座，方位与高度按江南约 31°N 后半夜的真实情况给）⇒
+       哪个季节看都像"那一季该有的那场雨"。
+     · "同一场雨从同一个**辐射点**向外辐射、速度范围接近" ⇒ 每条流星的方向 = 从辐射点向外，
+       速度取同一档（±40% 抖动）。
+     · "亮度/长度/速度/颜色各不相同" ⇒ 长度·粗细·速度·寿命·亮度逐条独立抽。
+     · "白/黄白最常见，绿-蓝绿（镁）次之，黄橙（钠）、红橙（铁/钙/高层大气）较少；
+        肉眼多数只读成一道白线，**只有很亮的火流星才比较容易看出颜色**"
+       ⇒ 加权取色（白 45 / 黄白 25 / 绿-蓝绿 15 / 黄橙 10 / 红橙 5），且**火流星更饱和**。
+     · "后半夜到黎明前最好" ⇒ 门槛用 starAmount（本项目现成的"夜色深度"通道）。
+   ── 实现（沿用闪电/烟花那条**已被证明能渲染**的路：InstancedMesh + billboard 片）──
+     ⚠️ 不用 THREE.Points —— 本项目实测 Points 连"固定坐标 + 60px 纯红"都画不出来（见烟花那段）。
+     ⚠️ 出生点**必须按画面来定**，不能按世界角度：本项目机位永远抬不起来
+        （OrbitControls 的 polar 夹在 9.9°~88.6°、相机只能在目标之上或等高），画面里的天
+        只有地平线以上一条带 ⇒ 用 skyAt() 把 NDC 反投影到天球（与闪电同一个工具）、
+        并要求落点是"真天空"（y ≥ 26）。这正是闪电那条"N 摆在画面外 ⇒ 贡献 0 像素"的教训。
+     方向：从辐射点向外（真辐射几何），但把竖直分量夹在 −0.5~+0.22 —— 辐射点在天顶附近时，
+        纯"向外"会让流星一头扎进地平线、在画面里只划一小段；夹住之后是"横掠天带"。
+   ⚠️ **不写任何全局灯光**（烟花那条教训：按自己的包络写 sun/amb/hemi 会覆写闪电的照亮）。
+     流星的"壮丽"来自天上那一片光痕，不靠打光 —— 也就不会与闪电/烟花互相踩。
+   ⚠️ 网格**模块期就建**（不懒建）：GTAO 的法线 pass 只认"装配收尾那一刻在场景里 + aoSkip"
+     的对象，懒建的会漏进 AO pass（天上会出现暗斑）。同时挂 AUX_PASS_HIDDEN 兜底。 */
+export const METEORS = {
+  force: null,          // 产品侧**权威开关**：null=按门控；true/false=强制（探针用）
+  on: false, t: 0, next: 0.7, spawned: 0, bursts: 0, fireballs: 0, burstLeft: 0,
+};
+const _mtr = mulberry32(20261010);                 // 私有流（铁律 1：绝不吃全局 rnd）
+const mtR = (a, b) => a + _mtr() * (b - a);
+const MT_N = 30;                                   // 同时在飞的条数上限
+/* ⚠️⚠️ 半径必须**小于远山卡片**（2026-10-10 实测修正）：远山四层卡片在 r=104~176、
+   不透明度 0.76~0.95，而本项目相机又抬不起来（画面里的天只有地平线以上一条带，
+   低仰角那一段**正好被远山占着**）⇒ 第一版把流星放在 r=360（穹内、与闪电同半径），
+   实测**整条被远山挡住**（沿视线打射线：流星头在 373m，而远山卡片在 439m 那条是别的、
+   可见的只有寥寥几像素）。改到 **96**（在最近一层远山 104 之内）⇒ 流星在远山之前，
+   低仰角那段才真的看得见。
+   半径缩了 3.75 倍 ⇒ 所有**世界尺度**（速度/尾长/粗细/出生点后移量）同乘 MT_K，
+   这样**角尺寸与角速度与原来完全一致**（只是把那一层玻璃挪近了）。
+   ⚠️ 代价是有意的：流星会画在远山**之前**（真实的流星在远山之后、本该被山挡）。
+   但"相机抬不起来 + 远山占到仰角 ~21°"这两条一起，把可见天带全占了 ——
+   放到山后就是**一条都看不见**（第一版实测就是这个结果）。夜里远山是近黑的剪影，
+   一道亮痕压在山脊前读作"流星划过山脊上方"，观感成立 ✓ 优于"什么都看不到"。 */
+const MT_R = 96;
+const MT_K = MT_R / 360;
+const _mtStart = new Float32Array(MT_N).fill(-1e9);
+const _mtPos = new Float32Array(MT_N * 3);
+const _mtDir = new Float32Array(MT_N * 3);
+const _mtCol = new Float32Array(MT_N * 3);
+const _mtLife = new Float32Array(MT_N);
+const _mtSpd = new Float32Array(MT_N);
+const _mtLen = new Float32Array(MT_N);
+const _mtWid = new Float32Array(MT_N);
+const _mtBr = new Float32Array(MT_N);
+let _mtCursor = 0, _mtMesh = null, _mtU = null;
+const _mtRad = new THREE.Vector3(), _mtTmp = new THREE.Vector3(), _mtTmp2 = new THREE.Vector3();
+/* 四季辐射点（方位角自北起顺时针、度；高度角、度）—— 各对一场真实流星雨（江南 ≈31°N 后半夜）*/
+const MT_RADIANT = {
+  spring: { az: 100, el: 58 },   // 天琴座（4/22 前后）—— 东偏南、后半夜升高
+  summer: { az: 36,  el: 52 },   // 英仙座（8/12-13；资料里"北半球最稳定、观赏性较强"那场）
+  autumn: { az: 132, el: 44 },   // 猎户座（10/21 前后）—— 东南
+  winter: { az: 186, el: 68 },   // 双子座（12/13-14；资料里"流星数量较多"那场）—— 南天近头顶
+};
+/* 颜色权重（资料原文：白/黄白最常见、绿-蓝绿（镁）次之、黄橙（钠）、红橙（铁/钙）较少） */
+const MT_PAL = [[0xFFFFFF, 45], [0xFFF4C8, 25], [0x9CFFD0, 15], [0xFFD48A, 10], [0xFF9A6A, 5]];
+const MT_WSUM = MT_PAL.reduce((s, p) => s + p[1], 0);
+function mtPickColor(sat){
+  let x = _mtr() * MT_WSUM, hex = MT_PAL[0][0];
+  for (const [h, w] of MT_PAL){ if ((x -= w) <= 0){ hex = h; break; } }
+  const c = new THREE.Color(hex);
+  if (sat > 0) c.offsetHSL(0, sat, 0);          // 火流星：更饱和（"只有很亮的火流星才看得出颜色"）
+  return c;
+}
+function mtRadiantDir(out){
+  const r = MT_RADIANT[ENV.season] || MT_RADIANT.summer;
+  const A = r.az * Math.PI / 180, E = r.el * Math.PI / 180;
+  return out.set(Math.sin(A) * Math.cos(E), Math.sin(E), -Math.cos(A) * Math.cos(E)).normalize();
+}
+/* 生成一条流星 */
+function mtSpawn(tNow){
+  const i = _mtCursor = (_mtCursor + 1) % MT_N;
+  mtRadiantDir(_mtRad);
+  /* 出生点：NDC（画面上带）→ 天球（r=MT_R）；要求落点是**真天空且高过远山**。
+     ⚠️ 判据用**仰角**而不是"y ≥ 26"（相机高度会变，写死 y 的阈值会随站位失准）。
+     ⚠️ 阈值 7°→**11°**（2026-10-10 第二次修正）：远山四层卡片的仰角范围实测到 **+21°**，
+     7° 出生出来的流星有一大批**压在远山剪影里**（门禁量到"峰值 0"，而同一批里仰角高的那条
+     量到 361px/峰值 170）⇒ 出生点必须落在剪影之上。 */
+  const pickSpawn = (ndcYLo, needEl) => {          // 在给定 NDC 上带找"够高"的出生点
+    let bx = 0, by = -1e9, bz = 0, bEl = -99;
+    for (let k = 0; k < 8; k++){
+      const q = skyAt(mtR(-0.95, 0.95), mtR(ndcYLo, 1.0), MT_R);
+      const rel = _mtTmp2.copy(q).sub(camera.position);
+      const el = Math.asin(Math.max(-1, Math.min(1, rel.y / Math.max(1, rel.length())))) * 180 / Math.PI;
+      if (el > bEl){ bEl = el; bx = q.x; by = q.y; bz = q.z; }
+      if (el >= needEl) break;
+    }
+    return [bx, by, bz, bEl];
+  };
+  let [px, py, pz, bestEl] = pickSpawn(0.50, 11);
+  /* 方向 = 从辐射点向外（**真辐射几何**）。
+     ⚠️⚠️ 2026-10-10 三轮定案：第一版竖直分量夹到 [−0.5,+0.22] ⇒ 流星一路往下扎出画面；
+     第二版夹到 ±0.12 ⇒ 出图判读"几条彼此**平行**、不像从一个辐射点散开"（把辐射感也夹没了 ✗）。
+     现在只做**轻度压缩**（×0.75、上限 ±0.35）：既保留"从一点辐射"的方向差，
+     又不至于整条一头扎进地平线。 */
+  const aimDir = () => {
+    _mtTmp.set(px, py, pz).addScaledVector(_mtRad, -MT_R).normalize();
+    _mtTmp.y = Math.max(-0.35, Math.min(0.35, _mtTmp.y * 0.75));
+    _mtTmp.normalize();
+  };
+  aimDir();
+  /* **第二遍**：算出来是"向下飞"的，就换一个更高的出生点重算 —— 出生仰角与飞行方向互相依赖，
+     一遍算不出来（第一版把顺序写反了：先读还没算出来的方向）。向下飞的必须生得更高，
+     否则整条命大半在画面外/远山后（这正是门禁反复量到 0 像素的那条根因之一）。 */
+  if (_mtTmp.y < -0.05){
+    const [hx, hy, hz, hEl] = pickSpawn(0.72, 15);
+    if (hEl >= 15){ px = hx; py = hy; pz = hz; bestEl = hEl; aimDir(); }
+  }
+  /* 亮火流星约 7%（资料："很亮的火流星"才容易看出颜色）；速度/长度/粗细/寿命/亮度逐条抽。
+     ⚠️ 世界尺度全部乘 MT_K（半径缩进来的换算）⇒ 角尺寸/角速度与 r=360 版一致。
+     ⚠️ 亮度 2026-10-10 上调（实测第一版"切实例数只影响 27 个像素、最亮 23/765" ⇒
+        谈不上"壮丽"）：基础 0.55~1.15 → **0.85~1.75**，火流星 ×2.2 → **×2.4**；
+        淡出窗口同时收短（片元里 0.60 → 0.72），让"亮着"的时间更长。 */
+  const fb = _mtr() < 0.07;
+  const c = mtPickColor(fb ? mtR(0.07, 0.15) : 0);
+  const spd = mtR(85, 210) * MT_K * (fb ? 1.25 : 1);
+  const len = spd * mtR(0.16, 0.34) * (fb ? 1.8 : 1);
+  const wid = mtR(1.4, 3.2) * MT_K * (fb ? 1.7 : 1);
+  const br = mtR(0.85, 1.75) * (fb ? 2.4 : 1);
+  const back = mtR(20, 90) * MT_K;                // 出生点沿方向后移（从画面外一点点飞进来）
+  _mtPos[i*3] = px - _mtTmp.x * back;
+  _mtPos[i*3+1] = py - _mtTmp.y * back;
+  _mtPos[i*3+2] = pz - _mtTmp.z * back;
+  _mtDir[i*3] = _mtTmp.x; _mtDir[i*3+1] = _mtTmp.y; _mtDir[i*3+2] = _mtTmp.z;
+  _mtCol[i*3] = c.r; _mtCol[i*3+1] = c.g; _mtCol[i*3+2] = c.b;
+  _mtLife[i] = mtR(0.55, 1.25);
+  _mtSpd[i] = spd; _mtLen[i] = len; _mtWid[i] = wid; _mtBr[i] = br;
+  _mtStart[i] = tNow;
+  if (fb) METEORS.fireballs++;
+}
+{
+  /* 模块期建网格（见文件头注释：懒建会漏进 GTAO 法线 pass） */
+  const geo = new THREE.PlaneGeometry(1, 1);
+  const shl = new Float32Array(MT_N);
+  for (let i = 0; i < MT_N; i++) shl[i] = i;
+  geo.setAttribute('aShell', new THREE.InstancedBufferAttribute(shl, 1));
+  const u = {
+    uT: { value: 0 }, uStart: { value: _mtStart },
+    uPos: { value: _mtPos }, uDir: { value: _mtDir }, uCol: { value: _mtCol },
+    uLife: { value: _mtLife }, uSpd: { value: _mtSpd }, uLen: { value: _mtLen },
+    uWid: { value: _mtWid }, uBr: { value: _mtBr },
+  };
+  _mtU = u;
+  const mat = new THREE.ShaderMaterial({
+    uniforms: u, transparent: true, depthWrite: false, depthTest: true,
+    blending: THREE.AdditiveBlending, fog: false, side: THREE.DoubleSide,
+    vertexShader: `
+      attribute float aShell;
+      uniform float uT;
+      uniform float uStart[${MT_N}], uLife[${MT_N}], uSpd[${MT_N}], uLen[${MT_N}], uWid[${MT_N}], uBr[${MT_N}];
+      uniform vec3 uPos[${MT_N}], uDir[${MT_N}], uCol[${MT_N}];
+      varying vec2 vUv; varying vec3 vC; varying float vA;
+      void main(){
+        vUv = uv;
+        int i = int(aShell + 0.5);
+        float age = uT - uStart[i];
+        if (age < 0.0 || age > uLife[i]){      /* 没轮到 / 已灭：丢到画外，不占填充率 */
+          gl_Position = vec4(2.0, 2.0, 2.0, 1.0); vA = 0.0; vC = vec3(0.0); return;
+        }
+        vec3 d = uDir[i];
+        vec3 head = uPos[i] + d * (uSpd[i] * age);
+        vec3 tail = head - d * uLen[i];
+        vec3 toCam = normalize(cameraPosition - head);
+        /* ⚠️⚠️ 2026-10-10 必修：cross(d, toCam) 在两者**接近平行**时 → 0，
+           normalize(0) = NaN ⇒ 整条 quad 退化、**一个像素都不画**。
+           横掠的流星（d.y≈0）+ 平视的相机 ⇒ 这个退化态非常容易撞上：实测同一次启动里
+           "有条能画 361px、有的一像素都没有"（门禁因此反复量到峰值 0）。
+           兜底：叉积太短就改用"世界上方向 × 飞行方向"当侧向量（billboard 的标准做法）。
+           ⚠️ 写 GLSL 注释**绝不能用反引号** —— 那段在 JS 模板字符串里，反引号会当场截断字符串
+           （2026-10-02 天空球那次踩过一模一样的坑，本轮我又踩了一次 ⇒ 页面卡加载页、
+           pageerror "Unexpected identifier 'cross'"，查了两轮才发现）。 */
+        vec3 side = cross(d, toCam);
+        float sl = length(side);
+        side = sl > 1e-3 ? side / sl : normalize(cross(d, vec3(0.0, 1.0, 0.0)));
+        float k = uv.x;                        /* 0 = 尾、1 = 头 */
+        vec3 p = mix(tail, head, k) + side * (uv.y - 0.5) * uWid[i] * (0.22 + 0.78 * k);
+        float life = age / uLife[i];
+        vA = smoothstep(0.0, 0.08, life) * (1.0 - smoothstep(0.72, 1.0, life));
+        vC = uCol[i] * uBr[i];
+        gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+      }`,
+    fragmentShader: `
+      varying vec2 vUv; varying vec3 vC; varying float vA;
+      void main(){
+        float k = vUv.x;
+        float core = exp(-pow((vUv.y - 0.5) * 3.2, 2.0));     /* 横截面亮芯 */
+        float tail = pow(k, 2.4);                              /* 尾部渐隐 */
+        float head = 1.0 + 2.4 * exp(-(1.0 - k) * 9.0);        /* 头更亮（流星招牌） */
+        float a = core * tail * head * vA;
+        if (a <= 0.004) discard;
+        gl_FragColor = vec4(vC, a);
+      }`,
+  });
+  const im = new THREE.InstancedMesh(geo, mat, MT_N);
+  const MI = new THREE.Matrix4();
+  for (let i = 0; i < MT_N; i++) im.setMatrixAt(i, MI);   // shader 不读 instanceMatrix（只为包围球不退化）
+  im.instanceMatrix.needsUpdate = true;
+  im.name = 'meteorShower';
+  im.frustumCulled = false;                 // 顶点位置在 shader 里算，CPU 侧包围球是错的
+  im.raycast = () => {};                    // 与雾团/闪电/烟花同因（别拦射线）
+  im.castShadow = false; im.receiveShadow = false;
+  im.userData.aoSkip = true;                // 不进 GTAO 法线 pass
+  im.renderOrder = 8;
+  im.count = 0;
+  scene.add(im);
+  /* ⚠️⚠️ 2026-10-10 真 bug（实测：切几次天气/季节之后整层**永久消失**）：
+     我一开始**同时**把它挂进 `userData.aoSkip`（⇒ 进 10-post 的 `aoSkipped`）
+     **和** `AUX_PASS_HIDDEN` —— 而 10-post 的隐藏/还原顺序是
+     "**先**隐藏 aoSkipped、**再** `auxPrev = AUX_PASS_HIDDEN.map(o => o.visible)`"，
+     于是抓到的本网格状态已经是 false ⇒ finally 里把它**写回 false** ⇒ 第一次跑 AO pass
+     之后这一层就再也没露过面（门禁的现场读数 `visible:false`、inRange 7 却 0 像素）。
+     ⇒ **两个名单只能进一个**：本网格在 world 里、也有 userData ⇒ 只留 `aoSkip`
+     （`AUX_PASS_HIDDEN` 是给"挂相机下、不在 world 里"的镜头粒子用的）。
+     ⚠️ 判据：任何对象**都别同时进这两个名单**。 */
+  _mtMesh = im;
+}
+/* 门控：**四季都要**（老黄明确）⇒ 不设季节门槛；"晴朗的夜间"是硬条件 ——
+   夜色够深（starAmount）+ 天气只能是 晴 / 雨后初晴（排除暴雨·雷雨·雪·薄雾，资料里的"晴朗"）。 */
+const _mtOn = () => {
+  if (METEORS.force !== null) return METEORS.force;
+  if ((ENV.cur.starAmount || 0) < 0.5) return false;
+  const w = ENV.weather || '';
+  if (w !== 'clear' && w !== 'afterrain') return false;
+  return ((ENV.cur.rainAmount || 0) < 0.05) && ((ENV.cur.snowAmount || 0) < 0.05);
+};
+export function setMeteorsForce(v){ METEORS.force = v === null ? null : !!v; }
+export function meteorState(){
+  const M = METEORS, list = [];
+  for (let i = 0; i < MT_N; i++){
+    const age = M.t - _mtStart[i];
+    if (age >= 0 && age <= _mtLife[i])
+      list.push({ i, age: +age.toFixed(2), life: +_mtLife[i].toFixed(2),
+                  col: [+_mtCol[i*3].toFixed(2), +_mtCol[i*3+1].toFixed(2), +_mtCol[i*3+2].toFixed(2)],
+                  br: +_mtBr[i].toFixed(2), wid: +_mtWid[i].toFixed(2) });
+  }
+  return { on: M.on, force: M.force, t: +M.t.toFixed(2), spawned: M.spawned, bursts: M.bursts,
+           fireballs: M.fireballs, active: list.length, list: list.slice(0, 10),
+           radiant: MT_RADIANT[ENV.season] || MT_RADIANT.summer, mesh: !!_mtMesh,
+           count: _mtMesh ? _mtMesh.count : -1 };
+}
+export function tickMeteors(dt){
+  const M = METEORS;
+  M.on = _mtOn();
+  if (!M.on){
+    /* 关：清干净（别留半截光痕挂在空中），并把实例数归零 */
+    if (M.spawned){ _mtStart.fill(-1e9); M.spawned = 0; M.burstLeft = 0; }
+    if (_mtMesh && _mtMesh.count !== 0) _mtMesh.count = 0;
+    return;
+  }
+  if (_mtMesh.count !== MT_N) _mtMesh.count = MT_N;
+  M.t += dt;
+  _mtU.uT.value = M.t;
+  if (M.t >= M.next){
+    let n = 1;
+    if (M.burstLeft > 0){ M.burstLeft--; n = 2 + ((_mtr() * 3) | 0); }      // 阵发：一次 2~4 条
+    else if (_mtr() < 0.40){ M.burstLeft = 6 + ((_mtr() * 5) | 0); M.bursts++; }   // 一次 6~10 条
+    for (let k = 0; k < n; k++) mtSpawn(M.t + k * 0.02);
+    M.spawned += n;
+    /* ⚠️ 节奏 2026-10-10 定案（老黄要"壮丽"，出图四轮打磨）：一版 0.40~1.70s ⇒ 常驻 1~2 条、
+       出图"安静夜景偶然划过一颗 ✗"；二版 0.20~0.80s ⇒ "6~7 条但密度没堆起来 ✗"；
+       三版 0.12~0.55s ⇒ "辐射感对了但**仍稀** ✗"；**本版（平时 0.08~0.40s、阵发 0.04~0.12s、
+       概率 40%、规模 6~10 ⇒ 常驻 5~8 条、阵发 12~15 条）**出图判读"6 条清晰、夜空干净、无过曝
+       = **壮丽而干净**" ✓。
+       （中途我一度以为"最密档"会让画面同帧不可复现、回退过一版 —— 那是**误判**：实测同一次任务内
+       不写任何状态连渲五张逐像素全同，真正的怪现象是"**写完 mesh.count 之后的第一张会变样**"，
+       属探针取样问题、与密度无关。已按"每臂多渲一张落定"修好门禁。） */
+    M.next = M.t + (M.burstLeft > 0 ? mtR(0.04, 0.12) : mtR(0.08, 0.40));
+  }
+}

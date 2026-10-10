@@ -84,7 +84,10 @@
    （马厩那 6 匹马由程序化替身换成了 AI 生成的真模型；两份清单必须同一批 —— 见下方 GLBS 注释。
    本轮还改了 src/15-stable.js（马槽位 noMerge / 换马后补渲阴影 / 正脊封缝 / 墙顶到檐 / 低头吃草），
    src/*.js 不在 SW 缓存里、本不影响，但清单加了东西必须升版让已装 SW 换缓存）。 */
-const CACHE = 'suzhou-garden-v35';
+/* 2026-10-10 流星雨批次 bump v35→v36：改了 SHELL 成员 index.html（「陈设」行加「流星雨」按钮 +
+   图标色 + 快捷键提示 `;`），并新增 src/12b-sky.js 的流星雨段（src/*.js 不在 SW 缓存里、本不影响，
+   但 SHELL 成员变了必须升版，让已装 SW 的浏览器换缓存）。 */
+const CACHE = 'suzhou-garden-v36';
 const SHELL = [
   './',
   './index.html',

@@ -13,7 +13,7 @@ import { FOG_BANKS, CENSER_SMOKE, makeFireflies, makeLensWeather } from './06b-a
 import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
-import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksState, setFireworksForce, fireworksFinaleNow } from './12-env.js';
+import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksState, setFireworksForce, fireworksFinaleNow, tickMeteors, meteorState, setMeteorsForce } from './12-env.js';
 /* 竹帘升降：状态与动画都住在 14-props（它拿着帘条子组与卷捆的引用），
    这里只负责每帧推进；UI 侧经 HOOKS.blind 转发（同音景/明信片的既有做法）。 */
 import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } from './14-props.js';
@@ -951,6 +951,10 @@ function animate(){
      它同样写 sun/amb/hemi 的强度与颜色，applyEnv 会覆写，顺序反了染光会被压掉。
      时钟自己按仿真 dt 累加（帧率无关；与闪电/雾/云不共用相位，互不干扰）。 */
   tickFireworks(dt);
+  /* 流星雨（2026-10-10）：排在烟花之后 —— 它**不写任何灯**（只画天上的光痕），
+     所以与闪电/烟花的顺序无关；放这里只为读起来与其它"天上效果"挨着。
+     时钟同样按仿真 dt 自己累加（帧率无关，私有相位）。 */
+  tickMeteors(dt);
   /* 看烟花的一家人（2026-10-05 · 老黄："大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃"）：
      动作全部写在 root 与人体之间的 pivot 层，只写 pivot（loop 写的 root.visible/position.y/
      rotation 一律不碰 —— 碰了就是两处互相覆盖）。门控在 pivot.visible 里，与烟花同口径。 */
@@ -1861,6 +1865,9 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      白天没有"、以及"绽放真的把庭院照亮了"，并要能**强制开关**做对照
                      ⇒ 显式暴露状态 + 产品侧权威开关（不在探针里重调产品函数）。 */
                   fireworksState, setFireworksForce, fireworksFinaleNow,
+                  /* 流星雨（2026-10-10 · 四季 + 晴朗夜间）：门禁要断言"白天/雨雪雾没有、夜晴有、
+                     四季都有、辐射点随季节变、且真的画进像素" ⇒ 同样显式暴露状态 + 权威开关。 */
+                  meteorState, setMeteorsForce,
                   /* 金刚鹦鹉作息 + 动作（2026-10-05）：门禁要断言"夜里/雨雪天不在、
                      白天在、且栖停时有动作"，靠 traverse 猜不可判 ⇒ 显式暴露状态。 */
                   macawState, macawWantPerch,

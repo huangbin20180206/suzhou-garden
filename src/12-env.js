@@ -24,9 +24,11 @@ import { POND_RADII, groundHeight, insidePond } from './05-water.js';
    （实测：LIGHTNING / tickLightning / ... 全被报"用到但没 import"）。
    所以先 import 进作用域、再 export 出去 —— 语义等价，且守卫能看懂。 */
 import { bindSkyEnv, LIGHTNING, tickLightning, lightningStrikeNow,
-         FIREWORKS, setFireworksForce, fireworksState, fireworksFinaleNow, tickFireworks } from './12b-sky.js';
+         FIREWORKS, setFireworksForce, fireworksState, fireworksFinaleNow, tickFireworks,
+         METEORS, setMeteorsForce, meteorState, tickMeteors } from './12b-sky.js';
 export { LIGHTNING, tickLightning, lightningStrikeNow,
-         FIREWORKS, setFireworksForce, fireworksState, fireworksFinaleNow, tickFireworks };
+         FIREWORKS, setFireworksForce, fireworksState, fireworksFinaleNow, tickFireworks,
+         METEORS, setMeteorsForce, meteorState, tickMeteors };
 /* 2026-10-05 拆分：上元灯会（河灯/灯串/挂灯）已搬进 12c-festival.js（那边**不能** import 本模块，故由本模块注入）。
    ⚠️ 灯会的"look 第 4 层"（applyFestivalTo）**不在**这里 —— 它只改参数集，已随合成规则归 12a-presets.js，
       因此 12a 不必反过来 import 12c（依赖方向保持单向：本模块 → 12a/12c/12d/12e）。 */
@@ -630,6 +632,14 @@ function syncEnvUI(){
       b.setAttribute('aria-pressed', on ? 'true' : 'false');
       return;
     }
+    /* 「看流星雨」两档开关（2026-10-10）：同款 —— 按下态 = 画面里**真的在放**
+       （meteorState().on 是门控结果：夜色够深 + 天气晴/雨后初晴）⇒ 用户自己换天气时按钮自动灭。 */
+    if (b.dataset.act === 'meteor'){
+      const on = !!(meteorState && meteorState().on);
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      return;
+    }
     if (b.dataset.act === 'blind'){
       const up = !!HOOKS.blindState?.();
       b.classList.toggle('on', up);
@@ -698,6 +708,7 @@ function syncEnvUI(){
    ⚠️ 任何环境轴切换都会把 setFireworksForce 复位成 null（= 交还给门控），
       否则"关一次"会永久压住这个场景的烟花。 */
 let _fwPrev = null, _keepFestival = false;
+let _mtPrev = null;                          // 「看流星雨」进来之前的场景（与烟花同款，2026-10-10）
 /* ⚠️ 有几个"按钮态读的是下一帧才翻面的量"（烟花是否在放由门控决定，setEnv 只改 ENV 目标，
    applyEnv/tickFireworks 下一帧才跑）⇒ 立刻 syncEnvUI 读到的是旧值，按钮会"该灭不灭/该亮不亮"
    （实测：点开烟花后 aria-pressed 仍是 false；换成暴雨后烟花已灭、按钮还亮着）。
@@ -731,6 +742,42 @@ export function toggleFireworksScene(){
   syncEnvUI();
   syncEnvSoon();          // 烟花是否在放由门控下一帧才翻面（见 syncEnvSoon 注释）
 }
+/* 「看流星雨」两档开关（2026-10-10 · 老黄："再加一个比较吸引人的场景 -- 流星雨，四季都有，
+   晴朗的夜间设计一场壮丽的流星雨"）。与「看烟花」同款结构（进来记场景 → 设成场景要的状态
+   → 飞机位；关 = 还回原场景），差别只有两点，都是需求决定的：
+     ① **季节不动** —— 老黄明确要"四季都有"（12b-sky 的 _mtOn 也不设季节门槛），
+        流星本身按季节换辐射点（夏英仙/秋猎户/冬双子/春天琴）；
+     ② 开流星雨时**把烟花压掉**（setFireworksForce(false)）—— 流星要一片干净的天：
+        冬夜本来就会自动放烟花（烟花门控 = 冬+夜+晴），两种天象叠在一起既乱、烟花的
+        打光（fill ×18、曝光 +18%）又会把"暗夜星空"的对比冲淡；关流星雨时交还门控(null)。
+   ⚠️ 机位是必需品：默认俯视机位看不到天（相机抬不起来，见 08 的 meteor 机位注释）。 */
+export function toggleMeteorScene(){
+  const on = !!(meteorState && meteorState().on);
+  if (on){                                       // 关：还回进来之前的场景
+    _keepFestival = true;
+    try {
+      const p = _mtPrev;
+      if (p){
+        setEnv('season', p.season); setEnv('weather', p.weather);
+        if (!ENV.festival) setEnv('time', p.time);
+      }
+      setMeteorsForce(false);
+      setFireworksForce(null);                   // 交还烟花的门控（用户可能刚从"关"那一档回来）
+    } finally { _keepFestival = false; }
+    _mtPrev = null;
+  } else {                                       // 开
+    _mtPrev = { season: ENV.season, time: ENV.time, weather: ENV.weather };
+    setMeteorsForce(null);                       // 交还门控（门控要求 夜 + 晴）
+    setFireworksForce(false);                    // 见上：流星雨要一片干净的天
+    _keepFestival = true;
+    try { setEnv('time', 'night'); setEnv('weather', 'clear'); }   // 季节**不动**
+    finally { _keepFestival = false; }
+    gotoViewpoint('meteor');
+    showCaption('meteor', 'manual'); setTimeout(() => hideCaption('manual'), 6000);
+  }
+  syncEnvUI();
+  syncEnvSoon();
+}
 envEl.addEventListener('click', (e)=>{
   const b = e.target.closest('button');
   if (!b || b.disabled) return;
@@ -743,6 +790,7 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.act === 'random'){ seasonDemoUserTakeover(); HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
   if (b.dataset.act === 'festival'){ toggleFestival(); return; }   // 上元灯会：一键开关（按钮态由 toggleFestival 自己同步）
   if (b.dataset.act === 'fireworks'){ toggleFireworksScene(); return; }   // 看烟花：两档开关（2026-10-06 由 data-view 改成 data-act）
+  if (b.dataset.act === 'meteor'){ toggleMeteorScene(); return; }         // 看流星雨：两档开关（2026-10-10）
   if (b.dataset.act === 'blind'){ HOOKS.blind?.(); syncEnvUI(); return; }   // 珠帘卷起/放下（状态在 14-props）
   /* 鱼趣（2026-10-06 老黄："功能和鼠标点击池水投入鱼食效果一样，只不过鼠标点击是用户主动选择
      位置，但这个按钮是鱼食掉落在池塘中的随机位置"）：与"点池水撒饵"走**同一个产品函数**
@@ -852,7 +900,7 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
   const ICON = {
     'season:spring': '❀', 'season:summer': '☀', 'season:autumn': '❦', 'season:winter': '❄',
     'weather:clear': '☼', 'weather:storm': '☂', 'weather:afterrain': '◠', 'weather:snow': '❄', 'weather:mist': '≋',
-    'act:blind': '⌇', 'act:festival': '◍', 'act:fireworks': '✺', 'act:fish': '◔',
+    'act:blind': '⌇', 'act:festival': '◍', 'act:fireworks': '✺', 'act:fish': '◔', 'act:meteor': '☄',
     'quality:auto': 'Ａ', 'quality:high': 'Ｈ', 'quality:balanced': 'Ｂ', 'quality:performance': 'Ｐ',
     'view:rainbow': '◠', 'view:hero': '▲', 'view:stele': '◆', 'view:hall': '⌂', 'view:pavilion': '◇', 'view:overview': '◎',
     'view:plumRed': '✿', 'view:plumYellow': '✽', 'view:stable': '❖',
@@ -1041,6 +1089,8 @@ if (e.key === '.' || e.key === '>'){ document.querySelector('[data-view="plumYel
 /* 2026-10-09 马厩机位：`/`（接着 `.` 往右一个键，与"机位键在右手边一排"的约定一致）。
    ⚠️ 用 e.key === '/' 判 —— 中文输入法/不同键盘布局下 e.key 仍稳定为 '/'。 */
 if (e.key === '/'){ document.querySelector('[data-view="stable"]')?.click(); return; }
+/* 2026-10-10 流星雨：`;`（接着 `/` 往右一个键，与"机位/场景键在右手边一排"的约定一致）。 */
+if (e.key === ';' || e.key === ':'){ document.querySelector('[data-act="meteor"]')?.click(); return; }
 if (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '$'){
   HOOKS.setQuality?.(['auto', 'high', 'balanced', 'performance']['!@#$'.indexOf(e.key)]); return;
 }
