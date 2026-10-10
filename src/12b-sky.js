@@ -418,11 +418,20 @@ export function fireworksState(){
 }
 /* 探针用：下一次 tick 立刻来一次彩蛋齐射（产品侧**权威开关** —— 不在探针里重调产品函数） */
 export function fireworksFinaleNow(){ FIREWORKS.sinceFin = FW_FIN_EVERY; FIREWORKS.next = -1e9; }
+/* ⚠️⚠️ 2026-10-11 改法（老黄："我只点'灯会'按钮，系统会自动帮我把'灯会'+'烟花'联动，这个不合理，
+   两个应该是可以单独成景，也可以同时起作用"）：
+   **烟花不再"冬·夜·晴 就自动放"，只有他显式点过才放。**
+   原来那条自动门控的后果：灯会会把时段切到夜里 ⇒ 只要季节是冬、天气是晴，点灯会就"顺带"把烟花
+   点着了（他报的就是这个）。同类毛病还有一处：晴夜会自动下流星（见 meteor 的 _mtOn）—— 两个都改成
+   "只认用户那一次点击"。
+   现在的语义：`force === true`（用户在「烟花」里开）= 要放；其余（false / null）都 = 不放。
+   下面几条仍保留，但降级成**否决**（不再兼作"自动开火的条件"）：
+     · 夜色够深（starAmount 是本项目现成的"夜色深度"通道）
+     · 天上没有雨雪雷暴（有雨雪就看不见花，也不合物理）
+   ⚠️ 与老黄确认过的两条不变：① 与灯会**可同时存在**（他 2026-10-06 明确认可"两者同时出现"）；
+      ② 机位仍是必需品（默认俯视机位看不到天上的花）。 */
 const _fwOn = () => {
-  if (FIREWORKS.force !== null) return FIREWORKS.force;
-  /* 冬季限定 + 真的入夜（starAmount 是本项目现成的"夜色深度"通道）+ 天上没有雨雪雷暴
-     （明月星空要被看见；雪/雨里放花既看不见也不合物理） */
-  if (ENV.season !== 'winter') return false;
+  if (FIREWORKS.force !== true) return false;      // ← 只有显式开过才放（不再"冬夜自动"）
   if ((ENV.cur.starAmount || 0) < 0.5) return false;
   const w = ENV.weather || '';
   if (w === 'storm' || w === 'thunder' || w === 'snow') return false;
@@ -968,10 +977,15 @@ function mtSpawn(tNow){
      ⚠️ 判据：任何对象**都别同时进这两个名单**。 */
   _mtMesh = im;
 }
-/* 门控：**四季都要**（老黄明确）⇒ 不设季节门槛；"晴朗的夜间"是硬条件 ——
-   夜色够深（starAmount）+ 天气只能是 晴 / 雨后初晴（排除暴雨·雷雨·雪·薄雾，资料里的"晴朗"）。 */
+/* 门控（2026-10-11 改法，与烟花同一条规矩）：**只认用户那一次点击**，不再"晴夜自动下流星"。
+   为什么要改：原来"晴朗的夜就自动有流星"⇒ 点「看烟花」（它会把时段设成夜、天气设成晴）也会
+   顺带带出流星，和"点灯会顺带带出烟花"是同一个毛病（老黄 2026-10-11 报的）。
+   现在的语义：`force === true`（用户在「流星雨」里开）= 要放；其余（false / null）都 = 不放。
+   下面两条仍保留，作为**否决**（老黄要的"晴朗的夜间"）：
+     夜色够深（starAmount）+ 天气只能是 晴 / 雨后初晴（排除暴雨·雷雨·雪·薄雾）。
+   ⚠️ 季节仍不设门槛（老黄明确"四季都有"）—— 与"不再自动开火"是两件事，别改回去。 */
 const _mtOn = () => {
-  if (METEORS.force !== null) return METEORS.force;
+  if (METEORS.force !== true) return false;        // ← 只有显式开过才放（不再"晴夜自动"）
   if ((ENV.cur.starAmount || 0) < 0.5) return false;
   const w = ENV.weather || '';
   if (w !== 'clear' && w !== 'afterrain') return false;

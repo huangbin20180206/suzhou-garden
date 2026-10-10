@@ -76,26 +76,112 @@ const check = (name, ok, detail = '') => {
     await page.waitForTimeout(500);
   };
 
-  /* ── ① 门控 ── */
+  /* ── ① 契约（2026-10-11 翻面）：烟花**不再自动**，只认用户那一次点击 ──────────────
+     老黄 2026-10-11："我只点'灯会'按钮，系统会自动帮我把'灯会'+'烟花'联动，这个不合理，
+     两个应该是可以单独成景，也可以同时起作用"。
+     原来的门控是"冬·夜·晴 ⇒ 自动放"，而灯会会把时段切到夜里 ⇒ 点灯会就顺带把烟花点着了。
+     现在：force=null（没人点过）⇒ **一律不放**；force=true（用户点过）⇒ 放，
+     但"夜里 + 无雨雪雷暴"仍是否决条件。
+     ⚠️ 每条都先断言"干预真的施加了"（项目铁律）—— 尤其"否决"那三条必须**强开**再断言关，
+        否则它们会退化成恒绿的空判据（那比没有门禁更坏）。 */
   const gate = await page.evaluate(async () => {
     const G = window.__garden;
-    G.setFireworksForce(null);
-    const w = async (o) => { for (const k in o) G.setEnv(k, o[k]);
+    const w = async (o, force) => {
+      if (force !== undefined) G.setFireworksForce(force);
+      for (const k in o) G.setEnv(k, o[k]);
       await new Promise(r => { const t0 = performance.now();
         const f = () => (performance.now() - t0 > 2800) ? r() : requestAnimationFrame(f); f(); });
-      return G.fireworksState().on; };
+      return G.fireworksState().on;
+    };
     const out = {};
-    out.winterNight = await w({ season: 'winter', time: 'night', weather: 'clear' });
-    out.summerNight = await w({ season: 'summer' });
-    out.winterNoon  = await w({ season: 'winter', time: 'noon' });
-    out.winterStorm = await w({ weather: 'storm' });
-    await w({ weather: 'clear' });
+    G.setFireworksForce(null);                                   // 没人点过
+    out.autoWinterNight = await w({ season: 'winter', time: 'night', weather: 'clear' });
+    out.autoSummerNight = await w({ season: 'summer' });          // 依然没人点
+    G.setFireworksForce(null);
+    out.onWinterNight = await w({ season: 'winter', time: 'night', weather: 'clear' }, true);
+    out.onSummerNight = await w({ season: 'summer' }, true);      // 不再冬季限定 ⇒ 夏夜也能放
+    out.onNoon  = await w({ season: 'winter', time: 'noon' }, true);      // 白天是否决
+    out.onStorm = await w({ season: 'summer', weather: 'storm' }, true);  // 暴雨否决（冬不许用 storm）
+    out.onSnow  = await w({ season: 'winter', weather: 'snow' }, true);   // 雪否决
+    await w({ season: 'winter', time: 'night', weather: 'clear' }, true);
+    G.setFireworksForce(null);
     return out;
   });
-  check('① 冬季限定：冬·夜·晴 ⇒ 开', gate.winterNight === true, `on=${gate.winterNight}`);
-  check('① 夏季夜里 ⇒ 关（冬季限定）', gate.summerNight === false, `on=${gate.summerNight}`);
-  check('① 冬季正午 ⇒ 关（白天看不见花、也不该放）', gate.winterNoon === false, `on=${gate.winterNoon}`);
-  check('① 冬季暴雨 ⇒ 关（明月星空要被看见）', gate.winterStorm === false, `on=${gate.winterStorm}`);
+  check('① 不再自动：冬·夜·晴 但没人点过 ⇒ 关（2026-10-11 翻面的新契约）',
+    gate.autoWinterNight === false, `on=${gate.autoWinterNight}`);
+  check('① 不再自动：没人点过时夏夜同样关', gate.autoSummerNight === false, `on=${gate.autoSummerNight}`);
+  check('① 用户点过 ⇒ 冬·夜·晴 就放', gate.onWinterNight === true, `on=${gate.onWinterNight}`);
+  check('① 与季节解耦：用户点过的夏夜也放（"四季都能单独成景"）',
+    gate.onSummerNight === true, `on=${gate.onSummerNight}`);
+  check('① 否决：白天（正午）强开也不放', gate.onNoon === false, `on=${gate.onNoon}`);
+  check('① 否决：暴雨里强开也不放', gate.onStorm === false, `on=${gate.onStorm}`);
+  check('① 否决：雪里强开也不放', gate.onSnow === false, `on=${gate.onSnow}`);
+
+  /* ── ①b 回归：老黄 2026-10-11 报的那条 bug —— 点「灯会」不许把烟花（和流星）带出来 ── */
+  const fest = await page.evaluate(async () => {
+    const G = window.__garden;
+    G.setFireworksForce(null); G.setMeteorsForce(null);
+    G.setEnv('season', 'winter'); G.setEnv('weather', 'clear'); G.setEnv('time', 'noon');
+    await new Promise(r => { const t0 = performance.now();
+      const f = () => (performance.now() - t0 > 2800) ? r() : requestAnimationFrame(f); f(); });
+    G.toggleFestival(true);                       // 点「灯会」（它会把时段切到夜 = 旧的触发条件）
+    for (let i = 0; i < 120; i++){ if (G.ENV.t >= 1) break; await new Promise(r => requestAnimationFrame(r)); }
+    await new Promise(r => setTimeout(r, 600));
+    return { festival: !!G.ENV.festival, time: G.ENV.time,
+             fw: G.fireworksState().on, mt: G.meteorState().on };
+  });
+  check('①b 回归（老黄报的）：点「灯会」不许顺带把**烟花**点着',
+    fest.festival === true && fest.fw === false,
+    `灯会=${fest.festival} 时段=${fest.time} 烟花=${fest.fw}`);
+  check('①b 同理：点「灯会」也不许顺带带出**流星**（同一个毛病）',
+    fest.mt === false, `流星=${fest.mt}`);
+  await page.evaluate(() => { const G = window.__garden; G.toggleFestival(false); });
+
+  /* ── ①c 组合与交叉保护：两个景可以同时开；关掉一个不许把另一个的"夜/晴"带走 ─────────
+     老黄 2026-10-11："两个应该是可以单独成景，**也可以同时起作用**"。
+     走**真实点击路径**（DOM 级 click，项目规矩：探针别用 page.click 等可见性）。 */
+  const clickAct = (act) => page.evaluate((a) => {
+    const b = document.querySelector(`#env button[data-act="${a}"]`);
+    if (!b) return false;
+    b.click();
+    return true;
+  }, act);
+  const waitSettle = () => page.evaluate(async () => {
+    for (let i = 0; i < 200; i++){ if (window.__garden.ENV.t >= 1) break; await new Promise(r => requestAnimationFrame(r)); }
+    await new Promise(r => setTimeout(r, 700));
+  });
+  /* 先把场景设成"正午·晴"（这样两个景都得靠自己去切夜 ⇒ 才会各自记下 setTime）*/
+  const combo = await page.evaluate(async () => {
+    const G = window.__garden;
+    G.setMeteorsForce(null); G.setFireworksForce(null);
+    G.setEnv('season', 'summer'); G.setEnv('weather', 'clear'); G.setEnv('time', 'noon');
+    for (let i = 0; i < 200; i++){ if (G.ENV.t >= 1) break; await new Promise(r => requestAnimationFrame(r)); }
+    return true;
+  });
+  const a1 = await clickAct('meteor');           // 1) 点「流星雨」（从正午 ⇒ 它切夜并记住正午）
+  await waitSettle();
+  const s1 = await page.evaluate(() => { const G = window.__garden;
+    return { mt: G.meteorState().on, fw: G.fireworksState().on, time: G.ENV.time }; });
+  const a2 = await clickAct('fireworks');        // 2) 再点「烟花」（时段已是夜 ⇒ 它不该再记 setTime）
+  await waitSettle();
+  const s2 = await page.evaluate(() => { const G = window.__garden;
+    return { mt: G.meteorState().on, fw: G.fireworksState().on, time: G.ENV.time }; });
+  await clickAct('meteor');                      // 3) 关掉「流星雨」——必须**不动**时段（烟花还要夜）
+  await waitSettle();
+  const s3 = await page.evaluate(() => { const G = window.__garden;
+    return { mt: G.meteorState().on, fw: G.fireworksState().on, time: G.ENV.time }; });
+  await clickAct('fireworks');                   // 收尾：关掉烟花
+  await waitSettle();
+  const s4 = await page.evaluate(() => { const G = window.__garden;
+    return { mt: G.meteorState().on, fw: G.fireworksState().on, time: G.ENV.time }; });
+  check('①c 两个景可以同时开（正午点「流星雨」再点「烟花」⇒ 两个都亮）',
+    a1 && a2 && s1.mt === true && s2.mt === true && s2.fw === true && s2.time === 'night',
+    `流星=${s1.mt}/${s2.mt} 烟花=${s1.fw}/${s2.fw} 时段=${s1.time}→${s2.time}`);
+  check('①c 交叉保护：关掉「流星雨」不许把「烟花」的夜一起还给正午（否则连坐）',
+    s3.fw === true && s3.time === 'night',
+    `关流星后：流星=${s3.mt} 烟花=${s3.fw} 时段=${s3.time}`);
+  check('①c 两个景都关掉之后，时段才回到进来前的正午',
+    s4.fw === false && s4.time === 'noon', `收尾：烟花=${s4.fw} 时段=${s4.time}`);
 
   /* ── ② 天上出花：抬头机位，强开 ↔ 强关，同任务内连渲 ── */
   await page.evaluate(() => {

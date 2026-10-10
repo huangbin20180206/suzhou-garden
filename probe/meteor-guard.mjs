@@ -102,13 +102,33 @@ const check = (name, ok, detail = '') => {
   check('前提：流星网格已建成（name=meteorShower、容量 30、aoSkip）',
     !!pre && pre.n === 30 && pre.aoSkip, pre ? JSON.stringify(pre) : '没找到 meteorShower');
 
-  /* ── ② 门控：白天没有 ─────────────────────────────────────────────────── */
+  /* ── ② 契约（2026-10-11 翻面）：流星**不再"晴夜自动"**，只认用户那一次点击 ──────────
+     老黄 2026-10-11 报的"点灯会顺带带出烟花"是同一类毛病：原来"晴朗的夜就自动有流星"⇒
+     点「看烟花」（它把时段设成夜、天气设成晴）也会顺带带出流星。
+     现在：force=null（没人点过）⇒ 不放；force=true（用户点过）⇒ 放，而"夜色够深 + 晴/雨后初晴"
+     仍是否决条件。⚠️ 下面"否决"那三条一律**强开**再断言关 —— 否则它们会退化成恒绿的空判据。 */
+  const offByDefault = await page.evaluate(async () => {
+    const G = window.__garden;
+    G.setMeteorsForce(null);
+    G.setEnv('season', 'summer'); G.setEnv('time', 'night'); G.setEnv('weather', 'clear');
+    for (let i = 0; i < 200; i++){ if (G.ENV.t >= 1) break; await new Promise(r => requestAnimationFrame(r)); }
+    await new Promise(r => setTimeout(r, 800));
+    const s = G.meteorState();
+    return { on: s.on, count: s.count };
+  });
+  check('契约：夜·晴 但没人点过 ⇒ 不放（2026-10-11 翻面：不再"晴夜自动下流星"）',
+    offByDefault.on === false && offByDefault.count === 0,
+    `on=${offByDefault.on} count=${offByDefault.count}`);
+  const forceOn = (v) => page.evaluate((v2) => window.__garden.setMeteorsForce(v2), v);
+  await forceOn(true);                       // 从这一节起按"用户点过"的口径量
+
+  /* ── ②b 否决：白天（强开也不放）───────────────────────────────────────── */
   await setEnv('noon', 'clear', 'summer'); await settle(); await runFor(4000);
   const noon = await state();
-  check('门控：正午·晴 —— 没有流星（on=false、实例数 0）',
+  check('否决：正午·晴（强开）—— 没有流星（on=false、实例数 0）',
     noon.on === false && noon.count === 0, `on=${noon.on} count=${noon.count} spawned=${noon.spawned}`);
 
-  /* ── ③ 门控：夜 · 晴 —— 有，而且真的在生成 ───────────────────────────── */
+  /* ── ③ 用户点过 ⇒ 夜 · 晴 有，而且真的在生成 ───────────────────────────── */
   await setEnv('night', 'clear', 'summer'); await settle();
   let bestActive = 0, night = null;
   for (let i = 0; i < 30; i++){
@@ -117,11 +137,11 @@ const check = (name, ok, detail = '') => {
     if (bestActive >= 2) break;
     await sleep(1500);
   }
-  check('门控：夜·晴 —— 有流星（on=true、实例数 30、且已经生成过）',
+  check('用户点过 ⇒ 夜·晴 有流星（on=true、实例数 30、且已经生成过）',
     night.on === true && night.count === 30 && night.spawned > 0,
     `on=${night.on} count=${night.count} spawned=${night.spawned} 在场峰值=${bestActive}`);
 
-  /* ── ④ 门控：非晴朗天气都没有（暴雨 / 雪 / 薄雾）─────────────────────────
+  /* ── ④ 否决：非晴朗天气强开也不放（暴雨 / 雪 / 薄雾）─────────────────────────
      ⚠️ 每个组合都要**先断言"这个组合真的被产品接受了"**再断言观测量（项目铁律，2026-10-06
      大雁那次踩过）：`setEnv('weather', X)` 会被**季节合法性规则**静默降级 ——
      我第一版在**夏季**请求 `snow`，被降级成晴 ⇒ 流星照常出现，于是"夜·雪不该有流星"这条
@@ -135,7 +155,7 @@ const check = (name, ok, detail = '') => {
       const ok = G.weatherAllowed ? G.weatherAllowed(w2 => w2) : null;
       return { eff: G.effectiveWeather ? G.effectiveWeather() : null, allowed: ok };
     }).catch(() => ({ eff: null, allowed: null }));
-    check(`门控：夜·${tag}（季节=${season}）—— 没有流星（"晴朗"是硬条件）`,
+    check(`否决：夜·${tag}（季节=${season}，强开）—— 没有流星（"晴朗"是硬条件）`,
       s.on === false && s.count === 0, `on=${s.on} count=${s.count} 生效天气=${eff.eff}`);
   }
 

@@ -90,7 +90,10 @@
 /* 2026-10-10 bump v37→v38：改了 SHELL 成员 index.html —— 给画布加一层不透明底色
    （`#app canvas{background:#0B0E12}`；原因见 index.html 里那段注释：three r184 申请上下文时
    alpha 恒为 true ⇒ 画布"没被画到的区域"会 α=0 透出网页底色 #D8DCDA，观感就是一大块惨白）。 */
-const CACHE = 'suzhou-garden-v38';
+/* 2026-10-11 bump v38→v39：改了 SHELL 成员 index.html —— 三个"景"（灯会/烟花/流星雨）的
+   按钮说明改成"一键开/关；可与另两个同时开"，并给「烟花」补上一直缺的 title
+   （语义解耦：不再有"点灯会顺带带出烟花"这种自动联动）。 */
+const CACHE = 'suzhou-garden-v39';
 const SHELL = [
   './',
   './index.html',
