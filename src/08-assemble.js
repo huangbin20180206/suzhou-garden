@@ -24,7 +24,7 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildin
 /* 15-stable（2026-10-09 · 老黄："院子外围做一个马厩：停 4 匹马、2 驾双轮马车、一个马夫喂草料"）：
    建筑 + 马 + 马车 + 场院杂物整组在那个模块里；**马夫不在这里建** —— 人物工厂 makeScholar
    就在本文件下方，马厩模块持有它会造成循环 import。这里只import 马厩整体与"手里的草料捆"。 */
-import { makeStable, makeFeedBale, loadStableHorses } from './15-stable.js';
+import { makeStable, makeFeedBale, loadStableHorses, makeStableRoad } from './15-stable.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles, makeDuckWakeTex } from './01-materials.js';
 import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS, makeWoodBucket, BUCKET_HANDLE_H, setGoPiecesVisible } from './14-props.js';
@@ -2793,7 +2793,12 @@ const DUCK_ORBITS = [0, 6, 2, 3];
      院中两匹休息吃草（一匹低头吃、一匹由马夫递草料）+ **厩内只占 2 个槽位**（另 2 个空着放干草）。
    落点高度不再由这里给（旧版传 baseY）：场地跟着草坡走，马夫的落脚高度由马厩算出来回填。 */
 deferBootFirst('马厩', () => {
-  const st = makeStable(40, -2, { yaw: Math.PI / 2 });     // 院身朝西（对着园子）
+  /* ⚠️ 2026-10-10 二批（老黄："整个马厩的方向逆时针旋转 90 度"）：yaw π/2 → **π**。
+     转后**院门朝南**（世界 +z），正对园子南门（月洞门 x=0 / 南墙 z=22.5 的西南方向）
+     ⇒ 院外那条石板路（makeStableRoad）顺理成章地接到南门。
+     旋转后占地核对：厩身+院场 = 局部 x∈[−8,8] × z∈[−4.9,4.9] ⇒ 世界 x∈[32,48]、
+     z∈[−6.9,2.7]；东墙在 x=30（墙面到 30.6）⇒ 尚余 1.4m；地面东扩到 x=±52 ✓ 都在界内。 */
+  const st = makeStable(40, -2, { yaw: Math.PI });     // 院身朝南（对着园子南门那侧）
   deferRoot.add(st);
   /* 马夫站位：由马厩按"递给低头那匹马"算出来（`userData.stable.groom`）——
      人物是 D_SCHEDULES 在**模块求值期**就建好的，比这个延迟批早，所以这里只做**回填**。
@@ -2805,8 +2810,13 @@ deferBootFirst('马厩', () => {
   if (groom){
     groom.position.set(gp.x, gp.y, gp.z);
     groom.userData.baseY = gp.y;
-    groom.rotation.y = Math.PI / 2;
+    /* ⚠️ 朝向从厩身取（别硬写）：人物 yaw=0 面朝 +z（局部），厩身转了 yaw ⇒ 他的世界朝向
+       就是 yaw。原来硬写 π/2，改朝向之后会跟厩身拧 90°（背书站的方向都不对）。 */
+    groom.rotation.y = gp.yaw !== undefined ? gp.yaw : Math.PI / 2;
   }
+  /* 院外石板路（上下马处 → 园子南门）：跟着地形走的带子，起点接院门、终点接月洞门
+     外侧的门槛石（见 15-stable 的 makeStableRoad 注释）。 */
+  deferRoot.add(makeStableRoad());
   /* 真马模型（异步）：加载成功就把 6 个槽位里的**程序化替身**换成真马并逐匹上色；
      失败/离线时什么都不做 —— 替身照常站在那儿（马厩不会空）。
      ⚠️ 放在马厩建好之后调用：它按 `userData.horseSlots` 找槽位。 */
@@ -3285,13 +3295,19 @@ export const VIEWPOINTS = (()=>{
       pos: new THREE.Vector3(18.63, 2.9, -13.66), target: new THREE.Vector3(22.5, 2.6, -16.5), minDist: 1.2 },
     { id:'plumYellow', label:'腊梅',
       pos: new THREE.Vector3(-19.61, 2.9, 14.19), target: new THREE.Vector3(-23.5, 2.6, 17.0), minDist: 1.2 },
-    /* 「马厩」机位（2026-10-09 建 · 2026-10-10 随马厩东移改）：马厩在**东墙外 (40, −2)**，
-       默认机位在园内朝北 ⇒ 完全看不到，所以必须给一个入口。
-       机位选在**园内西侧、高处越过东墙俯看**：pos(23, 9, −2) → target(40, 1.2, −2)。
-       视线在 x=30（东墙）处的高度 = 9 − 7.8×(7/17) = **5.79m**，比墙顶 4.5m 高 1.3m
-       ⇒ 从园内越过墙看进马厩院子，构图是"墙外有厩"而不是贴墙拍砖。 */
+    /* 「马厩」机位（2026-10-09 建 · 2026-10-10 随马厩搬家与转向两次改）：马厩在**东墙外**
+       (40, −2)，默认机位在园内朝北 ⇒ 完全看不到，所以必须给入口。
+       ⚠️ 2026-10-10 转向后（yaw π ⇒ 院门朝南）改从**西南高处**看：pos(26, 9, 16) →
+       target(40, 1.5, −1)。视线越过东墙的核算：与 x=30 的交点在 z≈11.1、高度
+       9 + 0.586×(1.5−9) ≈ 6.85m > 墙顶 4.5m ⇒ 不贴墙拍砖，构图是"越墙看厩"。 */
     { id:'stable', label:'马厩',
-      pos: new THREE.Vector3(23, 9, -2), target: new THREE.Vector3(40, 1.2, -2), minDist: 3.0 },
+      pos: new THREE.Vector3(26, 9, 16), target: new THREE.Vector3(40, 1.5, -1), minDist: 3.0 },
+    /* 「厩内」近观机位（2026-10-10 老黄："马厩无法近距离观察，可以设置一个专门的观察机位吗？"）：
+       站位在**院门外**，视线**正好从院门（栅栏正中 3.6m 的车门）穿进院场**——
+       与门洞的交点在 x≈40.9（门洞 38.2~41.8 之内）⇒ 门框把院场框住，构图天然。
+       minDist 1.2 ⇒ 进来之后还能一路推到马与马车跟前（默认下限是 1.6）。 */
+    { id:'stableNear', label:'厩内',
+      pos: new THREE.Vector3(38.5, 2.4, 8.0), target: new THREE.Vector3(42.5, 1.1, -1.0), minDist: 1.2 },
     /* 「流星雨」机位（2026-10-10）：这个机位是**必需品**，不是一个"更好看的角度"——
        本项目的相机**永远抬不起来**（OrbitControls 的 polar 夹在 9.9°~88.6°，相机只能在
        注视点之上或等高 ⇒ 不可能仰视），所以"天上的东西"只能靠**站位抬高 + 近乎水平**的

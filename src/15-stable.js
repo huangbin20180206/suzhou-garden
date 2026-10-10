@@ -25,7 +25,7 @@
 //   ⇒ 共 6 匹马，靠**毛色**区分（骝/黑/白/栗/青 —— 见 01-materials 的 horse* 材质表）。
 import { THREE, GLTFLoader } from '../vendor.js';
 import { mesh, box, makeColumn, makeLatticePanel } from './03-factory.js';
-import { MAT } from './01-materials.js';
+import { MAT, pavingTex, pavingNormalTex, registerWeatherRoles } from './01-materials.js';
 import { groundHeight } from './05-water.js';
 import { tubeRadiusRamp } from './06-vegetation.js';
 import { renderer } from './02-scene.js';
@@ -79,6 +79,30 @@ function bendHeadDown(geo, deg){
   p.needsUpdate = true;
   geo.computeVertexNormals();
 }
+/* ── 顶点色明暗（2026-10-10 · 老黄："还有一匹马好像是白膜，连颜色都没渲染"）─────────
+   真马是**单网格、无贴图**（整批一个纯色）⇒ 浅色那匹（白/青灰）在夜里直接读成
+   "白膜 / 没渲染"。这里按**模型局部高度**烘一层明暗：蹄最暗 → 腹/腿中 → 背/头最亮，
+   材质开 `vertexColors` 乘在上面 ⇒ 六种毛色都有体积感，白的也是一匹白马而不是一张白纸。
+   ⚠️ 三条纪律：① **上限 1.0**（超过 1 会把浅色推过 bloom 阈值糊成白片 —— 本项目
+     刚在"高画质白屏"上吃过 bloom 的亏）；② 逐匹克隆几何（共享几何就没法逐匹烘）；
+   ③ 与低头形变共用同一份克隆几何（顺序：先转脖子、后烘明暗 —— 明暗按高度算，
+     转完再烘才与"蹄在最下"一致）。 */
+function bakeHorseShading(geo){
+  const p = geo.attributes.position;
+  let ymin = 1e9, ymax = -1e9;
+  for (let i = 0; i < p.count; i++){ const y = p.getY(i); if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
+  const span = Math.max(1e-6, ymax - ymin);
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const col = new Float32Array(p.count * 3);
+  for (let i = 0; i < p.count; i++){
+    const t = (p.getY(i) - ymin) / span;              // 0 = 蹄底、1 = 头顶
+    let k = 0.50 + 0.50 * sm(0.06, 0.55, t);          // 腹/腿暗、背/头亮
+    if (t < 0.11) k *= 0.62;                          // 蹄部再压一档（真马蹄是深色）
+    col[i*3] = k; col[i*3 + 1] = k; col[i*3 + 2] = k;
+  }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+}
+
 export function loadStableHorses(stableGroup){
   const slots = stableGroup && stableGroup.userData && stableGroup.userData.horseSlots;
   if (!slots || !slots.length) return null;
@@ -96,27 +120,24 @@ export function loadStableHorses(stableGroup){
     src.updateMatrixWorld(true);
     for (const slot of slots){
       const inst = src.clone(true);
-      /* 低头吃草那两匹：真模型没有骨骼 ⇒ 在**几何**上把"颈+头"转下去
-         （替身的 headG 那套旋转只对程序化马有效，真模型没有 headG）。
-         35° 是六格侧视对照里"明显低头吃草且无畸形"的那一档；见 bendHeadDown 的注释。 */
-      if (slot.graze > 0.05){
-        inst.traverse(o => {
-          if (!o.isMesh) return;
-          o.geometry = o.geometry.clone();          // ⚠️ 必须克隆：六匹马共享同一份几何
-          bendHeadDown(o.geometry, Math.round(slot.graze * 57.2958 * 0.75));
-        });
-      }
-      /* 逐匹上色（六种典型马色）：模型单材质 ⇒ 直接改 color。
-         ⚠️ 必须**克隆材质**：共享材质会让六匹马同色（而且 12f 的季节通道按材质同一性认领，
-            这里不进季节表，但克隆仍是必须的）。 */
       const base = slot.color || MAT.horseChestnut;
       inst.traverse(o => {
         if (!o.isMesh) return;
+        /* ⚠️ **一匹一份几何**：① 低头吃草那两匹要在几何上把"颈+头"转下去（真模型没有骨骼，
+           替身的 headG 那套对它无效）；② 每匹都要烘一层**顶点色明暗**（见 bakeHorseShading：
+           单网格无贴图时浅色马会读成"白膜"）。共享几何就没法逐匹改。 */
+        o.geometry = o.geometry.clone();
+        if (slot.graze > 0.05) bendHeadDown(o.geometry, Math.round(slot.graze * 57.2958 * 0.75));
+        bakeHorseShading(o.geometry);
+        /* 逐匹上色（六种典型马色）：模型单材质 ⇒ 改 color；顶点色是"背亮腹暗"的乘子。
+           ⚠️ 必须**克隆材质**：共享材质会让六匹马同色（而且 12f 的季节通道按材质同一性认领，
+              这里不进季节表，但克隆仍是必须的）。 */
         o.material = o.material.clone();
         o.material.color.copy(base.color || new THREE.Color(0x7A4423));
+        o.material.vertexColors = true;               // ← 顶点色是"背亮腹暗"，乘在上面
         o.material.metalness = 0.0;
-        o.material.roughness = 0.78;
-        o.material.envMapIntensity = 0.35;
+        o.material.roughness = 0.82;
+        o.material.envMapIntensity = 0.30;
         o.material.map = null;                        // 模型自带 PBR 贴图是空的，别留引用
         o.material.needsUpdate = true;
         o.castShadow = true;
@@ -353,6 +374,75 @@ function makeTrough(w, d, h, mat = MAT.stoneDark, fillMat = null, fillY = 0.10){
   const fill = mesh(box(w - t * 2, 0.05, d - t * 2), fillMat || MAT.straw, { name: 'troughFill', cast: false });
   fill.position.set(0, fillY, 0); g.add(fill);
   return g;
+}
+
+/* ── 院外石板路（上下马处 → 园子南门）────────────────────────────────────────
+   老黄 2026-10-10："再铺设一条石板路从下马处（上马处）直接铺到院子的南门"。
+   ⚠️ 为什么不是一块平板：院外是**草坡**（groundHeight 起伏量级 ±0.5m），平板必然一头
+   悬空一头埋进地里 ⇒ 沿路线**逐点采样地形高**做成跟着坡走的带子。
+   路线：院门（世界约 (40, 3) ）→ 向南**绕过东南墙角**（东墙 x=30 延伸到 z=22.5）
+   → 再沿南墙外侧向西 → 接月洞门（南墙正中 x=0，外侧有 4×1.4m 门槛石）。
+   ⚠️ 必须绕墙角：直着斜穿会在 z<22.5 的地方撞进东墙（墙在 x=30、厚 ±0.6）。
+   ⚠️ 抬升 0.07：地形是解析式 groundHeight，而地面网格是按 1.9m 一格线性插值的，
+   两者在起伏处差几厘米 ⇒ 抬 5cm 以下会有局部"路面被草吃进去"。 */
+export function makeStableRoad(){
+  const g = new THREE.Group();
+  const CP = [[40.0, 4.2], [39.2, 10.5], [37.4, 16.5], [34.4, 21.8], [30.0, 26.2],
+              [22.0, 27.2], [10.0, 26.4], [2.6, 25.0], [0.6, 23.6]];
+  const curve = new THREE.CatmullRomCurve3(CP.map(p => new THREE.Vector3(p[0], 0, p[1])));
+  const N = 240, HW = 0.82;                       // 半宽 ⇒ 路宽 1.64m（单车道）
+  const pos = [], uv = [], idx = [];
+  let acc = 0, prev = null;
+  const _t = new THREE.Vector3();
+  for (let i = 0; i <= N; i++){
+    const t = i / N;
+    const p = curve.getPointAt(t), tan = curve.getTangentAt(t);
+    const side = _t.set(-tan.z, 0, tan.x).normalize().clone();
+    if (prev) acc += p.distanceTo(prev);
+    prev = p.clone();
+    const l = p.clone().addScaledVector(side, HW), r = p.clone().addScaledVector(side, -HW);
+    pos.push(l.x, groundHeight(l.x, l.z) + 0.07, l.z);
+    pos.push(r.x, groundHeight(r.x, r.z) + 0.07, r.z);
+    /* ⚠️ 纹理尺度按**园内铺地**来：07-ground 的 makePaving 是 `repeat = 尺寸/2.6`
+       （一张贴图铺 2.6m）。第一版我按 0.9m 铺 ⇒ 纹理密到读成"金属网格板"（出图判读原话）
+       ⇒ 改成 2.6m 一格，与园内步道同一尺度。 */
+    uv.push(-HW / 2.6, acc / 2.6);
+    uv.push( HW / 2.6, acc / 2.6);
+  }
+  for (let i = 0; i < N; i++){
+    const a = i * 2;
+    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setIndex(idx);
+  geo.computeVertexNormals();
+  const map = pavingTex.clone(); map.needsUpdate = true;
+  map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(1, 1);
+  const nrm = pavingNormalTex.clone(); nrm.needsUpdate = true;
+  nrm.wrapS = nrm.wrapT = THREE.RepeatWrapping; nrm.repeat.set(1, 1);
+  const mat = new THREE.MeshStandardMaterial({ map, normalMap: nrm, color: 0xD6D2C8,
+                                               roughness: 0.94, metalness: 0.0 });
+  registerWeatherRoles(mat, { snow: 1, wet: 1 });  // 雪落路上、雨天打湿（与园内铺地一致）
+  g.add(mesh(geo, mat, { name: 'stableRoad', cast: false, receive: true }));
+  return g;
+}
+
+/* 径向柔和 alpha（中心不透明、边缘渐隐）——与雨后水膜同一套做法 */
+function makeSoftAlphaTex(){
+  const S = 64, cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const grd = ctx.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  grd.addColorStop(0.00, 'rgba(255,255,255,1)');
+  grd.addColorStop(0.55, 'rgba(255,255,255,0.95)');
+  grd.addColorStop(0.80, 'rgba(255,255,255,0.45)');
+  grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grd; ctx.fillRect(0, 0, S, S);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.NoColorSpace;
+  return t;
 }
 
 /* ── 马厩整组 ────────────────────────────────────────────────────────────────
@@ -616,6 +706,53 @@ export function makeStable(cx, cz, opts = {}){
   runFence(-FW, -FD, -FW, FD);            // 西侧
   runFence(FW, -FD, FW, FD);              // 东侧
 
+  /* ⑤ 碾压草皮（老黄 2026-10-10："上马和下马处的草皮因为马匹和马车轮子的碾压应该是枯黄
+     或者无草的状况"）：两层 —— 外圈**压黄的草**、内圈**露土的硬地**。
+     ⚠️ 三条实现要点：① **逐顶点贴合地形**（在草坡上平板会一头翘一头埋）；
+     ② **不规则边 + 径向柔和 alpha**（硬边多边形会被读成"贴图瑕疵"，与雨后水膜同款处理）；
+     ③ 挂在**本组**里 ⇒ 随厩身一起转（改朝向不用重算）。 */
+  const wornAlpha = makeSoftAlphaTex();
+  const mkPatch = (lx, lz, r, mat, seed) => {
+    const NA = 28, NR = 3;
+    const pos = [], uv = [], idx = [];
+    for (let ir = 0; ir <= NR; ir++){
+      const t = ir / NR;
+      for (let ia = 0; ia <= NA; ia++){
+        const a = (ia / NA) * Math.PI * 2;
+        /* 边沿带噪声（只有最外圈收放，内圈保持圆 ⇒ 不会出现自交的锯齿）*/
+        const wob = 1 + (ir === NR ? 0.26 * Math.abs(Math.sin(a * 3 + seed)) - 0.13 : 0);
+        const rad = r * t * wob;
+        const qx = lx + Math.cos(a) * rad, qz = lz + Math.sin(a) * rad;
+        pos.push(qx, gy(qx, qz) + 0.05, qz);
+        uv.push(Math.cos(a) * t * 0.5 + 0.5, Math.sin(a) * t * 0.5 + 0.5);
+      }
+    }
+    for (let ir = 0; ir < NR; ir++)
+      for (let ia = 0; ia < NA; ia++){
+        const a0 = ir * (NA + 1) + ia, b0 = a0 + NA + 1;
+        /* ⚠️⚠️ 绕向 2026-10-10 修：原来写的是 (a0, b0, a0+1) —— 环点按 a 递增生成，
+           而在 xz 平面上"a 递增"从 +y 往下看是**顺时针** ⇒ 法线朝下 ⇒ 从上看全被背面
+           剔除，**六片草皮一片都看不见**（出图三轮都判"没有碾压痕迹"，而场景里明明有 6 个
+           网格）。正解 = 反向绕：(a0, a0+1, b0) 法线才朝 +y。
+           ⚠️ 同类检查：同批的石板路绕向是对的（它的 side 向量按切线旋转 90° 构造，
+           叉积算出来 y 分量为正 ⇒ 一直可见），所以只有草皮这一处踩坑。 */
+        idx.push(a0, a0 + 1, b0, a0 + 1, b0 + 1, b0);
+      }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    g.add(mesh(geo, mat, { name: 'yardWear', cast: false, receive: true }));
+  };
+  const wornDry = new THREE.MeshStandardMaterial({ color: 0x9B8B4E, roughness: 0.99, metalness: 0,
+    transparent: true, depthWrite: false, alphaMap: wornAlpha });
+  const wornBare = new THREE.MeshStandardMaterial({ color: 0x6D5B45, roughness: 1.0, metalness: 0,
+    transparent: true, depthWrite: false, alphaMap: wornAlpha });
+  /* 上马位（A 车 + 两匹挽马脚下）= 碾压最重；停车位（B 车）= 次之；院门进出口 = 最轻 */
+  mkPatch(-3.0, -2.1, 3.0, wornDry, 1.3);  mkPatch(-3.0, -2.1, 2.1, wornBare, 1.3);
+  mkPatch( 3.0, -1.2, 2.2, wornDry, 2.7);  mkPatch( 3.0, -1.2, 1.5, wornBare, 2.7);
+  mkPatch( 0.0, -4.1, 2.0, wornDry, 4.1);  mkPatch( 0.0, -4.1, 1.3, wornBare, 4.1);
+
   /* 马夫站位（供 08-assemble 回填人物用）：站在**低头受喂那匹马的头前 0.75m**、
      面朝局部 +z（也就是朝马嘴），栅栏（z=−4.7）**以内**。 */
   const groomLocal = [1.5, -4.35];
@@ -625,7 +762,12 @@ export function makeStable(cx, cz, opts = {}){
   g.userData.stable = {
     cx, cz, yaw, plinthTop,
     groom: { x: cx + groomLocal[0] * cy + groomLocal[1] * sy,
-             y: 0, z: cz - groomLocal[0] * sy + groomLocal[1] * cy },
+             y: 0, z: cz - groomLocal[0] * sy + groomLocal[1] * cy,
+             /* ⚠️ 朝向**随厩身走**（原来 08 里硬写 π/2，是因为当时 yaw 固定 π/2；
+                改朝向之后硬写的那份会跟厩身拧 90° ⇒ 从 makeStable 里暴露出来） */
+             yaw },
+    /* 院门中心（世界）—— 给院外石板路起头用（局部门在 (0, −FD)） */
+    gate: { x: cx + (-FD) * sy, z: cz + (-FD) * cy },
     horses: 6,
   };
   g.userData.stable.groom.y = groundHeight(g.userData.stable.groom.x, g.userData.stable.groom.z);

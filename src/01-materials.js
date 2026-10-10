@@ -608,7 +608,10 @@ export const MAT = {
      骝（栗）/ 骊（黑）/ 骕（白），鬃、尾、蹄统一深褐（真实马也多是"深鬃浅身"）。 */
   horseChestnut: new THREE.MeshStandardMaterial({ color: 0x7A4423, roughness: 0.86, metalness: 0.0, envMapIntensity: 0.35 }),
   horseBlack:    new THREE.MeshStandardMaterial({ color: 0x302A26, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.35 }),
-  horseWhite:    new THREE.MeshStandardMaterial({ color: 0xD9D3C6, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.35 }),
+  /* ⚠️ 2026-10-10 压暗：0xD9D3C6 太亮 —— 真马是单网格无贴图，夜里这匹读成
+     "白膜/没渲染"（老黄原话："还有一匹马好像是白膜，连颜色都没渲染"）。
+     改成偏灰的白（青灰白），并降 envMapIntensity ⇒ 离 bloom 阈值远一点。 */
+  horseWhite:    new THREE.MeshStandardMaterial({ color: 0xBFB6A4, roughness: 0.90, metalness: 0.0, envMapIntensity: 0.28 }),
   /* 老黄 2026-10-10："帮我绘制几种典型的马的颜色" ⇒ 把**典型毛色**凑齐六种
      （后面换真马模型时也按这张表逐匹上色）：
        骝/枣红 bay（红棕身、黑鬃尾黑腿）、栗 chestnut（均匀棕）、黑 black、白 white、
