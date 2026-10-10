@@ -24,7 +24,7 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildin
 /* 15-stable（2026-10-09 · 老黄："院子外围做一个马厩：停 4 匹马、2 驾双轮马车、一个马夫喂草料"）：
    建筑 + 马 + 马车 + 场院杂物整组在那个模块里；**马夫不在这里建** —— 人物工厂 makeScholar
    就在本文件下方，马厩模块持有它会造成循环 import。这里只import 马厩整体与"手里的草料捆"。 */
-import { makeStable, makeFeedBale } from './15-stable.js';
+import { makeStable, makeFeedBale, loadStableHorses } from './15-stable.js';
 import { mesh } from './03-factory.js';
 import { MAT, WIND, willowOrigins, rockNormalTex, registerWeatherRoles, makeDuckWakeTex } from './01-materials.js';
 import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS, makeWoodBucket, BUCKET_HANDLE_H, setGoPiecesVisible } from './14-props.js';
@@ -2807,6 +2807,10 @@ deferBootFirst('马厩', () => {
     groom.userData.baseY = gp.y;
     groom.rotation.y = Math.PI / 2;
   }
+  /* 真马模型（异步）：加载成功就把 6 个槽位里的**程序化替身**换成真马并逐匹上色；
+     失败/离线时什么都不做 —— 替身照常站在那儿（马厩不会空）。
+     ⚠️ 放在马厩建好之后调用：它按 `userData.horseSlots` 找槽位。 */
+  loadStableHorses(st);
 });
 
 // 青竹丛（沿墙根密植，四角加倍）—— P1-4 延迟装配（竹竿几何 + 叶实例，量最大）

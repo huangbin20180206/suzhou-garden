@@ -23,11 +23,125 @@
 //        一匹递草料；
 //     ③ **4 个关马的槽位只有 2 匹**（空两个）—— 厩内 2 匹 + 辕里 2 匹 + 院中 2 匹 = 6 匹。
 //   ⇒ 共 6 匹马，靠**毛色**区分（骝/黑/白/栗/青 —— 见 01-materials 的 horse* 材质表）。
-import { THREE } from '../vendor.js';
+import { THREE, GLTFLoader } from '../vendor.js';
 import { mesh, box, makeColumn, makeLatticePanel } from './03-factory.js';
 import { MAT } from './01-materials.js';
 import { groundHeight } from './05-water.js';
 import { tubeRadiusRamp } from './06-vegetation.js';
+import { renderer } from './02-scene.js';
+/* 换马必须让阴影图重渲一次（见 loadStableHorses 末尾的说明）——
+   09-lights 不 import 本模块，方向单纯，不会成环。 */
+import { markCasterBoxDirty } from './09-lights.js';
+
+/* ── 真马模型（2026-10-10 · 老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行，
+      然后再帮我绘制几种典型的马的颜色"）─────────────────────────────────────────
+   资产来路（全部记在案，便于复核/换源）：
+     · 先试了下 three.js 官方示例那匹 `Horse.glb`（CC0 系、984 面）—— 实测它的 **15 个形变帧
+       全是奔跑姿态、没有站姿**，不能当马厩里的站马（outputs/_diag/horse/morph/sheet*.png）。
+     · 免费 CC0 库里带站姿的（Quaternius Farm/Animated Animal Pack）下载页要登录、拿不到直链。
+     ⇒ 最终用 **AI 生成**（Rodin Gen-2.5-Medium，prompt 明确"四蹄落地、安静站立"），
+       再转 GLB（`assets/HorseRodin.glb` → 减面后落到 `assets/Horse.glb`）。
+     · 该模型**没有贴图**（单材质纯色）⇒ "绘制几种典型的马的颜色"就是逐匹给材质上色
+       （六色表见 01-materials 的 horse* 系列），不需要改贴图。
+   ⚠️ 模型是**静态网格**（无骨骼/动画）⇒ 做不出"低头吃草"的颈部动作，
+      那两匹"休息"的马在画面里就是**站着低头不看草**——用马夫递草料 + 地上干草把story补上。
+   ⚠️ 失败必须留替身：加载不成（离线/404）就保留下面的**程序化马**（项目既有约定：
+      芭蕉/荷花都这么做），否则马厩会变成空厩。 */
+const HORSE_GLB = 'assets/Horse.glb';
+/* 模型自带的朝向修正：生成模型的"正面"不一定朝 +z（本项目程序化马的头朝 +z）。
+   实测（outputs/_diag/horse-view.html 五视图 + 坐标轴参考线：front/back/right/top 四视图
+   一致指向"头朝 +z"）⇒ 与程序化马同向，**不用转**。 */
+let HORSE_FACE_YAW = 0;
+/* 真马的总高（蹄底→耳尖）。⚠️ 别按"肩高"归一：模型包围盒的 Y 就是**总高**，
+   而马厩里所有配件都是照程序化替身配的（替身耳尖 ~1.74m、体长 ~1.9m），
+   归一成 1.5（= 肩高）会让真马比柱子/横轭/马车**小一大圈**。取 1.75 ⇒ 体长 ~1.94m，
+   与替身逐项对齐（槽位、横轭 1.60、挽带 0.92、车厢前沿）。 */
+const HORSE_TOTAL_H = 1.75;
+/* ── 低头（吃草/就食）：把"颈+头"绕颈根的 X 轴向下转 ────────────────────────
+   ⚠️ 真模型是**静态单网格**（无骨骼），所以只能在**几何**上做。参数是
+     outputs/_diag/horse-view.html?graze=1 六格侧视对照实测出来的：
+       · 25° = 微微低头（"就着马夫手里的草料"）；35° = 明显的低头吃草；45° 略过头；
+       · **63° 以上立刻读成"脖子被压扁/折断"**（环状管在急转处自交）——所以上限锁 45°。
+     枢轴 (y0.04, z0.13) 是"颈在胸口上的根"（模型局部坐标，包围盒 y∈[−0.451,0.451]）；
+     权重 = z 门 × y 门，**y 门是为了不碰前腿**（腿在 y<0.05）。 */
+function bendHeadDown(geo, deg){
+  const th = deg * Math.PI / 180, p = geo.attributes.position;
+  const PY = 0.04, PZ = 0.13;
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  for (let i = 0; i < p.count; i++){
+    const y = p.getY(i), z = p.getZ(i);
+    const w = sm(0.13, 0.30, z) * sm(0.06, 0.20, y);
+    if (w <= 0) continue;
+    const dy = y - PY, dz = z - PZ, a = th * w;
+    p.setY(i, PY + dy * Math.cos(a) - dz * Math.sin(a));
+    p.setZ(i, PZ + dy * Math.sin(a) + dz * Math.cos(a));
+  }
+  p.needsUpdate = true;
+  geo.computeVertexNormals();
+}
+export function loadStableHorses(stableGroup){
+  const slots = stableGroup && stableGroup.userData && stableGroup.userData.horseSlots;
+  if (!slots || !slots.length) return null;
+  new GLTFLoader().load(HORSE_GLB, (gltf) => {
+    const src = gltf.scene;
+    /* 归一：按包围盒缩到 HORSE_TOTAL_H 高，脚底落在 y=0，头朝 +z */
+    let bb = new THREE.Box3().setFromObject(src);
+    const size = new THREE.Vector3(); bb.getSize(size);
+    const s = HORSE_TOTAL_H / Math.max(1e-6, size.y);
+    src.scale.setScalar(s);
+    src.rotation.y = HORSE_FACE_YAW;
+    src.updateMatrixWorld(true);
+    bb = new THREE.Box3().setFromObject(src);
+    src.position.y -= bb.min.y;                       // 脚底贴地
+    src.updateMatrixWorld(true);
+    for (const slot of slots){
+      const inst = src.clone(true);
+      /* 低头吃草那两匹：真模型没有骨骼 ⇒ 在**几何**上把"颈+头"转下去
+         （替身的 headG 那套旋转只对程序化马有效，真模型没有 headG）。
+         35° 是六格侧视对照里"明显低头吃草且无畸形"的那一档；见 bendHeadDown 的注释。 */
+      if (slot.graze > 0.05){
+        inst.traverse(o => {
+          if (!o.isMesh) return;
+          o.geometry = o.geometry.clone();          // ⚠️ 必须克隆：六匹马共享同一份几何
+          bendHeadDown(o.geometry, Math.round(slot.graze * 57.2958 * 0.75));
+        });
+      }
+      /* 逐匹上色（六种典型马色）：模型单材质 ⇒ 直接改 color。
+         ⚠️ 必须**克隆材质**：共享材质会让六匹马同色（而且 12f 的季节通道按材质同一性认领，
+            这里不进季节表，但克隆仍是必须的）。 */
+      const base = slot.color || MAT.horseChestnut;
+      inst.traverse(o => {
+        if (!o.isMesh) return;
+        o.material = o.material.clone();
+        o.material.color.copy(base.color || new THREE.Color(0x7A4423));
+        o.material.metalness = 0.0;
+        o.material.roughness = 0.78;
+        o.material.envMapIntensity = 0.35;
+        o.material.map = null;                        // 模型自带 PBR 贴图是空的，别留引用
+        o.material.needsUpdate = true;
+        o.castShadow = true;
+        o.userData.noMerge = true;                    // 异步进来、错过 mergeStatics，显式标一下
+      });
+      /* 替身换成真模型：把程序化马摘掉（连同它的 userData.horse 标记），加真马。
+         ⚠️ userData.horse 要跟着走 —— 装配自检/探针按它数马（本文件与 08 都用）。 */
+      slot.holders.forEach(h => { slot.group.remove(h); });
+      inst.userData.horse = true;
+      slot.group.add(inst);
+      slot.holders = [inst];
+    }
+    /* ⚠️⚠️ 换完马**必须让阴影图重渲一次**（2026-10-10 补）：
+       `renderer.shadowMap.autoUpdate` 是 **false**（09-lights 的既定取舍：静态阴影只渲一次，
+       省每帧一整张 2048²/6144² 的深度图）。本回调是**异步**的 —— 它在启动期的阴影图快照
+       **之后**才把真马放进场，若不置脏：
+         · 地板/草地上的马腿影子仍是**程序化替身那批**（真马已经换掉了 ⇒ 影子与马对不上，
+           远看就是"地板上几道说不清来路的暗条"）；
+         · 真马自己**完全投不出影子**，站在石板上像贴图。
+       两件事都不是"画错"，是**阴影快照过期**，只能靠重渲修。 */
+    markCasterBoxDirty();                            // 投射物集合变了（程序化马→真马，包围盒也变）
+    renderer.shadowMap.needsUpdate = true;           // 补渲一次整张阴影图
+  }, undefined, () => { /* 加载失败：保留程序化替身，不抛错 */ });
+  return slots;
+}
 
 /* ── 一匹马 ─────────────────────────────────────────────────────────────────
    ✅ 2026-10-10：**改用它处下载/生成的真模型**（见 08-assemble 的 placeStableHorses 与
@@ -300,13 +414,27 @@ export function makeStable(cx, cz, opts = {}){
     const cb = mesh(new THREE.CylinderGeometry(0.26, 0.29, 0.16, 10), MAT.stoneDark, { name: 'stableColBase' });
     cb.position.set(x, P0 + 0.08, BZ0 + 0.18); g.add(cb);
   }
-  const backWall = mesh(box(BX * 2, colH - 0.5, 0.24), MAT.wall, { name: 'stableBackWall', cast: true });
-  backWall.position.set(0, P0 + (colH - 0.5) / 2, BZ1); g.add(backWall);
+  /* ⚠️ 墙高必须**顶到屋顶底下**（2026-10-10 修，老黄："马厩的地板会有光线在闪烁"）：
+     原来写的是 `colH − 0.5`（墙顶 2.85），而屋顶下皮在那条线上是 **3.48** ⇒ 后墙与两山墙
+     上方留了一条 **9.4m × 0.62m 的贯通洞口**；太阳从东/东南斜射进来，在地板上投出一条
+     长亮带（还被两榀梁切成几段）—— 亮带边缘是阴影图的阶梯，**镜头一动就闪**。
+     真实杂役房的墙是砌到檐口的（通风靠窗，不靠墙顶那道缝），所以把墙加到 `colH + 0.40`
+     （顶到屋面线下、被梁枋挡住），洞口消失。 */
+  const wallH = colH + 0.40;
+  const backWall = mesh(box(BX * 2, wallH, 0.24), MAT.wall, { name: 'stableBackWall', cast: true });
+  backWall.position.set(0, P0 + wallH / 2, BZ1); g.add(backWall);
   const vent = makeLatticePanel(3.4, 0.72, 5, 2);
   vent.position.set(0, P0 + colH - 0.85, BZ1 - 0.14); g.add(vent);
+  /* ⚠️⚠️ 通风窗**必须自己投影**（2026-10-10 修，老黄："这个马厩的地板会有光线在闪烁"）。
+     `makeLatticePanel` 的衬板（"关着的门扇：纸/木板，**不透**"）默认是 `cast:false` ——
+     视觉上不透，**阴影图里却是空的**：太阳从东边斜射进来，穿过这块"板"、只被格心的
+     5×2 横竖棂挡住 ⇒ 厩内**石地板上被投出一格一格的亮斑**（真实的格子阴影）。
+     它落在正对窗户那片石板上，边缘是 2048²/6144² 阴影图的阶梯，**镜头一动就闪** ——
+     这就是老黄看到的现象。真马厩的冬天可是把窗堵上的：让它投影即修（衬板本来就是不透板）。 */
+  vent.traverse(o => { if (o.isMesh) o.castShadow = true; });
   for (const sx of [-1, 1]){
-    const sideWall = mesh(box(0.24, colH - 0.5, BZ1 - BZ0), MAT.wall, { name: 'stableSideWall', cast: true });
-    sideWall.position.set(sx * BX, P0 + (colH - 0.5) / 2, (BZ0 + BZ1) / 2); g.add(sideWall);
+    const sideWall = mesh(box(0.24, wallH, BZ1 - BZ0), MAT.wall, { name: 'stableSideWall', cast: true });
+    sideWall.position.set(sx * BX, P0 + wallH / 2, (BZ0 + BZ1) / 2); g.add(sideWall);
   }
   for (const z of [BZ0 + 0.18, BZ1]){
     const beam = mesh(box(BX * 2 + 0.3, 0.30, 0.22), MAT.wood, { name: 'stableBeam', cast: true });
@@ -321,12 +449,49 @@ export function makeStable(cx, cz, opts = {}){
     slope.position.set(0, ridgeY - 0.66, (BZ0 + BZ1) / 2 + sz * roofRun / 2);
     g.add(slope);
   }
-  const ridge = mesh(box(roofW, 0.20, 0.30), MAT.ridge, { name: 'stableRidge', cast: true });
-  ridge.position.set(0, ridgeY + 0.06, (BZ0 + BZ1) / 2); g.add(ridge);
+  /* 正脊：⚠️ 必须**压到两坡端头之下**（2026-10-10 修，老黄："马厩的地板会有光线在闪烁"）。
+     两坡是 box 绕 X 转 ±ang 得到的，它们的**内端头**落在 (z=2.352 / 2.648, y=ridgeY−0.08)
+     ⇒ 两坡之间在 z∈[2.35,2.65]、y∈[ridgeY−0.08, 脊底] 有一条 **0.30m×0.04m 的贯通缝**。
+     原来脊木放在 ridgeY+0.06（底 = ridgeY−0.04）⇒ 缝**没被盖住**：太阳从缝里漏下来，
+     在地板上投出一条 10.5m 长的亮带 —— 而这条缝只有 4cm 高，在 2048²/6144² 的阴影图里
+     根本分辨不了 ⇒ **镜头一动亮带就忽隐忽现**（用户看到的"地板光线在闪烁"）。
+     现在脊木下压 0.16、加深到 0.34（底 = ridgeY−0.27，比坡端头低 0.19）⇒ 彻底封住，
+     顺带在屋内读成一根**脊檩**（真实木构本来就有）。 */
+  const ridge = mesh(box(roofW, 0.34, 0.36), MAT.ridge, { name: 'stableRidge', cast: true });
+  ridge.position.set(0, ridgeY - 0.10, (BZ0 + BZ1) / 2); g.add(ridge);
   for (const sx of [-1, 1]){
     const gab = mesh(box(0.22, 1.4, BZ1 - BZ0 + 0.2), MAT.wall, { name: 'stableGable', cast: true });
     gab.position.set(sx * BX, P0 + colH + 0.55, (BZ0 + BZ1) / 2); g.add(gab);
   }
+
+  /* **马的槽位**：每匹马都装在一个"槽位组"里（位置 + 朝向），组内先放**程序化替身**，
+     真模型加载成功后原地换成真马（见本文件顶部的 loadStableHorses）。
+     ⇒ 好处：无论真模型到没到，位置/朝向/落地只有一处真值；失败时画面不空。 */
+  const horseSlots = [];
+  const addHorseSlot = (lx, lz, y, yaw, colorMat, opts2 = {}) => {
+    const grp = new THREE.Group();
+    grp.position.set(lx, y, lz);
+    grp.rotation.y = yaw;
+    const ph = makeHorse(colorMat, opts2);          // 程序化替身（真模型到了就换掉）
+    grp.add(ph);
+    g.add(grp);
+    const slot = { group: grp, color: colorMat, holders: [ph], graze: opts2.graze || 0 };
+    horseSlots.push(slot);
+    return slot;
+  };
+  /* ⚠️⚠️ 马的槽位（连同挂在槽位里的挽具）**必须 noMerge**（2026-10-10 补，真 bug）：
+     `mergeStatics(root)` 在**延迟批结束时**跑，而马厩是在延迟批里建的 ⇒ 程序化替身的
+     几何会被**烘进 mergedStatic**（applyMatrix4 烘世界矩阵后成为一个大网格），而
+     mergeStatics 把源网格从场景图里摘掉、**几何却留在合并结果里**。
+     于是 loadStableHorses 的 `slot.group.remove(h)` 只摘掉了一个空壳 —— 真马进来之后，
+     场上是 **6 只程序化马 + 6 只真马叠在同一个位置**：
+       · 两套马体互相穿插 → 腿/腹部的深度在相交处来回翻转（**镜头一动就"闪"**）；
+       · 地板/草地上永远是**替身那批马腿的影子**（阴影图快照，见 loadStableHorses 末尾）；
+       · 用户报的"马厩地板有光影在闪"正是这两条的合成。
+     noMerge 是 mergeStatics 唯一的豁免口径（`if (o.userData.noMerge)`），逐网格判定、
+     **不继承父级** ⇒ 必须遍历到每个 mesh 上打标。 */
+  const markNoMerge = (root) => { root.traverse(o => { if (o.isMesh) o.userData.noMerge = true; }); };
+  g.userData.horseSlots = horseSlots;
 
   /* ② 厩内 4 个隔栏马位 + 每栏一个石食槽；**只占 2 个**（老黄："4 个槽位只有两匹马"）*/
   const stallX = [-4.4, -2.2, 0, 2.2, 4.4];
@@ -349,14 +514,8 @@ export function makeStable(cx, cz, opts = {}){
     }
   }
   /* **厩内 2 匹**（占第 1、3 栏；第 2、4 栏空着）—— 空槽位里放地上的干草，读作"空闲马位" */
-  const inStall = [
-    { x: (stallX[0] + stallX[1]) / 2, mat: MAT.horseChestnut },
-    { x: (stallX[2] + stallX[3]) / 2, mat: MAT.horseWhite },
-  ];
-  for (const h of inStall){
-    const horse = makeHorse(h.mat);
-    horse.position.set(h.x, P0, BZ1 - 1.5); horse.rotation.y = Math.PI;      // 面朝院外
-    g.add(horse);
+  for (const [sx0, col] of [[(stallX[0] + stallX[1]) / 2, MAT.horseChestnut], [(stallX[2] + stallX[3]) / 2, MAT.horseWhite]]){
+    addHorseSlot(sx0, BZ1 - 1.5, P0, Math.PI, col);
   }
   for (const i of [1, 3]){                                                    // 空位：散一堆干草
     const cxm = (stallX[i] + stallX[i + 1]) / 2;
@@ -384,44 +543,36 @@ export function makeStable(cx, cz, opts = {}){
   for (const sx of [-1, 1]){
     const hx = -3.0 + sx * 0.40;
     /* ⚠️⚠️ 落点按"**肩颈对准横轭**"反算（2026-10-10 四轮）：轭在车局部 z=1.98 ⇒ 院局部
-       z = −1.4 − 1.98 = **−3.38**；马朝 −z，肩颈在"马心 −0.55"处 ⇒ 马心要在 **−2.83**。
+       z = −1.4 − 1.98 = **−3.38**；马朝 −z，肩颈在"马心 −0.55"处 ⇒ 马心要在 **−2.85**。
        上一版马心放在 −3.8 ⇒ 轭落在**马的臀部后面**（读作"马与车脱钩、轭插在马身上"）。
        同时马臀（马心 +0.78 = −2.05）离车厢前沿（−2.01）留 0.2m 缝 ⇒ 不再车马相撞。 */
     const hz = -2.85;
-    const h = makeHorse(sx < 0 ? MAT.horseBlack : MAT.horseBay, {});
     const hy = yardY(hx, hz);
-    h.position.set(hx, hy, hz);
-    h.rotation.y = Math.PI;               // 马头朝局部 −z（院门）——与套着的车同向
-    g.add(h);
-    /* 挽具：**肚带**绕马腹（环面在马横向平面 ⇒ 马转 π 后不加 rotation.y）、
-       **颈圈**套在马颈根部（对准横轭那一处）、**挽索**从颈圈向后拉到辕杆。 */
+    const slot = addHorseSlot(hx, hz, hy, Math.PI, sx < 0 ? MAT.horseBlack : MAT.horseBay);
+    /* 挽具挂在**槽位组**里（跟着替身一起被换掉）：部件是按程序化马的脖径/腹径配的，
+       换成真模型后尺寸对不上会穿模 —— 那时"套车"靠辕杆 + 横轭表达，一样成立。 */
     const girth = mesh(new THREE.TorusGeometry(0.235, 0.024, 4, 12), MAT.harness, { name: 'harnessGirth' });
-    girth.position.set(hx, hy + 0.92, hz);
-    girth.scale.set(1, 0.82, 1);
-    g.add(girth);
+    girth.position.set(0, 0.92, 0); girth.scale.set(1, 0.82, 1);
+    slot.group.add(girth); slot.holders.push(girth);
     for (const t of [-1, 1]){
       const trace = mesh(box(0.05, 0.05, 0.62), MAT.harness, { name: 'harnessTrace', cast: false });
-      trace.position.set(hx + t * 0.18, hy + 0.80, hz + 0.55);
+      trace.position.set(t * 0.18, 0.80, 0.55);
       trace.rotation.set(0.10, t * 0.08, 0);
-      g.add(trace);
+      slot.group.add(trace); slot.holders.push(trace);
     }
     const collar = mesh(new THREE.TorusGeometry(0.185, 0.034, 4, 12), MAT.wood, { name: 'harnessCollar' });
-    collar.position.set(hx, hy + 1.42, hz - 0.42);      // 马颈根部（对准横轭那一处）
+    collar.position.set(0, 1.42, -0.42);
     collar.rotation.x = 0.42; collar.scale.set(1, 1.12, 1);
-    g.add(collar);
+    slot.group.add(collar); slot.holders.push(collar);
   }
   /* ③c 卸下来的两匹：一匹**低头吃草**、一匹由马夫**递草料**（都在 B 车那一侧）
      ⚠️ fed 马要放在**栅栏以内**（栅栏在 z=−4.7），且把马头那侧留给马夫站 ——
         马朝 −z 低头时头在 −z 侧，马夫站在它头前 0.75m（见下面的 groom 落点）。 */
-  const graz = makeHorse(MAT.horseGrey, { graze: 0.82 });
-  /* ⚠️ 落点实测修正（2026-10-10 四轮）：原来放在 local (4.5,−3.3) ⇒ 它的**前半身会伸进
-     B 车（卸马那驾）的包围盒**（x 重叠 0.19m / z 重叠 0.66m）—— 出图判读成"车轮压在马腹下"。
-     移到 (4.6,−3.9)（沿院深方向再退 0.6m）⇒ 与 B 车完全分开。 */
-  graz.position.set(4.6, yardY(4.6, -3.9), -3.9); graz.rotation.y = -Math.PI / 2;
-  g.add(graz);
-  const fed = makeHorse(MAT.horseBay, { graze: 0.52 });
-  fed.position.set(1.5, yardY(1.5, -2.8), -2.8); fed.rotation.y = Math.PI;
-  g.add(fed);
+  /* ⚠️ 落点实测修正（2026-10-10 四轮）：吃草那匹原来在 local (4.5,−3.3) ⇒ 前半身伸进
+     B 车（卸马那驾）的包围盒（x 重叠 0.19m / z 0.66m）—— 出图判读成"车轮压在马腹下"。
+     退到 (4.6,−3.9) 完全分开。 */
+  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey, { graze: 0.82 });
+  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay, { graze: 0.52 });
 
   /* ③d 院用杂物：石水槽、草料堆、两根拴马桩、草料篮 */
   const wt = makeTrough(1.3, 0.6, 0.42, MAT.stoneDark, MAT.stone);
@@ -468,6 +619,9 @@ export function makeStable(cx, cz, opts = {}){
   /* 马夫站位（供 08-assemble 回填人物用）：站在**低头受喂那匹马的头前 0.75m**、
      面朝局部 +z（也就是朝马嘴），栅栏（z=−4.7）**以内**。 */
   const groomLocal = [1.5, -4.35];
+  /* ⚠️ 打 noMerge 必须放在**所有槽位内容都挂完之后**（挽具是在上面的循环里挂进 slot.group 的）——
+     放在 addHorseSlot 里会漏掉挽具，那些件照样被烘进 mergedStatic 而永远摘不掉。 */
+  for (const s of horseSlots) markNoMerge(s.group);
   g.userData.stable = {
     cx, cz, yaw, plinthTop,
     groom: { x: cx + groomLocal[0] * cy + groomLocal[1] * sy,

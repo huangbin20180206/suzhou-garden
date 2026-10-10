@@ -80,7 +80,11 @@
 /* 2026-10-08 花苞再缩小 + 腊梅调黄批次 bump v32→v33：改了 src/06-vegetation.js（花苞几何
    0.53→0.42 倍、实例缩放区间改成不再与花重叠、腊梅花色/枯色改成正黄）与 src/01-materials.js
    （腊梅自发光 0x96700A 琥珀金 → 0x8F8200 正黄）。 */
-const CACHE = 'suzhou-garden-v34';
+/* 2026-10-10 马厩真马批次 bump v34→v35：GLBS 预缓存清单补上 assets/Horse.glb
+   （马厩那 6 匹马由程序化替身换成了 AI 生成的真模型；两份清单必须同一批 —— 见下方 GLBS 注释。
+   本轮还改了 src/15-stable.js（马槽位 noMerge / 换马后补渲阴影 / 正脊封缝 / 墙顶到檐 / 低头吃草），
+   src/*.js 不在 SW 缓存里、本不影响，但清单加了东西必须升版让已装 SW 换缓存）。 */
+const CACHE = 'suzhou-garden-v35';
 const SHELL = [
   './',
   './index.html',
@@ -98,6 +102,8 @@ const GLBS = [
   /* 2026-10-03 补：金刚鹦鹉（2026-10-02 上峰顶时只改了 13-preload，漏了这里）。
      这是"两份投影"里被漏掉的那一件 —— 见上方 CACHE 的 v15 沿革注释。 */
   './assets/Macaw.glb',
+  /* 2026-10-10 补：马厩的真马（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
+  './assets/Horse.glb',
 ];
 /* ⚠️ 2026-09-27 · 高精资产批次：上面这份 GLBS 与 src/13-preload.js 的
    PRELOAD_MANIFEST 是**同一批资产的两个投影**，加高精包时**两处都要改**。

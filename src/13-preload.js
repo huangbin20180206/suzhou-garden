@@ -183,6 +183,11 @@ export const PRELOAD_MANIFEST = [
      AI 生成（rodin，text_to_3d，绿翅金刚鹦鹉），1.49MB。
      required:false —— 拉不到时页面正常，只是假山上没有鹦鹉。 */
   { url: 'assets/Macaw.glb',       bytes: 1561572, stage: '取', label: '鹦鹉', required: false },
+  /* 马厩的真马（2026-10-10，老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行"）：
+     AI 生成（Rodin Gen-2.5-Medium，站立姿态）+ 减面到 4 千面，**无贴图单材质**（逐匹上色）。
+     与 sw.js 的 GLBS 同步（preload-manifest-sync 的 G3 会反向扫磁盘）;
+     required:false —— 拉不到时马厩里站的是**程序化替身**（15-stable 的 makeHorse）。 */
+  { url: 'assets/Horse.glb',       bytes: 813652,  stage: '取', label: '马',   required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */
