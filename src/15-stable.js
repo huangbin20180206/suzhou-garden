@@ -85,6 +85,192 @@ function bendHeadDown(geo, deg){
   p.needsUpdate = true;
   geo.computeVertexNormals();
 }
+/* ══ 给真马"补零件 + 上花纹"（2026-10-11 · 老黄："我看到的马依旧没有眼睛，没有嘴巴，
+   没有鬃毛，没有灵活的尾巴……而且所有的马都是单一颜色的，这个在自然界也很难存在吧"）
+   ══════════════════════════════════════════════════════════════════════════════
+   先把事实摆清（outputs/_diag/glb-stat.mjs 实测）：`assets/Horse.glb` 是 Tripo 生成的
+   **单网格 6049 顶点 / 5609 三角**低模，材质只有一个 baseColorFactor（**纯色**），
+   文件里唯一那张图叫 `model_Normal_Bake`、**没有任何材质引用它**（571KB，占整个文件 72%）
+   ⇒ 想要眼睛/鬃毛/尾巴/花纹，**只能自己补**（不换资产的前提下）。
+
+   ── 两条做法（都很关键）────────────────────────────────────────────────────
+   ① **补件并进马的同一份几何**（不是挂在组上）：这样 horseWeights 的部位门、
+      bakeHorseShading 的明暗、bendHeadDown 的低头、installHorseRig 的伪蒙皮
+      **全都自动照顾到它** —— 鬃毛跟着脖子一起低下去、尾巴跟着尾根一起甩。
+   ② **上色从"单色乘子"改成"逐顶点烘绝对颜色"**：原来顶点色是"乘在材质色上的明暗系数"，
+      而乘子**只能压暗、不能提亮** ⇒ **白斑/白袜这种"比底色亮"的花纹根本做不出来**
+      （黑马配白袜在数学上就不可能）。现在把最终颜色（底色 × 明暗 × 花纹 × 鬃尾蹄口鼻）
+      直接烘进 color 属性、材质色置白 ⇒ 白斑白袜、深鬃深尾都能成立。
+   ⚠️ 三条纪律：① 只用**私有随机流**、且确定性；② 锚点**实测**（眼睛/鼻孔先在网格里
+      找"那一小片最近顶点"取质心）——手填坐标换模型就静默错位；③ 颜色用 THREE.Color
+      直接写（它已经在工作空间=线性），别自己再转一次。 */
+
+/** 锥形管：沿折线放圈、半径逐点给（补件的基本积木：发丝/尾巴）。 */
+function taperedTube(pts, radii, radial = 5){
+  const pos = [], nrm = [], uv = [], idx = [];
+  const N = pts.length, up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < N; i++){
+    const tan = pts[Math.min(i + 1, N - 1)].clone().sub(pts[Math.max(i - 1, 0)]).normalize();
+    let n1 = new THREE.Vector3().crossVectors(tan, up);
+    if (n1.lengthSq() < 1e-8) n1 = new THREE.Vector3(1, 0, 0);
+    n1.normalize();
+    const n2 = new THREE.Vector3().crossVectors(tan, n1).normalize();
+    for (let k = 0; k < radial; k++){
+      const a = (k / radial) * Math.PI * 2;
+      const d = n1.clone().multiplyScalar(Math.cos(a)).addScaledVector(n2, Math.sin(a));
+      pos.push(pts[i].x + d.x * radii[i], pts[i].y + d.y * radii[i], pts[i].z + d.z * radii[i]);
+      nrm.push(d.x, d.y, d.z);
+      uv.push(k / radial, i / Math.max(1, N - 1));
+    }
+  }
+  for (let i = 0; i < N - 1; i++)
+    for (let k = 0; k < radial; k++){
+      const k2 = (k + 1) % radial;
+      idx.push(i * radial + k, (i + 1) * radial + k, i * radial + k2,
+               i * radial + k2, (i + 1) * radial + k, (i + 1) * radial + k2);
+    }
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setAttribute('normal', new THREE.Float32BufferAttribute(nrm, 3));
+  g.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  g.setIndex(idx);
+  return g;
+}
+
+/** 把一个近似锚点"吸"到真实表面上：取**最近的 n 个顶点求质心**。
+    ⚠️⚠️ n 必须小（一般取 1~3）！取 36 个顶点的质心会在**凸面上落到曲面内侧** ——
+    本轮实测：眼睛/鼻孔按 36 点质心放 ⇒ 小球整颗**埋进头里**、出图判读"完全没有眼睛、
+    没有鼻孔、没有嘴"（而代码明明建了）。取"最近的那一个顶点"就必定落在网格表面上。
+    ⚠️ 但"最近顶点"对**侧面凸起件**仍不够用（见 sideSurfacePoint）：低模上离目标最近的顶点
+    常常落在**鼻梁/顶面**上，于是侧面件的 |x| 只落到 0.035、而那一带的侧面其实在 0.079 ⇒ 照旧埋进去。 */
+function snapAnchor(geo, p, n = 1){
+  const pos = geo.attributes.position, cand = [];
+  for (let i = 0; i < pos.count; i++){
+    const dx = pos.getX(i) - p[0], dy = pos.getY(i) - p[1], dz = pos.getZ(i) - p[2];
+    cand.push([dx * dx + dy * dy + dz * dz, i]);
+  }
+  cand.sort((a, b) => a[0] - b[0]);
+  let sx = 0, sy = 0, sz = 0;
+  const k = Math.min(n, cand.length);
+  for (let i = 0; i < k; i++){ const j = cand[i][1]; sx += pos.getX(j); sy += pos.getY(j); sz += pos.getZ(j); }
+  return [sx / k, sy / k, sz / k];
+}
+
+/** 取"**侧表面点**"：在 |y−ty|<dy 且 |z−tz|<dz 的顶点里挑 **|x| 最大**的那个（= 那一带最外侧的面）。
+    眼睛/鼻孔这类"贴在头侧"的件必须用它 —— 这就是上面那条坑的正解。 */
+function sideSurfacePoint(geo, ty, tz, dy = 0.05, dz = 0.05){
+  const p = geo.attributes.position;
+  let best = null, bx = -1;
+  for (let i = 0; i < p.count; i++){
+    if (Math.abs(p.getY(i) - ty) > dy || Math.abs(p.getZ(i) - tz) > dz) continue;
+    const ax = Math.abs(p.getX(i));
+    if (ax > bx){ bx = ax; best = [ax, p.getY(i), p.getZ(i)]; }
+  }
+  return best || [0.06, ty, tz];
+}
+
+/** 取"**最下缘点**"：在 |x|<dx 且 |z−tz|<dz 的顶点里挑 y 最小的（口鼻下缘 = 嘴的位置）。 */
+function lowestSurfacePoint(geo, tz, dz = 0.035, dx = 0.030){
+  const p = geo.attributes.position;
+  let best = null, by = 1e9;
+  for (let i = 0; i < p.count; i++){
+    if (Math.abs(p.getX(i)) > dx || Math.abs(p.getZ(i) - tz) > dz) continue;
+    if (p.getY(i) < by){ by = p.getY(i); best = [0, p.getY(i), p.getZ(i)]; }
+  }
+  return best || [0, 0.15, tz];
+}
+
+/* 补件的**近似锚点**（模型局部、头朝 +z）。
+   ⚠️⚠️ 这些数是**量出来的**（outputs/_diag/horse-landmarks.mjs 直接读 GLB 的 POSITION，
+      逐 z 切片给"顶面 y / |x|max"）—— 手填错了整整两轮（第一轮眼睛埋进头里、
+      第二轮"突兀的黑球位置偏"），量完才看清这只模型的真实姿态：
+        颈脊线（顶面 y）：z0.02→0.234 · z0.12→0.322 · z0.22→0.383 · z0.32→0.414 · z0.42→0.445
+        头：z∈[0.30,0.52]；**口鼻在最低最前**（z≈0.50、y≈0.13~0.18、|x|≤0.038）
+        ——它是"头略低"的站姿，脸从枕部 (z0.42,y0.45) 斜向前下方。 */
+const HORSE_ANCHOR_APPROX = {
+  eye:     [0.065, 0.350, 0.435],                 // 头侧、枕后稍前（会吸附到表面）
+  nostril: [0.030, 0.178, 0.492],                 // 口鼻端侧面偏上
+  mouth:   [0.000, 0.146, 0.503],                 // 口鼻端下缘
+  crest:   [[0, 0.239, 0.025], [0, 0.322, 0.125], [0, 0.383, 0.225],
+            [0, 0.414, 0.325], [0, 0.445, 0.415]], // 颈脊 → 枕（鬃毛贴在它上）
+};
+
+/** 补件：鬃毛 + 尾巴 + 眼睛 + 鼻孔 + 嘴。返回 { geometry, anchor }（anchor 给上色用）。 */
+export function decorateHorseGeometry(srcGeo, seed = 1){
+  const r = mulberry32(20261012 + seed * 7919);        // 私有流：确定性（同一匹每次一样）
+  const geo = srcGeo.index ? srcGeo.toNonIndexed() : srcGeo.clone();
+  const parts = [];
+  const ANCH = {};
+  /* ⚠️ 三个锚点各用**合适的查询**，不能一律"最近顶点"（本轮踩坑两次）：
+       眼/鼻 ⇒ 侧面最外点；嘴 ⇒ 口鼻下缘最低点。
+     ⚠️⚠️ 窗口必须**收紧**：第一版给 dy/dz = 0.05 ⇒ 眼睛的查询把**面颊**（z≈0.37 处 |x|≈0.10）
+        当成了"头侧最外点"、眼位整体后移埋进腮里。收紧到 ±0.03 才是"眼睛那一小块"的局部侧面。 */
+  ANCH.eye     = sideSurfacePoint(geo, HORSE_ANCHOR_APPROX.eye[1], HORSE_ANCHOR_APPROX.eye[2], 0.030, 0.030);
+  ANCH.nostril = sideSurfacePoint(geo, HORSE_ANCHOR_APPROX.nostril[1], HORSE_ANCHOR_APPROX.nostril[2], 0.025, 0.022);
+  ANCH.mouth   = lowestSurfacePoint(geo, HORSE_ANCHOR_APPROX.mouth[2], 0.040, 0.032);
+  ANCH.crestTop = snapAnchor(geo, [0, HORSE_ANCHOR_APPROX.crest[2][1], HORSE_ANCHOR_APPROX.crest[2][2]], 1);
+
+  /* ① 鬃毛：沿颈脊一串向后下方垂的发绺（11 绺，长度带确定性起伏） */
+  const crestCurve = new THREE.CatmullRomCurve3(
+    HORSE_ANCHOR_APPROX.crest.map(c => new THREE.Vector3(c[0], c[1], c[2])));
+  const down = new THREE.Vector3(0, -0.86, -0.50).normalize();
+  for (let i = 0; i < 11; i++){
+    const p0 = crestCurve.getPointAt(i / 10);
+    const len = 0.085 + 0.035 * Math.sin(i * 2.3 + 0.7);
+    const sway = 0.02 * Math.sin(i * 1.7);
+    const pts = [p0.clone(),
+      p0.clone().addScaledVector(down, len * 0.45).add(new THREE.Vector3(sway * 0.6, 0, -0.006)),
+      p0.clone().addScaledVector(down, len).add(new THREE.Vector3(sway, 0, -0.014))];
+    parts.push(taperedTube(pts, [0.0165, 0.0115, 0.0035], 5).toNonIndexed());
+  }
+
+  /* ② 尾巴：**尾根埋进臀内 4cm 再往外长**（否则出图判读"尾巴生硬地插进臀部、下半截悬空脱节"），
+     主要**向下垂**（真马尾巴接近垂直，不是斜向后 40°），主干粗、散毛贴拢 ⇒ 读作"一束"而不是"几根带子"。 */
+  const tailRoot = snapAnchor(geo, [0, 0.230, -0.445], 1);
+  ANCH.tailRoot = tailRoot;
+  const back = new THREE.Vector3(0, -0.88, -0.44).normalize();
+  const rootIn = new THREE.Vector3(tailRoot[0], tailRoot[1] + 0.030, tailRoot[2] + 0.045);
+  {
+    const pts = [rootIn.clone(), rootIn.clone().addScaledVector(back, 0.08),
+      rootIn.clone().addScaledVector(back, 0.20), rootIn.clone().addScaledVector(back, 0.33)];
+    parts.push(taperedTube(pts, [0.038, 0.031, 0.024, 0.012], 6).toNonIndexed());
+  }
+  for (let i = 0; i < 4; i++){
+    const a = (i / 3 - 0.5) * 0.62;
+    const dir = new THREE.Vector3(Math.sin(a) * 0.30, back.y, back.z).normalize();
+    const len = 0.30 + 0.04 * r();
+    const p0 = rootIn.clone().addScaledVector(back, 0.12);
+    const pts = [p0.clone(), p0.clone().addScaledVector(dir, len * 0.5), p0.clone().addScaledVector(dir, len)];
+    parts.push(taperedTube(pts, [0.019, 0.015, 0.005], 6).toNonIndexed());
+  }
+
+  /* ③ 眼睛（头侧压扁的球，**贴着侧面最外点 + 外推 0.006** 保证鼓出表面）④ 鼻孔 + 嘴
+     ⚠️ 眼睛在低模上要"读得出来"必须够大且够鼓：半径 0.030（≈6cm 实径）、x 方向压到 0.60
+        让它是个"贴片"而不是个球；颜色近黑但不纯黑（纯黑读成"洞"）。 */
+  for (const sx of [-1, 1]){
+    const g = new THREE.SphereGeometry(0.030, 8, 6).toNonIndexed();
+    g.scale(0.60, 1.0, 1.15);
+    g.translate(sx * (ANCH.eye[0] + 0.006), ANCH.eye[1], ANCH.eye[2]);
+    parts.push(g);
+  }
+  for (const sx of [-1, 1]){
+    const g = new THREE.SphereGeometry(0.014, 7, 5).toNonIndexed();
+    g.scale(0.80, 1.10, 1.0);
+    g.translate(sx * (ANCH.nostril[0] + 0.003), ANCH.nostril[1], ANCH.nostril[2]);
+    parts.push(g);
+  }
+  {
+    const g = new THREE.BoxGeometry(0.066, 0.013, 0.020).toNonIndexed();
+    g.translate(ANCH.mouth[0], ANCH.mouth[1] + 0.006, ANCH.mouth[2]);   // 抬一点 ⇒ 恰好切在口鼻下缘
+    parts.push(g);
+  }
+
+  const merged = mergeGeometries([geo, ...parts], false);
+  if (!merged) throw new Error('马补件合并失败（属性集不一致？）');
+  merged.computeBoundingBox();
+  return { geometry: merged, anchor: ANCH };
+}
+
 /* ── 马的"部位权重"（2026-10-11）· 一份区域划分，同时供两件事用 ─────────────────
    ① **逐部位上色**（治"白膜"：鬃/尾/四肢/蹄要能看出是**另一块颜色**，而不是通体一色）；
    ② **逐部位动作**（低头吃草 / 摇尾 / 抬蹄 / 抬头抖颈）—— 真马是单网格无骨骼，
@@ -116,58 +302,123 @@ export function horseWeights(geo){
     w.legF[i]   = down * side * sm(0.02, 0.16, z);   // 前腿：z 大的一侧
     w.legH[i]   = down * side * sm(-0.02, -0.18, z); // 后腿：z 小的一侧
     w.hoof[i]   = sm(-0.36, -0.43, y);
-    /* 鬃：颈背那条脊线 —— 头颈区里"靠上、靠中"的一窄条（|x| 小 + y 高）*/
-    w.mane[i]   = w.head[i] * sm(0.30, 0.40, y) * sm(0.055, 0.02, Math.abs(x));
+    /* 鬃：颈背那条脊线 —— 头颈区里"靠上、靠中"的一窄条（|x| 小 + y 高）
+       ⚠️ 2026-10-11 补：光靠"y 高"抓不到**鬐甲那头**的鬃（那里 y 只有 0.14~0.26），
+       而程序化补的鬃毛是从鬐甲一路铺到枕的 ⇒ 再过一道"离颈脊折线多近"的门，
+       两式取大：这样整条鬃（含我刚补的发绺）都吃得到深色，脖子本体表面也不会被刷成一片黑。 */
+    let dCrest = 1e9;
+    for (let s = 0; s < HORSE_ANCHOR_APPROX.crest.length - 1; s++){
+      const a = HORSE_ANCHOR_APPROX.crest[s], b = HORSE_ANCHOR_APPROX.crest[s + 1];
+      const abx = b[0] - a[0], aby = b[1] - a[1], abz = b[2] - a[2];
+      const apx = x - a[0], apy = y - a[1], apz = z - a[2];
+      const L = abx * abx + aby * aby + abz * abz;
+      const u = L > 1e-9 ? Math.min(1, Math.max(0, (apx * abx + apy * aby + apz * abz) / L)) : 0;
+      const dx2 = apx - abx * u, dy2 = apy - aby * u, dz2 = apz - abz * u;
+      const d2 = dx2 * dx2 + dy2 * dy2 + dz2 * dz2;
+      if (d2 < dCrest) dCrest = d2;
+    }
+    dCrest = Math.sqrt(dCrest);
+    w.mane[i]   = Math.max(w.head[i] * sm(0.22, 0.34, y) * sm(0.055, 0.02, Math.abs(x)),
+                           sm(0.15, 0.055, dCrest) * sm(0.062, 0.028, Math.abs(x)));
     /* 口鼻：头的最前端一小圈（鼻口本来就近黑）*/
     w.muzzle[i] = sm(0.40, 0.47, z) * sm(0.30, 0.22, y);
   }
   return w;
 }
 /* 各部位的**枢轴**（模型局部坐标）：绕它转才像关节，绕原点转会把部件甩出去。
-   腿/尾的枢轴由该部位的顶点质心现算（不同模型不用手填）。 */
+   腿的枢轴由该部位的顶点质心现算（不同模型不用手填）。
+   ⚠️ 2026-10-11：**尾枢轴必须改成"尾根"**，不能再取尾部质心 —— 补了那条长尾巴之后，
+      质心会落到尾巴中段，绕它转就成了"螺旋桨自转"而不是"从尾根甩尾"。
+      做法：在尾部区域里取 z 最大（最靠身体）的那一片顶点的均值。 */
 export function horsePivots(geo, w){
   const p = geo.attributes.position;
   const ctr = (arr, thr) => { let sx = 0, sy = 0, sz = 0, n = 0;
     for (let i = 0; i < p.count; i++){ if (arr[i] > thr){ sx += p.getX(i); sy += p.getY(i); sz += p.getZ(i); n++; } }
     return n ? [sx / n, sy / n, sz / n, n] : [0, 0, 0, 0]; };
   const [fx, , fz, fn] = ctr(w.legF, 0.5), [hx, , hz, hn] = ctr(w.legH, 0.5);
-  const [, , tz, tn] = ctr(w.tail, 0.5);
+  let zRoot = -1e9, nTail = 0;
+  for (let i = 0; i < p.count; i++){ if (w.tail[i] > 0.5){ nTail++; if (p.getZ(i) > zRoot) zRoot = p.getZ(i); } }
+  let ty = 0, tz = -0.44, tn = 0;                       // 尾根那一片（z 最大的 3cm 内）的均值
+  if (nTail){
+    for (let i = 0; i < p.count; i++)
+      if (w.tail[i] > 0.5 && p.getZ(i) > zRoot - 0.03){ ty += p.getY(i); tz += 0; tn++; }
+    tz = Math.min(-0.36, zRoot); ty = tn ? ty / tn : 0.20;
+  }
   return {
     neck: [0, 0.04, 0.13],                                  // 颈根（bendHeadDown 同款）
-    tail: [0, 0.10, tn ? Math.min(-0.36, tz) : -0.44],      // 尾根（后躯末端偏上）
+    tail: [0, ty, tz],                                      // 尾根（尾区域最靠身体的那一片）
     legF: [fn ? fx : 0.10, -0.06, fn ? fz : 0.20],          // 前腿：肩，落在腹线略上
     legH: [hn ? hx : 0.10, -0.06, hn ? hz : -0.28],         // 后腿：胯
   };
 }
-/* ── 逐部位上色（治"白膜"）（2026-10-10 起，2026-10-11 加强）────────────────
-   真马是**单网格、无贴图**（整批一个纯色）⇒ 浅色那匹（白/青灰）在夜里直接读成
-   "白膜 / 没渲染"。上一版只按**高度**烘明暗（背亮腹暗），力度不够：鬃、尾、四肢、
-   蹄还是同一个色，看起来仍是一块。
-   这一版按**部位**再压一层（典型马色本来就是"浅身 + 深鬃尾 + 黑蹄"）：
-     鬃 ×0.42 · 尾 ×0.38 · 膝下渐深→蹄 ×0.45 · 口鼻 ×0.80 · 背腹明暗照旧
-   ⚠️ 三条纪律：① **上限 1.0**（超过 1 会把浅色推过 bloom 阈值糊成白片 —— 本项目
-     刚在"高画质白屏"上吃过 bloom 的亏）；② 逐匹克隆几何（共享几何就没法逐匹烘）；
-   ③ 与低头形变共用同一份克隆几何（顺序：先转脖子、后烘明暗 —— 明暗按高度算，
-     转完再烘才与"蹄在最下"一致）。 */
-export function bakeHorseShading(geo, w){
+/* ── 逐顶点烘**绝对颜色**（2026-10-10 起，2026-10-11 改成绝对色 + 花纹）──────────
+   真马是**单网格、无贴图**（GLB 里那张图是没人引用的 normal-bake）⇒ 颜色只能自己烘。
+   ⚠️⚠️ 为什么必须是"绝对色"而不是"乘子"：早期版本把顶点色当**乘在材质色上的明暗系数**，
+      而乘子**只能压暗、不能提亮** ⇒ **白斑/白袜这种"比底色亮"的花纹在数学上做不出来**
+      （黑马配白袜不可能）。现在把最终颜色直接写进 color 属性、材质色置白 ⇒ 花纹成立。
+   叠加顺序（每一步都写清为什么）：
+     ① 高度明暗（背亮腹暗、蹄压一档）
+     ② 鬃 / 尾 / 口鼻压深（典型马色本来就是"浅身 + 深鬃尾"）
+     ③ **白袜**（膝下）—— 必须在④之前，否则白袜会被蹄的压深盖掉（真马是"白腿 + 黑蹄"）
+     ④ 蹄压深
+     ⑤ **白斑**（额到鼻梁的窄条）
+     ⑥ **斑纹/兔褐**（确定性位置噪声，破除"平涂塑料感"）
+     ⑦ 眼睛 / 鼻孔 / 嘴：离补件的**实测锚点**近的直接压成近黑
+   ⚠️ 上限 1.0（超过会把浅色推过 bloom 阈值糊成白片 —— 本项目在"高画质白屏"上吃过亏）。 */
+export function bakeHorseShading(geo, w, opts = {}){
   const p = geo.attributes.position;
   const W = w || horseWeights(geo);
+  const base = (opts.base instanceof THREE.Color) ? opts.base.clone() : new THREE.Color(opts.base || 0x7A4423);
+  const mark = opts.mark || {};
+  const ANCH = opts.anchor || null;
+  const WHITE = new THREE.Color(0xEFE9DE), EYEC = new THREE.Color(0x140F0C), NOSEC = new THREE.Color(0x2A1E19);
   let ymin = 1e9, ymax = -1e9;
   for (let i = 0; i < p.count; i++){ const y = p.getY(i); if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
   const span = Math.max(1e-6, ymax - ymin);
   const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const d2 = (ax, ay, az, x, y, z) => { const dx = x - ax, dy = y - ay, dz = z - az; return dx * dx + dy * dy + dz * dz; };
   const col = new Float32Array(p.count * 3);
+  const c = new THREE.Color();
   for (let i = 0; i < p.count; i++){
-    const t = (p.getY(i) - ymin) / span;              // 0 = 蹄底、1 = 头顶
-    let k = 0.52 + 0.48 * sm(0.06, 0.55, t);          // 腹/腿暗、背/头亮
-    if (t < 0.11) k *= 0.62;                          // 蹄部起手就压一档
-    /* 逐部位加强：浅身 + 深鬃尾 + 黑蹄（真马就是这样分的）*/
-    k *= 1 - 0.58 * W.mane[i];
-    k *= 1 - 0.62 * W.tail[i];
-    k *= 1 - 0.55 * W.hoof[i];
-    k *= 1 - 0.20 * W.muzzle[i];
-    k = Math.min(1, Math.max(0.24, k));
-    col[i*3] = k; col[i*3 + 1] = k; col[i*3 + 2] = k;
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    c.copy(base);
+    const t = (y - ymin) / span;                      // 0 = 蹄底、1 = 头顶
+    c.multiplyScalar(0.55 + 0.45 * sm(0.06, 0.55, t));// ① 背亮腹暗
+    if (W.mane[i]   > 0) c.multiplyScalar(1 - 0.52 * W.mane[i]);   // ② 鬃
+    if (W.tail[i]   > 0) c.multiplyScalar(1 - 0.58 * W.tail[i]);   //    尾
+    if (W.muzzle[i] > 0) c.multiplyScalar(1 - 0.18 * W.muzzle[i]); //    口鼻
+    /* ③ 白袜：膝下（腿的部位权重 × 高度） */
+    if (mark.socks){
+      const lg = Math.max(W.legF[i], W.legH[i]);
+      if (lg > 0) c.lerp(WHITE, 0.92 * mark.socks * lg * sm(-0.15, -0.28, y));
+    }
+    if (W.hoof[i] > 0) c.multiplyScalar(1 - 0.62 * W.hoof[i]);     // ④ 蹄（白袜之下的蹄仍要读到"蹄"）
+    /* ⑤ 白斑：额头→鼻梁的一条窄带（宽 ±0.02 模型单位 ≈ 8cm 实宽） */
+    if (mark.blaze){
+      const bz = sm(0.27, 0.37, z) * sm(0.060, 0.020, Math.abs(x)) * sm(0.255, 0.300, y);
+      if (bz > 0) c.lerp(WHITE, 0.94 * mark.blaze * bz);
+    }
+    /* ⑥ 斑纹（确定性，无随机流）：把平涂感打碎。所有马都给一个底噪（真马毛色本来就有微妙
+       深浅），青灰/白马再叠加更强的一档。 */
+    {
+      const dd = mark.dapple === undefined ? 0.55 : Math.max(0.55, mark.dapple);
+      const n = Math.sin(x * 57.1 + y * 31.7 + z * 43.3) * Math.sin(x * 23.9 - z * 67.3 + y * 11.3);
+      c.multiplyScalar(1 + 0.17 * dd * n);
+    }
+    /* ⑦ 眼睛 / 鼻孔 / 嘴（按补件锚点，含左右镜像） */
+    if (ANCH){
+      const e = Math.min(d2(ANCH.eye[0], ANCH.eye[1], ANCH.eye[2], x, y, z),
+                         d2(-ANCH.eye[0], ANCH.eye[1], ANCH.eye[2], x, y, z));
+      const nz = Math.min(d2(ANCH.nostril[0], ANCH.nostril[1], ANCH.nostril[2], x, y, z),
+                          d2(-ANCH.nostril[0], ANCH.nostril[1], ANCH.nostril[2], x, y, z));
+      const m = d2(ANCH.mouth[0], ANCH.mouth[1], ANCH.mouth[2], x, y, z);
+      if (e < 0.032 * 0.032) c.lerp(EYEC, 0.96);
+      else if (nz < 0.022 * 0.022) c.lerp(NOSEC, 0.88);
+      else if (m < 0.036 * 0.036) c.lerp(NOSEC, 0.86);
+    }
+    col[i*3]     = Math.min(1, Math.max(0, c.r));
+    col[i*3 + 1] = Math.min(1, Math.max(0, c.g));
+    col[i*3 + 2] = Math.min(1, Math.max(0, c.b));
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
 }
@@ -429,22 +680,35 @@ export function loadStableHorses(stableGroup){
            替身的 headG 那套对它无效）；② 每匹都要烘一层**顶点色明暗**（见 bakeHorseShading：
            单网格无贴图时浅色马会读成"白膜"）。共享几何就没法逐匹改。 */
         o.geometry = o.geometry.clone();
-        /* ⚠️ 顺序（2026-10-11 调整）：**先烘色、后低头** —— 上色的高度门/部位门都是按
-           "原姿态"量的（头还没低下去）；先转头会让头部的 y 落到"腹/腿"那一档、鬃的部位门
-           也位移。顶点色是**跟着顶点走**的，所以先算色再转，色就跟着头一起下去，正确。 */
+        /* ⚠️⚠️ 顺序（2026-10-11 定案，四步都有依赖关系）：
+             ① **先补件**（鬃/尾/眼/鼻孔/嘴并进同一份几何）—— 部位门、明暗、低头、伪蒙皮
+                才会自动照顾到它们（鬃跟着脖子低下去、尾巴跟着尾根甩）；
+             ② 再算部位权重 W（必须**含补件的顶点**）；
+             ③ 再烘色（按"原姿态"量高度/部位门）；
+             ④ 最后才低头（先转头会让头部的 y 落到"腹/腿"那一档，色就错了）。
+           ⚠️ 补件必须在 `bendHeadDown` 之前 ⇒ 鬃毛内的顶点同样落在"头颈门"里、跟着一起低下去。 */
+        const dec = decorateHorseGeometry(o.geometry, slot.decoSeed | 0);
+        o.geometry = dec.geometry;
+        /* 把补件的**实测锚点**挂到网格上：探针要按它投影到屏幕、直接采样那几像素
+           （"眼睛到底看不看得见"这个问题，看图判读来回错了三轮，只有量像素能定案）。
+           与 horseSlots / smallBirdMeshRef 同一条做法：只读的诊断钩子，不参与任何逻辑。 */
+        o.userData.horseAnchor = dec.anchor;
+        o.userData.horseRole = slot.role;
         const W = horseWeights(o.geometry);
-        bakeHorseShading(o.geometry, W);
+        bakeHorseShading(o.geometry, W, { base: base.color, mark: slot.mark, anchor: dec.anchor });
         if (slot.graze > 0.05) bendHeadDown(o.geometry, Math.round(slot.graze * 57.2958 * 0.75));
-        /* 逐匹上色（六种典型马色）：模型单材质 ⇒ 改 color；顶点色是"背亮腹暗"的乘子。
-           ⚠️ 必须**克隆材质**：共享材质会让六匹马同色（而且 12f 的季节通道按材质同一性认领，
-              这里不进季节表，但克隆仍是必须的）。 */
+        /* 逐匹上色：**颜色已经逐顶点烘进 color 属性**（底色 × 明暗 × 花纹 × 鬃尾蹄眼鼻嘴），
+           所以材质色必须置**白** —— 否则会再乘一次底色、花纹全被压掉。
+           ⚠️ 必须**克隆材质**：共享材质会让六匹马同色（而且 12f 的季节通道按材质同一性认领）。
+           ⚠️ 顶点色现在是**绝对色**（不再是"乘子"）：这是让"白斑/白袜"成立的前提
+              （乘子只能压暗、提不亮）。 */
         o.material = o.material.clone();
-        o.material.color.copy(base.color || new THREE.Color(0x7A4423));
-        o.material.vertexColors = true;               // ← 顶点色是"背亮腹暗"，乘在上面
+        o.material.color.set(0xFFFFFF);
+        o.material.vertexColors = true;               // ← 顶点色 = 最终颜色（绝对色）
         o.material.metalness = 0.0;
         o.material.roughness = 0.82;
         o.material.envMapIntensity = 0.30;
-        o.material.map = null;                        // 模型自带 PBR 贴图是空的，别留引用
+        o.material.map = null;                        // 模型自带贴图是没人引用的 normal-bake，别留引用
         o.material.needsUpdate = true;
         o.castShadow = true;
         o.userData.noMerge = true;                    // 异步进来、错过 mergeStatics，显式标一下
@@ -1036,9 +1300,11 @@ export function makeStable(cx, cz, opts = {}){
     g.add(grp);
     /* `role`（2026-10-11）：这匹马"在干什么"—— 动作装置按角色给不同的行为
        （stall 厩内待着 / harnessed 辕里待发 / graze 低头吃草 / fed 受喂）。
-       ⚠️ 只认角色，**不认坐标**：坐标改选址时会变，角色跟着语义走。 */
+       ⚠️ 只认角色，**不认坐标**：坐标改选址时会变，角色跟着语义走。
+       `mark` / `decoSeed`（2026-10-11 补）：每匹的**花纹**（白斑/白袜/斑纹）与**补件种子**
+       （鬃尾的确定性差异）—— 老黄："所有的马都是单一颜色的，这个在自然界也很难存在吧"。 */
     const slot = { group: grp, color: colorMat, holders: [ph], graze: opts2.graze || 0,
-                   role: opts2.role || 'stall' };
+                   role: opts2.role || 'stall', mark: opts2.mark || null, decoSeed: opts2.decoSeed || 0 };
     horseSlots.push(slot);
     return slot;
   };
@@ -1076,9 +1342,13 @@ export function makeStable(cx, cz, opts = {}){
       }
     }
   }
-  /* **厩内 2 匹**（占第 1、3 栏；第 2、4 栏空着）—— 空槽位里放地上的干草，读作"空闲马位" */
-  for (const [sx0, col] of [[(stallX[0] + stallX[1]) / 2, MAT.horseChestnut], [(stallX[2] + stallX[3]) / 2, MAT.horseWhite]]){
-    addHorseSlot(sx0, BZ1 - 1.5, P0, Math.PI, col);
+  /* **厩内 2 匹**（占第 1、3 栏；第 2、4 栏空着）—— 空槽位里放地上的干草，读作"空闲马位"
+     ⚠️ 六匹的花纹刻意各不相同（老黄："所有的马都是单一颜色"）：骝马白斑+白袜、白马带斑纹、
+     黑马纯黑（真实存在的"黑得发亮"）、枣红白袜、青灰斑纹+小流星、兔褐白斑白袜。 */
+  for (const [sx0, col, mk, sd] of [
+    [(stallX[0] + stallX[1]) / 2, MAT.horseChestnut, { blaze: 1.0, socks: 0.9 }, 1],
+    [(stallX[2] + stallX[3]) / 2, MAT.horseWhite,    { dapple: 0.9 }, 2]]){
+    addHorseSlot(sx0, BZ1 - 1.5, P0, Math.PI, col, { mark: mk, decoSeed: sd });
   }
   for (const i of [1, 3]){                                                    // 空位：散一堆干草
     const cxm = (stallX[i] + stallX[i + 1]) / 2;
@@ -1128,7 +1398,8 @@ export function makeStable(cx, cz, opts = {}){
        同时马臀（马心 +0.78 = −2.05）离车厢前沿（−2.01）留 0.2m 缝 ⇒ 不再车马相撞。 */
     const hz = -2.85;
     const hy = yardY(hx, hz);
-    const slot = addHorseSlot(hx, hz, hy, Math.PI, sx < 0 ? MAT.horseBlack : MAT.horseBay, { role: 'harnessed' });
+    const slot = addHorseSlot(hx, hz, hy, Math.PI, sx < 0 ? MAT.horseBlack : MAT.horseBay,
+      { role: 'harnessed', decoSeed: sx < 0 ? 3 : 4, mark: sx < 0 ? null : { socks: 0.8 } });
     /* 挽具挂在**槽位组**里（跟着替身一起被换掉）：部件是按程序化马的脖径/腹径配的，
        换成真模型后尺寸对不上会穿模 —— 那时"套车"靠辕杆 + 横轭表达，一样成立。 */
     const girth = mesh(new THREE.TorusGeometry(0.235, 0.024, 4, 12), MAT.harness, { name: 'harnessGirth' });
@@ -1153,8 +1424,10 @@ export function makeStable(cx, cz, opts = {}){
      退到 (4.6,−3.9) 完全分开。 */
   /* ⚠️ 2026-10-11（老黄："也看不到马低头吃草的动作"）：把头低的角度加足 ——
      graze 0.82→0.95（= 40.8°）、fed 0.52→0.80（= 34.4°）。上限仍守 bendHeadDown 的 45° 规矩。 */
-  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey, { graze: 0.95, role: 'graze' });
-  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay, { graze: 0.80, role: 'fed' });
+  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey,
+    { graze: 0.95, role: 'graze', decoSeed: 5, mark: { dapple: 1.0, blaze: 0.7 } });
+  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay,
+    { graze: 0.80, role: 'fed', decoSeed: 6, mark: { blaze: 1.0, socks: 0.8 } });
 
   /* ③d 院用杂物：石水槽、草料堆、两根拴马桩、草料篮
      ⚠️ 2026-10-11 老黄："为什么这个草料一定要这样放，不能全部放在围栏内吗？" ——
