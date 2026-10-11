@@ -485,14 +485,21 @@
       overscroll-behavior: contain;      /* 面板滚到底不要带着整个页面一起滚 */
       -webkit-overflow-scrolling: touch;
       white-space: normal;
-      /* 内边距 / 行距要**省着给**：按钮一放大到 46px，整块面板就比手机屏还高一截
-         （实测 390×844：内容 816px vs 可见 692px ⇒ 底部两行要滚动才看得到，
-         而放大前面板是"一屏放得下"的）。收到下面这几个值后内容 ≈ 660px，重新放得下。 */
-      padding: 10px 11px;
-      gap: 6px;
+      /* 内边距 / 行距要**省着给**：按钮一放大到 46px，整块面板就比手机屏还高一截。
+         ⚠️ 2026-10-11 实测重定（390×844 触控档；探针 outputs/_diag/panel-fit-scan.mjs
+            逐行量高度 + 页内试算）：旧值 gap6 / row-gap5 / padding 10px 11px
+            ⇒ 内容 740px vs 可见 702px（底部要滚动 38px 才看得见最后一行）。
+            改成下面这组，并把按钮左右内边距 9→7px（"天气""陈设"两行不再折行）
+            ⇒ 内容 630px、留出 ~72px 余量（恰好对应"还能再折一行"）。
+         ⚠️ 留这个余量是因为**真机的中文字体度量与本机不同**，"刚好放得下"（0 余量）
+            在别的手机上可能又折一行（一行 ≈49px）；别再往回收。 */
+      padding: 6px 9px;
+      gap: 3px;
       bottom: calc(100% + 12px);         /* 方印变高了，尖角位置的小距离同步加一点 */
     }
-    #env .row{ flex-wrap: wrap; gap: 6px; row-gap: 5px; }
+    /* row-gap 只管"折行之后行与行之间"的距离 —— 2px 是"手指不会误点、又省高度"的折中
+       （拆行后的面板总高见 drawer-content 那条注释的实测） */
+    #env .row{ flex-wrap: wrap; gap: 6px; row-gap: 2px; }
     #env .lbl {
       width: auto;
       min-width: 2.7em;
@@ -502,7 +509,11 @@
        包括时段条下方那四个锚点标签（它们靠这条拿到 min-height，见上面那条注释）。 */
     #env button {
       min-height: 46px;
-      padding: 9px 9px;
+      /* 左右内边距 9→7px：**高度仍是 46px（命中区没缩）**，只是窄一点 ——
+         "天气""陈设"那两行因此不再折行，整块面板省下 ~65px（实测见上面对 drawer-content 的注释）。
+         ⚠️ 时段条下方那四个锚点标签也是 button，但它们是 translateX(-50%) 居中的
+            （见 .time-marks 那条注释），宽度变化不影响它们对准圆球中心。 */
+      padding: 9px 7px;
       font-size: 13px;
       border-radius: 8px;
       touch-action: manipulation;

@@ -97,7 +97,10 @@
    原来 6 个模型（3.5 MB）和 SHELL 混在同一个带版本号的桶里 ⇒ 每次升版都被 activate 删掉 ⇒
    每次改代码他都要重下 3.5 MB。现在资产放 `suzhou-garden-assets-vN`（**不带应用版本号、不被 activate 删**），
    安装时逐个"缺了才下"；升版只换应用壳。另外开发服务器对 assets/ 允许 HTTP 缓存（见 probe/serve.mjs）。 */
-const CACHE = 'suzhou-garden-v40';
+/* 2026-10-11 bump v40→v41：改了 SHELL 成员 index.html —— 触控档面板的间距/内边距
+   （手机竖屏 390×844 上面板展开后底部要滚动 38px 才看得见最后一行，实测探针见
+   outputs/_diag/panel-fit-scan.mjs；改后留 ~65px 余量）。 */
+const CACHE = 'suzhou-garden-v41';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
