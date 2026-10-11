@@ -93,7 +93,15 @@
 /* 2026-10-11 bump v38→v39：改了 SHELL 成员 index.html —— 三个"景"（灯会/烟花/流星雨）的
    按钮说明改成"一键开/关；可与另两个同时开"，并给「烟花」补上一直缺的 title
    （语义解耦：不再有"点灯会顺带带出烟花"这种自动联动）。 */
-const CACHE = 'suzhou-garden-v39';
+/* 2026-10-11 bump v39→v40 + **资产桶与版本脱钩**（老黄："现在每次进项目前这个下载都要持续好久"）：
+   原来 6 个模型（3.5 MB）和 SHELL 混在同一个带版本号的桶里 ⇒ 每次升版都被 activate 删掉 ⇒
+   每次改代码他都要重下 3.5 MB。现在资产放 `suzhou-garden-assets-vN`（**不带应用版本号、不被 activate 删**），
+   安装时逐个"缺了才下"；升版只换应用壳。另外开发服务器对 assets/ 允许 HTTP 缓存（见 probe/serve.mjs）。 */
+const CACHE = 'suzhou-garden-v40';
+/* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
+   但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
+   吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
+const ASSET_CACHE = 'suzhou-garden-assets-v1';
 const SHELL = [
   './',
   './index.html',
@@ -125,17 +133,35 @@ const GLBS = [
    代码类仍 network-first = 改了即所见）。 ⚠️ 加完必须 bump 上面的 CACHE 版本号。 */
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(
-    caches.open(CACHE)
-      .then((c) => c.addAll([...SHELL, ...GLBS]).catch(() => c.addAll(SHELL)))
-      .then(() => self.skipWaiting())
-  );
+  e.waitUntil((async () => {
+    /* ① 应用壳：整批预缓存（版本内不变，升版就是换这一桶） */
+    await (await caches.open(CACHE)).addAll(SHELL);
+    /* ② 模型资产：**逐个"缺了才下"**，放进**不带版本号**的资产桶。
+       ⚠️⚠️ 2026-10-11 改（老黄："现在每次进项目前这个下载都要持续好久"）：
+       原来 GLBS 与 SHELL 混在同一个带版本号的桶里，而 activate 会删掉所有旧版本桶
+       ⇒ **我每改一行代码升一次版本，用户那 3.5 MB 模型就要重下一遍**
+       （一天里我从 v36 升到 v39 = 让他白下了 4 遍）。现在资产与版本脱钩：
+       升版只换应用壳，资产**只在缺的时候才发网络**。
+       ⚠️ 也不能用 addAll 预缓存资产：它遇到 404 会整批 reject，
+       而过去的写法是 `.catch(() => c.addAll(SHELL))` ⇒ 静默退化成"只缓存外壳"
+       ⇒ 资产每次重下（而且没人看得出来）。这里单件失败只影响那一件。 */
+    const ac = await caches.open(ASSET_CACHE);
+    await Promise.all(GLBS.map(async (u) => {
+      if (await ac.match(u)) return;                 // 已有 ⇒ 这一次网络都不发
+      try { await ac.add(u); } catch { /* 单件失败不拦安装；运行期 fetch 还有一次机会 */ }
+    }));
+    await self.skipWaiting();
+  })());
 });
 
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => k.startsWith('suzhou-garden-v') && k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(
+        /* ⚠️ 只删"旧版本的应用壳"。资产桶（suzhou-garden-assets）**不在这个前缀里**
+           ⇒ 不会被删 ⇒ 升版不再重下模型。 */
+        keys.filter((k) => k.startsWith('suzhou-garden-v') && k !== CACHE).map((k) => caches.delete(k))
+      ))
       .then(() => self.clients.claim())
   );
 });
@@ -159,7 +185,9 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  /* 大件（版本内不变）→ cache-first；其余（代码）→ network-first。理由见头部注释 */
+  /* 大件（版本内不变）→ cache-first；其余（代码）→ network-first。理由见头部注释。
+     ⚠️ `caches.match` 默认搜**所有**桶 ⇒ 资产桶（无版本号）里的命中同样找得到。
+     命中资产直接返回，不碰网络；未命中的资产写进**资产桶**（不是版本桶，否则下次升版又丢）。 */
   const isAsset = url.pathname.endsWith('.glb')
                || url.pathname.includes('/icons/')
                || url.pathname.includes('/docs/');
@@ -169,7 +197,8 @@ self.addEventListener('fetch', (e) => {
       return fetch(e.request).then((res) => {          // 代码：网络优先 ⇒ 改了即所见
         if (res && res.status === 200) {
           const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+          const bucket = isAsset ? ASSET_CACHE : CACHE;
+          caches.open(bucket).then((c) => c.put(e.request, copy)).catch(() => {});
         }
         return res;
       }).catch(() => hit || Response.error());          // 离线：回退缓存

@@ -27,9 +27,17 @@ http.createServer((req, res) => {
   if (!file.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end('not found'); return; }
+    /* ⚠️ 2026-10-11（老黄："现在每次进项目前这个下载都要持续好久"）：**模型资产允许 HTTP 缓存**。
+       原来一律 `no-cache`（开发期禁缓存、改完刷新即生效）——但这条对**代码**才有意义；
+       对 assets/*.glb 这种"内容不常变的大件"等于每次进来都重下 3.5 MB。
+       ⚠️ 而且 `no-cache` 在没有 ETag/Last-Modified 时是**最坏组合**：不能复用、也不能 304，
+       只能整包重下。这里给资产 7 天强缓存（改模型时文件名不变 ⇒ 需要把 sw.js 的
+       ASSET_CACHE 后缀 +1；`npm run check` 会盯这件事）。代码类维持 no-cache。
+       ⚠️ 这条只影响**本地开发服务器**；线上是静态托管，缓存策略由那边的规则决定。 */
+    const isAsset = /^\/assets\/|^\/docs\/|^\/icons\//.test(p);
     res.writeHead(200, {
       'Content-Type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream',
-      'Cache-Control': 'no-cache',   // 开发期禁缓存，改完刷新即生效
+      'Cache-Control': isAsset ? 'public, max-age=604800, immutable' : 'no-cache',
     });
     res.end(data);
   });

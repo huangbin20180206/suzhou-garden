@@ -45,22 +45,40 @@ try {
        正解：只对 **sw.js 里真正声明进 SHELL / GLBS 的那几件**判 mtime；
        同目录里其余文件（README 配图、说明文档）与 SW 缓存无关，一律不管。 */
     const arrBody = (name) => (swSrc.match(new RegExp(`const ${name} = \\[([\\s\\S]*?)\\]`)) || [])[1] || '';
-    const declared = [...(arrBody('SHELL') + arrBody('GLBS')).matchAll(/'([^']+)'/g)]
-      .map(m => m[1].replace(/^\.\//, ''));
-    const frozen = [];
+    const rels = [...(arrBody('SHELL') + arrBody('GLBS')).matchAll(/'([^']+)'/g)];
+    const declared = rels.map(m => m[1].replace(/^\.\//, ''));
+    /* ⚠️⚠️ 2026-10-11：**两个桶、两条纪律**（见 sw.js 顶部注释）。
+       SHELL 进带应用版本号的桶（升版 = 换壳）；GLBS 进 `suzhou-garden-assets-vN`（跨应用版本存活）。
+       ⇒ 判据也必须分开：**改了模型要升 ASSET_CACHE 的后缀，而不是升 CACHE**
+         （反过来的话，用户以为"升版了"，其实旧模型照旧吃着）。 */
+    const assetVer = (swSrc.match(/const ASSET_CACHE = 'suzhou-garden-assets-(v\d+)'/) || [])[1];
+    if (!assetVer) {
+      throw new Error("sw.js 未声明 `const ASSET_CACHE = 'suzhou-garden-assets-vN'` —— "
+        + '资产桶必须带自己的版本后缀（改了模型才能靠它失效，否则用户永远吃旧的那一份）');
+    }
+    const shellSet = new Set([...arrBody('SHELL').matchAll(/'([^']+)'/g)].map(m => m[1].replace(/^\.\//, '')));
+    const frozenShell = [], frozenAssets = [];
     for (const rel of declared) {
       if (/\.(js|mjs|html|webmanifest)$/.test(rel)) continue;   // 代码类走 network-first，改了即所见、不需 bump
       const p = path.join(ROOT, rel);
-      if (fs.existsSync(p) && fs.statSync(p).isFile()) frozen.push(p);
+      if (!fs.existsSync(p) || !fs.statSync(p).isFile()) continue;
+      (shellSet.has(rel) ? frozenShell : frozenAssets).push(p);
     }
     const swM = fs.statSync(swPath).mtimeMs;
-    const stale = frozen.filter(p => fs.statSync(p).mtimeMs > swM + 2000);
-    if (stale.length) {
-      throw new Error(`cache-first 资产比 sw.js 新，必须把 CACHE 从 ${ver} 升到 v${Number(ver.slice(1)) + 1}：\n`
-        + stale.map(p => '        · ' + path.relative(ROOT, p)).join('\n')
+    const staleShell = frozenShell.filter(p => fs.statSync(p).mtimeMs > swM + 2000);
+    if (staleShell.length) {
+      throw new Error(`cache-first 的应用壳文件比 sw.js 新，必须把 CACHE 从 ${ver} 升到 v${Number(ver.slice(1)) + 1}：\n`
+        + staleShell.map(p => '        · ' + path.relative(ROOT, p)).join('\n')
         + '\n      否则已装 SW 的浏览器会一直吃旧副本（改了看不见，且不报错）');
     }
-    console.log(`      PWA：sw.js 语法 OK · 缓存版本 ${ver} · cache-first 资产（${frozen.length} 件）未越过版本号 ✓`);
+    const staleAssets = frozenAssets.filter(p => fs.statSync(p).mtimeMs > swM + 2000);
+    if (staleAssets.length) {
+      throw new Error(`模型资产比 sw.js 新，必须把 ASSET_CACHE 从 ${assetVer} 升到 v${Number(assetVer.slice(1)) + 1}`
+        + '（**不是**升 CACHE —— 资产桶跨应用版本存活，升 CACHE 不会让旧模型失效）：\n'
+        + staleAssets.map(p => '        · ' + path.relative(ROOT, p)).join('\n'));
+    }
+    console.log(`      PWA：sw.js 语法 OK · 应用壳 ${ver}（${frozenShell.length} 件）/ 资产桶 ${assetVer}`
+      + `（${frozenAssets.length} 件）均未越过版本号 ✓`);
     /* ── 画布兜底底色（2026-10-11 · 静态）──────────────────────────────────────
        为什么必须常驻：three r184 申请 WebGL 上下文时把 `alpha` **硬写成 true**
        （vendor.js 里 `let S={alpha:!0,depth:a,...}`，与构造参数无关）⇒ 这个画布**天生允许透明**。
