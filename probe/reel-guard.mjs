@@ -57,11 +57,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   await sleep(1200);
 
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
   const shot = async (name) => {
     const b = await page.screenshot();
     if (name) fs.writeFileSync(path.join(OUT, name + '.png'), b);
@@ -90,7 +90,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const panelVisible = await page.waitForFunction(() => {
     const s = getComputedStyle(document.querySelector('#env .drawer-content'));
     return s.visibility === 'visible' && Number(s.opacity) > 0.9;
-  }, { timeout: 5000, polling: 50 }).then(() => true).catch(() => false);
+  }, null, { timeout: 5000, polling: 50 }).then(() => true).catch(() => false);
   check('抽屉展开（visibility 带 transition，须轮询到位）', panelVisible);
 
   await page.click('button[data-act="reel"]');

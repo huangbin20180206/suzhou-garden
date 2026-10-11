@@ -66,7 +66,7 @@ const check = (name, ok, detail = '') => {
 
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000 });
+    null, { timeout: 90000 });
   /* 紫藤属"延迟批"，比 GLB 晚但比首帧早；直接轮询到花穗实例出现为止（固定 sleep 会踩空） */
   const ok = await page.waitForFunction(() => {
     let found = 0;
@@ -74,7 +74,7 @@ const check = (name, ok, detail = '') => {
       if (o.isInstancedMesh && o.instanceColor && o.count > 200) found++;
     });
     return found > 0;
-  }, { timeout: 120000, polling: 500 }).then(() => true).catch(() => false);
+  }, null, { timeout: 120000, polling: 500 }).then(() => true).catch(() => false);
   console.log('[wisteria-color] 花穗实例就绪: ' + ok);
   if (!ok){ await browser.close(); server.close(); process.exit(1); }
 

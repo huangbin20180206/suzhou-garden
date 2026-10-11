@@ -91,7 +91,7 @@ const INIT = () => {
              title: q('.ld-title'), kicker: q('.ld-kicker'), bar: q('.ld-bar'),
              prog: q('.ld-prog'), text: q('.ld-text'),
              reduced: matchMedia('(prefers-reduced-motion: reduce)').matches };
-  }, { timeout: 30000, polling: 100 }).then(h => h.jsonValue()).catch(() => null);
+  }, null, { timeout: 30000, polling: 100 }).then(h => h.jsonValue()).catch(() => null);
   /* ⚠️ 只报"该有却没有的"结构项：struct 里还带着 reduced / attached 这类**布尔状态**，
      把它们一起当"缺失项"打印会写出"✓ 结构完整 — reduced"这种自相矛盾的行。 */
   const NEED = ['bg', 'wash', 'title', 'kicker', 'bar', 'prog', 'text'];
@@ -131,7 +131,7 @@ const INIT = () => {
   /* ④ 收尾：等 loading 收起，再回读整个进度序列 */
   const done = await page.waitForFunction(
     () => document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 180000, polling: 200 }).then(() => true).catch(() => false);
   check('首帧后加载层收起（加 .done）', done);
   const log = await page.evaluate(() => window.__ldLog);
   await sleep(1000);

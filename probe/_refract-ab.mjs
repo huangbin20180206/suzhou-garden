@@ -88,7 +88,7 @@ async function settle(page){
     const g = window.__garden;
     g.setEnv('time', 'noon'); g.setEnv('season', 'summer'); g.setEnv('weather', 'clear');
   });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 40000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 40000, polling: 200 }).catch(() => {});
   await sleep(600);
   await page.evaluate(() => window.__garden.gotoViewpoint('hero'));
   let prev = null, still = 0, waited = 0;
@@ -110,7 +110,7 @@ async function open(page, url){
   await page.goto(url, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 150000, polling: 300 });
+    null, { timeout: 150000, polling: 300 });
   return settle(page);
 }
 

@@ -60,11 +60,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   await sleep(1200);
 
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
 
   /* 开音景（需要用户手势 —— 走真实点击，不用 evaluate 直接调 toggle）
      ⚠️ #env 是抽屉，默认收起：**必须先展开**，否则 click 会一直等"元素可见"直到超时。 */

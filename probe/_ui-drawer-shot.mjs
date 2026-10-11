@@ -44,7 +44,7 @@ const r2 = n => Math.round(n * 100) / 100;
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000, polling: 300 });
+    null, { timeout: 90000, polling: 300 });
   await sleep(1200);
 
   const rect = sel => page.evaluate((s) => {

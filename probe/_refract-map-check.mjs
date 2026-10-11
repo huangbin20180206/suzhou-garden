@@ -34,11 +34,11 @@ const W = PBOX.maxX - PBOX.minX, D = PBOX.maxZ - PBOX.minZ;
   const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
   page.setDefaultTimeout(120000);
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'), { timeout: 120000 });
+  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'), null, { timeout: 120000 });
   await page.waitForFunction(() => {
     const w = window.__garden.scene.getObjectByName('waterSurface');
     return w && w.material.uniforms.uRefractOn.value > 0.5;
-  }, { timeout: 120000 });
+  }, null, { timeout: 120000 });
 
   const res = await page.evaluate(async (PBOX) => {
     const G = window.__garden;

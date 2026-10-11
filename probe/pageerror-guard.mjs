@@ -79,7 +79,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   await sleep(1200);
 
   check('启动完成且零 pageerror', errsSince(0) === 0,
@@ -87,7 +87,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   /* 过渡由仿真时间推进，轮询 ENV.t>=1（与 smoke 同一范式） */
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
   const shot = async (name) => {
     const buf = await page.screenshot();
     if (name) fs.writeFileSync(path.join(OUT, name + '.png'), buf);
@@ -140,7 +140,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const panelVisible = await page.waitForFunction(() => {
     const s = getComputedStyle(document.querySelector('#env .drawer-content'));
     return s.visibility === 'visible' && Number(s.opacity) > 0.9 && s.pointerEvents !== 'none';
-  }, { timeout: 5000, polling: 50 }).then(() => true).catch(() => false);
+  }, null, { timeout: 5000, polling: 50 }).then(() => true).catch(() => false);
   const btnAfter = await readPanel();
   check('展开后面板可命中（visibility/opacity/pointer-events，轮询到位）',
     panelVisible, `过渡中 ${JSON.stringify(btnBefore)} → 到位 ${JSON.stringify(btnAfter)}`);

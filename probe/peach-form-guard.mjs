@@ -54,10 +54,10 @@ const check = (label, ok, extra) => { results.push({ label, ok }); console.log(`
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   await sleep(2500);
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
   /* 延迟批跑完（桃树是 deferBoot）才谈得上量形态 —— 等树干真的出现 */
   let nTree = 0;
   for (let k = 0; k < 16 && nTree < 2; k++){
@@ -333,7 +333,7 @@ const check = (label, ok, extra) => { results.push({ label, ok }); console.log(`
   page2.on('pageerror', e => errors.push('page2 pageerror: ' + e.message));
   await page2.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page2.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   for (let k = 0; k < 16; k++){
     const ok = await page2.evaluate(() => { let n = 0;
       window.__garden.scene.traverse(o => { if (o.userData && o.userData.peachTree) n++; }); return n >= 1; });

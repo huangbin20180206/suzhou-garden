@@ -48,7 +48,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000 });
+    null, { timeout: 120000 });
 
   /* ── A · 锚点本身 ── */
   const A = await page.evaluate(() => {
@@ -79,7 +79,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.waitForFunction(() => {
     const G = window.__garden;
     return G.perchShow() && G.perchingDragonflies.every(d => d.visible && d.userData.perch.anchor);
-  }, { timeout: 60000 }).catch(() => {});
+  }, null, { timeout: 60000 }).catch(() => {});
   const B = await page.evaluate(() => {
     const G = window.__garden, T = G.THREE, v = new T.Vector3();
     return {
@@ -161,7 +161,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const G = window.__garden;
     if (G.ENV.t < 0.92) G.ENV.t = 0.92;
     return G.perchShow() === false && G.perchingDragonflies.every(d => !d.visible);
-  }, { polling: 300, timeout: 90000 }).then(() => true).catch(() => false);
+  }, null, { polling: 300, timeout: 90000 }).then(() => true).catch(() => false);
   const E = await page.evaluate(() => ({
     show: window.__garden.perchShow(),
     vis: window.__garden.perchingDragonflies.map(d => d.visible),

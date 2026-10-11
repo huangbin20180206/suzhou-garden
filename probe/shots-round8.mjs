@@ -40,7 +40,7 @@ const server = http.createServer((req, res) => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000 });
+    null, { timeout: 120000 });
   /* 立峰/题名石在延迟批里；锦鲤与泳龟是异步 GLB。全部轮询到齐再拍。 */
   await page.waitForFunction(() => {
     let hero = false, stele = false;
@@ -50,12 +50,12 @@ const server = http.createServer((req, res) => {
     });
     return hero && stele && window.__garden.koiGroup.userData.fishes.length >= 11
         && window.__garden.perchingDragonflies.every(d => d.visible && d.userData.perch.anchor);
-  }, { timeout: 240000 });
+  }, null, { timeout: 240000 });
 
   /* ⚠️ 巡游默认开启（首站 hero）：flyTo 的 CAM_FLY 过渡会在 1.4s 内**每帧覆盖探针机位**，
      停留到点还会自动切下一站把相机飞走 —— 之前所有特写都因此拍成了立峰（不是题名石）。
      必须先等飞行落定、再 tourStop，机位才稳得住。 */
-  await page.waitForFunction(() => !window.__garden.camFly(), { timeout: 120000 }).catch(() => {});
+  await page.waitForFunction(() => !window.__garden.camFly(), null, { timeout: 120000 }).catch(() => {});
   await page.evaluate(() => window.__garden.tourStop());
 
   await page.evaluate(() => {
@@ -69,7 +69,7 @@ const server = http.createServer((req, res) => {
     await page.evaluate(() => { if (window.__garden) window.__garden.controls.minDistance = 9; });
     console.log('  ✓ ' + name);
   };
-  const settle = () => page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 90000, polling: 200 }).catch(() => {});
+  const settle = () => page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 90000, polling: 200 }).catch(() => {});
 
   /* 1 · 池面俯视：一眼看完 11 条锦鲤 + 2 只泳龟有没有骑到草皮上 */
   await page.evaluate(() => {

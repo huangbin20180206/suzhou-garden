@@ -63,7 +63,7 @@ const check = (name, ok, detail = '') => {
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
     undefined, { timeout: 60000 });
-  await page.waitForFunction(() => !window.__garden.camFly(), { timeout: 120000 }).catch(() => {});
+  await page.waitForFunction(() => !window.__garden.camFly(), null, { timeout: 120000 }).catch(() => {});
   await page.evaluate(() => window.__garden.tourStop());
   await page.waitForTimeout(1000);
 

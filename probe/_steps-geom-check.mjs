@@ -167,11 +167,11 @@ await new Promise(r => server.listen(0, r));
 const page = await browser.newPage({ viewport: { width: W, height: H } });
 const errors = []; page.on('pageerror', e => errors.push(String(e)));
 await page.goto(`http://127.0.0.1:${server.address().port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
-await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'), { timeout: 180000, polling: 300 });
+await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'), null, { timeout: 180000, polling: 300 });
 await sleep(2500);
 await page.evaluate(() => { const g = window.__garden; g.guideStop?.(); g.setEnv('time','noon');
   g.setEnv('weather','clear'); g.setEnv('season','winter'); });
-await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
 await sleep(1600);
 
 console.log('══ Q2/Q3/Q4 几何体检（v2 后）══');

@@ -35,7 +35,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   page.on('pageerror', e => console.log('  [pageerror]', String(e.message).split('\n')[0]));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000, polling: 300 });
+    null, { timeout: 90000, polling: 300 });
   await sleep(1500);
 
   /* 装监听 */
@@ -75,7 +75,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   /* 触发天气切换 */
   await page.evaluate(() => window.__garden.setEnv('weather', 'storm'));
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 30000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 30000, polling: 200 }).catch(() => {});
   await sleep(600);
 
   const log = await page.evaluate(() => window.__probeLog);

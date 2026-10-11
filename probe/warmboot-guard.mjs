@@ -77,7 +77,7 @@ async function measure(chromium, port, { nowarm }){
   }
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 300000 });
   await page.waitForFunction(() => document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000, polling: 200 }).catch(() => {});
+    null, { timeout: 300000, polling: 200 }).catch(() => {});
   /* program 数不能在 loading.done 那一刻读：GLB 是异步挂载的，抓早了抓到的是"延迟链跑到哪了"。
      等延迟链收尾 + **收敛判据**（连续两次采样不变）才算稳定。 */
   const dl = Date.now() + 300000;

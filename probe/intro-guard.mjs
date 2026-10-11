@@ -45,7 +45,7 @@ const K0_POS = [30, 34, 40], K0_TGT = [0, 4.5, 2];
 /* 收尾定义见 11-loop.js：loading.done 之后 2 帧才开始播 */
 const waitReady = pg => pg.waitForFunction(
   () => window.__garden && document.getElementById('loading').classList.contains('done'),
-  { timeout: 180000, polling: 300 });
+  null, { timeout: 180000, polling: 300 });
 
 const snap = pg => pg.evaluate(() => {
   const g = window.__garden;
@@ -90,7 +90,7 @@ const snap = pg => pg.evaluate(() => {
   await waitReady(pB);
 
   const started = await pB.waitForFunction(() => window.__garden.introState().on === true,
-    { timeout: 15000, polling: 100 }).then(() => true).catch(() => false);
+    null, { timeout: 15000, polling: 100 }).then(() => true).catch(() => false);
   check('?intro=1：加载收尾后自动起播', started);
   if (!started){
     console.log('\n[开场运镜] 起播失败，后续断言无意义 —— 提前退出');

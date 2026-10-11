@@ -136,7 +136,7 @@ async function run(chromium, port, { throttle, killBanana, interact }){
 
   // 等 boot 起来（loading 层在 + __garden 存在）
   await page.waitForFunction(() => !!window.__garden && !!document.getElementById('loading'),
-    { timeout: 300000, polling: 50 });
+    null, { timeout: 300000, polling: 50 });
 
   const out = { bangHits, errs };
   if (interact){
@@ -180,7 +180,7 @@ async function run(chromium, port, { throttle, killBanana, interact }){
 
   // 等加载层收起（走完 warmBoot 的收尾）。interact 臂若已提前开园则立刻满足。
   await page.waitForFunction(() => document.getElementById('loading')?.classList.contains('done'),
-    { timeout: 560000, polling: 50 }).catch(() => {});
+    null, { timeout: 560000, polling: 50 }).catch(() => {});
   await page.evaluate(async () => { if (window.__garden?.bootDonePromise) await window.__garden.bootDonePromise; });
   await sleep(800);
 

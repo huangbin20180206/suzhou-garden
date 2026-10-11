@@ -40,17 +40,17 @@ const server = http.createServer((req, res) => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000 });
+    null, { timeout: 120000 });
   await page.waitForFunction(() => window.__garden.koiGroup.userData.fishes.length >= 11,
-    { timeout: 240000 });
-  await page.waitForFunction(() => !window.__garden.camFly(), { timeout: 120000 }).catch(() => {});
+    null, { timeout: 240000 });
+  await page.waitForFunction(() => !window.__garden.camFly(), null, { timeout: 120000 }).catch(() => {});
   await page.evaluate(() => window.__garden.tourStop());
 
   await page.evaluate(() => {
     for (const id of ['env', 'hud', 'stats']){ const el = document.getElementById(id); if (el) el.style.display = 'none'; }
   });
 
-  const settle = () => page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 90000, polling: 200 }).catch(() => {});
+  const settle = () => page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 90000, polling: 200 }).catch(() => {});
   const shot = async (name) => {
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     await page.screenshot({ path: path.join(OUT, name) });

@@ -51,12 +51,12 @@ const SHOTS = [
   page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
-  await page.waitForFunction(() => window.__garden && window.__garden.ENV, { timeout: 90000 });
+  await page.waitForFunction(() => window.__garden && window.__garden.ENV, null, { timeout: 90000 });
   await page.waitForFunction(() => {
     const seen = { KoiFish: 0, Turtle: 0, BananaPlant: 0, LotusPlant: 0 };
     window.__garden.scene.traverse(o => { for (const k of Object.keys(seen)) if (o.name && o.name.includes(k)) seen[k]++; });
     return Object.values(seen).every(n => n > 0);
-  }, { timeout: 90000 });
+  }, null, { timeout: 90000 });
   await page.evaluate(() => {
     const g = window.__garden;
     for (const id of ['env', 'hud', 'stats']){ const el = document.getElementById(id); if (el) el.style.display = 'none'; }
@@ -73,7 +73,7 @@ const SHOTS = [
     g.renderer.setPixelRatio(1); g.renderer.setSize(innerWidth, innerHeight);
     g.setEnv('time', 'noon'); g.setEnv('season', 'summer'); g.setEnv('weather', 'clear');
   });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
 
   for (const s of SHOTS){
     const found = await page.evaluate((cfg) => {

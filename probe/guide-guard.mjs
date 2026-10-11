@@ -63,7 +63,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html?guide=1`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   await sleep(900);
 
   const st = () => page.evaluate(() => window.__garden.guideState());
@@ -78,7 +78,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page2.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page2.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   await sleep(900);
   const s2 = await page2.evaluate(() => ({
     driven: window.__garden.probeDriven, on: window.__garden.guideState().on,

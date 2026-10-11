@@ -35,10 +35,10 @@ const server = http.createServer((req, res) => {
   page.on('pageerror', e => console.log('[pageerror]', String(e)));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 45000 });
+    null, { timeout: 45000 });
   await page.evaluate(() => { window.__garden.ENV.dur = 0.25; });
   await page.evaluate(() => window.__garden.setEnv('season', 'summer'));
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 30000, polling: 250 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 30000, polling: 250 }).catch(() => {});
 
   const stats = await page.evaluate(() => {
     const g = window.__garden, scene = g.scene;

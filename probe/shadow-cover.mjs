@@ -56,7 +56,7 @@ function check(name, ok, detail){ results.push({ name, ok: !!ok, detail }); }
   page.on('pageerror', e => errs.push(String(e)));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000 });
+    null, { timeout: 120000 });
 
   const setState = async (hour, weather) => {
     await page.evaluate(async (a) => {

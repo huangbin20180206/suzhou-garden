@@ -47,16 +47,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   await page.waitForFunction(() => {
     let has = false;
     window.__garden.scene.traverse(o => { if (o.isMesh && o.name === 'stele') has = true; });
     return has;
-  }, { timeout: 180000, polling: 400 });
+  }, null, { timeout: 180000, polling: 400 });
   /* 切到冬天+雪，让雪的路径真正被走一遍（light/雪材质都被渲染过） */
   await page.evaluate(() => { window.__garden.setEnv('season', 'winter');
                               window.__garden.setEnv('weather', 'snow'); });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
   await sleep(2000);
 
   const out = await page.evaluate(async () => {

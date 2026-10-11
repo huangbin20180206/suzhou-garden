@@ -40,12 +40,12 @@ const server = http.createServer((req, res) => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 300000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000 });
+    null, { timeout: 300000 });
   await page.waitForFunction(() => {
     let s = false; window.__garden.scene.traverse(o => { if (o.name === 'steleGroup') s = true; });
     return s;
-  }, { timeout: 300000 });
-  await page.waitForFunction(() => !window.__garden.camFly(), { timeout: 180000 }).catch(() => {});
+  }, null, { timeout: 300000 });
+  await page.waitForFunction(() => !window.__garden.camFly(), null, { timeout: 180000 }).catch(() => {});
   await page.evaluate(() => window.__garden.tourStop());
 
   const r = await page.evaluate(() => {

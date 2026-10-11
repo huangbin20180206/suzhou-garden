@@ -60,9 +60,9 @@ const check = (name, ok, detail = '') => {
 
   await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0', { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000 });
+    null, { timeout: 180000 });
   await page.evaluate(() => window.__garden.setEnv('season', 'winter'));
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 120000 });
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 120000 });
 
   /* ── ① 场景里不得再有"柱状树林"广告牌 ── */
   const scan = () => page.evaluate(() => {

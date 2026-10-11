@@ -100,7 +100,7 @@ fs.mkdirSync(shotsDir, { recursive: true });
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 300000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000 });
+    null, { timeout: 300000 });
   await page.evaluate(() => window.__garden.tourStop());
   await page.evaluate(() => {
     for (const id of ['env', 'hud', 'stats', 'caption']){
@@ -116,7 +116,7 @@ fs.mkdirSync(shotsDir, { recursive: true });
     const g = window.__garden;
     g.setEnv('season', 'summer'); g.setEnv('weather', 'clear'); g.setEnv('time', 'morning');
   });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 120000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 120000, polling: 200 }).catch(() => {});
 
   /* ⚠️ 取景前必须等**异步 GLB 到齐**（同 wind-audit / visual-check 的做法）。
      这不是为了样张好看，而是为了**机位求解的确定性**：候选环靠射线否决被挡的方位，
@@ -132,7 +132,7 @@ fs.mkdirSync(shotsDir, { recursive: true });
     });
     /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄要回"树立的荷花"）⇒ 恢复等荷花+芭蕉。 */
     return lotus >= 12 && banana >= 8 ? { lotus, banana } : false;
-  }, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
+  }, null, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   check('取景前异步 GLB 到齐（否则机位求解不确定）', !!glbReady,
     glbReady ? JSON.stringify(glbReady) : '超时未齐 —— 下面的机位可能换方位，样张与上次不可比');
 

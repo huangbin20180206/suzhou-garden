@@ -44,10 +44,10 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   }, [tx, ty, tz, px, py, pz]);
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   await sleep(1200);
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
   const sunVis = () => page.evaluate(() =>
     window.__garden && window.__garden.sunVisWater ? window.__garden.sunVisWater() : null);
 

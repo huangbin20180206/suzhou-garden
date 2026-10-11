@@ -46,7 +46,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   await sleep(1500);
 
   /* 与修复前旧样张同一组条件：正午 · 夏 · 风调雨顺，机位为默认（两边都不动相机） */
@@ -54,12 +54,12 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     const g = window.__garden;
     g.setEnv('time', 'noon'); g.setEnv('season', 'summer'); g.setEnv('weather', 'clear');
   });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 40000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 40000, polling: 200 }).catch(() => {});
   await sleep(900);
   fs.writeFileSync(path.join(OUT, 'A-clear-clean.png'), await page.screenshot());
 
   await page.evaluate(() => window.__garden.setEnv('weather', 'storm'));
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 40000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 40000, polling: 200 }).catch(() => {});
   await sleep(900);
   fs.writeFileSync(path.join(OUT, 'B-storm-clean.png'), await page.screenshot());
 

@@ -50,7 +50,7 @@ const check = (name, ok, detail = '') => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000 });
+    null, { timeout: 90000 });
   /* ⚠️ 必须**等 GLB 到齐**再审计，不能固定 sleep：软渲染下首帧要 12~16 秒，
      GLB（荷/芭蕉/龟）是在首帧之后才异步挂载的，实测 loading 收起后还要约 8 秒 ——
      上一版固定等 8 秒正好卡在临界点上，同一份代码两次跑一次看得到一次看不到，
@@ -66,7 +66,7 @@ const check = (name, ok, detail = '') => {
        虽然有点假但是至少能看"）⇒ 等待条件恢复成"荷花+芭蕉"（中间程序化/撤空两轮
        曾删掉 lotus 条件；GLB 在不在，这里就是证据位）。 */
     return lotus >= 12 && banana >= 8 ? { lotus, banana } : false;
-  }, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
+  }, null, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   console.log(`\n[wind-audit] GLB 到齐：${ready ? JSON.stringify(ready) : '超时未齐（下面结果可能不完整）'}`);
 
   console.log(`\n[wind-audit] 页面就绪，开始审计`);

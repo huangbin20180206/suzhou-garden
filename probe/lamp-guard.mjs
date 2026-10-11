@@ -73,11 +73,11 @@ function lumaBox(img, cx, cy, r = 14) {
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   await sleep(1200);
 
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
   const lamps = () => page.evaluate(() => {
     const L = window.__garden.scene;
     const out = [];

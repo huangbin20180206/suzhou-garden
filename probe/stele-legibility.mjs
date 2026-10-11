@@ -70,18 +70,18 @@ const DIST = 1.9;
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 300000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000 });
+    null, { timeout: 300000 });
 
   /* 立峰/伴石/题名石在同一个延迟批 job 里。该 job 必须插队（deferBootFirst），
      否则排在一堆柳竹之后、软渲染下每 job 等一帧，要 165s 才装配 —— 探针窗口内看不到石头。 */
   const found = await page.waitForFunction(() => {
     let s = false; window.__garden.scene.traverse(o => { if (o.name === 'steleGroup') s = true; });
     return s;
-  }, { timeout: 120000 }).then(() => true).catch(() => false);
+  }, null, { timeout: 120000 }).then(() => true).catch(() => false);
   check('题名石已装配（延迟批插队生效，不该等到 160s+）', found, found ? '' : '120s 内未出现 → 延迟批被柳竹挤到队尾');
   if (!found){ await finish(); return; }
 
-  await page.waitForFunction(() => !window.__garden.camFly(), { timeout: 180000 }).catch(() => {});
+  await page.waitForFunction(() => !window.__garden.camFly(), null, { timeout: 180000 }).catch(() => {});
   await page.evaluate(() => window.__garden.tourStop());
   await page.evaluate(() => {
     for (const id of ['env', 'hud', 'stats', 'caption']){

@@ -37,7 +37,7 @@ const server = http.createServer((req, res) => {
   page.setDefaultTimeout(120000);
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000 });
+    null, { timeout: 90000 });
 
   const out = await page.evaluate(() => {
     const g = window.__garden, T = g.THREE;

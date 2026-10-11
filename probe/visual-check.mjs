@@ -43,7 +43,7 @@ const server = http.createServer((req, res) => {
 
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000 });
+    null, { timeout: 90000 });
   /* ⚠️ 必须等**异步 GLB** 到齐，不能只等延迟批（柳/竹/紫藤）：GLB（荷 / 芭蕉 / 龟）
      是在 loading 收起之后才挂载的，实测还要约 8 秒（2026-09-17 用轮询探针量过）。
      固定 sleep 会拍到"只有假茎、没有叶子"的芭蕉。 */
@@ -55,7 +55,7 @@ const server = http.createServer((req, res) => {
       else if (o.name === 'BananaPlant') banana++;
     });
     return lotus >= 12 && banana >= 8 ? { lotus, banana } : false;
-  }, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
+  }, null, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   console.log('[就绪] GLB ' + (glbReady ? JSON.stringify(glbReady) : '超时未齐（样张可能缺叶）'));
   await page.waitForTimeout(1500);   // 等延迟批（柳/竹/紫藤）装配完
 
@@ -119,7 +119,7 @@ const server = http.createServer((req, res) => {
       g.controls.target.set(c.target[0], c.target[1], c.target[2]);
       g.controls.update();
     }, wInfo);
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await shot('wisteria-noon.png');
   }
 
@@ -136,7 +136,7 @@ const server = http.createServer((req, res) => {
     g.controls.target.set(-2.5, 0.85, 2.2);
     g.controls.update();
   });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
   await shot('lotus-low-angle.png');
 
   /* ── 3 · 竹林：风和日丽 vs 狂风，同机位两张 ── */
@@ -159,12 +159,12 @@ const server = http.createServer((req, res) => {
       g.controls.update();
     }, bInfo);
     await page.evaluate(() => { window.__garden.setEnv('weather', 'clear'); });
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await page.waitForTimeout(2000);
     await shot('bamboo-calm.png');
     // 切狂风：底值风 0.72 + 等一阵风过
     await page.evaluate(() => { window.__garden.setEnv('weather', 'storm'); });
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     const wind = await page.evaluate(() => {
       const g = window.__garden;
       let u = null;
@@ -202,11 +202,11 @@ const server = http.createServer((req, res) => {
       g.controls.target.set(c.target[0], c.target[1], c.target[2]);
       g.controls.update();
     }, lInfo);
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await page.waitForTimeout(1200);
     await shot('lantern-calm.png');
     await page.evaluate(() => { window.__garden.setEnv('weather', 'storm'); });
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await page.waitForTimeout(5000);
     await shot('lantern-storm.png');
   }
@@ -233,11 +233,11 @@ const server = http.createServer((req, res) => {
       g.controls.target.set(c.pos[0], c.pos[1] + 1.0, c.pos[2]);
       g.controls.update();
     }, w2Info);
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await page.waitForTimeout(2000);
     await shot('willow-calm.png');
     await page.evaluate(() => { window.__garden.setEnv('weather', 'storm'); });
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await page.waitForTimeout(5000);
     await shot('willow-storm.png');
   }
@@ -252,11 +252,11 @@ const server = http.createServer((req, res) => {
     g.controls.target.set(-16.0, 2.2, -7.0);
     g.controls.update();
   });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
   await page.waitForTimeout(2000);
   await shot('banana-calm.png');
   await page.evaluate(() => { window.__garden.setEnv('weather', 'storm'); });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
   await page.waitForTimeout(5000);
   await shot('banana-storm.png');
 

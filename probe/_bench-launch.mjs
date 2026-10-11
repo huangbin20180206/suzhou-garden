@@ -62,7 +62,7 @@ const CONFIGS = [
       const t0 = Date.now();
       await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 180000 });
       await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-        { timeout: 240000 });
+        null, { timeout: 240000 });
       row.bootSec = +((Date.now() - t0) / 1000).toFixed(1);
       /* 帧时间：量 12 个 rAF 间隔的中位数（中位数比均值稳，首帧/GC 的离群值不参与） */
       row.frames = await page.evaluate(() => new Promise(res => {

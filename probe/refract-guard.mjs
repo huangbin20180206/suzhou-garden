@@ -154,11 +154,11 @@ async function runOnce(qs){
 
   await page.goto(`http://127.0.0.1:${port}/index.html${qs}`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000 });
+    null, { timeout: 120000 });
   /* koi.glb 异步挂载，鱼没到齐时采样无意义 */
   const gotFish = await page.waitForFunction(
     () => window.__garden && window.__garden.koiGroup.userData.fishes.length >= 11,
-    { timeout: 120000 }).then(() => true).catch(() => false);
+    null, { timeout: 120000 }).then(() => true).catch(() => false);
 
   const first = gotFish ? await sample(page, true) : { info: { on: null }, ready: false };
   if (first.ready){

@@ -33,8 +33,8 @@ const server = http.createServer((req, res) => {
   const page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.setDefaultTimeout(150000);
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
-  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'), { timeout: 150000 });
-  await page.waitForFunction(() => window.__garden.koiGroup.userData.fishes.length >= 11, { timeout: 150000 });
+  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'), null, { timeout: 150000 });
+  await page.waitForFunction(() => window.__garden.koiGroup.userData.fishes.length >= 11, null, { timeout: 150000 });
   await new Promise(r => setTimeout(r, 3000));
 
   const out = await page.evaluate(() => {

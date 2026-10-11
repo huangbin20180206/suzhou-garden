@@ -185,9 +185,9 @@ const TWINKLE = ({ N, DT }) => {
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   await sleep(2000);
-  const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 })
+  const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 })
     .then(() => true).catch(() => false);
   /* 默认机位必须**真的是**默认机位：OrbitControls 每帧 clamp 会静默挪相机（本项目踩过），
      所以先把机位摆回去，再断言摆成功了 —— 摆不回去的话后面所有可见性结论都没有意义。 */

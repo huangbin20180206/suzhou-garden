@@ -64,11 +64,11 @@ const SAMPLER = () => {
   const page = await browser.newPage({ viewport: { width: 1180, height: 720 } });
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000, polling: 300 });
+    null, { timeout: 90000, polling: 300 });
   await sleep(1500);
 
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 30000, polling: 200 }).catch(() => false);
+    null, { timeout: 30000, polling: 200 }).catch(() => false);
 
   const A = await page.evaluate(SAMPLER);
   await page.screenshot({ path: path.join(OUT, 'A-clear.png') });

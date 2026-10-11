@@ -91,7 +91,7 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
 
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   /* ⚠️ 等"装配完成"信号，别猜时间（2026-09-24，同 mist-guard 的竞态）：
      `loading.done` 在**延迟批之前**就触发（deferBoot 是"每帧一个 job"），柳/竹/立峰要 ~1.0~1.1s
      才陆续进场景。原来这里只 `sleep(1200)` 赌它跑完 ⇒ 慢一点就会在**物件还在进场时**采样，
@@ -99,7 +99,7 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
   await sleep(1200);                                  // 再让首帧后的光照/雾稳定一下
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
   const st = () => page.evaluate(() => window.__garden.lampVolState());
   const setEnv = (time, season, weather) => page.evaluate((a) => {
     const g = window.__garden; g.setEnv('time', a[0]); g.setEnv('season', a[1]); g.setEnv('weather', a[2]);

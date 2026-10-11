@@ -39,14 +39,14 @@ const server = http.createServer((req, res) => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 300000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000 });
+    null, { timeout: 300000 });
   await page.waitForFunction(() => {
     const g = window.__garden; let s = 0, h = 0, c = 0;
     g.scene.traverse(o => { if (o.name === 'steleGroup') s++; if (o.name === 'taihuHero') h++;
                             if (o.name === 'taihuCompanion') c++; });
     return s && h && c >= 2;
-  }, { timeout: 300000 }).catch(() => {});
-  await page.waitForFunction(() => !window.__garden.camFly(), { timeout: 180000 }).catch(() => {});
+  }, null, { timeout: 300000 }).catch(() => {});
+  await page.waitForFunction(() => !window.__garden.camFly(), null, { timeout: 180000 }).catch(() => {});
   await page.evaluate(() => window.__garden.tourStop());
 
   const r = await page.evaluate(() => {

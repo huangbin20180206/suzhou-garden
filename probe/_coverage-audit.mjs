@@ -58,7 +58,7 @@ const SKIP_SHADOW = /^(waterSurface|pondBed|ground|hill|sky|mistField|mergedStat
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   /* 等 GLB 到齐（荷/芭蕉/龟是首帧后异步挂载的，固定 sleep 会漏检 —— wind-audit 踩过） */
   await page.waitForFunction(() => {
     let lotus = 0, banana = 0;
@@ -67,7 +67,7 @@ const SKIP_SHADOW = /^(waterSurface|pondBed|ground|hill|sky|mistField|mergedStat
       if (o.name === 'LotusPlant') lotus++; else if (o.name === 'BananaPlant') banana++;
     });
     return lotus >= 12 && banana >= 8;
-  }, { timeout: 180000, polling: 500 }).catch(() => null);
+  }, null, { timeout: 180000, polling: 500 }).catch(() => null);
   await sleep(1200);
 
   const FOLIAGE_SRC = FOLIAGE.source, SKIP_SRC = SKIP_SHADOW.source;
@@ -169,7 +169,7 @@ const SKIP_SHADOW = /^(waterSurface|pondBed|ground|hill|sky|mistField|mergedStat
      换成按材质标签分组后，能客观回答："哪些东西在冬天没了、哪些该没却没没"。 */
   const season = async (s) => {
     await page.evaluate((ss) => window.__garden.setEnv('season', ss), s);
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
     await sleep(1500);
     return page.evaluate(() => {
       const G = window.__garden;

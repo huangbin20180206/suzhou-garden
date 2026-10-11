@@ -67,9 +67,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000, polling: 300 });
+    null, { timeout: 300000, polling: 300 });
   await page.waitForFunction(() => window.__garden.koiGroup.userData.fishes.length >= 11,
-    { timeout: 300000 });
+    null, { timeout: 300000 });
   await sleep(2500);
 
   /* 固定场景与机位：折射 pass 的开销与主相机无关，但主 pass 的开销有关，
@@ -79,7 +79,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     g.setEnv('time', 'noon'); g.setEnv('season', 'summer'); g.setEnv('weather', 'clear');
     g.gotoViewpoint('hero');
   });
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
   let prev = null;
   for (let i = 0; i < 80; i++){
     const p = await page.evaluate(() => { const c = window.__garden.camera.position; return [c.x, c.y, c.z]; });
@@ -199,9 +199,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page2.goto(`http://127.0.0.1:${port}/index.html?refract=0`, { waitUntil: 'load' });
   await page2.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000, polling: 300 });
+    null, { timeout: 300000, polling: 300 });
   await page2.waitForFunction(() => window.__garden.koiGroup.userData.fishes.length >= 11,
-    { timeout: 300000 });
+    null, { timeout: 300000 });
   await sleep(2000);
   await page2.evaluate(() => {
     const g = window.__garden;

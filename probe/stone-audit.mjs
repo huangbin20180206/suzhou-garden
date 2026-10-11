@@ -47,7 +47,7 @@ const check = (name, ok, detail = '') => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000 });
+    null, { timeout: 120000 });
   /* 立峰在 deferBoot 延迟批里（首帧之后才建），必须轮询到，不能假设它已经在场。 */
   const found = await page.waitForFunction(() => {
     let hero = false, stele = false;
@@ -56,7 +56,7 @@ const check = (name, ok, detail = '') => {
       if (o.name === 'steleGroup') stele = true;
     });
     return hero && stele;
-  }, { timeout: 120000 }).then(() => true).catch(() => false);
+  }, null, { timeout: 120000 }).then(() => true).catch(() => false);
   check('立峰 / 题名石已装配', found, found ? '' : '延迟批没跑完，后续断言无意义');
   if (!found){ await finish(); return; }
 

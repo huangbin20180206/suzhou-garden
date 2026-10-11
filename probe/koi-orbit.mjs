@@ -50,13 +50,13 @@ const check = (name, ok, detail = '') => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000 });
+    null, { timeout: 120000 });
 
   /* koi.glb 是异步挂载的（loading 收起之后才到），必须轮询到齐 —— 固定 sleep 会卡在临界点。 */
   const gotFish = await page.waitForFunction(
     () => window.__garden.koiGroup.userData.fishes.length >= 11 &&
           window.__garden.swimTurtles.length >= 2,
-    { timeout: 120000 }).then(() => true).catch(() => false);
+    null, { timeout: 120000 }).then(() => true).catch(() => false);
   check('锦鲤/泳龟异步挂载到齐', gotFish,
     gotFish ? '' : 'koi.glb 或 Turtle.glb 未挂载（探针结果无意义）');
   if (!gotFish){ await finish(); return; }

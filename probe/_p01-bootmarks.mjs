@@ -58,7 +58,7 @@ function parseMarks(raw){
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 300000 });
   // 主分段行在首帧打印；延迟链收尾行在此之后
   await page.waitForFunction(() => (document.getElementById('loading') || {}).classList
-    && document.getElementById('loading').classList.contains('done'), { timeout: 300000 }).catch(() => {});
+    && document.getElementById('loading').classList.contains('done'), null, { timeout: 300000 }).catch(() => {});
   const deadline = Date.now() + 300000;
   while (Date.now() < deadline && !defer.some(l => l.includes('合计')))
     await page.waitForTimeout(1000);

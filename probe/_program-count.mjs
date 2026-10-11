@@ -49,13 +49,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   /* 等延迟批挂完（柳/竹/立峰会新增材质 → 新增 program，早读会漏） */
   await page.waitForFunction(() => {
     let has = false;
     window.__garden.scene.traverse(o => { if (o.isMesh && o.name === 'stele') has = true; });
     return has;
-  }, { timeout: 180000, polling: 400 });
+  }, null, { timeout: 180000, polling: 400 });
   await sleep(2500);
 
   const out = await page.evaluate(() => {

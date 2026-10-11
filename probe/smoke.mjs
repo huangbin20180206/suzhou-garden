@@ -40,7 +40,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 /* 过渡由仿真时间推进（dt 钳到 50ms），软渲染低帧率下 2.8 秒过渡可能等 1 分钟。
    探针把 dur 调短 + 轮询 ENV.t>=1 —— 插值机制照跑，只是不等墙钟。 */
 const settled = page => page.waitForFunction(() => window.__garden && window.__garden.ENV.t >= 1,
-  { timeout: 30000, polling: 250 }).then(() => true).catch(() => false);
+  null, { timeout: 30000, polling: 250 }).then(() => true).catch(() => false);
 /* ── 等 stats 标签刷新到位（2026-09-18 新增，修竞态）──
    `#stats` 不是逐帧写的：渲染循环里按**累加节拍**（约 0.5 秒）刷新一次。
    于是"设完状态就立刻读 textContent"是在赌 HUD 那一拍恰好已经跑过 ——
@@ -148,7 +148,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     });
     return Object.values(names).every(n => n > 0) && window.__garden.ENV
       ? names : false;
-  }, { timeout: 40000 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
+  }, null, { timeout: 40000 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   /* ⚠️ **先断言前提，再判对错**（项目老教训：判据必须先断言前提）。
      「五类 GLB 均已挂载」这条在**降级态**下天然为假：required:false 的项失败后
      走程序化替身（芭蕉叶片），场景里出现的是 `banana-leaf` 冠层而不是名字里
@@ -440,7 +440,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   check('巡游：首站字幕为立峰·云根', /云根/.test(tour0.cap), tour0.cap);
   // 等首站飞行落定（camFly 熄灭），再确认停留计时不提前切站
   await page.waitForFunction(() => window.__garden && !window.__garden.camFly(),
-    { timeout: 30000, polling: 200 }).catch(() => {});
+    null, { timeout: 30000, polling: 200 }).catch(() => {});
   const tourFly = await page.evaluate(() => window.__garden.tourState());
   check('巡游：飞行落定后仍在首站（不提前切站）', tourFly.idx === 0, `idx=${tourFly.idx}`);
   // 用户接管：画布 pointerdown 应停巡游并收字幕

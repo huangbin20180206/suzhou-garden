@@ -93,7 +93,7 @@ function median(arr) {
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 120000, polling: 300 });
+    null, { timeout: 120000, polling: 300 });
   /* ⚠️ 必须等"装配完成"信号，不能只靠猜时间（2026-09-24 修偶发红）：
      `loading.done` 在**延迟批之前**就触发（deferBoot 是"每帧一个 job"），而柳/竹/立峰要 ~1.0~1.1s
      才陆续进场景。原来这里只 `sleep(1200)` 赌它跑完 ⇒ 慢一点（冷启动 / 低档 GPU / 并发负载）就会在
@@ -104,7 +104,7 @@ function median(arr) {
   await sleep(1200);                                  // 再让首帧后的光照/雾稳定一下
 
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
 
   /* 摆一个能同时看到远山与天空的机位：站在园内高处向外望。
      ⚠️ 半径 44 > CAM_MIN_DIST(9)、< maxDistance(170)；俯仰角在 maxPolarAngle 内，

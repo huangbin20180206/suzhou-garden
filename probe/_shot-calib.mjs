@@ -38,7 +38,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const page = await browser.newPage({ viewport: { width: 1180, height: 720 } });
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000, polling: 300 });
+    null, { timeout: 90000, polling: 300 });
   await sleep(1500);
 
   console.log('document.hidden =', await page.evaluate(() => document.hidden));

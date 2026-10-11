@@ -41,12 +41,12 @@ const server = http.createServer((req, res) => {
 
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 300000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000 });
+    null, { timeout: 300000 });
   await page.waitForFunction(() => {
     let s = false; window.__garden.scene.traverse(o => { if (o.name === 'steleGroup') s = true; });
     return s;
-  }, { timeout: 300000 });
-  await page.waitForFunction(() => !window.__garden.camFly(), { timeout: 180000 }).catch(() => {});
+  }, null, { timeout: 300000 });
+  await page.waitForFunction(() => !window.__garden.camFly(), null, { timeout: 180000 }).catch(() => {});
   await page.evaluate(() => window.__garden.tourStop());
   await page.evaluate(() => {
     for (const id of ['env', 'hud', 'stats', 'caption']){
@@ -69,7 +69,7 @@ const server = http.createServer((req, res) => {
   console.log('[机位] 机位自带 minDist =', ask.minDist, '｜ 飞行途中 controls.minDistance =', ask.minDuringFlight);
 
   const arrived = await page.waitForFunction(() => !window.__garden.camFly(),
-    { timeout: 120000, polling: 250 }).then(() => true).catch(() => false);
+    null, { timeout: 120000, polling: 250 }).then(() => true).catch(() => false);
 
   /* 落位后必须再等真实帧，否则量到/拍到的是旧帧 */
   await page.evaluate(() => new Promise(r => {

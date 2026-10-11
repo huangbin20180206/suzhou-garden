@@ -39,13 +39,13 @@ const server = http.createServer((req, res) => {
   page.on('pageerror', e => errs.push('[pageerror] ' + e));
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000 });
+    null, { timeout: 90000 });
   /* 柳/竹是 deferBoot 延迟装配的：等第一个带标记的实例出现（= 延迟批已跑） */
   const deferredSeen = await page.waitForFunction(() => {
     let n = 0;
     window.__garden.scene.traverse(o => { if (o.isInstancedMesh && o.userData.seasonWillowLeaf) n++; });
     return n > 0;
-  }, { timeout: 60000, polling: 250 }).then(() => true).catch(() => false);
+  }, null, { timeout: 60000, polling: 250 }).then(() => true).catch(() => false);
 
   const report = await page.evaluate(async () => {
     const g = window.__garden;

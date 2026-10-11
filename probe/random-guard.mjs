@@ -54,7 +54,7 @@ const WEATHERS = ['clear', 'storm', 'snow', 'mist', 'afterrain'];
 
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   await sleep(1200);
 
   /* 一次性抽 N 次并回读：抽的动作在页面里跑完再整体回传（逐次往返太慢） */

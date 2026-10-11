@@ -121,7 +121,7 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
   await page.addInitScript(INIT);
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 420000 });
   await page.waitForFunction(() => document.getElementById('loading')?.classList.contains('done'),
-    { timeout: 560000, polling: 50 }).catch(() => {});
+    null, { timeout: 560000, polling: 50 }).catch(() => {});
   // ⑥ program 数必须等 bootDonePromise 之后 + 收敛（连续两次不变）
   await page.evaluate(async () => { if (window.__garden?.bootDonePromise) await window.__garden.bootDonePromise; });
   let programs = -1, last = -1, stable = 0;

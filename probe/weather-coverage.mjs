@@ -106,13 +106,13 @@ const check = (name, ok, detail = '') => {
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   /* 立峰·云根是 deferBootFirst 的第一批；它没到位就谈不上"补装"这条判据 */
   await page.waitForFunction(() => {
     let has = false;
     window.__garden.scene.traverse(o => { if (o.isMesh && o.name === 'stele') has = true; });
     return has;
-  }, { timeout: 180000, polling: 400 });
+  }, null, { timeout: 180000, polling: 400 });
   /* ⚠️ 还要等**整条延迟链**跑完（2026-09-24 修偶发红）：竹竿在延迟链**靠后**的批次里，
      而 G0 自检是"把竹竿移出雪表 ⇒ G1 必须报出来"，G1 只看**场景在用**的材质
      ⇒ 竹竿还没进场时把它移出雪表，G1 自然 = 0，自检就报假红。
@@ -245,7 +245,7 @@ const check = (name, ok, detail = '') => {
      ⚠️ 距离必须 ≥11m：<9m 会被 OrbitControls 每帧静默弹回（项目老坑）。 */
   await page.evaluate(() => window.__garden.setEnv('season', 'winter'));
   await page.evaluate(() => window.__garden.setEnv('weather', 'snow'));
-  await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000 }).catch(() => {});
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 }).catch(() => {});
   await sleep(1800);                                       // 过渡尾段，之后 applyEnv 不再跑
 
   const aim = await page.evaluate(() => {

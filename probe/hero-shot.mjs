@@ -81,13 +81,13 @@ const SHOTS = [
 
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 90000 });
+    null, { timeout: 90000 });
   /* P1-4：立峰延迟装配（首帧渲完才建），这里等石头落地再拍，别和延迟批抢跑 */
   await page.waitForFunction(() => {
     let h = null;
     if (window.__garden) window.__garden.scene.traverse(o => { if (o.name === 'taihuHero') h = o; });
     return !!h;
-  }, { timeout: 60000 }).catch(() => {});
+  }, null, { timeout: 60000 }).catch(() => {});
   await page.evaluate(() => { window.__garden.ENV.dur = 0.25; });
 
   const info = await page.evaluate((cfg) => {
@@ -247,7 +247,7 @@ const SHOTS = [
         const el = document.getElementById(id); if (el) el.style.display = 'none';
       }
     }, s);
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     const file = path.join(OUT, s.name);
     await page.screenshot({ path: file });
@@ -277,7 +277,7 @@ const SHOTS = [
       const g = window.__garden;
       g.setEnv('time', sh.t); g.setEnv('weather', sh.w);
     }, { t: s.t, w: s.w });
-    await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+    await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
     await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     await page.screenshot({ path: path.join(OUT, s.n) });
     console.log('  ✓ 近景 ' + s.n);
@@ -290,7 +290,7 @@ const SHOTS = [
     window.__garden.gotoViewpoint('hero');
   });
   await page.waitForFunction(() => window.__garden && window.__garden.camFly && !window.__garden.camFly(),
-    { timeout: 90000, polling: 200 }).catch(() => {});
+    null, { timeout: 90000, polling: 200 }).catch(() => {});
   await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
   await page.screenshot({ path: path.join(OUT, 'viewpoint-hero.png') });
   const camInfo = await page.evaluate(() => {
@@ -314,7 +314,7 @@ const SHOTS = [
     });
     for (const s of [{ n: 'rockery-noon.png', t: 'noon', w: 'clear' }, { n: 'rockery-mist.png', t: 'morning', w: 'mist' }]){
       await page.evaluate((sh) => { const g = window.__garden; g.setEnv('time', sh.t); g.setEnv('weather', sh.w); }, { t: s.t, w: s.w });
-      await page.waitForFunction(() => window.__garden.ENV.t >= 1, { timeout: 60000, polling: 200 }).catch(() => {});
+      await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000, polling: 200 }).catch(() => {});
       await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
       await page.screenshot({ path: path.join(OUT, s.n) });
       console.log('  ✓ 假山 ' + s.n);

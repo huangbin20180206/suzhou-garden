@@ -43,9 +43,9 @@ const check = (label, ok, extra) => { results.push({ label, ok, extra }); consol
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load', timeout: 180000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 180000, polling: 300 });
+    null, { timeout: 180000, polling: 300 });
   const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
-    { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
+    null, { timeout: 60000, polling: 200 }).then(() => true).catch(() => false);
 
   /* 夏·夜·晴：萤火 + 星野都该亮；机位推到池南灌丛看萤火群 + 头顶星空 */
   await page.evaluate(() => { const g = window.__garden; g.setEnv('time','night'); g.setEnv('season','summer'); g.setEnv('weather','clear'); });

@@ -41,7 +41,7 @@ const server = http.createServer((req, res) => {
   page.setDefaultTimeout(180000);
   try {
     await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0', { waitUntil: 'domcontentloaded', timeout: 120000 });
-    await page.waitForFunction(() => window.__garden, { timeout: 120000 });
+    await page.waitForFunction(() => window.__garden, null, { timeout: 120000 });
     const info = await page.evaluate(() => ({
       gpu: window.__garden.gpuName || '(未知)',
       soft: !!window.__garden.softwareGL,

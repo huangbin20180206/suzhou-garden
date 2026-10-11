@@ -50,7 +50,7 @@ const MAX_S = 300;
   const el = () => ((Date.now() - t0) / 1000).toFixed(1);
   await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 300000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-    { timeout: 300000 }).catch(() => {});
+    null, { timeout: 300000 }).catch(() => {});
   console.log(`[diag] loading 收起 @ ${el()}s\n[diag] 每 5s 采样一次（等待 立峰/伴石/题名石 出现，上限 ${MAX_S}s）`);
 
   let last = 0, done = false;
