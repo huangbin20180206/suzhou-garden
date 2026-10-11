@@ -23,9 +23,9 @@
 //        一匹递草料；
 //     ③ **4 个关马的槽位只有 2 匹**（空两个）—— 厩内 2 匹 + 辕里 2 匹 + 院中 2 匹 = 6 匹。
 //   ⇒ 共 6 匹马，靠**毛色**区分（骝/黑/白/栗/青 —— 见 01-materials 的 horse* 材质表）。
-import { THREE, GLTFLoader } from '../vendor.js';
+import { THREE, GLTFLoader, mergeGeometries } from '../vendor.js';
 import { mesh, box, makeColumn, makeLatticePanel } from './03-factory.js';
-import { MAT, pavingTex, pavingNormalTex, registerWeatherRoles } from './01-materials.js';
+import { MAT, pavingNormalTex, registerWeatherRoles } from './01-materials.js';
 import { groundHeight } from './05-water.js';
 import { tubeRadiusRamp } from './06-vegetation.js';
 import { renderer, scene, camera } from './02-scene.js';
@@ -674,47 +674,181 @@ function makeTrough(w, d, h, mat = MAT.stoneDark, fillMat = null, fillY = 0.10){
    ⚠️ 必须绕墙角：直着斜穿会在 z<22.5 的地方撞进东墙（墙在 x=30、厚 ±0.6）。
    ⚠️ 抬升 0.07：地形是解析式 groundHeight，而地面网格是按 1.9m 一格线性插值的，
    两者在起伏处差几厘米 ⇒ 抬 5cm 以下会有局部"路面被草吃进去"。 */
+/* ── 院外石板路（上下马处 → 园子南门）· 2026-10-11 **重做**────────────────────
+   老黄 2026-10-10："再铺设一条石板路从下马处（上马处）直接铺到院子的南门"
+   老黄 2026-10-11："从马厩到院子的这条石块路**重做**，我不知道中国古代对这种路的设计讲究
+   弯曲还是也要中规中矩，你查下资料再定形状的方案，然后石板路我给你一个参考图，
+   你选一个适合我们项目的样式来设计细节"。
+
+   ── 查资料得到的口径（决定了"形状"）─────────────────────────────────────────
+     · 园林里的地面统称**铺地**；**中轴对称、方砖对缝**的那种叫**甬路**（多用在厅堂前的正道、
+       寺观神道）——那是"中规中矩"的一路做法。
+     · 而**园中小径**讲究**"曲径通幽"**（拙政园、留园的文字记载都在这句上）⇒ 走向要**弯**。
+       对我们这条还好有两层好处：马车进出本来就要弧线，且它沿墙外草坡走，直线反而要削坡。
+     · 做法上苏州园林最著名的两种：**花街铺地**（用卵石 + 碎瓦/缸片/碎瓷拼图案，瓦片勾线）与
+       **乱石路**（不规则石块像石榴子一样铺砌，旧籍评"**既坚固又雅致**"）。
+   ⇒ 老黄给的参考图里，我选**"不规则石板 + 卵石勾缝 + 两侧卵石镶边"**这一类（他图里第 6/9 张
+     那种感觉）：石板块大小不一、错缝铺、缝里嵌小卵石、两边一条卵石镶边。理由：合"乱石路"
+     的旧法；与园内已有的方砖对缝地面（07-ground 的 makePaving）**区分得开**；马车硬轮也吃得消。
+
+   ── 实现（三层，都跟着地形走）───────────────────────────────────────────────
+     ① **垫层**（勾缝底）：沿路线逐点采样地形高做一条深色窄带 —— 它保证石板之间露出来的是
+        "深色的缝"而不是草。
+     ② **石板**：两侧各自独立按"错缝"步进（左右接缝不齐 = 错缝），每块是**四角棱柱**
+        （顶面在草皮 +0.075、底在 +0.015），四角逐点取地形高 ⇒ 整块跟着坡微倾；
+        尺寸/转角/**色调**逐块抖动（色调走顶点色 ⇒ 一块块深浅不一，这正是乱石路的读感来源）。
+     ③ **两侧卵石镶边**：沿两条边按 ~0.34m 一颗铺低模鹅卵石（压扁的球），同样逐颗抖动色调。
+   ⚠️ 三条纪律：① **私有随机流**（mulberry32(20261012)，铁律 1：绝不碰全局 rnd/rr —— 本函数在
+      马厩的 deferBootFirst 里跑，吃全局流会让其后所有按序抽样整体前移且不报错）；
+      ② 石板/卵石都是**合并几何**而不是 InstancedMesh（新 InstancedMesh 会动 layout-fingerprint
+      的网格计数、要重出基线；合并 Mesh 不进指纹）；
+      ③ 石板材质开 **DoubleSide**：顶面按逆时针绕向是正的，但侧面那条绕向容易写反，
+      DoubleSide 兜住（石板的底面本来就看不见）。
+   ⚠️ 抬升 0.075：地形是解析式 groundHeight，而地面网格按 1.9m 一格线性插值，
+   起伏处差几厘米 ⇒ 抬 5cm 以下会有局部"路面被草吃进去"。 */
 export function makeStableRoad(){
   const g = new THREE.Group();
   const CP = [[40.0, 4.2], [39.2, 10.5], [37.4, 16.5], [34.4, 21.8], [30.0, 26.2],
               [22.0, 27.2], [10.0, 26.4], [2.6, 25.0], [0.6, 23.6]];
   const curve = new THREE.CatmullRomCurve3(CP.map(p => new THREE.Vector3(p[0], 0, p[1])));
-  const N = 240, HW = 0.82;                       // 半宽 ⇒ 路宽 1.64m（单车道）
-  const pos = [], uv = [], idx = [];
-  let acc = 0, prev = null;
-  const _t = new THREE.Vector3();
-  for (let i = 0; i <= N; i++){
-    const t = i / N;
+  const HW = 0.86;                                 // 半宽 ⇒ 路宽 1.72m（单车道，够马车）
+  const r2 = mulberry32(20261012);                 // 私有流
+  const jit = (a, b) => a + r2() * (b - a);
+  const frameAt = (t) => {                          // 位置 + 切向 + 侧向（xz 平面）
     const p = curve.getPointAt(t), tan = curve.getTangentAt(t);
-    const side = _t.set(-tan.z, 0, tan.x).normalize().clone();
-    if (prev) acc += p.distanceTo(prev);
-    prev = p.clone();
-    const l = p.clone().addScaledVector(side, HW), r = p.clone().addScaledVector(side, -HW);
-    pos.push(l.x, groundHeight(l.x, l.z) + 0.07, l.z);
-    pos.push(r.x, groundHeight(r.x, r.z) + 0.07, r.z);
-    /* ⚠️ 纹理尺度按**园内铺地**来：07-ground 的 makePaving 是 `repeat = 尺寸/2.6`
-       （一张贴图铺 2.6m）。第一版我按 0.9m 铺 ⇒ 纹理密到读成"金属网格板"（出图判读原话）
-       ⇒ 改成 2.6m 一格，与园内步道同一尺度。 */
-    uv.push(-HW / 2.6, acc / 2.6);
-    uv.push( HW / 2.6, acc / 2.6);
+    const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+    return { p, tan: tan.clone().setY(0).normalize(), side };
+  };
+  const nrmTex = () => { const n = pavingNormalTex.clone(); n.needsUpdate = true;
+    n.wrapS = n.wrapT = THREE.RepeatWrapping; n.repeat.set(1, 1); return n; };
+
+  /* ① 垫层（勾缝底）：一条跟着地形走的深色窄带 */
+  {
+    const N = 200, pos = [], uv = [], idx = [];
+    let acc = 0, prev = null;
+    for (let i = 0; i <= N; i++){
+      const { p, side } = frameAt(i / N);
+      if (prev) acc += p.distanceTo(prev);
+      prev = p.clone();
+      for (const s of [1, -1]){
+        const q = p.clone().addScaledVector(side, s * HW);
+        pos.push(q.x, groundHeight(q.x, q.z) + 0.045, q.z);
+        uv.push(s * HW / 2.6, acc / 2.6);
+      }
+    }
+    for (let i = 0; i < N; i++){ const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0x6E675D,
+                                                 roughness: 0.98, metalness: 0.0 });
+    registerWeatherRoles(mat, { snow: 1, wet: 1 });
+    g.add(mesh(geo, mat, { name: 'stableRoadBed', cast: false, receive: true }));
   }
-  for (let i = 0; i < N; i++){
-    const a = i * 2;
-    idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+
+  /* ② 石板：**四个角落在曲线的 t 网格上**（不是"切向矩形"）——
+     切向矩形在弯道上会互相撞：每块都按自己那点的切线摆，弯内侧两块必然叠压/穿插
+     （第一版就是这样，近景判读"弯段错位、角部相互压叠"）。改成"两条弧上的点 + 侧向偏移"
+     以后，石板天然跟着弧走、相邻两块永远不重叠。
+     错缝：左右两条各自**不同的相位与步长** ⇒ 横向接缝不齐。 */
+  {
+    const pos = [], col = [], idx = [], L = curve.getLength();
+    const pushSlab = (t0, t1, sA, sB, tone) => {
+      const A2 = frameAt(t0), B2 = frameAt(t1);
+      /* ⚠️ 绕向：侧向量 side 与切向 tan 满足 side × tan = +y ⇒ 角按 (A·sA, A·sB, B·sB, B·sA)
+         且 sA < sB 时，顶面法线朝上（写反了顶面就朝下、从上看全黑）。 */
+      const corners = [
+        A2.p.clone().addScaledVector(A2.side, sA),
+        A2.p.clone().addScaledVector(A2.side, sB),
+        B2.p.clone().addScaledVector(B2.side, sB),
+        B2.p.clone().addScaledVector(B2.side, sA),
+      ];
+      const base = pos.length / 3;
+      for (const q of corners){
+        const gy = groundHeight(q.x, q.z);
+        pos.push(q.x, gy + 0.060, q.z);              // 顶（偶数索引）
+        pos.push(q.x, gy + 0.004, q.z);              // 底（奇数索引）——几乎贴到草面，消除"浮着"的台阶
+        col.push(tone, tone * 0.985, tone * 0.955, tone * 0.88, tone * 0.87, tone * 0.85);
+      }
+      idx.push(base + 0, base + 2, base + 4, base + 0, base + 4, base + 6);   // 顶面
+      for (let k = 0; k < 4; k++){
+        const a = base + k * 2, b = base + ((k + 1) % 4) * 2;
+        idx.push(a, b, b + 1, a, b + 1, a + 1);       // 四个侧面
+      }
+    };
+    /* 两条（左/右）各自相位、各自步长 ⇒ 错缝。
+       ⚠️ 内缘**固定**在 ±0.025（中缝恒 ~5cm），抖动只吃**外缘** —— 第一版内缘也吃抖动
+       ⇒ 中缝最宽能到 0.24m，垫层露出来读成"一条没填平的黑沟、把路劈成两半"（近景判读原话）。
+       外缘内收是"乱石"的来源（不规则边），内缘整齐才像"一条路"。 */
+    for (const [sOut, sIn] of [[-HW + 0.02, -0.025], [0.025, HW - 0.02]]){
+      let d = jit(0.10, 0.60);
+      while (d < L - 0.30){
+        const len = jit(0.44, 0.66);
+        const t0 = d / L, t1 = Math.min(1, (d + len) / L);
+        const a = sOut + jit(0.0, 0.075);              // 只动外缘
+        pushSlab(t0, t1, Math.min(a, sIn - 0.06), sIn + jit(-0.008, 0.008), jit(0.58, 1.0));
+        d += len + jit(0.030, 0.070);                 // 缝宽 3~7cm
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0xFFFFFF,
+      vertexColors: true, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
+    registerWeatherRoles(mat, { snow: 1, wet: 1 });
+    /* ⚠️ **石板要投影**（cast:true）：阴影图的唯一一次渲染发生在延迟批之后的首帧，
+       而本函数就在延迟批里跑 ⇒ 影子会正确落进那张图。不投影时近景判读是"纸片浮贴在地面上"，
+       投影是"石块落在地上"最便宜的一步（近景图判读反复点到"缺接触阴影"）。 */
+    g.add(mesh(geo, mat, { name: 'stableRoad', cast: true, receive: true }));
   }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
-  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const map = pavingTex.clone(); map.needsUpdate = true;
-  map.wrapS = map.wrapT = THREE.RepeatWrapping; map.repeat.set(1, 1);
-  const nrm = pavingNormalTex.clone(); nrm.needsUpdate = true;
-  nrm.wrapS = nrm.wrapT = THREE.RepeatWrapping; nrm.repeat.set(1, 1);
-  const mat = new THREE.MeshStandardMaterial({ map, normalMap: nrm, color: 0xD6D2C8,
-                                               roughness: 0.94, metalness: 0.0 });
-  registerWeatherRoles(mat, { snow: 1, wet: 1 });  // 雪落路上、雨天打湿（与园内铺地一致）
-  g.add(mesh(geo, mat, { name: 'stableRoad', cast: false, receive: true }));
+
+  /* ③ 两侧卵石镶边：**两排**低模鹅卵石（压扁的球）密排成带（第一版步长 0.30 太稀，
+     近景判读"间隔点状、不成带"⇒ 收到 0.19 并铺两排），逐颗抖色调/大小。 */
+  {
+    const proto = new THREE.SphereGeometry(1, 6, 4);
+    const parts = [];
+    const L = curve.getLength(), step = 0.19;
+    const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
+    for (let d = 0; d < L; d += step){
+      const { p, tan, side } = frameAt(Math.min(0.999, d / L));
+      for (const s of [1, -1]){
+        for (const row of [0.095, 0.225]){           // 两排：紧贴石板边外侧 + 外面一排
+                                             // ⚠️ 内排不能贴太近：卵石半径最大 0.092，靠到
+                                             // HW+0.055 时它的内缘会压到石板上（近景判读"个别卵石
+                                             // 与石板边重叠穿插"）。0.095 − 0.092 = +0.003 刚好在外。
+          const q = p.clone().addScaledVector(side, s * (HW + row + jit(-0.02, 0.02)))
+                            .addScaledVector(tan, jit(-0.055, 0.055));
+          const r = jit(0.044, 0.092), tone = jit(0.46, 1.05);
+          const gg = proto.clone();
+          const cAttr = new Float32Array(gg.attributes.position.count * 3);
+          for (let i = 0; i < cAttr.length; i += 3){
+            const j2 = jit(-0.06, 0.06);                 // 逐顶点微抖 ⇒ 不是一颗颗纯色球
+            cAttr[i] = tone + j2; cAttr[i+1] = (tone + j2) * 0.99; cAttr[i+2] = (tone + j2) * 0.95;
+          }
+          gg.setAttribute('color', new THREE.Float32BufferAttribute(cAttr, 3));
+          PP.set(q.x, groundHeight(q.x, q.z) + r * 0.34, q.z);
+          Q.setFromEuler(new THREE.Euler(0, jit(0, 6.28), 0));
+          SC.set(r, r * 0.5, r);
+          M.compose(PP, Q, SC);
+          gg.applyMatrix4(M);                         // 合并前把世界变换烘进几何
+          parts.push(gg);
+        }
+      }
+    }
+    const geo = mergeGeometries(parts, false);
+    parts.forEach(x => x.dispose());
+    proto.dispose();
+    const mat = new THREE.MeshStandardMaterial({ color: 0x8E8B84, vertexColors: true,
+                                                 roughness: 0.96, metalness: 0.0 });
+    registerWeatherRoles(mat, { snow: 1, wet: 1 });
+    g.add(mesh(geo, mat, { name: 'stableRoadPebble', cast: false, receive: true }));
+  }
+  /* 石板开投影之后，投射物集合变了 ⇒ 置脏让它进那张**静态**阴影图（11-loop 的收尾也会刷一次，
+     这里显式做一道保险：本函数在延迟批里跑，顺序一旦被改动，石板就会"没有接触阴影"）。 */
+  markCasterBoxDirty();
+  renderer.shadowMap.needsUpdate = true;
   return g;
 }
 

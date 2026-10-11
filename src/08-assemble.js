@@ -1055,6 +1055,10 @@ const D_SCHEDULES = [
     yaw: Math.PI / 2, s: 0.96, leanX: 0.10, headDown: 0.34,
     h0: 7.5, h1: 18.0, stroll: null, feed: true },
 ];
+/* 马夫"喂马"动作的**肩枢轴句柄**（2026-10-11）。⚠️ 必须在 D_SCHEDULES 建场循环之前用 `let`
+   声明 —— 循环里 makeGroomArm() 会往里写；放晚一行就是 TDZ 启动即炸（同 WALKERS 那条注释）。 */
+let GROOM_ARM = null;
+let _gfT = 0;
 D_SCHEDULES.forEach((d, i)=>{
   const fg = makeScholar({ x: d.x, z: d.z, y: d.y, yaw: d.yaw, s: d.s, pose: d.pose, skin: d.skin,
                            lady: d.lady, leanX: d.leanX, headDown: d.headDown });
@@ -1064,7 +1068,7 @@ D_SCHEDULES.forEach((d, i)=>{
   world.add(fg);
   if (d.walk) attachWalker(fg);              // 巡游观鱼者：沿 WALK_PATH 走（见下面 driveWalkers）
   if (d.lady) attachWoodBucket(fg);          // 井边仕女：右手提一只木桶（老黄 A4）
-  if (d.feed){ fg.userData.isGroom = true; attachFeedBale(fg); }   // 马夫：右手一捆草料（马厩）
+  if (d.feed){ fg.userData.isGroom = true; attachFeedBale(fg); makeGroomArm(fg); }   // 马夫：右手一捆草料 + 肩枢轴
 });
 
 /* ══ 巡游观鱼者的行走驱动（2026-10-06 · 老黄反馈 B）· 函数部分 ══════════════════
@@ -1148,6 +1152,62 @@ function driveWalkers(dt){
       伸出去的手是空的"，喂马的动作直接散架。这里按 `x > 0` 取前伸的那只手。
    ⚠️ 与木桶同一条硬约束：草料捆的全部网格 `noMerge` —— mergeStatics 会把它们并进
       MAT.straw 的静态大网、世界矩阵烘死 ⇒ 人一动草料就留在原地。 */
+/* ── 马夫"递草料"的动作装置（2026-10-11 · 老黄："人喂马"）────────────────────────
+   人物是程序化几何：袖管是一根 TubeGeometry、肘/手/拢手球是球 —— 都没有骨头。
+   要让"喂马"读得出来，不必做骨骼：只要让**前伸那条胳膊整体绕肩**小幅前后摆
+   （≈±6°、周期 ~7s）⇒ 手里那捆草跟着起伏，"递出去—收回来"就成立。
+   做法：把 +x 侧那条胳膊的构件收进一个**肩枢轴组**（组放在肩点），每帧只转这一个组。
+   ⚠️ 三条：
+     ① **只对马夫这么做**（不动 makeScholar 的通用结构 ⇒ 别的角色零影响）；
+     ② 袖管是"**顶点在几何里**、mesh.position 是 (0,0,0)" ⇒ 进组前必须先按肩点**平移几何**，
+        否则整条袖子会跳走（第一版就会踩这个）；
+     ③ 草料捆原来挂在人物 root 上（attachFeedBale 用世界坐标反算的局部位置）⇒ 也得挪进这个组，
+        否则"手动草不动"（与 attachWoodBucket 那条"人一动草料留在原地"同源）。 */
+export function makeGroomArm(root){
+  const SH = new THREE.Vector3(0.180, 1.150, 0.030);      // 肩 = SLEEVE.down 的第 0 点（+x 侧）
+  const arm = new THREE.Group();
+  arm.position.copy(SH);
+  root.add(arm);
+  const moved = [];
+  root.traverse(o => {
+    if (!o.isMesh) return;
+    if (o.name === 'scholarSleeve'){
+      o.geometry.computeBoundingBox();
+      const bb = o.geometry.boundingBox;
+      if ((bb.min.x + bb.max.x) / 2 > 0.02){              // +x 侧那条（另一条是负手）
+        const g2 = o.geometry.clone();
+        g2.translate(-SH.x, -SH.y, -SH.z);                // ⚠️ 顶点在几何里 ⇒ 平移几何
+        o.geometry = g2;
+        o.position.set(0, 0, 0);
+        moved.push(o);
+      }
+    } else if ((o.name === 'scholarElbow' || o.name === 'scholarClump' || o.name === 'scholarHand')
+               && o.position.x > 0.02){
+      o.position.sub(SH);
+      moved.push(o);
+    }
+  });
+  for (const o of moved) arm.add(o);
+  const bale = root.getObjectByName('propFeedBaleHand');
+  if (bale){ bale.position.sub(SH); arm.add(bale); }
+  root.userData.groomArm = arm;
+  GROOM_ARM = arm;
+  return arm;
+}
+/* 每帧推"递草"的摆幅。时钟自己按 dt 累加（帧率无关），角度连续（慢正弦）—— 不用高频正弦直接
+   打姿态（2026-10-05 鹦鹉"抽搐"那条教训）。 */
+export function tickGroomFeed(dt){
+  if (!GROOM_ARM) return;
+  _gfT += Math.min(Math.max(dt, 0), 0.1);
+  GROOM_ARM.rotation.x = 0.11 * Math.sin(_gfT * 0.9);           // 前后：递出去 / 收回来
+  GROOM_ARM.rotation.z = 0.045 * Math.sin(_gfT * 0.6 + 1.1);    // 一点点左右，别像机械臂
+}
+export function groomFeedState(){
+  return GROOM_ARM ? { ok: true, t: +_gfT.toFixed(2),
+    rotX: +GROOM_ARM.rotation.x.toFixed(4), rotZ: +GROOM_ARM.rotation.z.toFixed(4),
+    children: GROOM_ARM.children.map(c => c.name || c.type) } : { ok: false };
+}
+
 function attachFeedBale(root){
   let hand = null;
   root.traverse(o => {

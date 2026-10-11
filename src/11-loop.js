@@ -21,6 +21,9 @@ import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } f
    冬天口鼻白雾"）：姿态是**着色器伪蒙皮**（真模型无骨骼），本模块每帧只推几个角度；
    白雾的位置也在那边按同一套枢轴复算。放在 15-stable 里（它持有马的材质/几何/槽位）。 */
 import { tickStableLife } from './15-stable.js';
+/* 马夫"递草料"的摆臂（2026-10-11 · 老黄："人喂马"）：肩枢轴组住在 08-assemble（人物几何是
+   那边建的），本模块每帧只推一个角度。 */
+import { tickGroomFeed } from './08-assemble.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
@@ -963,6 +966,8 @@ function animate(){
      ⚠️ 它只写**自己的**材质 uniform（着色器伪蒙皮）与自己的白雾实例矩阵 —— 不碰 root 的
      visible/position/rotation，也不写任何全局灯光（与闪电/烟花/流星同一条纪律）。 */
   tickStableLife(dt);
+  /* 马夫递草料（2026-10-11）：只转他自己的肩枢轴组 —— 不碰 root、不写灯光。 */
+  tickGroomFeed(dt);
   /* 看烟花的一家人（2026-10-05 · 老黄："大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃"）：
      动作全部写在 root 与人体之间的 pivot 层，只写 pivot（loop 写的 root.visible/position.y/
      rotation 一律不碰 —— 碰了就是两处互相覆盖）。门控在 pivot.visible 里，与烟花同口径。 */
