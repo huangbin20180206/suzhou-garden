@@ -79,16 +79,69 @@ function bendHeadDown(geo, deg){
   p.needsUpdate = true;
   geo.computeVertexNormals();
 }
-/* ── 顶点色明暗（2026-10-10 · 老黄："还有一匹马好像是白膜，连颜色都没渲染"）─────────
+/* ── 马的"部位权重"（2026-10-11）· 一份区域划分，同时供两件事用 ─────────────────
+   ① **逐部位上色**（治"白膜"：鬃/尾/四肢/蹄要能看出是**另一块颜色**，而不是通体一色）；
+   ② **逐部位动作**（低头吃草 / 摇尾 / 抬蹄 / 抬头抖颈）—— 真马是单网格无骨骼，
+      只能靠"区域权重 + 绕枢轴旋转"。
+   分界怎么定的：把 6049 个顶点投影成侧影图实测出来的（outputs/_diag/horse-shape.mjs），
+   模型局部包围盒 x∈[−0.14,0.14] y∈[−0.451,0.451] z∈[−0.5,0.5]，**头朝 +z**：
+     · 头颈： z>0.13 且 y>0.06（沿用 bendHeadDown 那套门，枢轴 (y0.04, z0.13)）
+     · 尾：   z<−0.42（后躯最末端）——⚠️ 不能只看 z：后腿在 z≈−0.35..−0.20，会混进来
+     · 四条腿：y<−0.10（腹下线以下；实测**腹底在 y≈−0.12**，所以这条门不会啃到肚子）
+                且 |x|>0.045（腿长在两侧，肚子是中间那一片）
+     · 蹄：   y<−0.40（腿的最下段）
+   ⚠️ 所有门都是**平滑门**（smoothstep）而不是硬阈值 —— 硬切会在关节处留一条折痕。 */
+export function horseWeights(geo){
+  const p = geo.attributes.position, N = p.count;
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  const w = { head: new Float32Array(N), tail: new Float32Array(N),
+              legF: new Float32Array(N), legH: new Float32Array(N),
+              hoof: new Float32Array(N), mane: new Float32Array(N), muzzle: new Float32Array(N) };
+  for (let i = 0; i < N; i++){
+    const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
+    w.head[i]   = sm(0.13, 0.30, z) * sm(0.06, 0.20, y);
+    w.tail[i]   = sm(-0.38, -0.45, z) * sm(0.16, 0.02, y);
+    const down  = sm(-0.10, -0.18, y);            // 腹下线以下
+    const side  = sm(0.02, 0.055, Math.abs(x));   // 两侧（中间是肚子）
+    w.legF[i]   = down * side * sm(0.02, 0.16, z);   // 前腿：z 大的一侧
+    w.legH[i]   = down * side * sm(-0.02, -0.18, z); // 后腿：z 小的一侧
+    w.hoof[i]   = sm(-0.36, -0.43, y);
+    /* 鬃：颈背那条脊线 —— 头颈区里"靠上、靠中"的一窄条（|x| 小 + y 高）*/
+    w.mane[i]   = w.head[i] * sm(0.30, 0.40, y) * sm(0.055, 0.02, Math.abs(x));
+    /* 口鼻：头的最前端一小圈（鼻口本来就近黑）*/
+    w.muzzle[i] = sm(0.40, 0.47, z) * sm(0.30, 0.22, y);
+  }
+  return w;
+}
+/* 各部位的**枢轴**（模型局部坐标）：绕它转才像关节，绕原点转会把部件甩出去。
+   腿/尾的枢轴由该部位的顶点质心现算（不同模型不用手填）。 */
+export function horsePivots(geo, w){
+  const p = geo.attributes.position;
+  const ctr = (arr, thr) => { let sx = 0, sy = 0, sz = 0, n = 0;
+    for (let i = 0; i < p.count; i++){ if (arr[i] > thr){ sx += p.getX(i); sy += p.getY(i); sz += p.getZ(i); n++; } }
+    return n ? [sx / n, sy / n, sz / n, n] : [0, 0, 0, 0]; };
+  const [fx, , fz, fn] = ctr(w.legF, 0.5), [hx, , hz, hn] = ctr(w.legH, 0.5);
+  const [, , tz, tn] = ctr(w.tail, 0.5);
+  return {
+    neck: [0, 0.04, 0.13],                                  // 颈根（bendHeadDown 同款）
+    tail: [0, 0.10, tn ? Math.min(-0.36, tz) : -0.44],      // 尾根（后躯末端偏上）
+    legF: [fn ? fx : 0.10, -0.06, fn ? fz : 0.20],          // 前腿：肩，落在腹线略上
+    legH: [hn ? hx : 0.10, -0.06, hn ? hz : -0.28],         // 后腿：胯
+  };
+}
+/* ── 逐部位上色（治"白膜"）（2026-10-10 起，2026-10-11 加强）────────────────
    真马是**单网格、无贴图**（整批一个纯色）⇒ 浅色那匹（白/青灰）在夜里直接读成
-   "白膜 / 没渲染"。这里按**模型局部高度**烘一层明暗：蹄最暗 → 腹/腿中 → 背/头最亮，
-   材质开 `vertexColors` 乘在上面 ⇒ 六种毛色都有体积感，白的也是一匹白马而不是一张白纸。
+   "白膜 / 没渲染"。上一版只按**高度**烘明暗（背亮腹暗），力度不够：鬃、尾、四肢、
+   蹄还是同一个色，看起来仍是一块。
+   这一版按**部位**再压一层（典型马色本来就是"浅身 + 深鬃尾 + 黑蹄"）：
+     鬃 ×0.42 · 尾 ×0.38 · 膝下渐深→蹄 ×0.45 · 口鼻 ×0.80 · 背腹明暗照旧
    ⚠️ 三条纪律：① **上限 1.0**（超过 1 会把浅色推过 bloom 阈值糊成白片 —— 本项目
      刚在"高画质白屏"上吃过 bloom 的亏）；② 逐匹克隆几何（共享几何就没法逐匹烘）；
    ③ 与低头形变共用同一份克隆几何（顺序：先转脖子、后烘明暗 —— 明暗按高度算，
      转完再烘才与"蹄在最下"一致）。 */
-function bakeHorseShading(geo){
+export function bakeHorseShading(geo, w){
   const p = geo.attributes.position;
+  const W = w || horseWeights(geo);
   let ymin = 1e9, ymax = -1e9;
   for (let i = 0; i < p.count; i++){ const y = p.getY(i); if (y < ymin) ymin = y; if (y > ymax) ymax = y; }
   const span = Math.max(1e-6, ymax - ymin);
@@ -96,8 +149,14 @@ function bakeHorseShading(geo){
   const col = new Float32Array(p.count * 3);
   for (let i = 0; i < p.count; i++){
     const t = (p.getY(i) - ymin) / span;              // 0 = 蹄底、1 = 头顶
-    let k = 0.50 + 0.50 * sm(0.06, 0.55, t);          // 腹/腿暗、背/头亮
-    if (t < 0.11) k *= 0.62;                          // 蹄部再压一档（真马蹄是深色）
+    let k = 0.52 + 0.48 * sm(0.06, 0.55, t);          // 腹/腿暗、背/头亮
+    if (t < 0.11) k *= 0.62;                          // 蹄部起手就压一档
+    /* 逐部位加强：浅身 + 深鬃尾 + 黑蹄（真马就是这样分的）*/
+    k *= 1 - 0.58 * W.mane[i];
+    k *= 1 - 0.62 * W.tail[i];
+    k *= 1 - 0.55 * W.hoof[i];
+    k *= 1 - 0.20 * W.muzzle[i];
+    k = Math.min(1, Math.max(0.24, k));
     col[i*3] = k; col[i*3 + 1] = k; col[i*3 + 2] = k;
   }
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
@@ -127,8 +186,12 @@ export function loadStableHorses(stableGroup){
            替身的 headG 那套对它无效）；② 每匹都要烘一层**顶点色明暗**（见 bakeHorseShading：
            单网格无贴图时浅色马会读成"白膜"）。共享几何就没法逐匹改。 */
         o.geometry = o.geometry.clone();
+        /* ⚠️ 顺序（2026-10-11 调整）：**先烘色、后低头** —— 上色的高度门/部位门都是按
+           "原姿态"量的（头还没低下去）；先转头会让头部的 y 落到"腹/腿"那一档、鬃的部位门
+           也位移。顶点色是**跟着顶点走**的，所以先算色再转，色就跟着头一起下去，正确。 */
+        const W = horseWeights(o.geometry);
+        bakeHorseShading(o.geometry, W);
         if (slot.graze > 0.05) bendHeadDown(o.geometry, Math.round(slot.graze * 57.2958 * 0.75));
-        bakeHorseShading(o.geometry);
         /* 逐匹上色（六种典型马色）：模型单材质 ⇒ 改 color；顶点色是"背亮腹暗"的乘子。
            ⚠️ 必须**克隆材质**：共享材质会让六匹马同色（而且 12f 的季节通道按材质同一性认领，
               这里不进季节表，但克隆仍是必须的）。 */
