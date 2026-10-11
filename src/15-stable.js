@@ -106,7 +106,11 @@ export function horseWeights(geo){
   for (let i = 0; i < N; i++){
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
     w.head[i]   = sm(0.13, 0.30, z) * sm(0.06, 0.20, y);
-    w.tail[i]   = sm(-0.38, -0.45, z) * sm(0.16, 0.02, y);
+    /* ⚠️ 2026-10-11 修：y 门原来是 sm(0.16,0.02,y) —— 而侧影实测（outputs/_diag/horse-shape.mjs）
+       尾根落在 **y≈0.17~0.26** 那一带 ⇒ 旧门在 y>0.16 处权重为 0，**尾巴上半截根本不跟着转**，
+       摇尾只剩根部一小块在动，远看就是"尾巴没动"。放宽到 sm(0.36,0.08,y)，
+       并补一道 |x| 窄门（尾巴很细，别把后躯带进来）。 */
+    w.tail[i]   = sm(-0.36, -0.44, z) * sm(0.36, 0.08, y) * sm(0.16, 0.07, Math.abs(x));
     const down  = sm(-0.10, -0.18, y);            // 腹下线以下
     const side  = sm(0.02, 0.055, Math.abs(x));   // 两侧（中间是肚子）
     w.legF[i]   = down * side * sm(0.02, 0.16, z);   // 前腿：z 大的一侧
@@ -276,37 +280,50 @@ export function tickStableLife(dt){
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
   for (const h of HORSE_LIFE){
     const rig = h.mat.userData.rig, ph = h.phase;
-    /* ① 底噪：呼吸级的微动（所有马都有，幅度 1~2° 级，只用来"不死板"）*/
-    let headPitch = 0.014 * Math.sin(t * 0.9 + ph);
-    let headYaw   = 0.022 * Math.sin(t * 0.37 + ph * 1.7);
-    let tailYaw   = 0.11 * Math.sin(t * 1.05 + ph) + 0.035 * Math.sin(t * 2.6 + ph * 2.1);
+    /* ① 底噪：所有马都有的慢微动。
+       ⚠️⚠️ 2026-10-11 **全面加大**（老黄："马蹄和马尾会不规则动，也看不到"）——
+       先证伪了"伪蒙皮没生效"：outputs/_diag/horse-rig-pixel.mjs 冻结帧 A/B 实测
+       rig 角度 0 → 0.6rad **确实改了 2393 像素**（自检 0、可逆）⇒ 注入是好的。
+       真因是**幅度太小**：上一版底噪 0.014 / 0.022 / 0.11 rad（= 0.8° / 1.3° / 6.3°），
+       而「马厩」机位在 15~25m 外 —— 按上面那次实测的比例，0.03 rad 连 20 像素都不到，
+       等于没动。现在按"远看读得出"重给（尾 ±17°、外加每 3.5~12s 一次 ±34° 大甩尾）。
+       ⚠️ 频率仍受"鹦鹉抽搐"那条约束（每帧相位 < 0.8rad）：下面最高的角频率是
+       sin(u*20)/1.8s ≈ 11 rad/s ⇒ 24fps 下 0.46 rad/帧，安全。 */
+    let headPitch = 0.030 * Math.sin(t * 0.90 + ph);
+    let headYaw   = 0.050 * Math.sin(t * 0.37 + ph * 1.7);
+    let tailYaw   = 0.30 * Math.sin(t * 0.95 + ph) + 0.07 * Math.sin(t * 2.30 + ph * 2.1);
     const leg = [0, 0, 0, 0];
+    /* 甩尾 + 抬蹄：**所有角色共用** ——"休息的马匹也会不规则动"是明确要求，
+       上一版只有吃草那两匹有甩尾、只有辕里那两匹有抬蹄 ⇒ 厩内和马厩旁边那两匹
+       是完全静止的（正是老黄说"看不到"的那几匹）。 */
+    h.flick -= dt;
+    if (h.flick <= 0){ h.flick = 3.5 + _sr() * 8.5; h.flickT = 0.9; }
+    if (h.flickT > 0){ const u = 1 - h.flickT / 0.9; tailYaw += 0.60 * Math.sin(Math.PI * Math.min(1, u)); h.flickT -= dt; }
+    h.hoofNext -= dt;
+    if (h.hoofT > 0){
+      const u = 1 - h.hoofT / 1.6;
+      leg[h.hoofLeg] = 0.52 * Math.sin(Math.PI * Math.min(1, u));   // 前腿绕 X 转 ⇒ 蹄往前抬起
+      h.hoofT -= dt;
+    } else if (h.hoofNext <= 0){ h.hoofT = 1.6; h.hoofNext = 6 + _sr() * 10; h.hoofLeg = h.hoofLeg ? 0 : 1; }
     if (h.role === 'graze' || h.role === 'fed'){
-      /* ② 悠闲吃草：慢速点头（吃一口、抬一下）+ 尾巴慢慢摆 + 偶尔甩一下 */
-      headPitch += (h.role === 'graze' ? 0.085 : 0.058) * Math.sin(t * 0.40 + ph);
-      headYaw   += 0.030 * Math.sin(t * 0.21 + ph * 1.3);
-      h.flick -= dt;
-      if (h.flick <= 0){ h.flick = 5.5 + _sr() * 6.5; h.flickT = 0.6; }
-      if (h.flickT > 0){ const u = 1 - h.flickT / 0.6; tailYaw += 0.34 * Math.sin(Math.PI * Math.min(1, u)); h.flickT -= dt; }
+      /* ② 悠闲吃草：慢速点头（吃一口、抬一下）—— 幅度从 4.9°/3.3° 提到 12.6°/8.6° */
+      headPitch += (h.role === 'graze' ? 0.22 : 0.15) * Math.sin(t * 0.30 + ph);
+      headYaw   += 0.05 * Math.sin(t * 0.21 + ph * 1.3);
     } else if (h.role === 'harnessed'){
-      /* ③ 辕里待发：平时安静；偶尔"仰天抖颈"、偶尔"抬一下前蹄"（左右轮着来）*/
-      h.headNext -= dt; h.hoofNext -= dt;
+      /* ③ 辕里待发：平时安静；偶尔"仰天抖颈"（幅度 12.6°→19.5°，间隔 15~33s→8~18s）*/
+      h.headNext -= dt;
       if (h.headT > 0){
-        const u = 1 - h.headT / 1.6;                      // 0→1 一次事件
+        const u = 1 - h.headT / 1.8;                      // 0→1 一次事件
         const env = Math.sin(Math.PI * Math.min(1, u));   // 起落包络（连续）
-        headPitch -= 0.22 * env;                          // 负 = 抬头
-        headYaw   += 0.13 * h.headSide * env * Math.sin(u * 30);
+        headPitch -= 0.34 * env;                          // 负 = 抬头
+        headYaw   += 0.18 * h.headSide * env * Math.sin(u * 20);
         h.headT -= dt;
-      } else if (h.headNext <= 0){ h.headT = 1.6; h.headNext = 15 + _sr() * 18; h.headSide = _sr() < 0.5 ? -1 : 1; }
-      if (h.hoofT > 0){
-        const u = 1 - h.hoofT / 1.5;
-        const env = Math.sin(Math.PI * Math.min(1, u));
-        leg[h.hoofLeg] = 0.30 * env;                      // 前腿绕 X 转 ⇒ 蹄往前抬起
-        h.hoofT -= dt;
-      } else if (h.hoofNext <= 0){ h.hoofT = 1.5; h.hoofNext = 10 + _sr() * 16; h.hoofLeg = h.hoofLeg ? 0 : 1; }
+      } else if (h.headNext <= 0){ h.headT = 1.8; h.headNext = 8 + _sr() * 10; h.headSide = _sr() < 0.5 ? -1 : 1; }
     } else {
-      /* ④ 厩内 2 匹：偶尔慢慢转头看看（幅度小、周期长）*/
-      headYaw += 0.06 * Math.sin(t * 0.13 + ph * 2.3);
+      /* ④ 厩内 2 匹：慢慢转头看看 + 低头嗅一下脚下的草 / 抬头 —— 上一版只有 ±3.4° 转头，
+         出图判读"厩里两匹完全静止"。 */
+      headYaw   += 0.12 * Math.sin(t * 0.13 + ph * 2.3);
+      headPitch += 0.16 * Math.sin(t * 0.16 + ph * 1.7);
     }
     rig.head.x = headPitch; rig.head.y = headYaw; rig.tail.x = tailYaw;
     rig.leg.set(leg[0], leg[1], leg[2], leg[3]);
@@ -1081,6 +1098,23 @@ export function makeStable(cx, cz, opts = {}){
   const carBY = yardY(3.0, -0.9);
   carB.position.set(3.0, carBY, -0.9); carB.rotation.y = Math.PI;
   g.add(carB);
+  /* ⚠️ 2026-10-11 补：**把车"坐"到坡上**（老黄这轮出图判读的头号出戏项："马车的一个木轮子
+     明显悬空，没有接触到地面，一眼假"）。原因：原来只用"车心那一点的地形高"给 position.y，
+     而院场是草坡 —— 两个轮子（车局部 ±0.62）各自脚下的高差 0.2m 量级 ⇒ 一侧轮子必然离地。
+     做法：取**两个轮子各自脚下**的地形高，用它们的均值定位、用它们的差求**横滚角**
+     （绕车局部 z 轴，即轮轴向）；轮距 1.24m ⇒ θ = Δh / 1.24。
+     ⚠️ 符号：车局部 +x 那个轮子在**世界**里落在 +x 还是 −x，取决于车的世界偏航
+     （= 组 yaw + 车自身 rotation.y）—— 这里两个车都是 π+π≡0 ⇒ +x 落 +x；仍按通用式算，
+     免得以后改朝向时符号悄悄反过来。 */
+  const seatCart = (car) => {
+    const wy = yaw + car.rotation.y;
+    const sgn = Math.cos(wy) >= 0 ? 1 : -1;          // 车局部 +x 映射到世界 +x(+1) 还是 −x(−1)
+    const lx = car.position.x, lz = car.position.z;
+    const gPos = gy(lx + 0.62, lz), gNeg = gy(lx - 0.62, lz);
+    car.position.y = (gPos + gNeg) / 2;              // 两轮接地 ⇒ 车心取两者均值
+    car.rotation.z = sgn * (gPos - gNeg) / 1.24;     // 横滚：把轮轴转成与坡面平行
+  };
+  seatCart(carA); seatCart(carB);
   /* ③b 套在 A 辕里的两匹马（站在辕前、与车同向 = 面朝院门 −z）
      ⚠️ 2026-10-10 二轮（出图判读"车辕悬空、未套马"）：
         ① 马的横向位置**对准辕木**（辕在车中心 ±0.40 ⇒ 马就站在那两条线上）；
@@ -1117,22 +1151,40 @@ export function makeStable(cx, cz, opts = {}){
   /* ⚠️ 落点实测修正（2026-10-10 四轮）：吃草那匹原来在 local (4.5,−3.3) ⇒ 前半身伸进
      B 车（卸马那驾）的包围盒（x 重叠 0.19m / z 0.66m）—— 出图判读成"车轮压在马腹下"。
      退到 (4.6,−3.9) 完全分开。 */
-  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey, { graze: 0.82, role: 'graze' });
-  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay, { graze: 0.52, role: 'fed' });
+  /* ⚠️ 2026-10-11（老黄："也看不到马低头吃草的动作"）：把头低的角度加足 ——
+     graze 0.82→0.95（= 40.8°）、fed 0.52→0.80（= 34.4°）。上限仍守 bendHeadDown 的 45° 规矩。 */
+  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey, { graze: 0.95, role: 'graze' });
+  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay, { graze: 0.80, role: 'fed' });
 
-  /* ③d 院用杂物：石水槽、草料堆、两根拴马桩、草料篮 */
+  /* ③d 院用杂物：石水槽、草料堆、两根拴马桩、草料篮
+     ⚠️ 2026-10-11 老黄："为什么这个草料一定要这样放，不能全部放在围栏内吗？" ——
+     水槽/草堆/拴马桩原来都贴着栅栏线（栅栏在 local x=−5.6）：草堆半径 0.71 从 −5.4 起
+     ⇒ 有一小半杵到栅栏上、立柱与横杆直接穿过去（出图判读"草压栅栏线"）。
+     现在整组往里收到 x≈−4.2~−4.9，**全部落在栅栏以内**，与栅栏留出 ≥0.5m 的余量。 */
   const wt = makeTrough(1.3, 0.6, 0.42, MAT.stoneDark, MAT.stone);
-  wt.position.set(-5.0, yardY(-5.0, -0.6), -0.6); g.add(wt);
-  for (let i = 0; i < 4; i++){
-    const s = mesh(new THREE.SphereGeometry(0.62 - i * 0.10, 8, 6), MAT.straw, { name: 'hayMound', cast: true });
-    s.position.set(-5.4 + (i % 2) * 0.30, yardY(-5.4, -2.9) + 0.34 + i * 0.26, -2.9 + (i % 2) * 0.22);
-    s.scale.set(1.15, 0.72, 1.0); g.add(s);
+  wt.position.set(-4.85, yardY(-4.85, -0.6), -0.6); g.add(wt);
+  /* 草料堆：从"4 个球堆叠（出图判读读作雪人/面团）"改成**码好的草捆 + 散草**——
+     扁平长方体交替换向 + 几缕散落的草茎，这才读得出是草料。 */
+  const hayX = -4.30, hayZ = -3.35, hayY0 = yardY(hayX, hayZ);
+  for (let i = 0; i < 3; i++){
+    const bale = mesh(box(0.92, 0.34, 0.52), MAT.straw, { name: 'hayBale', cast: true });
+    bale.position.set(hayX + (i === 2 ? 0.14 : 0), hayY0 + 0.18 + i * 0.35, hayZ + (i === 1 ? 0.07 : 0));
+    bale.rotation.y = (i % 2) * 0.22;
+    g.add(bale);
+  }
+  for (let i = 0; i < 6; i++){
+    const curve = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(hayX - 0.40 + i * 0.16, hayY0 + 0.02, hayZ - 0.30),
+      new THREE.Vector3(hayX - 0.36 + i * 0.16, hayY0 + 0.11, hayZ + 0.04),
+      new THREE.Vector3(hayX - 0.43 + i * 0.16, hayY0 + 0.03, hayZ + 0.36),
+    ]);
+    g.add(mesh(new THREE.TubeGeometry(curve, 4, 0.017, 4, false), MAT.straw, { name: 'hayStraw', cast: false }));
   }
   for (const z of [-2.2, -0.4]){
     const post = mesh(new THREE.CylinderGeometry(0.085, 0.10, 1.35, 8), MAT.woodDark, { name: 'hitchPost', cast: true });
-    post.position.set(-5.5, yardY(-5.5, z) + 0.66, z); g.add(post);
+    post.position.set(-5.15, yardY(-5.15, z) + 0.66, z); g.add(post);
     const ring = mesh(new THREE.TorusGeometry(0.075, 0.018, 4, 8), MAT.harness, { name: 'hitchRing' });
-    ring.position.set(-5.5, yardY(-5.5, z) + 1.03, z); ring.rotation.y = Math.PI / 2; g.add(ring);
+    ring.position.set(-5.15, yardY(-5.15, z) + 1.03, z); ring.rotation.y = Math.PI / 2; g.add(ring);
   }
   const basket = mesh(new THREE.CylinderGeometry(0.30, 0.24, 0.34, 10, 1, true), MAT.bambooBlind,
     { name: 'feedBasket', cast: true });
@@ -1209,9 +1261,12 @@ export function makeStable(cx, cz, opts = {}){
   mkPatch( 3.0, -1.2, 2.2, wornDry, 2.7);  mkPatch( 3.0, -1.2, 1.5, wornBare, 2.7);
   mkPatch( 0.0, -4.1, 2.0, wornDry, 4.1);  mkPatch( 0.0, -4.1, 1.3, wornBare, 4.1);
 
-  /* 马夫站位（供 08-assemble 回填人物用）：站在**低头受喂那匹马的头前 0.75m**、
-     面朝局部 +z（也就是朝马嘴），栅栏（z=−4.7）**以内**。 */
-  const groomLocal = [1.5, -4.35];
+  /* 马夫站位（供 08-assemble 回填人物用）：站在**低头受喂那匹马的头前**、面朝局部 +z
+     （也就是朝马嘴），栅栏（z=−4.7）**以内**。
+     ⚠️ 2026-10-11：从 z=−4.35 收到 **−4.05**（老黄："马夫看不出来喂马的动作"）——
+     实测马鼻端在 z≈−3.77、马夫伸手再往前 ~0.4m，原来两处相隔 1.0m 以上，
+     出图判读"草离马嘴还差一点距离、人和马是摆拍式对峙"；收近后草捆正好抵在马嘴前。 */
+  const groomLocal = [1.5, -4.05];
   /* ⚠️ 打 noMerge 必须放在**所有槽位内容都挂完之后**（挽具是在上面的循环里挂进 slot.group 的）——
      放在 addHorseSlot 里会漏掉挽具，那些件照样被烘进 mergedStatic 而永远摘不掉。 */
   for (const s of horseSlots) markNoMerge(s.group);

@@ -1199,8 +1199,11 @@ export function makeGroomArm(root){
 export function tickGroomFeed(dt){
   if (!GROOM_ARM) return;
   _gfT += Math.min(Math.max(dt, 0), 0.1);
-  GROOM_ARM.rotation.x = 0.11 * Math.sin(_gfT * 0.9);           // 前后：递出去 / 收回来
-  GROOM_ARM.rotation.z = 0.045 * Math.sin(_gfT * 0.6 + 1.1);    // 一点点左右，别像机械臂
+  /* ⚠️ 2026-10-11 加大幅度（老黄："马夫看不出来喂马的动作"）：原来 ±6°、周期 7s ——
+     马厩机位在 15~25m 外，±6° 让手里那捆草移动不到 0.07m（≈4px），等于看不出在动。
+     现在 ±12.6°、周期 ~12.6s（更慢、更"人在递草"而不是机械臂），左右也放大到 ±4.6°。 */
+  GROOM_ARM.rotation.x = 0.22 * Math.sin(_gfT * 0.5);           // 前后：递出去 / 收回来
+  GROOM_ARM.rotation.z = 0.08 * Math.sin(_gfT * 0.6 + 1.1);     // 一点点左右，别像机械臂
 }
 export function groomFeedState(){
   return GROOM_ARM ? { ok: true, t: +_gfT.toFixed(2),
@@ -1225,7 +1228,11 @@ function attachFeedBale(root){
   /* 捆的原点在**捆腰**（makeFeedBale 里草茎从 −0.10 到 +0.14）⇒ 让它落在手心里：
      手 y ≈ 0.96（'take' 点列的拢手球高度）⇒ 捆心与手同高，草茎上下各露一截。 */
   b.position.copy(local);
-  b.rotation.set(0.25, 0.4, 0.15);
+  /* ⚠️ 2026-10-11 改姿（老黄："马夫看不出来喂马的动作"）：原来 `(0.25, 0.4, 0.15)` 基本是
+     **竖着**一捆草（出图判读："那束草是垂直竖立的，离马嘴还差一点距离，看不出互动"）。
+     喂马的手是**把草往前递**的 ⇒ 绕 X 转 ~54°，让草茎的长轴从竖直倒向前方（朝马嘴那侧），
+     再带一点点偏航，读作"递到马嘴边上的草"。 */
+  b.rotation.set(0.95, 0.25, 0.10);
   root.add(b);
   return b;
 }
