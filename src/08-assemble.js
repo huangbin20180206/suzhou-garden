@@ -3344,8 +3344,12 @@ export const VIEWPOINTS = (()=>{
           就要重挑（跑 outputs/_diag/rb-vp-sweep.mjs 扫候选位姿），
           afterrain-guard 的「看彩虹机位」两条判据会当场报红。 */
     { id:'rainbow', label:'看彩虹',
-      pos: new THREE.Vector3(-7.14, 17, 33.89),
-      target: new THREE.Vector3(6.46, 7.22, -2.43),
+      /* ⚠️ 2026-10-11：拱整体抬高了 3m（02-scene 的 archTopY 14.0→17.0，老黄"位置再做的高一些"），
+         这个机位**跟着抬同样 3m** —— "机位相对拱的位姿"逐字不变，取景与覆盖率就回到原值
+         （不跟的话拱在画里变大，afterrain-guard 的覆盖判据 1~8% 当场报红：实测 11.99%）。
+         机位是给那道拱配的，拱动了它就跟着动 —— 别改判据窗口。 */
+      pos: new THREE.Vector3(-7.14, 20, 33.89),
+      target: new THREE.Vector3(6.46, 10.22, -2.43),
       minDist: 2.0 },
     /* 春节烟花（2026-10-05 · 老黄要的"盛大场景"）：
        ⚠️ **这个机位是必需品，不是锦上添花** —— `OrbitControls.maxPolarAngle = 88.6°`
