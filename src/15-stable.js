@@ -28,7 +28,13 @@ import { mesh, box, makeColumn, makeLatticePanel } from './03-factory.js';
 import { MAT, pavingTex, pavingNormalTex, registerWeatherRoles } from './01-materials.js';
 import { groundHeight } from './05-water.js';
 import { tubeRadiusRamp } from './06-vegetation.js';
-import { renderer } from './02-scene.js';
+import { renderer, scene, camera } from './02-scene.js';
+/* 季节门控（冬天才有口鼻白雾）走 ENV —— 方向单纯（12-env 不 import 本模块，见它的 import 表），
+   所以直接 import，不必像 12b/12c 那样开注入槽。 */
+import { ENV } from './12-env.js';
+/* 马的"生活"用**私有随机流**（铁律 1：绝不吃全局 rnd/rr；运行期也不能碰，
+   否则会改变其后所有按序抽样的布局）。 */
+import { mulberry32 } from './00-config.js';
 /* 换马必须让阴影图重渲一次（见 loadStableHorses 末尾的说明）——
    09-lights 不 import 本模块，方向单纯，不会成环。 */
 import { markCasterBoxDirty } from './09-lights.js';
@@ -162,6 +168,196 @@ export function bakeHorseShading(geo, w){
   geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
 }
 
+/* ── 马的动作装置（2026-10-11 · 老黄："马低头吃草、尾巴摇晃一副悠闲的神态；辕里那两匹
+      偶尔抬蹄、仰天抖颈；冬天口鼻喷白雾"）─────────────────────────────────────
+   真模型**没有骨骼**（1 mesh / 无 skin / 无 animation —— 文件头那一节是实测），动作只有两条路：
+     · CPU 逐顶点改写（6049 顶点 × 6 匹 × 每帧）—— 每帧毫秒级，犯不上；
+     · **着色器伪蒙皮**：把 horseWeights 的六块区域烘成顶点属性，在顶点着色器里绕各自枢轴旋转，
+       每匹马一套 uniform。CPU 每帧只写几个角度 ⇒ 成本≈0。
+   本节用后者；六块 = 头颈 / 尾 / 前左腿 / 前右腿 / 后左腿 / 后右腿（左右按顶点 x 符号分）。
+   ⚠️ 影子不动，而且是**有意**的：阴影图是静态只渲一次的（shadowMap.autoUpdate=false，见 09-lights）
+      ⇒ 不会出现"影子里是另一个姿势"那种矛盾（近处小物件才看得出，马在 15~25m 外）。
+   ⚠️ 三条纪律：① 只用**私有随机流**（可复现，且不碰全局 rnd/rr）；
+   ② 所有角度**连续**（慢正弦 + 光滑包络），绝不用高频正弦直接打姿态 —— 这正是 2026-10-05
+      "鹦鹉抽搐"的教训（每帧相位超过 ~0.8rad 就走样成乱抖）；③ 幅度按"远看读得出"给：
+      15~25m 外 1° ≈ 4~7mm，所以姿态角都在 5° 以上。 */
+function installHorseRig(mat, geo, W, piv){
+  const P = { head: piv.neck, tail: piv.tail, legF: piv.legF, legH: piv.legH };
+  mat.userData.rig = { head: new THREE.Vector2(0, 0), tail: new THREE.Vector2(0, 0),
+                       leg: new THREE.Vector4(0, 0, 0, 0) };
+  const N = geo.attributes.position.count, pos = geo.attributes.position;
+  const A = new Float32Array(N * 4), B = new Float32Array(N * 2);
+  for (let i = 0; i < N; i++){
+    const x = pos.getX(i), L = x < 0 ? 1 : 0, R = x < 0 ? 0 : 1;
+    A[i*4] = W.head[i]; A[i*4+1] = W.tail[i];
+    A[i*4+2] = W.legF[i] * L; A[i*4+3] = W.legF[i] * R;
+    B[i*2] = W.legH[i] * L;  B[i*2+1] = W.legH[i] * R;
+  }
+  geo.setAttribute('aRigA', new THREE.BufferAttribute(A, 4));
+  geo.setAttribute('aRigB', new THREE.BufferAttribute(B, 2));
+  mat.onBeforeCompile = (sh) => {
+    /* ⚠️ uniform 的 value 直接指向 mat.userData.rig 里那几个向量 —— 于是每帧改
+       `rig.head.x` 就等于改 uniform（不必去找 shader 对象；onBeforeCompile 只跑一次）。 */
+    sh.uniforms.uHeadAng = { value: mat.userData.rig.head };
+    sh.uniforms.uTailAng = { value: mat.userData.rig.tail };
+    sh.uniforms.uLegAng  = { value: mat.userData.rig.leg };
+    sh.uniforms.uPivHead = { value: P.head };
+    sh.uniforms.uPivTail = { value: P.tail };
+    sh.uniforms.uPivLegF = { value: P.legF };
+    sh.uniforms.uPivLegH = { value: P.legH };
+    sh.vertexShader = sh.vertexShader
+      .replace('#include <common>', `#include <common>
+        attribute vec4 aRigA;
+        attribute vec2 aRigB;
+        uniform vec2 uHeadAng; uniform vec2 uTailAng; uniform vec4 uLegAng;
+        uniform vec3 uPivHead; uniform vec3 uPivTail; uniform vec3 uPivLegF; uniform vec3 uPivLegH;
+        vec3 rigRX(vec3 p, vec3 pv, float a){ float c = cos(a), s = sin(a); vec3 d = p - pv;
+          return vec3(d.x, d.y * c - d.z * s, d.y * s + d.z * c) + pv; }
+        vec3 rigRY(vec3 p, vec3 pv, float a){ float c = cos(a), s = sin(a); vec3 d = p - pv;
+          return vec3(d.x * c + d.z * s, d.y, -d.x * s + d.z * c) + pv; }
+      `)
+      .replace('#include <begin_vertex>', `
+        vec3 transformed = vec3( position );
+        if (aRigA.x > 0.002){ vec3 q = rigRX(transformed, uPivHead, uHeadAng.x); q = rigRY(q, uPivHead, uHeadAng.y); transformed = mix(transformed, q, aRigA.x); }
+        if (aRigA.y > 0.002){ vec3 q = rigRY(transformed, uPivTail, uTailAng.x); q = rigRX(q, uPivTail, uTailAng.y); transformed = mix(transformed, q, aRigA.y); }
+        if (aRigA.z > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegF, uLegAng.x), aRigA.z);
+        if (aRigA.w > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegF, uLegAng.y), aRigA.w);
+        if (aRigB.x > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegH, uLegAng.z), aRigB.x);
+        if (aRigB.y > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegH, uLegAng.w), aRigB.y);
+      `);
+  };
+  mat.needsUpdate = true;
+}
+
+/* ── 每匹马的"生活"状态（装完 rig 后登记；tickStableLife 每帧推）────────────── */
+const HORSE_LIFE = [];
+const _sr = mulberry32(20261011);          // 私有流：事件间隔/相位/抖颈方向
+let _stT = 0;
+export function horseLifeState(){
+  return { n: HORSE_LIFE.length, t: +_stT.toFixed(2),
+           horses: HORSE_LIFE.map(h => ({ role: h.role,
+             headPitch: +h.mat.userData.rig.head.x.toFixed(3), headYaw: +h.mat.userData.rig.head.y.toFixed(3),
+             tailYaw: +h.mat.userData.rig.tail.x.toFixed(3),
+             leg: [...h.mat.userData.rig.leg].map(v => +v.toFixed(3)),
+             breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null })) };
+}
+
+/* 冬天口鼻白雾（只给辕里那两匹）：**位置在 CPU 上按同一套枢轴/角度复算** —— 顶点是 GPU 改的、
+   CPU 不知道，所以这里照抄同一套旋转公式算出**鼻端**，再乘槽位组的世界矩阵。
+   ⚠️ 四个纪律：私有流（可复现）、`raycast=()=>{}`（别拦视线判定）、`userData.aoSkip`（不进 GTAO
+   法线 pass，否则亮片被当成实体写成一块黑）、**不写任何全局灯光**（与闪电/烟花/流星同一条教训）。 */
+export const horseBreathMesh = (() => {
+  const MAXB = 26;
+  const S = 64, cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const cx = cv.getContext('2d');
+  const grd = cx.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
+  grd.addColorStop(0.00, 'rgba(255,255,255,0.70)');
+  grd.addColorStop(0.45, 'rgba(255,255,255,0.28)');
+  grd.addColorStop(1.00, 'rgba(255,255,255,0)');
+  cx.fillStyle = grd; cx.fillRect(0, 0, S, S);
+  const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.NoColorSpace;
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.6 });
+  const im = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, MAXB);
+  im.name = 'horseBreath';
+  im.frustumCulled = false;
+  im.raycast = () => {};
+  im.userData.aoSkip = true;
+  im.count = 0;
+  return im;
+})();
+
+/* 每帧：① 推每匹马的姿态角；② 冬天喷白雾。dt 用主循环的仿真步长（与固定步长累加器同一根时钟）。 */
+export function tickStableLife(dt){
+  if (!HORSE_LIFE.length) return;
+  _stT += Math.min(Math.max(dt, 0), 0.1);
+  const t = _stT;
+  const winter = ENV && ENV.season === 'winter';
+  let puff = 0;
+  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
+  for (const h of HORSE_LIFE){
+    const rig = h.mat.userData.rig, ph = h.phase;
+    /* ① 底噪：呼吸级的微动（所有马都有，幅度 1~2° 级，只用来"不死板"）*/
+    let headPitch = 0.014 * Math.sin(t * 0.9 + ph);
+    let headYaw   = 0.022 * Math.sin(t * 0.37 + ph * 1.7);
+    let tailYaw   = 0.11 * Math.sin(t * 1.05 + ph) + 0.035 * Math.sin(t * 2.6 + ph * 2.1);
+    const leg = [0, 0, 0, 0];
+    if (h.role === 'graze' || h.role === 'fed'){
+      /* ② 悠闲吃草：慢速点头（吃一口、抬一下）+ 尾巴慢慢摆 + 偶尔甩一下 */
+      headPitch += (h.role === 'graze' ? 0.085 : 0.058) * Math.sin(t * 0.40 + ph);
+      headYaw   += 0.030 * Math.sin(t * 0.21 + ph * 1.3);
+      h.flick -= dt;
+      if (h.flick <= 0){ h.flick = 5.5 + _sr() * 6.5; h.flickT = 0.6; }
+      if (h.flickT > 0){ const u = 1 - h.flickT / 0.6; tailYaw += 0.34 * Math.sin(Math.PI * Math.min(1, u)); h.flickT -= dt; }
+    } else if (h.role === 'harnessed'){
+      /* ③ 辕里待发：平时安静；偶尔"仰天抖颈"、偶尔"抬一下前蹄"（左右轮着来）*/
+      h.headNext -= dt; h.hoofNext -= dt;
+      if (h.headT > 0){
+        const u = 1 - h.headT / 1.6;                      // 0→1 一次事件
+        const env = Math.sin(Math.PI * Math.min(1, u));   // 起落包络（连续）
+        headPitch -= 0.22 * env;                          // 负 = 抬头
+        headYaw   += 0.13 * h.headSide * env * Math.sin(u * 30);
+        h.headT -= dt;
+      } else if (h.headNext <= 0){ h.headT = 1.6; h.headNext = 15 + _sr() * 18; h.headSide = _sr() < 0.5 ? -1 : 1; }
+      if (h.hoofT > 0){
+        const u = 1 - h.hoofT / 1.5;
+        const env = Math.sin(Math.PI * Math.min(1, u));
+        leg[h.hoofLeg] = 0.30 * env;                      // 前腿绕 X 转 ⇒ 蹄往前抬起
+        h.hoofT -= dt;
+      } else if (h.hoofNext <= 0){ h.hoofT = 1.5; h.hoofNext = 10 + _sr() * 16; h.hoofLeg = h.hoofLeg ? 0 : 1; }
+    } else {
+      /* ④ 厩内 2 匹：偶尔慢慢转头看看（幅度小、周期长）*/
+      headYaw += 0.06 * Math.sin(t * 0.13 + ph * 2.3);
+    }
+    rig.head.x = headPitch; rig.head.y = headYaw; rig.tail.x = tailYaw;
+    rig.leg.set(leg[0], leg[1], leg[2], leg[3]);
+
+    /* ⑤ 冬天：口鼻喷白雾（只给辕里那两匹 —— 老黄点名的那两匹）*/
+    if (h.breath && winter && puff < 26){
+      h.breathNext -= dt;
+      if (h.breathNext <= 0){
+        h.breathNext = 2.4 + _sr() * 2.6;
+        const b = h.breath[h.breathCur = (h.breathCur + 1) % h.breath.length];
+        b.life = 1.35;
+        /* 鼻端（模型局部）先按**当前头颈角**绕颈枢轴转过去 —— 与顶点着色器同一套公式 */
+        const a = rig.head.x, p = h.piv.neck;
+        let dy = h.nose[1] - p[1], dz = h.nose[2] - p[2];
+        const cs = Math.cos(a), sn = Math.sin(a);
+        b.x = h.nose[0]; b.y = p[1] + dy * cs - dz * sn; b.z = p[2] + dy * sn + dz * cs;
+        if (rig.head.y !== 0){ const c2 = Math.cos(rig.head.y), s2 = Math.sin(rig.head.y);
+          const dx2 = b.x - h.nose[0]; b.x = h.nose[0] + dx2 * c2 + (b.z - h.nose[2]) * s2; }
+        b.vx = 0.10 * (_sr() - 0.5); b.vy = 0.30 + 0.12 * _sr(); b.vz = -0.12 - 0.10 * _sr();
+        h.alive = true;
+      }
+    }
+  }
+  /* ⑥ 把白雾写进实例矩阵（相机朝向的 billboard；只算"活着"的那些）*/
+  const im = horseBreathMesh;
+  if (im){
+    const anyLife = HORSE_LIFE.some(h => h.breath && h.breath.some(b => b.life > 0));
+    if (!anyLife){ if (im.count !== 0) im.count = 0; }
+    else {
+      for (const h of HORSE_LIFE){
+        if (!h.breath) continue;
+        for (const b of h.breath){
+          if (b.life <= 0) continue;
+          b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
+          const u = 1 - b.life / 1.35;                       // 0→1
+          const size = 0.16 + 0.5 * u;
+          if (puff < im.instanceMatrix.count){
+            h.group.updateWorldMatrix(true, false);
+            PP.set(b.x, b.y, b.z).applyMatrix4(h.group.matrixWorld);
+            Q.copy(camera.quaternion); SC.set(size, size, size);
+            M.compose(PP, Q, SC); im.setMatrixAt(puff, M); puff++;
+          }
+        }
+      }
+      im.count = puff;
+      im.instanceMatrix.needsUpdate = true;
+      im.visible = puff > 0;
+    }
+  }
+}
+
 export function loadStableHorses(stableGroup){
   const slots = stableGroup && stableGroup.userData && stableGroup.userData.horseSlots;
   if (!slots || !slots.length) return null;
@@ -180,6 +376,7 @@ export function loadStableHorses(stableGroup){
     for (const slot of slots){
       const inst = src.clone(true);
       const base = slot.color || MAT.horseChestnut;
+      let mat = null, pivLocal = null, noseLocal = null;
       inst.traverse(o => {
         if (!o.isMesh) return;
         /* ⚠️ **一匹一份几何**：① 低头吃草那两匹要在几何上把"颈+头"转下去（真模型没有骨骼，
@@ -205,7 +402,36 @@ export function loadStableHorses(stableGroup){
         o.material.needsUpdate = true;
         o.castShadow = true;
         o.userData.noMerge = true;                    // 异步进来、错过 mergeStatics，显式标一下
+        /* ── 动作装置（2026-10-11）：六块区域 ⇒ 顶点属性 + 绕枢轴旋转的 uniform ──
+           只装在第一块网格上（真马本来就是单网格；万一多网格，其余不动也不会错）。 */
+        if (!mat){
+          pivLocal = horsePivots(o.geometry, W);
+          installHorseRig(o.material, o.geometry, W, pivLocal);
+          mat = o.material;
+          /* 鼻端（模型局部）= 口鼻那一簇顶点的质心 —— 给"冬天口鼻白雾"用。
+             ⚠️ 只对**没有预烘低头**的马准（预烘过的几何已经转过，按原姿态推的鼻端对不上）；
+                白雾本来就只给辕里那两匹（见 tickStableLife），它们 graze=0、没有预烘 ✓。 */
+          let sx = 0, sy = 0, sz = 0, n = 0;
+          const pp = o.geometry.attributes.position;
+          for (let i = 0; i < pp.count; i++)
+            if (W.muzzle[i] > 0.5){ sx += pp.getX(i); sy += pp.getY(i); sz += pp.getZ(i); n++; }
+          noseLocal = n ? [sx / n, sy / n, sz / n] : [0, 0.16, 0.47];
+        }
       });
+      /* 登记"这匹马的生活"（tickStableLife 每帧推姿态/喷白雾）。相位错开，别六匹同步。 */
+      if (mat){
+        const entry = { mat, group: slot.group, role: slot.role, piv: pivLocal, nose: noseLocal,
+          phase: HORSE_LIFE.length * 1.7 + _sr() * 6.28,
+          flick: 1.5 + _sr() * 5, flickT: 0,
+          headNext: 3 + _sr() * 12, headT: 0, headSide: _sr() < 0.5 ? -1 : 1,
+          hoofNext: 5 + _sr() * 10, hoofT: 0, hoofLeg: 0 };
+        if (slot.role === 'harnessed'){
+          entry.breath = Array.from({ length: 7 }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }));
+          entry.breathNext = 1.2 + _sr() * 2.4; entry.breathCur = 0;
+          if (!horseBreathMesh.parent) scene.add(horseBreathMesh);   // 白雾只给辕里那两匹
+        }
+        HORSE_LIFE.push(entry);
+      }
       /* 替身换成真模型：把程序化马摘掉（连同它的 userData.horse 标记），加真马。
          ⚠️ userData.horse 要跟着走 —— 装配自检/探针按它数马（本文件与 08 都用）。 */
       slot.holders.forEach(h => { slot.group.remove(h); });
@@ -628,7 +854,11 @@ export function makeStable(cx, cz, opts = {}){
     const ph = makeHorse(colorMat, opts2);          // 程序化替身（真模型到了就换掉）
     grp.add(ph);
     g.add(grp);
-    const slot = { group: grp, color: colorMat, holders: [ph], graze: opts2.graze || 0 };
+    /* `role`（2026-10-11）：这匹马"在干什么"—— 动作装置按角色给不同的行为
+       （stall 厩内待着 / harnessed 辕里待发 / graze 低头吃草 / fed 受喂）。
+       ⚠️ 只认角色，**不认坐标**：坐标改选址时会变，角色跟着语义走。 */
+    const slot = { group: grp, color: colorMat, holders: [ph], graze: opts2.graze || 0,
+                   role: opts2.role || 'stall' };
     horseSlots.push(slot);
     return slot;
   };
@@ -701,7 +931,7 @@ export function makeStable(cx, cz, opts = {}){
        同时马臀（马心 +0.78 = −2.05）离车厢前沿（−2.01）留 0.2m 缝 ⇒ 不再车马相撞。 */
     const hz = -2.85;
     const hy = yardY(hx, hz);
-    const slot = addHorseSlot(hx, hz, hy, Math.PI, sx < 0 ? MAT.horseBlack : MAT.horseBay);
+    const slot = addHorseSlot(hx, hz, hy, Math.PI, sx < 0 ? MAT.horseBlack : MAT.horseBay, { role: 'harnessed' });
     /* 挽具挂在**槽位组**里（跟着替身一起被换掉）：部件是按程序化马的脖径/腹径配的，
        换成真模型后尺寸对不上会穿模 —— 那时"套车"靠辕杆 + 横轭表达，一样成立。 */
     const girth = mesh(new THREE.TorusGeometry(0.235, 0.024, 4, 12), MAT.harness, { name: 'harnessGirth' });
@@ -724,8 +954,8 @@ export function makeStable(cx, cz, opts = {}){
   /* ⚠️ 落点实测修正（2026-10-10 四轮）：吃草那匹原来在 local (4.5,−3.3) ⇒ 前半身伸进
      B 车（卸马那驾）的包围盒（x 重叠 0.19m / z 0.66m）—— 出图判读成"车轮压在马腹下"。
      退到 (4.6,−3.9) 完全分开。 */
-  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey, { graze: 0.82 });
-  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay, { graze: 0.52 });
+  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey, { graze: 0.82, role: 'graze' });
+  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay, { graze: 0.52, role: 'fed' });
 
   /* ③d 院用杂物：石水槽、草料堆、两根拴马桩、草料篮 */
   const wt = makeTrough(1.3, 0.6, 0.42, MAT.stoneDark, MAT.stone);

@@ -17,6 +17,10 @@ import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksS
 /* 竹帘升降：状态与动画都住在 14-props（它拿着帘条子组与卷捆的引用），
    这里只负责每帧推进；UI 侧经 HOOKS.blind 转发（同音景/明信片的既有做法）。 */
 import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } from './14-props.js';
+/* 马厩里那 6 匹真马的"生活"（2026-10-11 · 老黄："低头吃草、尾巴摇晃、抬蹄、仰天抖颈、
+   冬天口鼻白雾"）：姿态是**着色器伪蒙皮**（真模型无骨骼），本模块每帧只推几个角度；
+   白雾的位置也在那边按同一套枢轴复算。放在 15-stable 里（它持有马的材质/几何/槽位）。 */
+import { tickStableLife } from './15-stable.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
@@ -955,6 +959,10 @@ function animate(){
      所以与闪电/烟花的顺序无关；放这里只为读起来与其它"天上效果"挨着。
      时钟同样按仿真 dt 自己累加（帧率无关，私有相位）。 */
   tickMeteors(dt);
+  /* 马厩那 6 匹马的"生活"（2026-10-11）：低头吃草 / 摇尾 / 抬蹄 / 抬头抖颈 / 冬天口鼻白雾。
+     ⚠️ 它只写**自己的**材质 uniform（着色器伪蒙皮）与自己的白雾实例矩阵 —— 不碰 root 的
+     visible/position/rotation，也不写任何全局灯光（与闪电/烟花/流星同一条纪律）。 */
+  tickStableLife(dt);
   /* 看烟花的一家人（2026-10-05 · 老黄："大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃"）：
      动作全部写在 root 与人体之间的 pivot 层，只写 pivot（loop 写的 root.visible/position.y/
      rotation 一律不碰 —— 碰了就是两处互相覆盖）。门控在 pivot.visible 里，与烟花同口径。 */
