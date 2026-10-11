@@ -186,7 +186,11 @@ export const PRELOAD_MANIFEST = [
   /* 马厩的真马（2026-10-10，老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行"）：
      AI 生成（Rodin Gen-2.5-Medium，站立姿态）+ 减面到 4 千面，**无贴图单材质**（逐匹上色）。
      与 sw.js 的 GLBS 同步（preload-manifest-sync 的 G3 会反向扫磁盘）;
-     required:false —— 拉不到时马厩里站的是**程序化替身**（15-stable 的 makeHorse）。 */
+     required:false —— 拉不到时马厩里站的是**程序化替身**（15-stable 的 makeHorse）。
+     ⚠️⚠️ 2026-10-11：这一件**必须**在**模块求值期**发起请求，否则预载段会死等到超时 ——
+     它的加载原来是写在**延迟批**（loadStableHorses，开园之后才跑）里的，
+     而预载段在前面等它 ⇒ 互相等 ⇒ 每次进项目白等 180s（见 15-stable 的 horseSrcOnce 注释）。
+     `preload-manifest-sync` 的 G6 守这条。 */
   { url: 'assets/Horse.glb',       bytes: 813652,  stage: '取', label: '马',   required: false },
 ];
 

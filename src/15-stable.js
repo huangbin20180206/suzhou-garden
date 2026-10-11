@@ -34,7 +34,7 @@ import { renderer, scene, camera } from './02-scene.js';
 import { ENV } from './12-env.js';
 /* 马的"生活"用**私有随机流**（铁律 1：绝不吃全局 rnd/rr；运行期也不能碰，
    否则会改变其后所有按序抽样的布局）。 */
-import { mulberry32 } from './00-config.js';
+import { mulberry32, HOOKS } from './00-config.js';
 /* 换马必须让阴影图重渲一次（见 loadStableHorses 末尾的说明）——
    09-lights 不 import 本模块，方向单纯，不会成环。 */
 import { markCasterBoxDirty } from './09-lights.js';
@@ -358,11 +358,40 @@ export function tickStableLife(dt){
   }
 }
 
+/* ── 真马模型的**下载**必须在模块求值期发起（2026-10-11 修）──────────────────
+   ⚠️⚠️ 这就是"每次进项目死等 180 秒"的根因，别把它挪回 loadStableHorses 里：
+   11-loop 的 warmBoot **第一步**就是 `await preloadPhase(...)`，而预载段放行的条件是
+   `aggregate().settled >= count` —— 也就是 PRELOAD_MANIFEST 里 6 件**全都 settle 过**。
+   而 loadStableHorses 是**延迟批**里的一个 job（首帧出来之后、每帧一个 job 才轮到它）：
+   把请求写在那里 ⇒ **请求要等开园之后才发，而预载段在前面等着** ⇒ 互相等 ⇒
+   只能等满 PRELOAD_TIMEOUT_MS(180s) 才放弃 ⇒ 每次进项目白等 3 分钟。
+   实测（outputs/_diag/startup-timeline.mjs）：进度文案死死停在
+   「正在下载资产 2.6/3.4 MB（6/6）」——2.6 = 3.44 MB 总量减去**从未被请求**的 0.81 MB 马。
+   现在把"发起下载 + 回报进度/成败"提到模块期（与 06/08 的另外 4 件 GLB 同款：
+   它们的 loadAssetOnce 都写在模块体里，所以一直能在预载段之前落地）；
+   **摆放与换装那一套仍留在延迟批**（它要等马厩建好、拿到 horseSlots）。
+   ⚠️ settleAsset / reportAssetProgress 都不消耗任何随机流 ⇒ 不影响布局指纹。 */
+let _horseSrc = null;
+function horseSrcOnce(){
+  if (_horseSrc) return _horseSrc;
+  _horseSrc = new Promise((resolve, reject) => {
+    new GLTFLoader().load(HORSE_GLB,
+      (gltf) => { HOOKS.settleAsset?.(HORSE_GLB, true); resolve(gltf.scene); },   // 成功：预载清单放行
+      (e) => { HOOKS.reportAssetProgress?.(HORSE_GLB, e.loaded, e.total); },      // 真进度（第三槽）
+      (err) => { HOOKS.settleAsset?.(HORSE_GLB, false, err); reject(err); });     // 失败也要回报（否则同样死等）
+  });
+  _horseSrc.catch(() => {});          // 没人 await 的失败别变成 unhandled rejection（马不在场不该报错）
+  return _horseSrc;
+}
+horseSrcOnce();                        // ← 模块求值期就发起：这一行不能删
+
 export function loadStableHorses(stableGroup){
   const slots = stableGroup && stableGroup.userData && stableGroup.userData.horseSlots;
   if (!slots || !slots.length) return null;
-  new GLTFLoader().load(HORSE_GLB, (gltf) => {
-    const src = gltf.scene;
+  horseSrcOnce().then((base) => {
+    /* 下面要改 src 自己的 scale / rotation / position ⇒ 每次调用都从下载结果**克隆一份**，
+       免得同一个 scene 被归一化两次（模型被缩放成 s² 那么大）。 */
+    const src = base.clone(true);
     /* 归一：按包围盒缩到 HORSE_TOTAL_H 高，脚底落在 y=0，头朝 +z */
     let bb = new THREE.Box3().setFromObject(src);
     const size = new THREE.Vector3(); bb.getSize(size);
@@ -449,7 +478,7 @@ export function loadStableHorses(stableGroup){
        两件事都不是"画错"，是**阴影快照过期**，只能靠重渲修。 */
     markCasterBoxDirty();                            // 投射物集合变了（程序化马→真马，包围盒也变）
     renderer.shadowMap.needsUpdate = true;           // 补渲一次整张阴影图
-  }, undefined, () => { /* 加载失败：保留程序化替身，不抛错 */ });
+  }, () => { /* 加载失败：保留程序化替身，不抛错（settleAsset(false) 已在 horseSrcOnce 里回报过） */ });
   return slots;
 }
 

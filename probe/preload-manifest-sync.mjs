@@ -26,7 +26,11 @@
 //   G3 反向扫磁盘：assets/*.glb 每一件都必须在两份清单里（新加资产忘了登记 ⇒ 报红）
 //   G4 bytes：13-preload 声明的 bytes 必须等于磁盘实测（否则进度条卡在怪数，见该文件头部）
 //   G5 SHELL：应用壳成员齐全（漏一件 = 离线打开缺一块）
-//   G0 自检：把 Macaw 从 GLBS 里抹掉 / 把某个 bytes 改错 ⇒ **G1 / G4 必须报红**
+//   G6 接线：清单里每一项都必须在 src 里**真有人加载并回报**（loadAssetOnce('<url>' 或
+//           `HOOKS.settleAsset('<url>'`）。少了这一条 ⇒ 那一项永远不 settle ⇒ 预载段
+//           **死等满 PRELOAD_TIMEOUT_MS（180s）**才放弃（2026-10-11 真事故：Horse.glb 只写进
+//           清单、而 loadStableHorses 自带 GLTFLoader 绕过了 loadAssetOnce ⇒ 每次进项目等 180 秒）
+//   G0 自检：把 Macaw 从 GLBS 里抹掉 / 把某个 bytes 改错 / 抹掉某件的接线 ⇒ G1 / G4 / G6 必须报红
 //           （探针自己证明判据有牙 —— 沿用 weather-coverage 的 G0 自检惯例）
 //
 // ⚠️ 边界（如实声明）：本门**只判清单与磁盘的文字级一致**，不判"缓存策略对不对"
@@ -85,7 +89,7 @@ const readIf = (rel) => (fs.existsSync(path.join(ROOT, rel)) ? fs.readFileSync(p
 /* ⚠️ headOk 必须**默认 true**：collect() 成功时返回的对象里没有这个键，
    若默认成 undefined（falsy），所有判据都会走"解析失败"分支 ⇒ 自检全线"假红"，
    而"自检失败"又会把主门一起拖红。第一版就是这么栽的（7 项主判据全绿、4 条自检全假红）。 */
-function audit({ shell, glbs, manifest, diskGlbs, diskBytes, headOk = true, headErr = '' }){
+function audit({ shell, glbs, manifest, diskGlbs, diskBytes, wiredSet = new Set(), headOk = true, headErr = '' }){
   const checks = [];
   const ck = (name, ok, detail) => checks.push({ name, ok, detail });
 
@@ -144,7 +148,45 @@ function audit({ shell, glbs, manifest, diskGlbs, diskBytes, headOk = true, head
      missShell.length === 0,
      missShell.length ? `SHELL 缺：${missShell.join('、')}` : `${REQUIRED_SHELL.length} 件齐全（SHELL 共 ${shell.length} 项）`);
 
+  /* G6 接线：清单里每一项都得"真有人在加载它、并且在同一个键上回报"。
+     ⚠️ 只查文字级调用形态（不是"出现过这个 url"）：注释里提到 url 不算接线 ——
+        15-stable 的注释里就写着 assets/Horse.glb，而它当时恰恰没有接线。 */
+  const unwired = manifest.map(x => x.url).filter(u => !wiredSet.has(u));
+  ck('G6 接线：清单每一项都在 src 里有人 loadAssetOnce 或 settleAsset 回报（漏则预载死等到 180s 超时）',
+     unwired.length === 0,
+     unwired.length
+       ? `${unwired.length} 项没人回报：${unwired.join('、')} ⇒ 每次进项目都会死等满 PRELOAD_TIMEOUT_MS`
+       : `${manifest.length} 项全部接线`);
+
   return checks;
+}
+
+/* ── G6 的探测：扫 src（**排除 13-preload 自己**，否则清单里的 url 会自我命中成假绿）──
+   认三种**真会回报**的入口形态（本项目现有全部资产的接法都落在其中）：
+     · `loadAssetOnce('<url>'`  —— 它内部会用**同一个字符串**调 settleAsset
+     · `placeAssets('<url>'`    —— 摆放入口，内部就是 loadAssetOnce（同一个键）
+     · `settleAsset?.('<url>'`  —— 自建 loader 时手工回报（koi 就是这种）
+   ⚠️ 允许"常量间接"：`const HORSE_GLB = 'assets/Horse.glb'` 之后用 HORSE_GLB 调用 ——
+      这种写法本身没错，错的是"用了不走 settle 的裸 GLTFLoader"。
+      所以先解析出绑定该 url 的常量名，再拿常量名去匹配上面三种入口。
+   ⚠️ 反面例子（2026-10-11 的真事故）：`new GLTFLoader().load(HORSE_GLB, ...)` ——
+      入口名既不是 loadAssetOnce 也不是 placeAssets/settleAsset ⇒ **不认识 ⇒ 报红**，正确。 */
+function detectWired(urls){
+  const dir = path.join(ROOT, 'src');
+  const blob = fs.readdirSync(dir)
+    .filter(f => f.endsWith('.js') && f !== '13-preload.js')
+    .map(f => fs.readFileSync(path.join(dir, f), 'utf8')).join('\n');
+  const wired = new Set();
+  for (const u of urls){
+    const esc = u.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const ids = [...blob.matchAll(
+      new RegExp(`(?:const|let|var)\\s+([A-Za-z_$][\\w$]*)\\s*=\\s*'${esc}'`, 'g'))].map(m => m[1]);
+    const tokens = [`'${esc}'`, ...ids];
+    const hit = tokens.some(t =>
+      new RegExp(`(loadAssetOnce|placeAssets|settleAsset)\\s*\\??\\.?\\s*\\(\\s*${t}\\s*[,)]`).test(blob));
+    if (hit) wired.add(u);
+  }
+  return wired;
 }
 
 /* ── 材料采集：真实仓库现状 ─────────────────────────────────────────────── */
@@ -166,7 +208,7 @@ function collect(){
     const rel = `${ASSET_DIR}/${f}`;
     if (fs.statSync(path.join(ROOT, rel)).isFile()) diskBytes[rel] = fs.statSync(path.join(ROOT, rel)).size;
   }
-  return { shell, glbs, manifest, diskGlbs, diskBytes };
+  return { shell, glbs, manifest, diskGlbs, diskBytes, wiredSet: detectWired(manifest.map(x => x.url)) };
 }
 
 /* ── 自检（负例）：探针自证判据有牙 ──────────────────────────────────────
@@ -209,6 +251,20 @@ function selfcheck(base){
   const rC = pick(audit(mutC), 'G5');
   if (!rC || rC.ok) fails.push('变异 C（从 SHELL 抹掉 vendor.js）竟未让 G5 报红 —— 判据没牙');
   else console.log(`  ✓ 负例 C：从 SHELL 抹掉 vendor.js ⇒ G5 报红 — ${rC.detail}`);
+
+  /* 变异 D：抹掉**任意一件**的接线 ⇒ G6 必须红。
+     取"当前第一个已接线的 url"当替罪羊（而不是写死 Horse.glb）——
+     否则修好 Horse 之后这个变异就退化成 no-op（变异没生效、自检却照样"通过"）。 */
+  {
+    const victim = [...base.wiredSet][0];
+    if (!victim) fails.push('变异 D 无法进行：base.wiredSet 为空（G6 本来就红，自检无意义）');
+    else {
+      const mutD = { ...base, wiredSet: new Set([...base.wiredSet].filter(u => u !== victim)) };
+      const rD = pick(audit(mutD), 'G6');
+      if (!rD || rD.ok) fails.push(`变异 D（抹掉 ${victim} 的接线）竟未让 G6 报红 —— 判据没牙`);
+      else console.log(`  ✓ 负例 D：抹掉 ${victim} 的接线（= 清单里没人回报）⇒ G6 报红 — ${rD.detail}`);
+    }
+  }
 
   /* 阳性对照：不变的输入必须全绿，否则"能红"可能只是因为判据恒红 */
   const rOk = audit(base);
