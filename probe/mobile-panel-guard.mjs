@@ -104,10 +104,23 @@ const panelState = (page) => page.evaluate(() => {
     const errs = [];
     page.on('pageerror', e => errs.push(String(e && e.message || e)));
 
-    /* ?guide=1：让引导走"真用户那条自动弹路径"（自动化下默认不弹，见 guide-guard 头部）。 */
-    await page.goto(`${base}?guide=1`, { waitUntil: 'load' });
+    /* ?guide=1：让引导走"真用户那条自动弹路径"（自动化下默认不弹，见 guide-guard 头部）。
+       ⚠️⚠️ 2026-10-11 修：原来 `waitUntil:'load'` —— **在这个重页面上会卡住数分钟**（启动期主线程
+       被占，load 事件迟迟不触发）⇒ 直接撞默认 30s 超时、整门崩在第一次 goto 上（本机实测：
+       "崩溃: page.waitForFunction: Timeout 30000ms exceeded" 而 109 行那句本身写的是 150000）。
+       项目既有一模一样的教训（见 2026-10-10 那条"一律 commit + 等 __garden"）——
+       正解是先 `commit` 拿到文档、再等产品自己的信号，不要等浏览器事件。
+       ⚠️ 启动等待放宽到 10 分钟：本机（无头软件渲染）实测启动 3~4 分钟起，这是**测量预算**、
+       不是被测信号（该门量的是"进场面板收起/命中区尺寸"，与启动快慢无关）。 */
+    await page.goto(`${base}?guide=1`, { waitUntil: 'commit', timeout: 240000 });
+    await page.waitForFunction(() => !!window.__garden, null, { timeout: 600000, polling: 500 });
+    /* ⚠️⚠️ 2026-10-11 二次修：`page.waitForFunction(fn, options)` 是**错的签名** ——
+       Playwright 是 `waitForFunction(fn, arg?, options?)`，第二个实参会被当成**传给页面函数的 arg**，
+       options 变成 undefined ⇒ 这里写的 600000 被静默忽略、退回默认 30s 超时。
+       （本项目 2026-10-10 已有同款教训："等待超时的预算写了却没生效"。）
+       正确写法必须带占位 `null`：waitForFunction(fn, null, { timeout, polling })。 */
     await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
-      { timeout: 150000, polling: 300 });
+      null, { timeout: 600000, polling: 500 });
     await sleep(900);
 
     /* ── 前提断言：这一档是不是"触控口径"（判据的分支条件必须先断言） ── */
@@ -195,7 +208,7 @@ const panelState = (page) => page.evaluate(() => {
     const opened = await page.waitForFunction(() => {
       const s = getComputedStyle(document.querySelector('#env .drawer-content'));
       return s.visibility === 'visible' && Number(s.opacity) > 0.9 && s.pointerEvents !== 'none';
-    }, { timeout: 5000, polling: 50 }).then(() => true).catch(() => false);
+    }, null, { timeout: 5000, polling: 50 }).then(() => true).catch(() => false);
     const st1 = await panelState(page);
     check(`${V.tag}：点方印后面板可命中（轮询到位）`, opened, JSON.stringify(st1));
     check(`${V.tag}：展开后 aria-expanded=true`, st1.aria === 'true', `aria=${st1.aria}`);

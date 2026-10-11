@@ -2,11 +2,20 @@
 // 开发预览用；测试探针（smoke.mjs）内置了自己的服务器实例，不依赖本文件。
 import http from 'node:http';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.argv[2]) || 8935;
+/* ⚠️ 监听地址（2026-10-11 · 老黄："我手机上可以看效果吗"）：
+   默认**只绑本机**（127.0.0.1）—— 开发服务不该默认暴露到局域网。
+   要在手机/平板上看：`SERVE_HOST=0.0.0.0 npm run serve`（Windows PowerShell：`$env:SERVE_HOST='0.0.0.0'; npm run serve`），
+   然后用本机局域网 IP 访问（脚本启动时会把它打出来）。
+   ⚠️ 手机端用 http://局域网IP 打开时**不是安全上下文** ⇒ Service Worker 不会注册（浏览器规定 https/localhost 才给 SW）
+   ⇒ PWA 装不了、SW 那份预缓存不生效；但本服务器对 assets/ 允许 HTTP 缓存（下面那行），
+   所以模型只有第一次要下载。 */
+const HOST = process.env.SERVE_HOST || '127.0.0.1';
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js':   'text/javascript',
@@ -41,4 +50,14 @@ http.createServer((req, res) => {
     });
     res.end(data);
   });
-}).listen(PORT, '127.0.0.1', () => console.log(`serving ${ROOT} → http://127.0.0.1:${PORT}`));
+}).listen(PORT, HOST, () => {
+  console.log(`serving ${ROOT} → http://127.0.0.1:${PORT}`);
+  if (HOST === '0.0.0.0'){
+    try {
+      for (const list of Object.values(os.networkInterfaces()))
+        for (const it of list || [])
+          if (it.family === 'IPv4' && !it.internal)
+            console.log(`  · 手机/平板（同一 Wi-Fi）：http://${it.address}:${PORT}/index.html`);
+    } catch { /* 拿不到网卡列表就算了，手动 ipconfig 查 */ }
+  }
+});
