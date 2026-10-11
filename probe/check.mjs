@@ -61,6 +61,24 @@ try {
         + '\n      否则已装 SW 的浏览器会一直吃旧副本（改了看不见，且不报错）');
     }
     console.log(`      PWA：sw.js 语法 OK · 缓存版本 ${ver} · cache-first 资产（${frozen.length} 件）未越过版本号 ✓`);
+    /* ── 画布兜底底色（2026-10-11 · 静态）──────────────────────────────────────
+       为什么必须常驻：three r184 申请 WebGL 上下文时把 `alpha` **硬写成 true**
+       （vendor.js 里 `let S={alpha:!0,depth:a,...}`，与构造参数无关）⇒ 这个画布**天生允许透明**。
+       于是只要某一帧有哪个区域没被画到（运行期改分辨率/合成层面的意外），那块就 α=0、
+       **直接透出 `html,body` 的底色 `#D8DCDA`** —— 观感就是"一大块惨白的屏幕"
+       （老黄 2026-10-11 报的那张图：那块白逐像素等于 #D8DCDA、完美轴对齐矩形、纯色无内容）。
+       给画布一层不透明深色底之后，同样的意外只会留一块**暗斑**（夜里几乎看不出）。
+       判据只钉"这条规则在不在、且不是 transparent/none"—— 它是**兜底**，不是根因修复。 */
+    const htmlSrc = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+    const bgRule = (htmlSrc.match(/#app\s+canvas\s*\{[^}]*\}/) || [])[0] || '';
+    const bgVal = (bgRule.match(/background\s*:\s*([^;}]+)/) || [])[1] || '';
+    if (!/rgb|#|hsl|var\(/.test(bgVal) || /transparent|none/i.test(bgVal)) {
+      throw new Error('index.html 缺少 `#app canvas{background:<不透明色>}` 兜底 —— '
+        + `当前匹配到：${bgRule || '（没有这条规则）'}\n`
+        + '      画布上下文 alpha 恒为 true（three r184 的行为）⇒ 没画到的区域会透出网页底色 #D8DCDA，\n'
+        + '      看起来就是"一大块白屏"。这层底色把它降级成暗斑，别删（见 index.html 里那段注释）。');
+    }
+    console.log(`      画布兜底底色：${bgVal.trim()} ✓（防"没画到的区域透出网页白底"）`);
   }
   /* ── 未定义标识符门禁（no-undef · 2026-10-02 · ESLint flat config）──
      病因（src/08-assemble.js 实录）：`b.preen` 误写成 `b.peen`，undefined*13 产 NaN，
