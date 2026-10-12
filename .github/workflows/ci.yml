@@ -1,0 +1,73 @@
+name: CI
+
+# 苏州园林 · 自动门禁（Week 1 工程现代化）
+# 三道具名门禁按 package.json 里的既有脚本原样跑，不改写、不新增测试脚本：
+#   npm run check  → probe/check.mjs   静态语法 + PWA 版本治理 + no-undef（需 eslint，devDependency）
+#   npm run audit  → probe/import-audit.mjs  模块 import 清单审计（离线静态，不联网）
+#   npm test       → probe/smoke.mjs   无头 Chromium 冒烟回归（需 playwright 浏览器）
+#
+# ⚠️ 三条硬约束（改动前先看）：
+#  1) 必须 npm ci 且**包含 devDependencies**：check.mjs 第 118 行在缺 eslint 时**主动抛错**
+#     （"门禁没牙 = 没有门禁"），本机 npm 配置 omit=dev 会跳过它，CI 上不能省。
+#     package-lock.json 已被 git 跟踪（.gitignore 未忽略），所以用 ci 而不是 install。
+#  2) npm test 走真实 WebGL：CI runner 没有 GPU，_harness.mjs 默认参数是 Windows 的
+#     --use-angle=d3d11，在 Linux 上无效 ⇒ 必须 GARDEN_SOFT=1 走软渲染回退分支。
+#     软渲染实测约 2.4s/帧，所以 test 作业给了宽松超时，且排在静态门禁之后（省 runner）。
+#  3) 不跑 npm run verify / verify:quick（全量 Playwright 门禁，本机约 18 分钟，不属本工作流范围）。
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  static:
+    name: 静态门禁（check + audit）
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+
+      - name: 安装依赖（含 devDependencies）
+        run: npm ci --include=dev
+
+      - name: 语法 / PWA 版本治理 / no-undef
+        run: npm run check
+
+      - name: 模块 import 清单审计
+        run: npm run audit
+
+  smoke:
+    name: 浏览器冒烟（smoke）
+    runs-on: ubuntu-latest
+    needs: static
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+
+      - name: 安装依赖（含 devDependencies）
+        run: npm ci --include=dev
+
+      - name: 安装 Chromium（含系统依赖）
+        run: npx playwright install --with-deps chromium
+
+      - name: 冒烟回归
+        run: npm test
+        env:
+          GARDEN_SOFT: '1'
