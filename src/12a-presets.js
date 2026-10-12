@@ -218,6 +218,14 @@ const FOG_GRAY  = new THREE.Color(0x9AA0A6);
        "暴雨别闷成脏灰"，靠天光照亮园子那条不能被压回去）。 */
 const CLOUD_GRAY    = new THREE.Color(0x5C6066);
 const SKY_OVERCAST  = new THREE.Color(0xC2C5C8);
+/* 线性 luma —— 与 02-scene 的 `lumOf` **同式**（颜色管理开着时 `.r/.g/.b` 已是线性值）。
+   本文件只用它回答一个问题：**去色之前的天空有多亮**（见 overcast 分支的夜段阻尼）。 */
+const lum = c => 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+/* 去色前的基础天空亮于此 ⇒ 灰化全量（白天/晨/暮，暴雨照旧"白底"）。
+   夜段 `ENV_TIME.night` 的 skyTop/skyHorizon 线性 luma 平均 ≈0.018 ⇒ 阻尼系数 ≈0.36，
+   把 storm 的 skyGray 0.86 压到 ≈0.31（`night+storm` 的 hillDim 回到 ≈0.27）。
+   ⚠️ 这是**连续量**，不是"几点算夜"的硬判据 —— 时辰本就连续插值，晨/暮自然过渡。 */
+const SKY_GRAY_FULL_LUM = 0.05;
 function grayMix(col, gray, amount){
   if (amount <= 0) return;
   col.r += (gray.r - col.r) * amount;
@@ -300,6 +308,18 @@ function applyWeatherTo(p, eff){
   }
   if (eff === 'snow'){
     p.snowAmount = 1.0; p.snowCover = 1.0; p.rainAmount = 0.0;
+  }
+  /* ⚠️⚠️ 2026-10-12 · **夜段阻尼**（只作用于 overcast 分支）：
+     上面 2026-10-06 那次「白底 + 乌云密布」是为**白天**暴雨做的（旧病是"暴雨天还像蓝天白云"），
+     但天空去色**不分时段** —— 夜暴雨天也被 0.86 拉向浅灰白，于是 12-env 的
+     `hillAmb = clamp(curLum/ENV_BAKE_LUM, 0.06, 1.0)`（curLum 正是 skyTop/skyHorizon 的均值，
+     见 12-env.js:207/220）跟着抬到 0.71，**远山在夜里发亮** —— mist-guard 实测
+     night+storm 的 hillDim 由 0.2696 漂到 0.7134。
+     修法：按**基础天空自身的亮度**回收去色量 —— 天空亮则全量（白天暴雨观感一字不动），
+     天空暗则按比例少推。不新开"现在几点"的时段判据源，也不动 hour 的连续语义。 */
+  if (overcast){
+    const baseSky = (lum(p.skyTop) + lum(p.skyHorizon)) * 0.5;   // 去色**之前**的天色
+    p.skyGray *= Math.min(1, baseSky / SKY_GRAY_FULL_LUM);
   }
   /* 天空去色：暴雨/风雪往**浅灰白**拉（"白底天空 + 乌云密布"），其余天气照旧往中灰拉。 */
   const skyTarget = overcast ? SKY_OVERCAST : SKY_GRAY;

@@ -424,14 +424,14 @@ function addHangInst(geo, mat, pts, seed, tag, colorFn){
   inst.userData.hangKind = tag;
   inst.name = 'festivalHang_' + tag;
   inst.frustumCulled = false;
-  const jr = mulberry32(seed);
+  const jrHang = mulberry32(seed);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0),
         s1 = new THREE.Vector3(1, 1, 1);
   for (let i = 0; i < pts.length; i++){
-    q.setFromAxisAngle(up, jr() * TAU);
+    q.setFromAxisAngle(up, jrHang() * TAU);
     m4.compose(pts[i], q, s1);
     inst.setMatrixAt(i, m4);
-    inst.setColorAt(i, colorFn(jr));
+    inst.setColorAt(i, colorFn(jrHang));
   }
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   world.add(inst);

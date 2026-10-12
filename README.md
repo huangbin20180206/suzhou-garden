@@ -47,7 +47,7 @@ npm run serve        # 静态服务器 → http://127.0.0.1:8935
 npm run check        # 语法门禁（src/*.js 逐个 node --check，1 秒）
 npm run audit        # 拆分守卫：漏 import / 给 import 绑定赋值 / 引用内联专有名（3 秒）
 npm test             # 无头回归 55 项（Playwright 加载真实页面做断言）
-npm run verify       # **一条命令串行跑全部 67 道门**（≈15m，交付前必跑）
+npm run verify       # **一条命令串行跑全部 77 道门**（≈15m，交付前必跑）
 
 npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 ```
@@ -154,7 +154,7 @@ npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 **工程侧**
 启动失败兜底 UI · 几何合并前机器校验（属性计数 / 索引越界 / 非有限坐标）·
 WebGL 上下文恢复 · 移动端 320px 布局与 `aria-pressed` · `window.__garden` 调试口（供采集脚本与测试驱动）·
-无头回归门禁 **67 道**（`npm run verify` 串行跑通，≈20m；其中 `npm test` = smoke 单门 **55 项断言全绿**）。
+无头回归门禁 **77 道**（`npm run verify` 串行跑通，≈20m；其中 `npm test` = smoke 单门 **55 项断言全绿**）。
 （口径基准：**2026-10-04**。门数以 `verify-all.mjs` 的 `SUITES` 表为唯一真值 —— 想拿准数就数它，
 别信本文里的数字：这段话自己就漂过七次，30 → 52 → 56 → 57 → 58 → 59 → 67。）
 **2026-10-04 本批收口**：把 8 道"**有牙、能跑、却一直不在链上**"的结论门收回 `SUITES`
@@ -270,20 +270,20 @@ RenderPass → GTAO(仅独显档) → UnrealBloom → GradeShader(对比/分离�
 ```
 suzhou-garden/
 ├─ index.html            559 行壳：CSS + DOM + `import` 装配 + 启动兜底（场景代码全在 src/，见「单文件拆模块」）
-├─ src/                  场景代码 17 个模块 / 约 12300 行，按原节号命名（00-config … 13-preload + 14-props + 2b-wind + app）
+├─ src/                  场景代码 26 个模块 / 25047 行（含空行；非空 24345），按原节号命名（00-config … 13-preload + 14-props + 2b-wind + app）
 │                        ⚠️ 模块**顶层**代码在 import 时就会跑 —— 加东西前先读 README 里那两条破环通则
 │                        ⚠️ 14-props（园林陈设）模块**顶层**建材质/贴图时**不得消耗全局随机流**
 │                        （`makeInkWashTex(私有 mulberry32)` 就是为此加的形参），否则其后
 │                        所有抽样整体前移、全园布局漂且不报错（layout-fingerprint 会报"新增/消失"）
 ├─ vendor.js             esbuild 打包的 three r184 + addons 本地 ESM（零 CDN，含 Draco/KTX2/Meshopt 解码器）
-├─ sw.js                 Service Worker：壳 stale-while-revalidate + GLB cache-first（PWA 离线）
+├─ sw.js                 Service Worker：代码类 network-first（改了即所见）+ 资产 cache-first（PWA 离线；策略见 2026-09-23 修正）
 ├─ manifest.webmanifest  PWA 清单（独立窗口 / 主题色 / SVG 图标）
 ├─ build-entry.js        vendor 打包入口（新增 addon 时在这里补一行）
 ├─ assets/               约 2.7 MB · 5 个 GLB（贴图已重编码压缩）：锦鲤 / 龟 / 荷 / 芭蕉 / 金刚鹦鹉
 │                        ＋ thunder.mp3（懒加载的点缀音效）。其余全部程序化生成
 ├─ probe/                探针 85 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
 │                        ⚙️ 一次性诊断脚本归档在 `probe/_attic/<日期>/`（不入库，搬回原路径即复原）
-│  ├─ verify-all.mjs     **一条命令串行跑全部 67 道门**（`npm run verify`，≈15m；门数以它的 SUITES 表为准）
+│  ├─ verify-all.mjs     **一条命令串行跑全部 77 道门**（`npm run verify`，≈15m；门数以它的 SUITES 表为准）
 │  ├─ check.mjs          语法门禁：src/*.js 逐个 node --check
 │  ├─ codeonly-unit.mjs  语法判定单元门禁：`_codeonly.mjs` 的"什么算引用"契约（判宽=假红、判窄=假绿，两个方向都静默）
 │  ├─ import-audit.mjs   拆分守卫（4 条判据，见「单文件拆模块」）：漏 import / 给 import 绑定赋值 /
@@ -416,7 +416,7 @@ suzhou-garden/
 
 ## 代码地图
 
-`src/` 按**原节号**命名的 17 个模块（每个文件顶部带导航注释；`index.html` 只剩 CSS + DOM + `import` 装配）。
+`src/` 按**原节号**命名的 26 个模块（每个文件顶部带导航注释；`index.html` 只剩 CSS + DOM + `import` 装配）。
 
 ⚠️ 模块**没有**作用域隔离：`src/*.js` 顶层代码在 `import` 时就会跑，且模块之间**不共享词法世界** ——
 在 src 里引用内联脚本里定义的名字不会报错，只会静默 `undefined`（被 `.catch()` 吞掉就是"GLB 静默不加载"）。
@@ -444,11 +444,11 @@ suzhou-garden/
 
 | 门禁 | 命令 | 说明 |
 |---|---|---|
-| 语法 | `npm run check` | `src/*.js`（17 个模块）+ `build-entry.js` + `sw.js` 逐个 `node --check`，1 秒出结果 |
+| 语法 | `npm run check` | `src/*.js`（**26 个模块** —— 与该门自报的「src 26 个模块」一致）+ `build-entry.js` + `sw.js` 逐个 `node --check`，1 秒出结果 |
 | 拆分 | `npm run audit` | `import-audit.mjs` 四条判据（漏 import / 给 import 绑定赋值 / 引用内联专有名），3 秒 |
 | 拆分 | `node probe/codeonly-unit.mjs` | `_codeonly.mjs` 的"什么算引用"契约单元测试，0.2 秒 |
 | 回归 | `npm test` | Playwright 无头加载真实页面，**55 项断言**，退出码即结论 |
-| 全量 | `npm run verify` | **一条命令串行跑全部 67 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
+| 全量 | `npm run verify` | **一条命令串行跑全部 77 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。**门数口径**：`verify-all.mjs` 的 `SUITES.length`（2026-10-12 实测 **77**；`verify:quick` = 12）。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
 | 分层 | `npm run verify:quick` | 12 道快门（≈3 分钟）：check / codeonly-unit / preload-manifest-sync / import-audit / smoke / pageerror / **figure-foot-guard** / layout-fingerprint / random / **pmrem-env** / **fixed-timestep** / **water-fresnel** —— 日常改动后的兜底 |
 | 分层 | `node probe/verify-all.mjs --gates=mist-guard,hill-guard` | 只跑指定门（对 path 与 label 做子串匹配；**匹配不到就响亮报错**，不许"0 道门全绿"） |
 | 视觉 | 截图比对 | 新截图命名带版本号（`-v2`），与 `outputs/shots-*` 基线对比 |
@@ -490,7 +490,7 @@ suzhou-garden/
 **历史基线：`npm run verify` 三十道门全绿（2026-09-22 复验，12m14s；mist-guard 单门 185~390s 波动）—— `check` PASS（`index.html` 559 行壳 + `src` 15 模块 / 11639 行）｜`codeonly-unit` PASS｜`import-audit` PASS｜`wind-trajectory` 6/6｜`shadow-cover` 16/16｜`smoke` 52/52（draw calls 296 / 三角形 1.51M）｜`pageerror-guard` 17/17｜`reel-guard` 16/16｜`lamp-guard` 11/11｜`mist-guard` 25/25｜`postcard-guard` 7/7｜`longexposure-guard` 6/6｜`peach-guard` 12/12｜`sound-guard` 22/22｜`guide-guard` 18/18｜`wind-audit` 25/25｜`wisteria-color` 5/5｜`koi-orbit` 9/9｜`perch-dragonfly` 14/14｜`stone-audit` 16/16｜`stele-legibility` 8/8｜`figure-audit` 45/45｜`refract-guard` 11/11｜`refract-coverage` 5/5｜`weather-coverage` 14/14｜`intro-guard` 22/22｜`loading-guard` 18/18｜`warmboot-guard` 9/9（首帧 46ms vs 老路径 4780ms）｜`random-guard` 14/14（600 抽）｜`lampvol-guard` 28/28（阳性对照 6.2σ）。**
 
 > 回到这一轮的五道新门：单门耗时 21.7s / 10.1s / 25.6s / 9.5s / 44.1s，合计 **+1m51s**。
-> ⚠️ 跑链期间**别做观感/帧率测试**：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。
+> ⚠️ 跑链期间**别做观感/帧率测试**：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。（该段的门数为 **2026-09-22 当日值**；现为 **77 道**，以「验证体系」表的 `SUITES.length` 口径为准。）
 
 `npm test` 覆盖：启动零 console error · 几何合并零校验告警 · 四类 GLB 到齐 · draw calls <800 ·
 三角形 <420 万 · 锦鲤在游动 · 切夜过渡收敛与光强下调 · 暴雨雨量/底值风（审计 B03 回归）·
@@ -585,7 +585,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
   （纯 node，各 <3s，紧跟 check 之后 —— 拆模块的错误在浏览器里要么"加载即炸"、要么更坏的静默）。
 - **验证**：`npm run verify` 二十一门全绿；smoke **50/50**；draw calls **693 < 800**（该项由性能优化 A 拿下，
   原 869 红已解除，见下）。
-  ⚠️ 以上是**当日**基线；门禁链其后长到 **59 道**、smoke 到 **55 项**，draw calls 现读 **299**
+  ⚠️ 以上是**当日**基线；门禁链其后长到 **77 道**、smoke 到 **55 项**，draw calls 现读 **299**
   （693 → 299 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
 
 **拆模块暴露出的四类缺陷（都已修，且都已固化成门禁）** —— 这是本次最有价值的部分，
@@ -669,7 +669,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 - **现状**：`npm test` 已断言 320px 视口下面板收进视口、无横向溢出、`aria-pressed` 齐全、命中区 ≥38px；但**真机触控、iOS Safari、横屏、低端安卓**未专项验收。
 - **待做**：iOS Safari / Android 中低端各一台：单指旋转、双指缩放、面板换行、横屏布局、长时间运行的发热与降帧。
-- **落点**：`@media (max-width:520px),(hover:none)` 段与 `GPU_TIER` 判定。
+- **落点**：`@media (max-width:768px),(hover:none)` 段与 `GPU_TIER` 判定（断点于 2026-10-12 由 520 抬到 768，补 521~767px 且 `hover:hover` 那一带）。
 - **附带项**：`GPU_TIER` 目前是**一次性静态判定**（渲染器字符串正则），笔记本双显卡常跑在核显上（实测 Intel Iris Xe 仅 22.6fps）。建议补「帧率滞回自动升降档 + `visibilitychange` 暂停」，这是移动端体验的关键一环（审计 P01 / P07）。
 
 ### P1-2 夜 + 浓雾下远山比天空略亮 ✅ 已完成（2026-09-19）
@@ -716,7 +716,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 | P2-1 | **导览模式** | ✅ 已完成（2026-09-20）：预设机位 + 1.4s `flyTo` 巡览 + **带字幕自动巡游**（`T`）：五站 hero→stele→hall→pavilion→overview，每站停留 6s、**边飞边出字幕**，任意交互即停并收字幕（"带看"不是"锁死"）。⚠️ 近观机位离目标仅 2.86m，远小于 OrbitControls 默认下限 9m —— 必须把机位自带的 `minDist` 传进 `flyTo`，否则相机落位瞬间被 `controls.update()` 沿**视线方向**推回 9m：方位完全正确、行程也走完、还不报错，**只有量落位后的真实距离才看得出来**。门禁 `probe/smoke.mjs` §8.7（5 项：启停往返 / 字幕联动 / 飞行中不提前切站 / 画布接管即停 / 按钮文案往返） | 中 |
 | P2-2 | **明信片排版** | ✅ 已完成（2026-09-19）：书画款式 —— 装裱细框 + 右侧竖排题款（地名 + 季节/时辰/天气小字）+ 朱文压角章（朱砂底阴刻「云根」+ 斑驳做旧）。门禁 `probe/postcard-guard.mjs`（7 项）；⚠️ 朱砂红像素统计**必须在夏季正午**测，秋天红枫色域与朱砂重叠会假红 | 低 |
 | P2-3 | **音景细化** | ✅ 已完成（2026-09-19）：六层（风 / 雨 / 虫 / 蝉 / 蛙 / 鸟）+ 音量滑杆。新增夏季白天**蝉鸣**（带通白噪 ×55Hz 深 AM）、夏夜**蛙声**（230~320Hz 方波脉冲串，叫一阵停一阵）、**三种鸟**（山雀 / 画眉 / 白头鹎，按季节权重挑）。`Snd.plan(p)` 做成**纯函数**，门禁才能直接断言"夏午有蝉、夏夜有蛙、冬天没虫"。门禁 `probe/sound-guard.mjs`（22 项） | 低 |
-| P2-4 | **PWA 离线** | ✅ 已完成：manifest + sw + icon（壳 stale-while-revalidate + GLB cache-first）。`sw.js` 清理只删 `suzhou-garden-v*` 前缀，不误伤同源其他应用。验收：`probe/pwa-cache.mjs`（隔离 + 断网启动）+ `probe/pwa-cold-restart.mjs`（关浏览器后断网重载） | 低 |
+| P2-4 | **PWA 离线** | ✅ 已完成：manifest + sw + icon。分流口径以 `sw.js:182-220` 实况为准：**代码类（index.html / src/*.js / vendor.js / manifest）→ network-first**，离线回退缓存；**大件（`assets/*.glb` / `icons/` / `docs/`）→ cache-first**；导航请求 → network-first，离线回退缓存的 index.html。⚠️ 旧写的「壳 stale-while-revalidate」是 **2026-09-23 策略修正前**的口径（当时同源 GET 一律陈旧优先 ⇒ 改完要刷两次才生效）；修正后代码类一律走 network-first，仓储内不存在 stale-while-revalidate 分支。`sw.js` 清理只删自建的 `suzhou-garden-v*` 壳桶与被取代的 `suzhou-garden-assets-v*` 资产桶，同源其他应用仍不误伤（`probe/pwa-cache.mjs:43` 的 `other-app-v1` 保留断言照旧成立）。**版本纪律**：代码类走 network-first ⇒ 改了即所见、**不需要 bump 版本号**（`probe/check.mjs:62` 显式把 `.js/.mjs/.html/.webmanifest` 排除在 bump 判据外）；只有 cache-first 的资产类改动才需要升 `ASSET_CACHE` 后缀（升 `CACHE` 不生效，资产桶跨应用版本存活）。验收：`probe/pwa-cache.mjs`（隔离 + 断网启动）+ `probe/pwa-cold-restart.mjs`（关浏览器后断网重载） | 低 |
 | P2-5 | **水面真折射** | ✅ 已完成（2026-09-20）：水面下另渲一张「俯视池底」贴图 —— 一架**只看水下层**的正交相机（layer 隔离：水面 / 天空 / 建筑 / 睡莲叶一律不进这张贴图，否则就是「水底里映着屋顶」），只渲池底 + 锦鲤 + 泳龟 + 水草几十个网格、半分辨率、不渲阴影，核显档也开得起（区别于平面反射把整场景再渲一遍，核显档是被关掉的）。水面 shader 再按波纹法线把采样 UV 掰弯后取它 —— 这才是「透过水面看到水底在晃」。⚠️ 踩坑：正交相机的 left/right/top/bottom 是**相机空间**量，而相机架在池心正上方（相机空间 y = 世界z − 3），把世界包围盒直接塞进去会让视锥只盖池南一半、鱼全数"落在"池底上 —— 状态/几何/贴图尺寸全对，只有读像素看得出来。门禁 `probe/refract-guard.mjs`（11 项） | 中 |
 | P2-6 | **时光流转** | ✅ 已完成（2026-09-19）：一键让 `ENV.hour` 自己走（0.4 h/s ≈ 一整天 60 秒），日出日落 / 月起月落 / 灯笼点亮 / 星空浓淡全自动 —— 它们本就由 hour 驱动，这里只是给它上发条。按钮在「时辰」行，快捷键 **L**（R 已被「冬」占用）；拖滑杆 / 点时段按钮 = 接管，流转自动停。门禁 `probe/reel-guard.mjs`（16 项） | 中 |
 | P2-7 | **首次引导** | ✅ 已完成（2026-09-19）：三步气泡（转视角 → 换天时 → 巡游/留影），只弹一次（localStorage 记账）。两条硬约束：**非模态**（容器 `pointer-events:none`）+ **首次交互即消失**，否则会吃掉别的门禁的真实点击；按钮刻意不放进 `#env`（smoke 的 aria-pressed / 命中区断言只查 `#env button`）。门禁 `probe/guide-guard.mjs`（18 项） | 低 |
@@ -731,7 +731,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 **明确推迟的（下一批梯队，已建单跟踪）：**
 * 静态/动态投射物分离 + 阴影烘焙（CSM 已实测负优化；烘焙是既定替代，估 5~10 天量级，且改观感要在真屏幕验收）；
-* 12-env(3313 行)/06-vegetation(4446 行) 二次拆分（import 成环风险 + 需整轮 53 门兜底）；
+* **06-vegetation 二次拆分（进行中）**：12-env 那一半**已拆完**（2026-10-05 六步 → `12a-presets`/`12b-sky`/`12c-festival`/`12d-lantern`/`12e-precip`/`12f-season`；12-env 现 1215 行含空行 / 1179 行非空），**只剩 `06-vegetation.js`**（4891 / 4756 行，**全仓最大**）且只走了第一步（`06b-atmos.js`）。风险不变：import 成环 + 需整轮门禁兜底（现 **77 道**）。可执行方案（W0~W8 切缝 / 逐步验收 / 回退点）见 `docs/refactor-plan-12env-06veg-2026-10-12.md`；
 * 批次3 高精资产上预载管线（预载体系已按 10MB 建好、现资产仅 1.1MB 在空转；需要美术选型与人眼验收）；
 * 明信片分享/9:16（需分享渠道的产品决策）。
 
@@ -783,7 +783,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 - 改动只允许落在 `index.html` / `build-entry.js` / `package.json` / `probe/*` / `src/*`；`vendor.js` 由 `npm run build:vendor` 重新生成，**不手改**。
 - 每次交付前必须自己先跑通 `npm run check` + `npm run audit` + `npm test`（当前基线：**smoke 52/52 ALL PASS**）；
-  凡动到跨模块引用 / 启动时序 / 资产 / `sw.js`，再加 `npm run verify`（67 道门）。
+  凡动到跨模块引用 / 启动时序 / 资产 / `sw.js`，再加 `npm run verify`（77 道门）。
 - 任何新增依赖或资源必须本地化，禁止外部 CDN（国内网络为前提）。
 - 视觉改动用 `outputs/shots-*` 版本化截图做前后对比；新截图带 `-vN` 后缀。
 

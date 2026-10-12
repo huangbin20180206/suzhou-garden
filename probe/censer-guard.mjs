@@ -55,6 +55,22 @@ const check = (name, ok, detail = '') => {
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
   await page.addStyleTag({ content: '#hud,#env,#caption,#stats,#loading{display:none !important}' });
 
+  /* ⚠️ 把水面反射钉成"每帧刷"（2026-10-12 · MobileBot）——
+     ⑤ 的自检要在**同一次 evaluate 里连渲三张**同参数帧（见下面的 grab()），而水面反射是
+     **按需更新**的（src/05-water.js:263-270：只有 reflectEveryFrame 或 waterBusy 才每帧刷，
+     否则降频到 REFLECT_STATIC_EVERY=3 帧一次）⇒ 三张"同参数"里必有一张吃的是上一张的倒影，
+     on 与 on2 因此不为 0，⑤ 间歇性报红（实测最大差在 49~227 之间乱跳 —— 那是**刷新相位**，
+     不是场景内容漂移）。这不是产品缺陷：按需降频是刻意设计，由 probe/reflect-adaptive.mjs 单独守。
+     同款现象与修法早有留档：docs/HANDOFF-2026-10-06.md:62-66（fireworks-guard 同因，
+     钉住后 12 轮全 0，不钉时 6 轮里 1 次 84px）；lampvol-guard:113 / legibility-guard:76 /
+     fireworks-guard:70 / meteor-guard:224 / plum-guard:144 五道姊妹门都已这样钉，本门此前漏了。
+     ⚠️ 钉桩只会让场景**更**冻结：③（换 uTime 画面必须变）与 ④（烟↔无烟 ≥ MIN_PX）的读数
+        不该因此变化 —— 若变化了，说明本门量到了别的东西，要回来看这里。 */
+  await page.evaluate(() => {
+    const w = window.__garden.scene.getObjectByName('waterSurface');
+    if (w) w.userData.reflectEveryFrame = true;
+  });
+
   /* ── ① 前提 + ② 位置 ── */
   const info = await page.evaluate(async () => {
     const G = window.__garden, T = G.THREE;

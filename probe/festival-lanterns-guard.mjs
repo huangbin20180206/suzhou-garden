@@ -5,7 +5,8 @@
 // 沿用 festival-guard 的三条铁规矩：
 //   ① **不新增真光源** —— 真光源恒为灯笼那 5 盏（lampLights===5）。
 //   ② **非灯会态零提交** —— 三个挂灯网格 count 必须全 = 0。
-//   ③ **draw calls 仍 < 800**（既有红线）。
+//   ③ **draw calls：对同态（夜）基线只有 ~10 的增量**（原"绝对值 < 800"已于 2026-10-12 作废，
+//      失效原因与证据见下方判据③的注释块）。
 //
 // 判据文化（项目规矩）：先断言前提 → 配**负例自检** → 统计量做硬。
 // 负例自检有两条，互相独立：
@@ -77,8 +78,34 @@ const check = (name, ok, detail = '') => {
         return out;
       },
       calls(){ return g.renderer.info.render.calls; },
+      /* ── 整帧总量法（2026-10-12）────────────────────────────────────────────
+         renderer.info.autoReset=false（src/02-scene.js:89）+ 每帧手 reset（src/11-loop.js:1384）
+         ⇒ 在 reset 那一刻读 renderer.info.render.calls，得到的是**上一帧的整帧量**
+         （主 pass + 后处理 + 水面折射；水面 Reflector 的按需镜像那趟也含在内）。
+         随手读一次只是"帧内累计到那一刻"的快照：高画质档单次读数在 851 与 1323 之间摆
+         （实测 outputs/_diag/festival-budget-202610120653-report.log），所以必须按整帧取。 */
+      installBudget(){
+        if (window.__fl._budgetOn) return true;
+        const info = g.renderer.info, orig = info.reset.bind(info);
+        window.__fl._bf = { frames: [] };
+        info.reset = function(){
+          window.__fl._bf.frames.push(info.render.calls);   // reset 之前 = 上一帧整帧量
+          orig();
+        };
+        window.__fl._budgetOn = true;
+        return true;
+      },
+      /* 取 n 帧整帧量；丢首帧（可能落在半帧上），返回 min/med/max 与原始序列 */
+      async budget(n){
+        const bf = window.__fl._bf; bf.frames = [];
+        while (bf.frames.length < n + 1) await new Promise(r => requestAnimationFrame(r));
+        const arr = bf.frames.slice(1, n + 1).sort((x, y) => x - y);
+        const med = arr.length % 2 ? arr[(arr.length - 1) / 2] : (arr[arr.length / 2 - 1] + arr[arr.length / 2]) / 2;
+        return { n: arr.length, min: arr[0], med, max: arr[arr.length - 1], raw: arr };
+      },
     };
   });
+  await page.evaluate(() => window.__fl.installBudget());
 
   /* ── 前提：挂点已收集、三个网格都在 ── */
   const pre = await page.evaluate(() => {
@@ -105,17 +132,27 @@ const check = (name, ok, detail = '') => {
   check('① 不新增真光源：真光源仍是灯笼那 5 盏',
     off.st.lampLights === 5, `lampLights=${off.st.lampLights}`);
 
-  /* ── 开灯会：数量显形 ── */
+  /* ── 开灯会：数量显形 + 判据③ 的两个读数（同态基线 / 灯会态）── */
   const on = await page.evaluate(async () => {
     const g = window.__garden;
+    const raf = () => new Promise(r => requestAnimationFrame(r));
+    const settle = async (ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) await raf(); };
     g.setEnv('time', 'noon'); g.setEnv('weather', 'clear');
+    await settle(4000);
+    /* 判据③ 基线：先切到**灯会会切到的那个时段（夜）**并等过渡走完，此时灯会还关着
+       ⇒ 基线态与灯会态只差"灯会层"这一件事，不把"开灯会=自动切夜"的时段差算进增量
+       （实测时段差：低画质 −121 / 高画质 −243，正是旧口径"灯会态反而更低"的来源）。 */
+    g.setEnv('time', 'night');
+    await settle(4000);
+    const offBudget = await window.__fl.budget(12);
     g.toggleFestival(true);
-    await new Promise(r => requestAnimationFrame(r));
-    const t0 = performance.now();
-    while (performance.now() - t0 < 4000) await new Promise(r => requestAnimationFrame(r));
+    await raf();
+    await settle(4000);
+    const onBudget = await window.__fl.budget(12);
     const objs = window.__fl.hangObjs();
     return { st: g.festivalState(), counts: objs.map(o => o.count),
-             calls: window.__fl.calls(), show: g.ENV.cur.festivalShow };
+             calls: window.__fl.calls(), show: g.ENV.cur.festivalShow,
+             offBudget, onBudget, time: g.ENV.time };
   });
   const byKind = Object.fromEntries(on.st.hang.map(h => [h.kind, h]));
   check('② 开灯会：三批挂灯全部显形（count = fullCount）',
@@ -127,7 +164,32 @@ const check = (name, ok, detail = '') => {
     `紫藤花灯 ${byKind.wisteriaFlower?.n} 盏`);
   check('B 围栏红灯笼：四边成排（≥30 盏）', byKind.wallRed.n >= 30,
     `红壁灯 ${byKind.wallRed?.n} 盏`);
-  check('③ 灯会态 draw calls 仍 < 800（既有红线）', on.calls < 800, `draw calls=${on.calls}`);
+  /* ── 判据③ 口径变更（2026-10-12）：绝对值 <800 → 同态增量（≤30）+ 2500 护栏 ──────────
+     旧线 `on.calls < 800` 作废，证据 outputs/_diag/verify-final-20261012-1023.log：
+       · 同门"非灯会态"自报 draw calls=1084（:365 与 :390）—— **没开灯会就已经 >800**；
+       · 两次红 851（:371）与 1313（:396）—— 同一状态的两个帧模式，差 462 = 水面 Reflector
+         的**按需镜像那趟**（src/05-water.js:263-270：moved / busy / settle / 每 REFLECT_STATIC_EVERY 帧）。
+     失效原因是两重不可比（归因见 outputs/_diag/festival-budget-202610120653-report.log）：
+       ① **跨画质档**：800 抄自 smoke 的 min-of-6、低画质档、晴夏基线；本门那次跑在 RTX 4060
+          （high 档：reflection 1024 + GTAO + shadow 6144），而姊妹门 festival-guard 跑在 Intel
+          （low 档：reflection 0 ⇒ 水面钩子被置空，src/05-water.js:272-273）。定量：同一份代码
+          低档整帧 619 / 高档 1084（差 465）。
+       ② **帧内快照**：renderer.info.autoReset=false（src/02-scene.js:89）+ 每帧手 reset
+          （src/11-loop.js:1384）⇒ 随手读一次是"帧内累计到那一刻"，高画质档摆幅 ±462。
+     现口径：两态都用**整帧总量法**（页内包装 info.reset 取上一帧整帧量），每态 ≥12 帧；
+     增量取两态**各自的最小值**（= 不含按需镜像那趟的同一帧模式，避免两态窗口落在不同模式上
+     造出 ±462 的假增量；中位与最大值一并打进 detail）。灯会层真实代价实测 **+10 calls**
+     （116 盏挂灯 = 3 个 InstancedMesh；低档 498→508、高档 841→851）。 */
+  check('③ 灯会态 draw calls 对同态（夜）基线增量 ≤ 30（跨画质档可比；实测 +10）',
+    (on.onBudget.min - on.offBudget.min) <= 30,
+    `关灯会(夜) 整帧 min/中位/max = ${on.offBudget.min}/${on.offBudget.med}/${on.offBudget.max}`
+    + ` · 开灯会 = ${on.onBudget.min}/${on.onBudget.med}/${on.onBudget.max}`
+    + ` · 增量(min)=${on.onBudget.min - on.offBudget.min}（≤30）· 各 ${on.offBudget.n}/${on.onBudget.n} 帧`
+    + ` · 整帧总量法（包装 info.reset）· time=${on.time}`);
+  /* 绝对护栏：只当"场景失控"的粗线用，不再承担档位/时段差异。取 max（含按需镜像的最坏帧），
+     跨档实测峰值 低 619 / 高 1667 ⇒ 2500 给足余量。旧线 800 的失效留档见上。 */
+  check('③b 绝对护栏：整帧 draw calls ≤ 2500（跨档峰值实测 619 / 1667）',
+    on.onBudget.max <= 2500, `开灯会整帧 max=${on.onBudget.max}（护栏 2500）`);
 
   /* ── 一个灯笼一份几何 ⇒ 3 个对象（合并的收益，硬指标）── */
   const total = on.st.hang.reduce((a, h) => a + h.n, 0);

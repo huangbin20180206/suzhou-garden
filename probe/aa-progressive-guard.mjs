@@ -24,6 +24,13 @@
 //       （否则在 1080p 上这条断言是空转的 —— 那里 base×1.36 本来就低于预算）。
 //       ⚠️ 本支并入本门而非另立一门：它与 [R] 同属"AA 自己的像素行为"，且
 //       `outputs/_diag/aa-immunity-diag.mjs` 的 [A]/[B] 场景已被上面两支覆盖。
+//   [S] 换档软化（批次 2 · 2026-10-12）：AA 抬档后 grade pass 会起一段**有界衰减**的
+//       1 texel 微糊（产品侧 `10-post.js` 的 GRADE_SOFTEN），用来摊平"抬档那一帧
+//       锐度跳一下"。本门守三条：探针语义下**恒为 0**（= 像素门不被污染的实证）；
+//       真机语义下峰值出现、且在声明帧数内归 0；归零之后不再抬头（专抓"永不衰减
+//       ⇒ 画面永久半糊"这类不报错、不崩的静默缺陷）。
+//       ⚠️ 上面四条既有真机断言（realRiseHolds / realFallbackHolds / budgetHolds /
+//       immuneHolds）**逐字未动** —— 本批只加断言，不改判据。
 // ⚠️ 不许为了让门绿而弱化判据。两支的断言方向**相反**：任何一支被弱化成永真，
 //    另一支的负例自检（喂合成违规态 + 现场构造违规态）会立刻抓到。
 // ⚠️ 本门不碰 src/：探针环境不能靠改产品代码造负例（铁律 3），只能喂态 / 用产品侧开关。
@@ -80,6 +87,31 @@ const realFallbackHolds = s => s.step === 0
    `min(base×qosScale×scale, cap)`（既不许超预算，也不许无故少算）。 */
 const budgetHolds = s => s.pixelRatio <= s.budgetCap + 1e-6
   && Math.abs(s.pixelRatio - Math.min(s.baseScale * s.qosScale * s.scale, s.budgetCap)) < 1e-6;
+/* [S] 换档软化（批次 2）：AA 抬档后 grade pass 起一段**有界衰减**的微糊。判据三合一：
+     ① 峰值出现过；② 从峰值帧起算 ≤ frames 帧内归 0；③ 归零之后**再不许抬头**。
+   ③ 是这条判据的牙口 —— 它抓的正是"永不衰减 / 永久残留"（画面永久半糊）。
+   纯函数化，负例才好直接喂合成轨迹。 */
+const softenSettles = (tr, frames) => {
+  const peak = Math.max(...tr);
+  if (!(peak > 0)) return false;                                   // ① 峰值从未出现
+  const peakIdx = tr.indexOf(peak);
+  const settleIdx = tr.findIndex((v, i) => i > peakIdx && v === 0);
+  return settleIdx > peakIdx && (settleIdx - peakIdx) <= frames    // ② 有界衰减
+      && tr.slice(settleIdx).every(v => v === 0);                  // ③ 归零后不抬头
+};
+/* 软化采样：**在页内逐帧读**，避开跨进程时序抖动。
+   ⚠️ 触发与采样必须写进**同一次 evaluate**：aaSetStep 立刻改像素比，下一次
+      gradePass.render 就起脉冲；拆成两次 evaluate 的话中间可能已经过掉几帧。 */
+const softenTrace = (page, n, forceStep) => page.evaluate(({ n, forceStep }) => (async () => {
+  const g = window.__garden;
+  g.aaSetStep(forceStep);                    // 强制抬档：走产品侧开关，不在探针里改产品函数
+  const out = [];
+  for (let i = 0; i < n; i++){
+    await new Promise(r => requestAnimationFrame(r));
+    out.push(g.gradeSoftenState().value);
+  }
+  return out;
+})(), { n, forceStep });
 
 /* 开一个页面。mockReal=true 时用胶水把 `navigator.webdriver` 置 false ——
    这是 `02-scene.js` 的 `PROBE_DRIVEN` 唯一输入，从而在探针里**模拟真机语义**。
@@ -151,6 +183,20 @@ async function open(browser, port, { mockReal = false, width = 1280, height = 72
   await stillFrames(P.page, 4);
   const a1b = await P.page.evaluate(() => window.__garden.aaState());
   check('[P] 免疫每帧强制（注入 step2 后 ≤4 帧被拉回 step0）', immuneHolds(a1b), JSON.stringify(a1b));
+
+  /* ── [P] 换档软化：探针语义下必须**全程为 0** ────────────────────────────
+     这不只是"设计意图"的复述，而是「像素门不被污染」的**实证**：aaSetStep(2) 会真的
+     把像素比抬上去（1.25 → 1.70），若 10-post 里那道 QOS_IMMUNE 闸没接上，微糊就会
+     亮起来 ⇒ 本门的像素读数（以及别的像素门）当场被污染。 */
+  const pTrace = await softenTrace(P.page, 16, 2);
+  check('[P] 探针语义下换档软化恒为 0（连强制抬档都不许点亮微糊）',
+    pTrace.every(v => v === 0), `trace=${JSON.stringify(pTrace)}`);
+  const pSoft = await P.page.evaluate(() => window.__garden.gradeSoftenState());
+  check('[P] 软化状态可读，且免疫标记/声明帧数齐备',
+    pSoft.immune === true && pSoft.left === 0 && pSoft.value === 0
+      && Number.isFinite(pSoft.frames) && pSoft.frames > 0, JSON.stringify(pSoft));
+  expectRed('探针语义下软化被点亮（合成：抬档后出现峰值）',
+    tr => tr.every(v => v === 0), [0, 0.45, 0.3, 0.15, 0]);
 
   /* ══ [R] 真机语义：AA 的三条约束 + 预算护栏必须都真 ════════════════════ */
   console.log('\n[R] 真机语义（webdriver 胶水置 false ⇒ QOS_IMMUNE=false）');
@@ -228,6 +274,33 @@ async function open(browser, port, { mockReal = false, width = 1280, height = 72
   const b7 = await R.page.evaluate(() => window.__garden.aaState());
   check('[R] 重新开开关后恢复升档（可逆 ⇒ 上一条确实是被开关压住的）',
     realRiseHolds(b7), JSON.stringify(b7));
+
+  /* ── [R] 换档软化：峰值出现 → 有界归 0 → 不许永久残留 ────────────────────
+     先把 AA 压回 step0 并等过声明帧数（顺带证一条方向性：**回落不触发软化** ——
+     像素比变小不该起脉冲），再强制抬档并在页内逐帧采样。 */
+  await R.page.evaluate(() => window.__garden.aaSetStep(0));
+  await stillFrames(R.page, 14);
+  const rSoft0 = await R.page.evaluate(() => window.__garden.gradeSoftenState());
+  check('[R] 前提：软化处于**可触发**环境（immune=false）',
+    rSoft0.immune === false, JSON.stringify(rSoft0));
+  check('[R] 回落（像素比变小）不触发软化',
+    rSoft0.value === 0 && rSoft0.left === 0, JSON.stringify(rSoft0));
+  const rTrace = await softenTrace(R.page, rSoft0.frames + 8, 2);
+  const rPeak = Math.max(...rTrace);
+  check('[R] 抬档后软化峰值出现（且不超声明峰值）',
+    rPeak > 0 && rPeak <= rSoft0.peak + 1e-6 && rPeak >= rSoft0.peak * 0.5,
+    `peak=${rPeak} declared=${rSoft0.peak} trace=${JSON.stringify(rTrace)}`);
+  check(`[R] 软化在声明帧数（${rSoft0.frames} 帧）内归 0，此后不再抬头（专抓永久残留）`,
+    softenSettles(rTrace, rSoft0.frames), `trace=${JSON.stringify(rTrace)}`);
+  /* 负例自检：新判据同样要有牙 —— 四种违规态都必须被拦下（不为"新加的"放松这一环） */
+  expectRed('软化永不衰减（合成：全程停在峰值）', tr => softenSettles(tr, 10),
+    [4.5,4.5,4.5,4.5,4.5,4.5,4.5,4.5,4.5,4.5,4.5,4.5]);
+  expectRed('软化残留（合成：峰值后拖到第 11 帧才归零）', tr => softenSettles(tr, 10),
+    [4.5,4,3,2,1,1,1,1,1,1,1,0]);
+  expectRed('软化从未出现（合成：全程 0）', tr => softenSettles(tr, 10),
+    [0,0,0,0,0,0,0,0,0,0,0,0]);
+  expectRed('软化归零后又抬头（合成：残留脉冲）', tr => softenSettles(tr, 10),
+    [4.5,3,2,1,0,0,0.5,0,0,0,0,0]);
 
   /* ══ [B] 4K 像素预算护栏：AA 升档不得突破 pixelBudget ══════════════════ */
   console.log('\n[B] 4K + high：AA 顶档会被像素预算 clamp（护栏回归）');

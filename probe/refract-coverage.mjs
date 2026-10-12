@@ -96,6 +96,26 @@ const REQUIRED_BY_COLOR = [
       if (Array.isArray(m)) return 'array';
       return m.name || (m.color ? '#' + m.color.getHexString() : '?');
     };
+    /* ── 「顶点着色器摆位 billboard」识别（2026-10-12）──
+       fireworks / censerSmoke 这类 InstancedMesh 的**实例矩阵全是单位阵**，位置在顶点着色器里算
+       —— 产品注释自己就写着「shader 不读 instanceMatrix；补上只为包围球不退化」「顶点位置在
+       shader 里算，CPU 侧包围球是错的」（src/06b-atmos.js:212-216、src/12b-sky.js:580-584）。
+       于是 Box3.setFromObject 走 vendor.js expandByObject 的 e.boundingBox 分支
+       ⇒ InstancedMesh.computeBoundingBox() 在单位阵下退化成**基础片元**的包围盒
+       （1×1 平面落在世界原点）⇒ 量到的 depth/span 与它在哪毫无关系
+       （实测两个互不相干的系统都报 0.56m @跨1m，就是同一个 1×1 平面）。
+       ⚠️ 牙：只认「全为单位阵 + ShaderMaterial」。一旦有人改成 CPU 摆实例（出现非单位阵），
+          本豁免**自动失效**、按真 bbox 判 —— 那时 depth/span 才有意义。 */
+    const IDENT = [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1];   // 列主序单位阵
+    function allInstancesIdentity(o){
+      if (!o.isInstancedMesh || !o.instanceMatrix || !(o.count > 0)) return false;
+      const a = o.instanceMatrix.array;
+      for (let k = 0; k < o.count; k++){
+        const b = k * 16;
+        for (let j = 0; j < 16; j++) if (Math.abs(a[b + j] - IDENT[j]) > 1e-6) return false;
+      }
+      return true;
+    }
 
     /* ⚠️ bbox 中心在池内 ⇒ 判"池内"，对**环形**物体会误判：池岸草环 bank 的几何全在池外
        （1.0×~1.14× 岸线的一圈，2026-09-24 起它成"池岸缓坡"、外缘贴地形、下探水面 0.99m），
@@ -104,17 +124,31 @@ const REQUIRED_BY_COLOR = [
        ② 从上方垂直下打射线命中它（占住池内空间）。
        复核**不会放过真缺陷**：真半浸在池里的几何必有顶点在池内、或必被射线命中
        —— 门禁自带负例自检（注入池心水面下的无名白网格必须被报出来）。 */
-    function hasVertexInsidePond(o){
-      if (o.isInstancedMesh || o.isPoints || !o.geometry || !o.geometry.attributes.position) return true;
+    function pondVertexStats(o){
+      /* ⚠️ 2026-10-12：原 hasVertexInsidePond 只回真/假。现在**同一趟遍历**顺带记下
+         "落进池内那批顶点的最小 y 与其世界坐标" ⇒ 得 depthInPond 与 deepestInPond。
+         为什么必须这样：depth（= WATER_Y − 全对象 bbox 最小 y）对**全园并网**的大网毫无意义
+         —— groundHeight() 让旱地地形低到 ≈ −1.02m（05-water.js:60-69），而水面 Y 只有 0.06
+         ⇒ 落在低洼旱地上的木件底面天然在 −0.28 附近，全对象 bbox 一取就是"下探 0.34m"。
+         深度必须与"池内"取自**同一批顶点**，判据才在问同一件事。
+         ⚠️ 采样口径沿用原来那套（≤400 点，step = count/400）：与 inside 判定同源，
+            所以 depthInPond 是"采样到的最深"，不是数学下确界 —— detail 里会把实测值打出来。
+         保守分支（实例化/点/无 position）保持原样：inside=true、minY=null（不改判）。 */
+      if (o.isInstancedMesh || o.isPoints || !o.geometry || !o.geometry.attributes.position)
+        return { inside: true, minY: null, at: null };
       o.updateWorldMatrix(true, false);
       const pos = o.geometry.attributes.position;
       const step = Math.max(1, Math.floor(pos.count / 400));
       const v = new T.Vector3();
+      let inside = false, minY = Infinity, at = null;
       for (let i = 0; i < pos.count; i += step){
         v.set(pos.getX(i), pos.getY(i), pos.getZ(i)).applyMatrix4(o.matrixWorld);
-        if (shoreSigned(v.x, v.z) < -0.15) return true;
+        if (shoreSigned(v.x, v.z) < -0.15){
+          inside = true;
+          if (v.y < minY){ minY = v.y; at = [v.x, v.y, v.z]; }
+        }
       }
-      return false;
+      return { inside, minY: inside ? minY : null, at };
     }
     /* 第二道复核：在池内取 9 个采样点、从上方垂直下打射线，命中 ⇒ 它确实**占住池内空间**
        （环形物件的 hole 会让射线穿过；"横跨池面但顶点全在岸外"的大板会被这道抓住）。
@@ -162,13 +196,20 @@ const REQUIRED_BY_COLOR = [
       seen.add(o.uuid);
       const c = box.getCenter(new T.Vector3());
       const size = box.getSize(new T.Vector3());
+      const pv = pondVertexStats(o);
       const rec = {
         name: o.name || '(无名)', color: colorOf(o),
         verts: o.geometry && o.geometry.attributes.position ? o.geometry.attributes.position.count : 0,
+        /* depth = 全对象 bbox 换算的水深；depthInPond = **只在那批落进池内的顶点**里换算的
+           水深。对全园并网的大网两者会差很远（旱地地形可低至 ≈−1.02m 而水面 Y=0.06），
+           所以"池内下探"必须看 depthInPond —— 见 mergedStatic 豁免那条注释。 */
         depth: +(WATER_Y - box.min.y).toFixed(2),
+        depthInPond: pv.minY === null ? null : +(WATER_Y - pv.minY).toFixed(2),
+        deepestInPond: pv.at ? pv.at.map(v => +v.toFixed(2)) : null,
         span: +Math.max(size.x, size.z).toFixed(1),
-        inPond: shoreSigned(c.x, c.z) < 0 && (hasVertexInsidePond(o) || occupiesPond(o)),
+        inPond: shoreSigned(c.x, c.z) < 0 && (pv.inside || occupiesPond(o)),
         inst: !!o.isInstancedMesh,
+        shaderPlaced: allInstancesIdentity(o) && !!(o.material && o.material.isShaderMaterial),
         tagged: (o.layers.mask & MASK) !== 0,
       };
       if (rec.tagged) inLayer.push(rec);
@@ -196,14 +237,40 @@ const REQUIRED_BY_COLOR = [
   /* ── 判据 ② 反向扫描 + 白名单 ── */
   /* 每条豁免都必须写**理由**，且理由要窄到能被反驳 —— 不允许"因为它在白名单里"。 */
   const whitelistReason = (r) => {
+    /* ⚠️ 2026-10-12 新增，**放最前**：**顶点着色器摆位**的 billboard/粒子一族。
+       fireworks / censerSmoke 与本文件里的活雾团 fogBank 同属这族（都出自 06b-atmos / 12b-sky）：
+       InstancedMesh + 基础片元 PlaneGeometry(1,1) + 实例矩阵**全为单位阵** + ShaderMaterial，
+       位置在顶点着色器里算。Box3.setFromObject 走 vendor.js expandByObject 的
+       `e.boundingBox` 分支 ⇒ InstancedMesh.computeBoundingBox() 在单位阵下退化成
+       **基础片元**的包围盒（1×1 平面落在世界原点）⇒ 量到的 depth/span 与它在哪毫无关系。
+       实测两个互不相干的系统都报 0.56m @跨1m —— 正是同一个 1×1 平面；连下面 fogBank 那条
+       「≤0.6m」的牙，当年也是被这个 0.56 的假数命中的（fogBank 同为 1×1 单位阵构造）。
+       ⚠️ 牙：只认「全为单位阵 + ShaderMaterial」。一旦有人改成 CPU 摆实例（出现非单位阵），
+          本豁免**自动失效**、按真 bbox 判 —— 那时 depth/span 才有意义，也才轮得到下面
+          那几条按深度分档的豁免。豁免时把实测 depth/span 留在理由里对表。 */
+    if (r.shaderPlaced)
+      return '着色器摆位 billboard：实例矩阵全为单位阵、位置在顶点着色器里算 ⇒ Box3 给的是'
+           + '**基础片元**的包围盒（实测 ' + r.depth + 'm @跨' + r.span + 'm 与它在哪无关；'
+           + '产品注释已声明「CPU 侧包围球是错的」）—— 若哪天改成 CPU 摆实例（非单位阵）本豁免自动失效';
     if (r.span > 100) return `跨度 ${r.span}m 的整景大网（天空球/远山/地形基底），不是池内物`;
     if (r.name === 'ground') return '地形网格：池底那一段被 pondBed 盖住，进层会挡住池底';
     if (r.name === 'mistField') return '低空云雾 billboard：浮在水面之上的雾，不是水下物';
     if (r.name && r.name.startsWith('fogBank') && r.depth <= 0.6)
       return `活雾团 billboard（${r.name}）：浮在水面之上的雾团，片心 y≥2.0、下探仅 ${r.depth}m；` +
              '与 mistField 同类（2026-09-28 活雾批次新增，老黄"半遮半掩"）—— 若哪天它真扎进水里（下探>0.6m）此豁免自动失效';
-    if (r.name === 'mergedStatic' && r.depth <= 0.25)
-      return `静态合并大网：几何已按材质并网、无法单独拆层，且水下仅 ${r.depth}m（桥头踏跺 / 睡莲浮叶这一档）`;
+    /* ⚠️ 2026-10-12 修「口径错配」：原判据用 r.depth（= **全对象** bbox 最小 y 换算的水深），
+       而 mergedStatic 是**全园按材质并网**的大网（实测 span 46.4m）⇒ 它的 bbox 最小 y 由园内
+       任意一根木件决定；而 groundHeight() 让**旱地地形低到 ≈ −1.02m**（src/05-water.js:60-69：
+       h − 0.34 − dip，h ∈ [−0.68, 0.68]），水面 Y 却只有 0.06（src/00-config.js:8 water: 0）
+       ⇒ 落在低洼旱地上的木件底面天然在 −0.28 附近，"全园最小 y"一取就是"下探 0.34m"的假象。
+       改用 **depthInPond**（只在**落进池内**的那批顶点里取最小 y）⇒ 深度与"池内"同源。
+       ⚠️ 牙没松：池内若真有深过 0.25m 的顶点，本条照样不豁免、照样红（depthInPond 为 null
+          = 采样不到任何池内顶点时也不豁免，取保守侧）。detail 会把两个深度并排打出来。 */
+    if (r.name === 'mergedStatic' && r.depthInPond !== null && r.depthInPond <= 0.25)
+      return '静态合并大网：几何已按材质并网、无法单独拆层；全园最小 y 折合深 ' + r.depth + 'm'
+           + '（含低洼旱地上的木件），**池内**最深仅 ' + r.depthInPond + 'm'
+           + (r.deepestInPond ? '，池内最深顶点 xyz ' + r.deepestInPond.join(', ') : '')
+           + '（桥头踏跺 / 睡莲浮叶这一档）';
     /* 汀步石（2026-09-22 补）：与上面"桥头踏跺"同类 —— 出水 12~20cm、水下 ≤0.25m 的
        浅浸石作。这条豁免是**量出来的**，不是猜的（probe/_steps-refract-tex.mjs）：
        把 11 块石头加进 LAYER_REFRACT 后，池底贴图确实变了（mean 7.4，基线 0.2），
@@ -220,8 +287,13 @@ const REQUIRED_BY_COLOR = [
     .filter(x => !x.why);
   check('② 反向扫描：池内越水面的几何没有"无理由缺席"的', unexcused.length === 0,
     unexcused.length
-      ? unexcused.map(x => `${x.r.name}(${x.r.color}) 下探 ${x.r.depth}m @跨${x.r.span}m`).join('、')
-      : `池内候选 ${out.untaggedInPond.length} 个全部命中白名单`);
+      ? unexcused.map(x => `${x.r.name}(${x.r.color}) 下探 ${x.r.depth}m`
+          + (x.r.depthInPond !== null ? `（池内 ${x.r.depthInPond}m）` : '')
+          + ` @跨${x.r.span}m`).join('、')
+      /* 全绿时**也**把每条豁免的实测值留下来对表（尤其两个深度并排） */
+      : `池内候选 ${out.untaggedInPond.length} 个全部命中白名单：`
+        + out.untaggedInPond.map(r => `${r.name} ${r.depth}m`
+            + (r.depthInPond !== null ? `/池内 ${r.depthInPond}m` : '')).join('、'));
   const whys = out.untaggedInPond.map(r => whitelistReason(r)).filter(Boolean);
   if (whys.length) console.log('    豁免（逐条有理由）：');
   [...new Set(whys)].forEach(w => console.log(`      · ${w}`));
@@ -241,10 +313,16 @@ const REQUIRED_BY_COLOR = [
     const r = window.__rcScan();
     G.scene.remove(m);
     const hit = r.untaggedInPond.find(x => x.name === '__refract_negctl');
-    return { flagged: !!hit, depth: hit ? hit.depth : 0, span: hit ? hit.span : 0, n: r.untaggedInPond.length };
+    return { flagged: !!hit, depth: hit ? hit.depth : 0, span: hit ? hit.span : 0,
+             depthInPond: hit && hit.depthInPond !== null ? hit.depthInPond : null,
+             n: r.untaggedInPond.length };
   });
+  /* ⚠️ 这条同时验两件事：① 逐顶点复核没把真半浸几何放过；② 新增的 depthInPond 真的在算
+     （池心平面全顶点都在池内 ⇒ 它应≈0.50，与 depth 同值）。 */
   check('② 负例自检：注入"池心水面下 0.5m 的无名白网格"必须被报出来（复核没失牙）',
-    neg.flagged, neg.flagged ? `报出 下探 ${neg.depth}m @跨${neg.span}m` : '没有被报出 ⇒ 逐顶点复核把真缺陷也放过了');
+    neg.flagged,
+    neg.flagged ? `报出 下探 ${neg.depth}m（池内 ${neg.depthInPond}m） @跨${neg.span}m`
+                : '没有被报出 ⇒ 逐顶点复核把真缺陷也放过了');
 
   /* ── 判据 ③ 白名单没吞掉一切 ── */
   check('③ 在层对象数 ≥ 20（白名单没把扫描吞干净）', out.inLayer.length >= 20,

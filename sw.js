@@ -10,8 +10,15 @@
        本项目零 CDN、本地交付，网络即本地文件，network-first 没有延迟代价；换来"改了即所见"。
      · 大件（assets/*.glb / icons / docs 封面）→ **cache-first**（版本内不变，保持秒开与离线）。
      · 导航请求 → network-first，离线回退缓存的 index.html。
-   ⚠️ **改了 src/*.js、vendor.js 或 SHELL 内容后必须 bump 版本号** —— 否则已装 SW 的浏览器
-      仍走旧缓存。版本号升级即整体换缓存，旧缓存 activate 时整体删除。 */
+   ⚠️ **只有 cache-first 的成员需要 bump**（2026-10-12 收窄措辞 —— 原话"或 SHELL 内容"说得过宽）：
+      · **要 bump**：SHELL 里 **cache-first 的成员**（资产那类，当前是 `docs/cover.jpg`、`icons/garden.svg`）
+        → 升 `CACHE`；`GLBS` 里的模型 → 升 `ASSET_CACHE` 后缀（两条纪律，见下方两个桶的注释）。
+      · **不用 bump**：**代码类**（`index.html` / `src/*.js` / `vendor.js` / `manifest.webmanifest`）
+        —— 它们走上面那条 network-first、改了即所见；`probe/check.mjs:62` 的
+        `/\.(js|mjs|html|webmanifest)$/` 也把它们**显式排除**在 bump 判据之外，门禁真值就是"代码类不必 bump"。
+      ⚠️ 反过来对代码类误 bump 有代价：`src/*.js` **不在 SHELL 预缓存清单**、只由运行期写进带版本号的
+        `CACHE`，升版会把它们连桶删掉、须等下一次在线加载才补回（离线可用性短暂退化，见
+        `probe/pwa-cache.mjs` 的"在线预热"注释）。 */
 /* 2026-09-28 活雾批次 bump v4→v5：本轮改了 SHELL 成员 index.html（天气按钮）与 src/*.js
    （活雾/鱼平滑/雾团），按头部规矩升版，让已装 SW 的浏览器整体换新缓存。 */
 /* 2026-09-29 合并时段条批次 bump v5→v6：又改了 SHELL 成员 index.html（时段/时辰合并）。 */
@@ -70,6 +77,11 @@
 /* 2026-10-07 梅花"看得见"批次 bump v24→v25：改了 src/*.js（01-materials 的两份花瓣材质、
    01b-textures 的梅瓣贴图、06-vegetation 的梅花几何）—— 按头部规矩"改了 src/*.js 也要升版"，
    否则已装 SW 的浏览器会继续用旧缓存里的花瓣（老黄看到的就是"还是看不出花"）。 */
+/* ⚠️ 溯源注（2026-10-12）：本行引用的「按头部规矩『改了 src/*.js 也要升版』」**已收窄** ——
+   现行口径是「只有 cache-first 的成员需要 bump」（见文件头 :13 与 probe/check.mjs:62 对
+   /\.(js|mjs|html|webmanifest)$/ 的排除）。本行那次升版按**当时的**规矩执行，记录保留、不改写历史；
+   补记一句后果：对代码类升版并无收益（它们本就 network-first），且会连桶清掉运行期缓存的
+   src/*.js，须等下一次在线加载才补回。 */
 /* 2026-10-08 烟花「2027」加长 + 打散批次 bump v26→v27：改了 src/12b-sky.js ——
    老黄："燃放过程和持续时间再长一些"＋"也不用做得这么工整，能够识别出是 2027 就可以了，
    毕竟是烟花，不是无人机"。收拢 0.55→1.25s（每颗火星再各自错峰 ≤0.45s）、存活 1.5→2.4 倍、
@@ -161,9 +173,19 @@ self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
       .then((keys) => Promise.all(
-        /* ⚠️ 只删"旧版本的应用壳"。资产桶（suzhou-garden-assets）**不在这个前缀里**
-           ⇒ 不会被删 ⇒ 升版不再重下模型。 */
-        keys.filter((k) => k.startsWith('suzhou-garden-v') && k !== CACHE).map((k) => caches.delete(k))
+        /* ⚠️ 两个前缀**分开**清理（2026-10-11 InfraBot 补漏）：
+           · 应用壳桶 `suzhou-garden-vN`      → 只留当前 CACHE，旧壳全删（升版 = 换壳）；
+           · 资产桶   `suzhou-garden-assets-vN` → 只留当前 ASSET_CACHE。
+           ① 为什么**不**删资产桶本身：它名字里**不含应用版本号**，所以改代码升 CACHE 时
+              它压根不落进任何被删前缀 ⇒ 用户不必为一行代码重下 3.5 MB（老黄 2026-10-11 的诉求）。
+           ② 为什么**要**删被取代的旧资产桶：ASSET_CACHE 自己带后缀，改了模型就必须 +1
+              （check.mjs 盯着这件事），而旧桶**再也不会被任何请求命中**，却因为前缀对不上
+              `suzhou-garden-v` 而**永远不会被删** —— 每改一次模型就永久泄一份 3.5 MB。
+              这里补上回收，语义不变：升应用版本不动资产，升资产版本只回收被取代的那一桶。 */
+        keys.filter((k) =>
+          (k.startsWith('suzhou-garden-v') && k !== CACHE)
+          || (k.startsWith('suzhou-garden-assets-v') && k !== ASSET_CACHE)
+        ).map((k) => caches.delete(k))
       ))
       .then(() => self.clients.claim())
   );

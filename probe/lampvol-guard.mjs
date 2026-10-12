@@ -19,14 +19,33 @@
 //         冻风后噪声 0.27（降 18.6×）⇒ 差分才能归因给光团；
 //      c) **还原判据要比 luma，不能比像素**：光团 shader 自带湍流花纹（uTime 驱动），
 //         开灯状态下两张图天然对不上（实测 1.24），比像素必假红。
+// ── 2026-10-12 局部性判据换度量（第 ⑤ 件事之外）────────────────────────────
+//   旧量 mean|Δ| 量的是像素级抖动而不是"抬亮"（实测 87% 是 uTime 湍流细结构），两次跑差
+//   123%（9.729/4.355）⇒ 不可复现。现改为**有向亮度位移**：liftNear(r≤BR) vs
+//   liftFar(r>1.25×BR)，判据 `liftFar ≤ liftNear/5`（阈值 5× 未动），并自带两条：
+//     · 门内可复现性自证（同状态两半各取中位，|Δlift| ≤ 25%×liftNear）；
+//     · 放大 vol.scale 的**可驱动负例**（硬前提 —— 没有它，新度量只是"没人验过有牙"）。
+//   · 砍掉的候选（留档，勿悄悄加回）：`liftFar ≤ 3σ_far` 那颗第二牙 —— 同轮纪律是
+//     「每加一条判据就多一个可能不可证伪的红」；一颗牙、但每次跑都自证有牙。
+//   · 待办（本轮未动、不夹带）：阳性对照的取样框落在**灯体不透明部分**上（58px 窗量到
+//     1.23 luma，而光团投影内整体 5.81）—— 改它要重标定阳性对照的阈值。
 // usage: node probe/lampvol-guard.mjs
+//   ⚠️ 门控口径（2026-10-12 写死，防"以为跑了其实静默跳过"）：
+//      本门的**全部判据无条件执行**，不受任何环境变量门控 —— 每次单跑都全跑。
+//      下面三处 env 只门控**默认关闭的诊断输出**，都不参与任何 check()：
+//        · LAMPVOL_AB=1          —— A/B 双对照（bloom.strength ×4 / PointLight.distance→200），只打印；
+//        · LAMPVOL_NEG_INJECT=1  —— "注入层出像素"自检（两帧都挂、差分抵消，故意默认关），只打印；
+//        · LAMPVOL_NO_ISOLATE=1  —— 逃生阀：跳过烟花/风场隔离（默认是**执行**隔离 ⇒ 默认关＝更严）。
+//      启动时会打印这三个开关的实际状态（"诊断开关"那一行）。
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { launchChromium, listenEphemeral } from './_harness.mjs';
-import { decodePNG, meanAbsDiff, meanLuma } from './_png.mjs';
+/* ⚠️ meanAbsDiff 已在本文件退场（2026-10-12 局部性判据换度量后无人再用）—— 顺手摘掉，
+   免得下一个人以为还有谁在用它。meanLuma 是更早留下的未用项，不属本轮，未动。 */
+import { decodePNG, meanLuma } from './_png.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'outputs', 'visual');
@@ -49,6 +68,13 @@ const server = http.createServer((req, res) => {
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const results = [];
 const check = (label, ok, extra) => { results.push({ label, ok }); console.log(`${ok ? '✓' : '✗'} ${label}${extra ? ' — ' + extra : ''}`); };
+
+/* 门控自证（2026-10-12）：不设变量 ≠ 静默跳过判据。全部 check() 无条件执行，
+   下面三处 env 只影响诊断输出；启动即打印实际开关，日志里一眼可核。 */
+console.log('· 诊断开关：LAMPVOL_AB=' + (process.env.LAMPVOL_AB === '1' ? '开' : '关')
+  + ' · LAMPVOL_NEG_INJECT=' + (process.env.LAMPVOL_NEG_INJECT === '1' ? '开' : '关')
+  + ' · LAMPVOL_NO_ISOLATE=' + (process.env.LAMPVOL_NO_ISOLATE === '1' ? '开(跳过隔离)' : '关(执行隔离)')
+  + ' —— 判据条数不受影响，只少/多诊断读数。');
 
 const LANTERNS = 5;   // 与 12-env.js 的 lanternSpots 条数成对出现（堂前 2 + 游廊 3）
 const W = 1280, H = 720;
@@ -76,6 +102,32 @@ function boxDiff(a, b, cx, cy, r) {
     s += (Math.abs(a.data[i] - b.data[i]) + Math.abs(a.data[i + 1] - b.data[i + 1]) + Math.abs(a.data[i + 2] - b.data[i + 2])) / 3; n++;
   }
   return n ? s / n : 0;
+}
+/* ── 有向亮度位移（ON − OFF 的 luma 均值）────────────────────────────────────
+   ⚠️ 为什么不能用 mean|Δ|（旧版局部性判据的签名量）：实测同一核窗里
+   |有向 lift| = 1.233 而 mean|Δ| = 9.457 ⇒ **87% 的绝对差是光团自身 uTime 湍流细结构
+   在像素间跳**，只有 13% 是真正的抬亮。湍流在均值上下对称地加亮/加暗 ⇒ 有向和把它相消，
+   绝对和把它全留下 —— 这就是旧量两次跑差 123%（9.729/4.355）而同门 dLoc 只差 2%
+   （1.359/1.384）的全部原因。判据问的是"整幅有没有被均匀抬亮"，那是个**有符号**量。 */
+function signedLift(a, b, cx, cy, r0, r1) {
+  const { w, h, bpp } = a;
+  const r0q = r0 * r0, r1q = r1 === Infinity ? Infinity : r1 * r1;
+  let s = 0, n = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const dx = x - cx, dy = y - cy, d2 = dx * dx + dy * dy;
+    if (d2 < r0q || d2 >= r1q) continue;
+    const i = (y * w + x) * bpp;
+    s += (0.2126 * a.data[i] + 0.7152 * a.data[i + 1] + 0.0722 * a.data[i + 2])
+       - (0.2126 * b.data[i] + 0.7152 * b.data[i + 1] + 0.0722 * b.data[i + 2]);
+    n++;
+  }
+  return { lift: n ? s / n : 0, n };
+}
+/* 圆盘内像素数（算"光团占画面多少"用；带画面裁剪） */
+function discPixels(w, h, cx, cy, r) {
+  let n = 0;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const dx = x - cx, dy = y - cy; if (dx * dx + dy * dy <= r * r) n++; }
+  return n;
 }
 const CELL = 80;   // 差分热点用 80×80px 栅格定位
 
@@ -210,9 +262,28 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   check('正午：光团 uLamp = 0（白天等效空 mesh，不白烧）', noon.uLamp === 0, `uLamp=${noon.uLamp}`);
   check('正午：地面光斑 uLamp 同样归零', noon.splashLamp === 0, `splashLamp=${noon.splashLamp}`);
 
-  await setEnv('night', 'winter', 'storm'); await settled(); await sleep(900);
+  /* ⚠️⚠️ 2026-10-12：**季节必须选允许 storm 的那个**。旧版写 winter —— 而自 942dbbe
+     （2026-10-06「冬季禁用狂风暴雨」）起，`12a-presets.js:178` 的 WEATHER_RULES 会拒绝
+     「冬 + 狂风暴雨」，并由 `enforceWeather()` 在 setEnv 里**兜底降级回风和日丽**
+     （UI 置灰只是提示，键盘/控制台/外部脚本都能绕过按钮 ⇒ 强制点在 setEnv）。
+     后果：rainAmount=0 ⇒ `12-env.js:303` 写的 uRain 恒为 0 ⇒ 这条判据从此**恒定红**
+     （实跑日志：`✗ 雨夜：uRain > 0 … — uRain=0`）。
+     ⚠️ 不用 blizzard（银装素裹）替代：那测的是雪散射，与判据名 uRain 不符。
+     ⚠️ 换个季节还不够 —— 必须**先断言前提真的成立**，否则以后再加季节互斥会重演同样的含糊红。 */
+  await setEnv('night', 'summer', 'storm'); await settled(); await sleep(900);
+  const rainPre = await page.evaluate(() => {
+    const g = window.__garden;
+    return { weather: g.ENV.weather, season: g.ENV.season, eff: g.effectiveWeather(),
+             allowed: g.weatherAllowed('storm'), why: g.weatherMutexReason('storm', g.ENV.season),
+             rain: g.ENV.cur.rainAmount };
+  });
+  check('前提[雨夜]：storm 在当季合法且真的落到画面上（否则 uRain 判据在错误前提下跑）',
+    rainPre.allowed === true && rainPre.weather === 'storm' && rainPre.eff === 'storm',
+    `季节=${rainPre.season} weather=${rainPre.weather} eff=${rainPre.eff} allowed=${rainPre.allowed}` +
+    ` · 互斥原因="${rainPre.why || '无（组合合法）'}"`);
   const rain = await st();
-  check('雨夜：uRain > 0（空气颗粒多 → 丁达尔光团更显形）', rain.uRain > 0, `uRain=${rain.uRain}`);
+  check('雨夜：uRain > 0（空气颗粒多 → 丁达尔光团更显形）', rain.uRain > 0,
+    `uRain=${rain.uRain}（rainAmount=${rainPre.rain}）`);
   check('雨夜：地面光斑 uRain 与光团同步', Math.abs(rain.splashRain - rain.uRain) < 1e-6,
     `光团=${rain.uRain} 光斑=${rain.splashRain}`);
 
@@ -235,8 +306,55 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   check('镜头距离 = 设计最小距离（camMinDist 与 OrbitControls 一致，无静默夹取）',
     Math.abs(view.dist - view.minDist) < 0.05 && view.ctrlMin === view.minDist,
     `实际 ${view.dist}m · camMinDist=${view.minDist} · controls.minDistance=${view.ctrlMin}`);
-  const rWin = Math.round(view.pxPerM * S.volR.max * 1.4);
-  console.log(`  · 取景：光团球心投影 (${view.sx},${view.sy})，${view.pxPerM}px/m ⇒ 采样框 r=${rWin}px`);
+  /* ⚠️⚠️ 2026-10-12：**取样框必须钳成"真的局部"**。
+     旧版 `rWin = pxPerM × volR.max × 1.4` —— pxPerM 与相机距离**成反比**，而这条式子
+     **没有上限**。取景用的距离是 `camMinDist()`，它已由 9m 改成 **1.6m**
+     （`02-scene.js:122`，提交 d2d10ae"相机可达性：最近距离 9m→1.6m"）⇒ 实测
+     pxPerM 530.1、**rWin = 497px** —— 1280×720 下这个"局部窗"覆盖 **77.6% 画面**，
+     于是「局部窗信号 ≥5× 全幅均值」必然塌成 1.3×（日志原文：
+     `· 取景：光团球心投影 (640,381)，530.1px/m ⇒ 采样框 r=497px` /
+     `✗ 局部 3.819 vs 全幅 2.980（1.3×）`）。产品侧无缺陷 —— 同次运行阳性对照
+     （>3σ）与热点格都绿，光团真的在贡献像素。
+     ⇒ 钳到 `min(W,H) × 8%`（720×8% ≈ 57px，覆盖 ≈1.4% 画面）。
+     ⚠️ **不改产品常量**（那是把判据架在产品上，正是这次的病根）：改门禁。 */
+  const RWIN_MAX_FRAC = 0.08;
+  const rWinRaw = Math.round(view.pxPerM * S.volR.max * 1.4);
+  const rWinCap = Math.round(Math.min(W, H) * RWIN_MAX_FRAC);
+  const rWin = Math.min(rWinRaw, rWinCap);
+  const rWinFrac = (2 * rWin + 1) * (2 * rWin + 1) / (W * H) * 100;
+  console.log(`  · 取景：光团球心投影 (${view.sx},${view.sy})，${view.pxPerM}px/m ⇒ 采样框 r=${rWin}px（未钳 ${rWinRaw}px，上限 ${rWinCap}px；覆盖 ${rWinFrac.toFixed(1)}% 画面）`);
+  /* 前提断言（铁律 3）：窗必须真的是"局部" —— 这次它静默通过，根因就是没人守这条。
+     有了它，以后任何"距离/常量变了把窗撑大"的情况会当场自报，而不是靠 1.3× 这种间接症状。 */
+  check('前提[取景]：采样框真的是"局部"（≤ 画面 15%）',
+    rWinFrac <= 15, `窗 r=${rWin}px ⇒ 覆盖 ${rWinFrac.toFixed(1)}% 画面（旧版 497px = 77.6%）`);
+  /* ── 局部性判据用的两个半径（2026-10-12 换度量时一并定义）──────────────────
+     BR = 光团在屏上的投影半径；两个区域都**按 BR 定位**，不写死像素数：
+       liftNear = r ≤ BR（光团自己的投影）      liftFar = r > 1.25×BR（"远处"）
+     ⚠️ 1.25×BR 的依据（门禁自存样张实测）：晕圈延伸到 ≈1.13×BR —— 355~400px 段仍有
+        4.54 luma，400~450 骤降到 0.214，450px 之后 ≈0。 */
+  const BR = view.pxPerM * S.volR.max;
+  /* 远区半径：**环带**，不是无界圆外（2026-10-12 改）。
+     ⚠️ 为什么：`liftFar = r > FAR_R` 在 BR 被放大后会变成"整片画面外" ⇒ 采样集为空，
+        而 `signedLift` 在 n=0 时**静默返回 0** ⇒ `0 <= liftNear/5` 恒成立 ⇒ 判据静默变绿
+        （即加壳要堵的失效方式 3）。加上界后该区域永远非空，语义仍是"光团之外"。
+     ⚠️ 1.25×BR 的依据（门禁自存样张实测）：晕圈延伸到 ≈1.13×BR —— 355~400px 段仍有
+        4.54 luma，400~450 骤降到 0.214，450px 之后 ≈0。
+     ⚠️ 上界 1.75×BR 只影响统计口径、不放松判据：k=1 时环带 [444,621]px 有 282026 像素
+        （30.6% 画面），仍覆盖画面四边与四角（实测四角到球心 723~745px）。 */
+  const FAR_R = 1.25 * BR;          // 环带内径（晕圈之外）
+  const FAR_R2 = 1.75 * BR;         // 环带外径（上界：防 BR 变大后环带整体逸出画面）
+  /* 前提[取景]（防呆，2026-10-12 补）：判据的"局部 vs 远处"要成立，必须留下足够的"远处"。
+     ⚠️ 门槛用**面积占比 0.60** —— 立这条时引用的正是"光团占画面 42.7%"这个面积数；
+        直径口径的现值也一并打印供核对（按高 0.99 / 按宽 0.55）。 */
+  const blobAreaFrac = discPixels(W, H, view.sx, view.sy, BR) / (W * H);
+  /* ⚠️ 环带口径（2026-10-12 改）：原来是 discPixels(FAR_R2)/面积 —— 它只能抓"disc 太小"，
+     抓不到反方向：FAR_R2 罩住整个画框时该值读到 **100%** 而"远处环带"其实已被推出画面
+     （实测：d=8 构造下 BR=568px、FAR_R2=994px > 画框角 734px ⇒ 环带只剩四角 ≈0.3% 画面，
+     而旧口径读到 100%）。判据语义要的是**环带**，故按环带面积算。 */
+  const farAreaFrac = (discPixels(W, H, view.sx, view.sy, FAR_R2) - discPixels(W, H, view.sx, view.sy, FAR_R)) / (W * H);
+  check('前提[取景]：光团投影面积 ≤ 60% 画面、"远处"还剩 ≥5%（否则本判据静默退化）',
+    blobAreaFrac <= 0.60 && farAreaFrac >= 0.05,
+    `光团占画面 ${(blobAreaFrac * 100).toFixed(1)}%（上限 60%）· 远处环带占 ${(farAreaFrac * 100).toFixed(1)}%（下限 5%）· BR=${BR.toFixed(0)}px（直径/高 ${(2 * BR / H).toFixed(2)}、/宽 ${(2 * BR / W).toFixed(2)}）`);
   await sleep(900);
 
   /* ── ④ 阳性对照：只改光团 uLamp ── */
@@ -339,15 +457,293 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   const dPairs = lumaOn.map((v, i) => v - lumaOff[i]);
   const dLoc = med(dPairs);
   const sigma = 1.4826 * med(dPairs.map(v => Math.abs(v - dLoc)));
-  const sigLoc = boxDiff(ON[0], OFF[0], box.x, box.y, box.r);     // 信号（局部像素）
-  const sigAll = meanAbsDiff(ON[0], OFF[0]);                      // 信号（全幅像素）
+  /* ⚠️ 这里原来还有 sigLoc / sigAll（均取**单对** ON[0]/OFF[0] 的 mean|Δ|）——
+     2026-10-12 连同那条局部性判据一起废弃，理由见下方新判据的注释。 */
   check('阳性对照：夜下把光团 uLamp 归零，灯周那块确实变暗（光团在贡献像素）',
     dLoc > 0.5 && dLoc > sigma * 3,
     `局部 luma ${med(lumaOn).toFixed(2)} → ${med(lumaOff).toFixed(2)}（差 ${dLoc.toFixed(3)}；同状态稳健 σ≈${sigma.toFixed(3)} ⇒ ${(dLoc / (sigma || 1e-6)).toFixed(1)}σ）`);
   console.log(`  · 逐样本局部 luma：开 [${lumaOn.map(v => v.toFixed(2)).join(', ')}] / 关 [${lumaOff.map(v => v.toFixed(2)).join(', ')}]`);
   console.log(`  · 逐对差（配对差分）：[${dPairs.map(v => v.toFixed(2)).join(', ')}]（中位 ${dLoc.toFixed(3)}，MAD σ ${sigma.toFixed(3)}）`);
-  check('光团是**局部**现象，不是全屏加了一层（局部窗信号 ≥5× 全幅均值）',
-    sigLoc > sigAll * 5, `局部 ${sigLoc.toFixed(3)} vs 全幅 ${sigAll.toFixed(3)}（${(sigLoc / (sigAll || 1e-6)).toFixed(1)}×）`);
+  /* ── 局部性判据（2026-10-12 换度量：改"量什么"，不动"要多严"）──────────────
+     旧量 = mean|Δ|（单对、全幅均值当分母）：① 量的是像素级抖动，不是"抬亮"——实测核窗里
+     87% 是 uTime 湍流细结构；② 分母含光团自己（1.6m 下占画面 42.7%）⇒ 结构上到不了 5×。
+     新量 = **有向亮度位移**（见文件顶 signedLift 的说明），两个区域按 BR 定位：
+       liftNear = r ≤ BR（光团自己的投影）      liftFar = r > 1.25×BR（"远处"）
+     判据写成 `liftFar ≤ liftNear / 5`（**不做除法**：远处 lift 本底≈0，比值会数值爆掉）。
+     ⚠️ 阈值 5× 一个字没改 —— 改的是"量什么"，不是"要多严"。
+     旧口径实测（本次红）：近 9.457 / 全幅 3.386 = 2.79×。 */
+  const liftNearPairs = ON.map((im, i) => signedLift(im, OFF[i], view.sx, view.sy, 0, BR).lift);
+  const liftFarPairs = ON.map((im, i) => signedLift(im, OFF[i], view.sx, view.sy, FAR_R, FAR_R2).lift);
+  /* 两个采样区的落屏像素数（由第 0 对的尺寸定；12 对同尺寸）。
+     ⚠️ 必须在这里算：`liftNearN` 与 `signedLift` 用的是**同一个** `0..BR` 采样，
+        所以它同时是"近区确实取到像素"与"光团投影真的覆盖了近区"的凭据。 */
+  const liftDim = { w: ON[0].w, h: ON[0].h };
+  const nearN = discPixels(liftDim.w, liftDim.h, view.sx, view.sy, BR);
+  const farN = discPixels(liftDim.w, liftDim.h, view.sx, view.sy, FAR_R2)
+             - discPixels(liftDim.w, liftDim.h, view.sx, view.sy, FAR_R);
+  const liftNearN = liftNearPairs.length;
+  const liftNear = med(liftNearPairs);
+  const liftFar = med(liftFarPairs);
+  /* 前提：两个采样区都必须非空。
+     ⚠️ 这一条才是"失效方式 3"的正解：`signedLift` 在 n=0 时返回 0，`0 <= x/5` 恒成立，
+        采样区一空判据就**静默恒绿**。环带上界（1.75×BR）只把"外扩出画面"这条路径封住，
+        而"是否真的非空"必须**每次运行现场断言**，不能靠推导。 */
+  check('前提[采样区]：近区与远区环带都非空、远区占比 ≥20%、且环带内径不越出画框角 95%（否则判据静默变绿 —— 失效方式 3）',
+    nearN > 0 && farN > 0 && liftNearN > 0
+      && farN >= (W * H) * 0.20                                  // 远区面积占比下限（Chief 2026-10-12 定 20%）
+      && FAR_R <= 0.95 * Math.hypot(W / 2, H / 2),               // 环带内径不得越过画框角点（越过即采样区退化）
+    `近区 n=${nearN} / 画面 ${(nearN / (W * H) * 100).toFixed(1)}%（r≤${BR.toFixed(0)}px）· 远环带 n=${farN} / 画面 ${(farN / (W * H) * 100).toFixed(1)}%（${FAR_R.toFixed(0)}..${FAR_R2.toFixed(0)}px，下限 20%）· 环带内径 ${FAR_R.toFixed(0)}px vs 画框角 95% = ${(0.95 * Math.hypot(W / 2, H / 2)).toFixed(0)}px`);
+  check('光团是**局部**现象，不是全屏加了一层（远处的有向抬亮 ≤ 近处的 1/5）',
+    liftFar <= liftNear / 5,
+    `liftNear=${liftNear.toFixed(3)}（r≤${BR.toFixed(0)}px，n=${nearN}）· liftFar=${liftFar.toFixed(4)}（${FAR_R.toFixed(0)}<r≤${FAR_R2.toFixed(0)}px，n=${farN}）· 近/远 ${(liftNear / Math.max(Math.abs(liftFar), 1e-6)).toFixed(0)}×（须 ≥5）· 原始比较 liftFar×5=${(liftFar * 5).toFixed(4)} vs liftNear=${liftNear.toFixed(4)}（负值会显示假裕量，故并列原始比较）· 有向 luma 均值、12 对中位`);
+  /* ── 【临时·A/B 双对照 2026-10-12】只打印，默认关闭（LAMPVOL_AB=1 时跑）─────────
+     Chief 批的两条"真产品开关"：A = bloom.strength ×4（10-post.js:194）；
+     B = 灯笼点光 distance → 200（12d-lantern.js:310 等）。各测「远区是否被抬亮 + 判据是否红」。
+     ⚠️ 先验判断：这两者都**在两帧里都存在**（ON/OFF 只切 uLamp），所以它们的贡献在差分里
+        很可能被抵消 —— 与"注入层两帧都挂"那次的失败同因。这一跑就是为了让实测说话。 */
+  if (process.env.LAMPVOL_AB === "1") {
+    const abState = await page.evaluate(() => {
+      const g = window.__garden, lights = [];
+      g.scene.traverse(o => { if (o.isLight && o.distance > 0) lights.push(o); });
+      window.__abLights = lights;
+      const bloom = (g.composer && g.composer.passes || []).find(p => p.strength !== undefined && p.radius !== undefined && p.threshold !== undefined);
+      window.__abBloom = bloom || null;
+      return { lights: lights.length, dists: lights.map(l => l.distance), bloom: bloom ? bloom.strength : null };
+    });
+    console.log("\n[临时 A/B] 找到带 distance 的灯 " + abState.lights + " 盏（" + abState.dists.join("/") + "）· bloom.strength=" + abState.bloom);
+    const measure = async (tag) => {
+      await sleep(500);
+      const on = decodePNG(await shotOn()), off = decodePNG(await shotOff());
+      const n = signedLift(on, off, view.sx, view.sy, 0, BR).lift;
+      const f = signedLift(on, off, view.sx, view.sy, FAR_R, FAR_R2).lift;
+      console.log("   " + tag + "：liftNear=" + n.toFixed(4) + " · liftFar=" + f.toFixed(4) + " · 判据 " + (f <= n / 5 ? "绿" : "**红**") + "（far/near=" + (f / Math.max(Math.abs(n), 1e-6)).toFixed(3) + "）");
+      return { n: n, f: f };
+    };
+    const base = await measure("基线");
+    await page.evaluate(() => { window.__abLights.forEach(l => { l.userData.abDist = l.distance; l.distance = 200; }); });
+    const bRes = await measure("B: 灯 distance→200");
+    await page.evaluate(() => { window.__abLights.forEach(l => { l.distance = l.userData.abDist; }); });
+    const bBack = await measure("B 还原后");
+    const bloomBase = await page.evaluate(() => { const b = window.__abBloom; if (!b) return null; const s = b.strength; b.strength = s * 4; return s; });
+    const aRes = bloomBase === null ? { n: NaN, f: NaN } : await measure("A: bloom.strength ×4（" + bloomBase + "→" + (bloomBase * 4) + "）");
+    await page.evaluate((s) => { if (window.__abBloom) window.__abBloom.strength = s; }, bloomBase);
+    const aBack = await measure("A 还原后");
+    console.log("   ⇒ A 效果：ΔliftFar=" + (aRes.f - base.f).toFixed(4) + " · B 效果：ΔliftFar=" + (bRes.f - base.f).toFixed(4)
+      + " · 还原校验 A=" + (Math.abs(aBack.f - base.f) < 0.01 ? "✓" : "✗") + " B=" + (Math.abs(bBack.f - base.f) < 0.01 ? "✓" : "✗"));
+    await page.evaluate(() => { delete window.__abLights; delete window.__abBloom; });
+  }
+  /* ── 保留"已证明有效的一半"（2026-10-12）：vol.scale 是探针可拨的**静态量** ──────────
+     为什么留：它曾在旧负例里当构造量（放大光团模拟全屏叠加）。那个用法已由实跑排除
+     （见下面负例块注释：d=1.6 造不出、且 A 是比值中立旋钮），但**这条控制能力本身是真的**：
+     `vol.scale` 只在构造期写一次（src/12d-lantern.js:325），`tickLampVol`(:349) 每帧只写 uTime、
+     `setLampVol`(:389) 只写 uLamp ⇒ 探针拨它之后不会被渲染循环回写。留一条轻断言把它钉住，
+     免得以后有人以为"探针拨不动场景量"。本条**不拍图**（只回读数值），不影响任何像素读数。 */
+  {
+    const vsBase = await page.evaluate(() => {
+      const g = window.__garden; window.__vsMeshes = [];
+      g.scene.traverse(o => { if (o.name === "lampVol") window.__vsMeshes.push(o); });
+      return window.__vsMeshes.map(o => o.scale.x);
+    });
+    const vsAfter = await page.evaluate(async () => {
+      const m = window.__vsMeshes;
+      m.forEach(o => o.scale.setScalar(o.scale.x * 1.5));
+      await new Promise(r => setTimeout(r, 700));           // 等渲染循环翻多帧，看会不会被回写
+      return m.map(o => +o.scale.x.toFixed(4));
+    });
+    check("已证明有效的一半：vol.scale 拨得动、且不被渲染循环回写（连读多帧后仍是拨后的值）",
+      vsBase.length === LANTERNS && vsAfter.every((v, i) => Math.abs(v - vsBase[i] * 1.5) < 1e-3),
+      "找到 " + vsBase.length + " 个光团（应为 " + LANTERNS + "）· 拨后 700ms 回读 " + vsAfter.map((v, i) => v + "(原 " + vsBase[i] + ")").join(" / "));
+    const vsRestored = await page.evaluate((base) => {
+      const m = window.__vsMeshes;
+      m.forEach((o, i) => o.scale.setScalar(base[i]));
+      delete window.__vsMeshes;
+      return m.map(o => +o.scale.x.toFixed(4));
+    }, vsBase);
+    check("还原自检：vol.scale 已还原到拨前值（读数不受本条影响）",
+      // 相对容差 1e-3×拨前值（Chief 2026-10-12 批）：实测尾差 5e-5（0.66975→0.6698，toFixed(4) 取整）
+      // 远在容差内（余量 ~13×）；而该条要抓的失败模式是"没还原"（残留 1.5× ⇒ 偏差 0.29，余量 ~300×）。
+      // ⚠️ 不要再收紧到 1e-4×拨前值（=6.7e-5）——那对观测尾差只剩 1.3× 余量，等于造一个近乎恒红的门。
+      vsRestored.every((v, i) => Math.abs(v - vsBase[i]) < 1e-3 * vsBase[i]),
+      "还原后 " + vsRestored.join(" / ") + "（拨前 " + vsBase.join(" / ") + "）");
+  }
+  /* ── 负例自检（2026-10-12 第七版·注入全屏加法层，**与灯态耦合**）：判据必须红 ──────
+     为什么注入层必须**只出现在 ON 帧**（这是这一版与前一次尝试的唯一差别）：
+       判据量的是 ON−OFF 差分。若注入层在 ON 与 OFF 两帧都挂着，两帧被抬亮同一量 ⇒
+       差分时**完全抵消**（实测：注入层出像素 近 13.5 / 远 13.9 luma，但两区 lift 与基线
+       差 <0.05，判据照绿）。而这条判据守的缺陷是「**灯亮时**整幅被抬亮」——
+       所以注入层必须挂进"灯亮"这个状态里：shotOn 时 visible=true、shotOff 时 visible=false。
+     另两条构造留档（都不如本条通用，供后人核）：
+       · 放大光团（产品保真）在 d=1.6 造不出来（k>1.66 中央黑洞 + 相机在球内时可见球面翻到
+         灯后被 depthTest 剔掉）；退到 d=8 + k∈{8,10,11} 能红（实测六组全红，
+         badNear≈3.7~4.1 / badFar≈5.7~6.2，日志 outputs/_diag/lampvol-d8b-202610120112.log），
+         但要临时移相机、多一次状态切换，故不作为本门默认构造；
+       · 抬 uLamp 不能改比值（ON/OFF 对里只有 uLamp 变 ⇒ badNear=A·m_near、badFar=A·m_far
+         ⇒ 翻转条件 5·m_far>m_near 与 A 无关）。
+     ⚠️ 注入层是**非产品几何**，只在负例块里临时加、量完立刻移除；不参与任何其它判据读数。 */
+  {
+    const inj = await page.evaluate(() => {
+      const g = window.__garden, T = g.THREE;
+      if (!T || !T.PlaneGeometry) return { err: "THREE 未暴露" };
+      window.__injWasInScene = !!(g.camera.parent);
+      if (!window.__injWasInScene) g.scene.add(g.camera);
+      const mat = new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.0165, blending: T.AdditiveBlending, depthTest: false, depthWrite: false });
+      const mesh = new T.Mesh(new T.PlaneGeometry(1, 1), mat);
+      const cv = document.querySelector("canvas");
+      const cw = cv ? cv.width : window.innerWidth, ch = cv ? cv.height : window.innerHeight;
+      const vHalf = g.camera.fov * Math.PI / 360;
+      const hHalf = Math.atan(Math.tan(vHalf) * (cw / ch));
+      const cornerHalf = Math.atan(Math.hypot(Math.tan(vHalf), Math.tan(hHalf)));
+      const dist = 0.5 * (g.camera.near + 1.5);          // 放在 near 之外
+      const h = 2 * Math.tan(cornerHalf) * dist;         // 尺寸按**实测**画框角半视场算，不写死像素
+      mesh.scale.set(h * (cw / ch), h, 1);
+      mesh.position.set(0, 0, -dist);
+      mesh.renderOrder = 999; mesh.visible = false;
+      g.camera.add(mesh); window.__injMesh = mesh;
+      mesh.updateMatrixWorld(true);
+      return { ok: true, alpha: mat.opacity, w: +(h * (cw / ch)).toFixed(2), h: +h.toFixed(2), dist: +dist.toFixed(2),
+        cornerDeg: +(cornerHalf * 180 / Math.PI).toFixed(2), vp: window.innerWidth + "x" + window.innerHeight, canvas: cw + "x" + ch };
+    });
+    check("负例前提[注入]：全屏加法层已挂上相机、尺寸按实测画框角算、且默认不可见（不污染其它读数）",
+      !inj.err && inj.ok === true,
+      inj.err ? ("注入失败：" + inj.err) : ("alpha=" + inj.alpha + " · 平面 " + inj.w + "x" + inj.h + "m @ " + inj.dist + "m（near=0.5 之外）· 画框角半视场 " + inj.cornerDeg + "°（实测 window " + inj.vp + " · canvas " + inj.canvas + "）"));
+    await sleep(400);
+    const injOn = async () => { await page.evaluate(() => { window.__injMesh.visible = true; }); await sleep(420); return decodePNG(await page.screenshot()); };
+    const injOff = async () => { await page.evaluate(() => { window.__injMesh.visible = false; }); await sleep(420); return decodePNG(await page.screenshot()); };
+    /* null 对照：同灯态下连拍两对，得该配置的分带噪声 σ（风已冻结） */
+    await page.evaluate((v) => window.__garden.setLampVol(v), lampOn);
+    const nA = await injOn();
+    await injOff();
+    const nB = await injOn();
+    await injOff();
+    const nL1 = (a, b) => signedLift(a, b, view.sx, view.sy, 0, BR).lift;
+    const fL1 = (a, b) => signedLift(a, b, view.sx, view.sy, FAR_R, FAR_R2).lift;
+    const sigN = Math.abs(nL1(nA, nB)), sigF = Math.abs(fL1(nA, nB));
+    /* 缺陷态：注入层挂进"灯亮"这一边 */
+    const on1 = await injOn();
+    await page.evaluate(() => window.__garden.setLampVol(0));
+    const off1 = await injOff();
+    const on2 = await injOn();
+    await page.evaluate(() => window.__garden.setLampVol(0));
+    const off2 = await injOff();
+    await page.evaluate((v) => window.__garden.setLampVol(v), lampOn);
+    const nb = (nL1(on1, off1) + nL1(on2, off2)) / 2;
+    const fb = (fL1(on1, off1) + fL1(on2, off2)) / 2;
+    /* ⚠️ σ 的口径就在下一行 detail 里：σ 取自**一对**同态相邻帧（n=1）⇒ 3σ 这根横杆本身
+       是随机量，跨运行实测可差 **50×**（0.0002~0.0099）。它够用是因为**信号**（badFar≈13.9 luma）
+       远大于它，而不是因为横杆稳。要让横杆变稳：把 null 对照做成 12 对池化 MAD。 */
+    check("负例前提[可判定]：注入态两区都取到正向读数、远区抬亮过同态噪声 3σ",
+      nb > 0 && fb > 0 && fb >= 3 * sigF,
+      "badNear=" + nb.toFixed(4) + " · badFar=" + fb.toFixed(4) + " · 同态噪声 σ_near=" + sigN.toFixed(4) + " σ_far=" + sigF.toFixed(4) + "（3σ_far=" + (3 * sigF).toFixed(4) + "）");
+    check("负例自检：注入「灯亮即全幅抬亮」的加法层 ⇒ 本判据必须红（证明它有牙）",
+      !(fb <= nb / 5),
+      "badFar×5=" + (fb * 5).toFixed(4) + " vs badNear=" + nb.toFixed(4) + " ⇒ " + (fb > nb / 5 ? "红（判据失败＝正确）" : "绿（判据没抓住 ⇒ 本负例失效，须重做）"));
+    const removed = await page.evaluate(() => {
+      const g = window.__garden, m = window.__injMesh;
+      if (m) { g.camera.remove(m); m.geometry.dispose(); m.material.dispose(); }
+      if (window.__injWasInScene === false) g.scene.remove(g.camera);
+      delete window.__injWasInScene; delete window.__injMesh;
+      return !window.__injMesh;
+    });
+    await sleep(500);
+    const back = await page.evaluate(() => { const g = window.__garden; const s = g.lampVolState(); return { d: +g.camera.position.distanceTo(g.controls.target).toFixed(3), lamp: s.uLamp, meshes: g.camera.children.length }; });
+    check("负例自检：注入层已移除、uLamp 已还原、相机未被改动",
+      removed === true && back.lamp === lampOn && Math.abs(back.d - 1.6) < 0.05,
+      "移除 " + (removed ? "✓" : "✗") + " · uLamp=" + back.lamp + "（原 " + lampOn + "）· 相机 " + back.d + "m（原 1.6m）· 相机子节点 " + back.meshes);
+  }
+
+  check('前提[可判定]：近带是正向抬亮（liftNear > 0）—— 防"两个负数"制造假红',
+    liftNear > 0, `liftNear=${liftNear.toFixed(4)}（须 > 0）· liftFar=${liftFar.toFixed(4)}`);
+  /* 可复现性自证（2026-10-12 补）：同状态两半各取中位，差不得超过 25% × liftNear ——
+     判据能"可复现"才算判据：同代码同机位连着两次读数若差出量级，红绿就由噪声决定。 */
+  const nearA = med(liftNearPairs.slice(0, N / 2)), nearB = med(liftNearPairs.slice(N / 2));
+  const farA = med(liftFarPairs.slice(0, N / 2)), farB = med(liftFarPairs.slice(N / 2));
+  const reproduceLim = 0.25 * Math.abs(liftNear);
+  check('可复现性自证：同状态两次量读数一致（|Δlift| ≤ 25% × liftNear）',
+    Math.abs(nearA - nearB) <= reproduceLim && Math.abs(farA - farB) <= reproduceLim,
+    `liftNear 两半 ${nearA.toFixed(3)} / ${nearB.toFixed(3)}（Δ ${Math.abs(nearA - nearB).toFixed(3)}）· liftFar 两半 ${farA.toFixed(4)} / ${farB.toFixed(4)}（Δ ${Math.abs(farA - farB).toFixed(4)}）· 上限 ${reproduceLim.toFixed(3)}`);
+  /* 前提[分辨力]（2026-10-12 补，Chief 清单第 3 条）：判据的判定阈值是 liftNear/5。
+     若远带噪声与之同量级，判据就分不清"真的没有远处抬亮"和"噪声" ⇒ 必须报「无分辨力」，
+     而不是静默判「通过」 —— 这是"绿比红危险"那条纪律的又一落点。σ_far 用同状态两半差作代理。 */
+  const sigFarProxy = Math.abs(farA - farB);
+  const resNeed = Math.abs(liftNear) / 5;
+  check('前提[分辨力]：3σ_far 远小于判据阈值 liftNear/5（否则应判「无分辨力」而不是通过）',
+    3 * sigFarProxy < resNeed,
+    `3σ_far=${(3 * sigFarProxy).toFixed(4)}（两半差 ${sigFarProxy.toFixed(4)}）vs 阈值 liftNear/5=${resNeed.toFixed(4)} ⇒ 余量 ${(resNeed / Math.max(3 * sigFarProxy, 1e-9)).toFixed(0)}×`);
+
+  /* ── 能力边界（2026-10-12 定稿）：三件事必须分开说，混说会自相矛盾 ──────────────────
+     ① **「放大光团」方向：不可用于定档（2026-10-12 实测更正）** —— 相机退 d=8 + 五盏 lampVol
+        放大 k=8（几何窗口 [7.81,11.19]），按**新距离重算**采样带后 BR8=568px、环带 [710,994]px，
+        而画框角点只有 734px ⇒ 环带与画框的交集只剩四角 r∈(710,734] ≈ **0.3% 画面** ⇒
+        「远处」实际已不存在 ⇒ 按前提[采样区]应判**不可定档**，不能当负例用。
+        强行按带读到的比值是 **0.986**（badNear 4.5768 / badFar 4.5146，两次一致）——那是
+        「全屏叠加」的签名，但样本退化，只作旁证。日志 outputs/_diag/lampvol-d8c-20261012095854.log。
+        ⇒ **「整个画面被壳罩满」与「判据仍有『远处』可测」在几何上互斥**：这条路给不出干净负例。
+        ⚠️ 旧读数（outputs/_diag/lampvol-d8b-202610120112.log 的六组）**已作废**：那一版把相机退到
+        8m 却沿用 1.6m 取景算出的 BR/FAR_R/sx/sy ⇒ 判据的区域与实际取景不对齐（Chief 2026-10-12 指出）。
+        为什么 d=1.6 也不行：k>1.66 中央出黑洞（z(0)=d−R 被近平面裁）；相机在球内时唯一可见的
+        球面翻到灯**之后**被 depthTest 剔掉（:182 只关了 depthWrite）⇒ 两带同时归零。
+        ⚠️ 放大的是**五盏**：远环带里混着游廊三盏的球壳，R 只用于几何前提，覆盖全幅的是
+        五盏壳的**并集** —— 别拿 R 反推远带来源。
+     ② **仪器标定：有效 ✓** —— 只在 **ON 帧**整体加常量 C（纯 PNG 数学、零 GPU）⇒ 实测翻转点
+        C∈(1.4,1.5] ⇒ **判据门限 ≈1.46 luma**，与代数 (badNear−5·badFar)/4 的 1.4584 一致。
+     ③ **做不到的**：把加法层注入到 **ON/OFF 两帧**再指望判据变红 —— 判据量的是**差分**，
+        两帧同量抬亮 ⇒ **完全抵消**（实测：注入层出像素 近 13.5 / 远 13.9 luma，而两区 lift
+        与基线差 <0.05）。同理下列"两帧都变"的真产品开关对本判据**零贡献**（实测）：
+        light.distance 6.5/9→200（ΔliftFar ≈ −0.003）与 bloom.strength 0.5→2（ΔliftFar ≈ −0.0035）
+        —— 要抓「有人把灯改成全场光源」这类回归，得另立一条**绝对值**判据。
+     ⚠️ 落盘的活负例是**与灯态耦合**的注入层（见上面第七版块）：只有「灯亮时整幅被抬亮」
+        这种签名才在差分里留下痕迹 ⇒ 必红。
+     ⚠️ 一处容易误读的数：**旧 d=8 那组** badFar(5.7) > badNear(4.1) 不是几何反了 —— 壳的加性
+        在线性空间两带相同，但近带基线更亮（灯体与亮构件）⇒ 同样的线性增量在 sRGB luma 上
+        更小（凹性）⇒ 远带读数更大。按新距离重算后该差消失（4.577 vs 4.515，比值 0.986），
+        说明那 0.39 里含了不少"两组基线亮度不同"的成分。
+        ⚠️ **本段只解释 d=8 放大光团那一组**；**注入自检组方向相反**（near 16.70 > far 13.93），
+        因为那组换了相机机位、两带基线亮度分布不同 ⇒ 两组数不要并排套同一句解释。
+     ⚠️ **σ 的口径**：活负例块里的 σ 取自**一对**同态相邻帧（n=1）⇒ 3σ 横杆本身就是随机量 ——
+        不同运行实测 σ_far 从 **0.0002 到 0.0099（差 50×）**。信号（badFar≈5.5 luma）远超之，
+        结论不受影响；但**别把某一次的 0.0002 当成稳定噪声底**。要更硬的横杆就把 null 对照做成
+        12 对池化 MAD（当前 2 对 + 1 对 null 在 7× 余量下够用）。
+     ⚠️ **A 轴（uLamp 倍率）的精确口径**：A **不改变红/绿**（比值 1.2~1.6，远在门限 1/5 之外），
+        但比值有 **13~19% 的非线性漂移**（A=20 时 badNear 只长 17.5×、badFar 只长 15.1×，双双次线性）
+        ⇒ 与"近带多一项随 A 增长（b>0）"的分解**符号一致**，但 sRGB/ACE 凹性也能贡献同号效应，
+        故这只是一条假设、不是结论；要定性需补 A∈{2,4,8}（平滑单调 ⇒ b>0；阈值型陡现 ⇒ 削顶）。
+     ⚠️ **不要把 5.64 与 1.46 并列比大小**：C*≈1.46 luma 是"从基线态起算、平坦泄漏加到多少才翻转"
+        的门限；5.64 是壳在远带的抬亮（基线态远带≈0.005）。两者只是**方向一致**（都判红），不是同一把尺。 */
+  if (process.env.LAMPVOL_NEG_INJECT === "1") {
+    /* 保留原来那条“注入全屏加法层”的**出像素自检**段（默认不跑，**这不是仪器标定**）：
+       它证明的是“注入层确实出像素”；而“判据会不会被它改红”取决于它挂在哪一边 ——
+       · 挂在 ON/OFF **两帧** ⇒ 差分抵消 ⇒ 判据纹丝不动（本段就是这种，故默认关闭）；
+       · 只挂在 **ON 帧** ⇒ 落盘的活负例（见上面第七版块）⇒ 必红。
+       真正的**仪器标定**是另一件事：只给 ON 帧加常量 C ⇒ 门限 ≈1.46 luma（见能力边界块 ②）。 */
+    const injInfo = await page.evaluate(() => {
+      const g = window.__garden, T = g.THREE;
+      if (!T || !T.PlaneGeometry) return { err: "THREE 未暴露" };
+      const mat = new T.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.01651, blending: T.AdditiveBlending, depthTest: false, depthWrite: false });
+      const mesh = new T.Mesh(new T.PlaneGeometry(1, 1), mat);
+      const dist = 1, h = 2 * Math.tan(170 * Math.PI / 360) * dist, w = h * (window.innerWidth / window.innerHeight);
+      mesh.scale.set(w, h, 1); mesh.position.set(0, 0, -dist); mesh.renderOrder = 999;
+      window.__camWasInScene = !!(g.camera.parent);
+      if (!window.__camWasInScene) g.scene.add(g.camera);
+      g.camera.add(mesh); window.__lampVolInjected = mesh;
+      return { ok: true };
+    });
+    await sleep(450);
+    const onI = decodePNG(await shotOn());
+    await page.evaluate(() => { window.__lampVolInjected.visible = false; });
+    await sleep(450);
+    const onN = decodePNG(await shotOn());
+    const dN = signedLift(onI, onN, view.sx, view.sy, 0, BR).lift;
+    const dF = signedLift(onI, onN, view.sx, view.sy, FAR_R, FAR_R2).lift;
+    console.log("  · [注入层出像素自检] 近区 " + dN.toFixed(3) + " · 远环带 " + dF.toFixed(3) + " luma（同开灯态、只切 visible；自检，不是仪器标定）");
+    await page.evaluate(() => {
+      const g = window.__garden, m = window.__lampVolInjected;
+      if (m) { g.camera.remove(m); m.geometry.dispose(); m.material.dispose(); }
+      if (g.__camWasInScene === false) g.scene.remove(g.camera);
+      delete g.__camWasInScene; delete window.__lampVolInjected;
+    });
+    await sleep(400);
+  }
+
   /* 热点定位（2026-09-24 做硬）：差分最强的那一格必须落在光团所在格（±1 格）。
      ⚠️ 原来只拿 **单对** ON[0]/OFF[0] 全幅找最强格 —— 单对会被瞬时噪声（萤火/浮尘/雾絮
         恰好扫过别的格，同状态噪声 0.27~0.46）顶上去：别的格真值只差零点几，瞬时粒子
@@ -383,4 +779,4 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
   const failed = results.filter(r => !r.ok);
   console.log(`\n[体积光] ${results.length - failed.length}/${results.length} 项通过 · 样张 ${OUT}/lampvol-*.png`);
   process.exit(failed.length ? 1 : 0);
-})().catch(e => { console.error('[lampvol-guard] 崩溃:', e); process.exit(2); });
+})().catch(e => { console.error("[lampvol-guard] 崩溃:", e); process.exit(2); });

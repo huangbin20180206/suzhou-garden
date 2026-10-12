@@ -456,11 +456,29 @@
   #guide .g-dots i{width:5px;height:5px;border-radius:50%;background:rgba(240,228,200,.3)}
   #guide .g-dots i.on{background:#F0E4C8}
 
-  /* ── 窄屏 / 触控适配 ──
+  /* ── 窄屏 / 触控适配（2026-10-12：断点 520 → 768）──
      ⚠️ #env 是**锚点**（只 48px），不能像以前那样 left:10px+right:10px 拉满宽 ——
         那会把方印拉成一条通栏。宽度只加在面板上，且必须收进视口内：
-        面板 left:0 相对 10px 的左内边距 → 右缘 = 10 + (100vw-22px) < 100vw ✔ */
-  @media (max-width:520px),(hover:none) {
+        面板 left:0 相对 10px 的左内边距 → 右缘 = 10 + (100vw-22px) < 100vw ✔
+     ── 为什么把 520 抬到 768 ──
+     旧条件 `(max-width:520px)` 只覆盖手机档，`(hover:none)` 覆盖触屏档，但
+     **带鼠标/触控板的平板与窄桌面窗口（521~767px 且 hover:hover）两条都不命中**
+     ⇒ 那一带拿到的是桌面版式：按钮高约 28px（padding 5px 12px + 12.5px 字号），
+     **低于 44px 的触控下限**（老黄 2026-10-07 的要求正是「尺寸要能适配用手点击」）。
+     768 是通行的小屏上限（iPad 竖屏即 768）；抬到它之后 <768px 一律走窄屏版式：
+     面板收进视口并可纵向滚动、行可换行、按钮 ≥44px、方印 56px。
+     ⚠️ 代价边界：521~767px 的桌面窗口会从桌面版式切到窄屏版式（面板近乎通栏 +
+        46px 按钮）—— 这正是需求「窄屏 <768px」的含义。≥768px 的桌面档
+        （900 / 1280 / 1440 …）**逐字不变**：全部桌面门禁视口都 ≥800px。
+     ⚠️⚠️ 口径必须同步（本轮未动，属其他写域）：产品侧 guideTouchUI()
+        （src/11-loop.js:1931）与门禁 probe/mobile-panel-guard.mjs:86 仍写死
+        `(max-width:520px), (hover:none)` 这条 matchMedia 表达式，
+        它们是「同一条媒体查询」的复制品（见 README:672 与 mobile-panel-guard 头部注释）。
+        该表达式与本断点在 521~767 非触控带不一致（CSS 判窄屏 / JS 判桌面
+        ⇒ 引导会替用户展开面板）。门禁四个视口是 390 / 820 / 900 / 1440，
+        **没有一个落在该带内**，故不会红；但要保住「同一条媒体查询」这条不变量，
+        这两处的 520px 应一并改成 768px。 */
+  @media (max-width:768px),(hover:none) {
     #env{ left:10px; right:auto; bottom:10px;
       /* 触屏档：圆球与轨道都放大（拇指比鼠标指针钝得多）。三处定位公式共用这两个变量，
          所以放大后"已过段裁宽 / 读数气泡 / 四个锚点刻度"仍然对准圆球中心。 */
@@ -519,6 +537,20 @@
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
     }
+    /* ── 缺口② 快捷键复选框命中区（2026-10-12 · MobileBot）────────────
+       改前实测：\`#env .hint-toggle\` 命中盒 ≈ 58×13px（label 是 inline-flex，
+         高度由 11px 字号那枚 13×13px 复选框决定；\`padding:0 4px\`）。
+       为什么漏网：上面那条放大规则写的是 \`#env button{min-height:46px}\`，而画质行
+         末尾的「快捷键」是 \`<label class="hint-toggle">\` 包 \`<input type="checkbox">\`
+         —— **两个都不是 button**，46px 契约整条绕过它；而 smoke / mobile-panel-guard
+         的命中区判据查的也都是 \`#env button\`，同样照不到。
+       改后目标：label 命中盒 ≥46px（点 label 即切换内层 checkbox，故这就是有效命中区）。
+         ⚠️ 只加高度、不加宽 ⇒ 画质行不会因此多折一行，面板总高不变。 */
+    #env .hint-toggle{
+      min-height: 46px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
     #env .hint {
       display: none;
     }
@@ -527,19 +559,30 @@
       display: inline-block;
       min-width: 3.2em;
     }
+    /* ── 缺口⑤ 滑块命中区（2026-10-12 · MobileBot）───────────────────
+       改前实测：窄屏/触屏档 \`input[type="range"]{height:34px}\` ⇒ 可拖命中区 34px 高。
+       为什么漏网：34px 是 2026-10-06 从 22px 抬上来的，当时只对着「22px 太薄拖不住」
+         这条观感判据，没对 44px 的触控线；而所有命中区判据量的都是 \`#env button\`，
+         滑杆是 \`<input type="range">\` ⇒ 三处判据谁都不扫它。
+       改后目标：44px。⚠️ 几何安全（本条的要点）：滑杆在 \`.time-track\`（96px、
+         align-items:center）里**垂直居中**，加高 10px 只是上下各多 5px，**中心 y 恒为
+         96/2=48 不变** ⇒ 圆球（26px，占 35~61）、读数气泡（--r 定位）、四个锚点刻度
+         的公式全部不动，\`.time-track\` 自身高度也不变 ⇒ 时段行行高不变。 */
     #env input[type="range"] {
       width: 104px;                 /* 留影行的音量滑杆（时段条由下面一条按 100% 覆盖） */
-      height: 34px;                 /* 输入框本身就是命中区，22px 太薄，拖不住 */
+      height: 44px;                 /* 44px 触控下限；中心仍在 48，圆球/气泡/锚点不位移 */
     }
     #env input[type="range"]:hover::-webkit-slider-thumb{ transform: scale(1); }  /* 触屏别留 hover 放大 */
     /* 时段条在窄屏：容器 96px —— 要同时容下
-       "34px 的滑杆框（垂直居中，故占 31~65）+ 46px 的锚点标签（贴底，占 50~96）"，
+       "44px 的滑杆框（垂直居中，故占 26~70）+ 46px 的锚点标签（贴底，占 50~96）"，
        这样圆球上半截露在标签**命中框**之外，手指能直接捏到它开始拖
        （命中框盖住的地方点下去仍是"跳到该锚点"，那是它们本来的职责）。
        ⚠️ 标签这条**不写 min-height**，好让上面的 `#env button{min-height:46px}`
          继续生效（smoke 量 `#env button` 最小高度 ≥44px）。 */
     /* 时段条：容器 96px —— 要同时容下
-       "34px 的滑杆框（垂直居中，占 31~65）+ 46px 的锚点标签（贴底，占 50~96）"。
+       "44px 的滑杆框（垂直居中，占 26~70）+ 46px 的锚点标签（贴底，占 50~96）"。
+       ⚠️ 2026-10-12：滑杆框 34→44（缺口⑤）后圆心仍在 96/2=48 ⇒ 下一条的
+          「圆球占 35~61 / 色块占 66~96 / 5px 空气」一个数都没变。
        圆球 26px 居中 → 占 35~61；选中色块只画下半 30px → 占 66~96 ⇒ 圆球与色块之间
        留 **5px 空气**。⚠️ 别把它压到 88px：那样两者只差 1px，实测多模态与肉眼都读成
        "圆球被色块压住了"（数字上"没重叠"但观感是贴死的）。
@@ -652,8 +695,12 @@
      触控设备：面板收进视口内（原 left:22px 会让面板右缘顶出 320px 屏外）、
      命中区加大（2026-10-07 起按钮 46px / 方印 56px，见上面那条媒体查询）、
      键盘提示隐藏（触控没有键盘，还给面板省宽度）。
-     hourReadout 是时辰读数不是提示，单独恢复显示。stats 限宽防右侧溢出。 */
-  @media (max-width:520px),(hover:none){
+     hourReadout 是时辰读数不是提示，单独恢复显示。stats 限宽防右侧溢出。
+     ⚠️ 2026-10-12：断点与上面那条**同源同值**（520 → 768），两条必须一起改。
+        反例（只改上面那条的后果）：521~767px 下字幕 #caption 仍是桌面的
+        `bottom:96px` 居中，而面板此时已向上弹出成近乎通栏 ⇒ 字幕直接压在面板上；
+        同档的 stats / hud 也还停在桌面位置。两条共用一个条件才是「一种窄屏口径」。 */
+  @media (max-width:768px),(hover:none){
     /* #env / 按钮 / 滑块的窄屏规则已合并进上一条媒体查询；
        这里只剩"锚点之外"的排布（stats 让位、字幕上浮）。
        ⚠️ 不要在窄屏重新给 #env 加 left+right+padding —— 那是"拉满整条的横条面板"时代的写法，
@@ -664,6 +711,22 @@
     #hud p{display:none}
     /* P2-2：窄屏字幕上浮，避开左下角弹出的面板 */
     #caption{bottom:auto;top:64px;font-size:11px;max-width:calc(100vw - 24px)}
+
+    /* ── 缺口③ 引导气泡按钮命中区（2026-10-12 · MobileBot）─────────────
+       改前实测：\`#guide .g-acts button{min-height:38px}\`（见上面 #guide 段）⇒ 38px 高。
+       为什么漏网：\`#guide\` **不在 #env 内**；smoke 与 mobile-panel-guard 的命中区判据
+         写的都是 \`#env button\`，而 guide-guard 那条只判 \`≥38px\` —— 正好等于实现
+         现值，是一条"与实现同值、永远不会红"的判据。三处合起来没有任何人在量它。
+       改后目标：≥46px（与面板按钮同档）。guide-guard 的 ≥38px 仍满足，不冲突。 */
+    #guide .g-acts button{ min-height:46px; padding:10px 16px; touch-action:manipulation; }
+
+    /* ── 缺口④ 加载页「先用基础版进入」命中区（2026-10-12 · MobileBot）───
+       改前实测：\`#loading #ld-quick{padding:6px 9px;font-size:11px;line-height:1}\`
+         ⇒ 盒高 ≈ 11 + 12 = 23px（宽 ≈ 95px）。
+       为什么漏网：它在 \`#loading\` 里，既不在 #env 也不在 #guide ⇒ 三条命中区判据都不扫；
+         basic-enter-guard 只验它的 hidden / opacity / show / 可点，**从不量尺寸** ⇒ 静默至今。
+       改后目标：≥46px（仍是右下角一行小字的观感，只把盒子垫高给手指；不动显隐语义）。 */
+    #loading #ld-quick{ min-height:46px; padding:12px 14px; touch-action:manipulation; }
   }
 </style>
 </head>

@@ -1,6 +1,6 @@
 // 10-post: from index.html inline 499..648
 import { THREE, EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass, GTAOPass } from '../vendor.js';
-import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world } from './02-scene.js';
+import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world, QOS_IMMUNE } from './02-scene.js';
 import { MAT, setAuxPass, AUX_PASS_HIDDEN, HFOG } from './01-materials.js';
 /* ⚠️ world 从 02-scene 取，**不能**从 08-assemble 取：08 import 本模块的 collectAOSkip，
    反向 import 就成环 → 本模块 body 被推迟到 08 之后，而 08 的 body 末尾要调 collectAOSkip()
@@ -207,15 +207,36 @@ const GradeShader = {
     uSplit:{ value:0.24 },
     uVignette:{ value:0.52 },
     uVigSize:{ value:0.90 },
+    /* 换档软化（批次 2）：uSoften>0 才生效；uTexel = 1/输入 RT 尺寸（已含 pixelRatio）。
+       调色那几个 uniform 的写入方在 12-env（只写 contrast/saturation/warm/cool/split/vignette），
+       与这两个名字不重叠。 */
+    uSoften:{ value:0.0 },
+    uTexel:{ value:new THREE.Vector2(1 / Math.max(1, innerWidth), 1 / Math.max(1, innerHeight)) },
   },
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader:`
     uniform sampler2D tDiffuse;
-    uniform float uContrast, uSaturation, uSplit, uVignette, uVigSize;
+    uniform float uContrast, uSaturation, uSplit, uVignette, uVigSize, uSoften;
     uniform vec3 uWarmHi, uCoolLo;
+    uniform vec2 uTexel;
     varying vec2 vUv;
     void main(){
       vec4 src = texture2D(tDiffuse, vUv);
+      /* ── 换档软化（批次 2）─────────────────────────────────────────────
+         AA 抬档是**一帧内**把内部渲染倍率换掉（1.00→1.18→1.36），画面边缘的锐度
+         会"啪"地跳一下。这里不做两图交叉混（那要同帧渲两遍场景），而是在换档后的
+         若干帧里给一个**迅速衰减的 1 texel 十字轻糊**，把那一跳摊平（取值理由见
+         下方 GRADE_SOFTEN）。
+         ⚠️ uSoften == 0 时整段支路**不进** ⇒ 输出与加这段之前逐位一致 ——
+            全部探针帧与绝大多数生产帧都落在这条路径上，零代价、零像素差。 */
+      if (uSoften > 0.0){
+        vec3 acc = src.rgb * 2.0;                                        // 中心权重 2
+        acc += texture2D(tDiffuse, vUv + vec2(uTexel.x, 0.0)).rgb;
+        acc += texture2D(tDiffuse, vUv - vec2(uTexel.x, 0.0)).rgb;
+        acc += texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb;
+        acc += texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
+        src.rgb = mix(src.rgb, acc * (1.0 / 6.0), uSoften);
+      }
       vec3 c = src.rgb;
 
       // ① 对比：以 0.5 为轴的 S 曲线
@@ -255,10 +276,74 @@ composer.addPass(gradePass);
    ⇒ 正确做法：在 **gradePass 渲染时**（此刻 readBuffer 仍是 RenderPass 的输出）
      把 `composer.readBuffer.depthTexture` 存下来给高度雾用。 */
 let sceneDepthTex = null;
+
+/* ── 换档软化的驱动（批次 2）──────────────────────────────────────────────
+   「刚刚换档了」在 10-post 里唯一可观测的痕迹是 **renderer 的像素比变了** ——
+   全仓 setPixelRatio 只有三处：02-scene:80（初始化）、11-loop:620（QOS 改档）、
+   11-loop:770（AA.setStep）。**这里只读它，一个字节都不改**：像素比正是
+   probe/aa-progressive-guard 精确等式断言的对象，碰它必红。
+
+   触发条件取「**上抬**」（pr 变大）：那正是 AA 静观升档的方向，也是唯一会让人看到
+   "边缘忽然变锐"的方向。QOS 降档（pr 变小）不触发 —— 它在卡顿中发生，那一跳本就
+   被掉帧掩盖，而且此刻最不该再叠 4 次纹理采样。
+
+   ⚠️ QOS_IMMUNE（= SOFTWARE_GL || PROBE_DRIVEN，02-scene:30）为真时**整个特性停摆**：
+      探针语义下 AA 恒停 step0、QOS 也不动，本就不会换档；更要紧的是下面这批像素门
+      全跑在默认 Playwright 上下文（navigator.webdriver === true ⇒ PROBE_DRIVEN）里，
+      万一哪道门自己调 setQualityMode 抬了像素比，也绝不能让微糊亮起来污染它的读数。
+   ⚠️ 首帧只记基线不触发：QOS 的初始档是在 11-loop 模块求值时按存档定下的，那一刻
+      的 setPixelRatio 是"设定"不是"换档"，不能算。 */
+const GRADE_SOFTEN = { peak:0.45, frames:10 };
+/* peak / frames 的取值理由（**两层，勿混** —— 判据的每个数都要能指回自己量的那次测量）：
+   · 「要不要做」的依据是**实测**（2026-10-12，outputs/_diag/aa-step-jump-run-20261012165717.log）：
+     换档画面差 d01=1.782、d12=1.629，真实帧底噪中位 0.125（最大 0.218）
+     ⇒ 尖峰/底噪 = 14.28（保守对最大 8.16）> 1.0 ⇒ 可测可见 ⇒ 值得摊平。
+     自检全过（可复现性 0.083、luma 极差 200.2、采样期档位 2→2 稳定、零 pageerror）。
+   · 「取多大」仍是**估计值**（门禁能证"没有副作用"，证不了"更好看"）：
+     核 = 1 texel 半径十字 6 抽头（中心权重 2），1.00→1.18 的锐度差折到画布是
+     **亚像素** ⇒ peak 取 0.45（"柔一点"非"糊了"；1.0 成拉焦，0.2 以下≈没摊）。
+     frames = 10（60fps ≈ 167ms；<5 帧仍像"跳"，>20 帧像对焦）。
+   ⚠️ 按**帧**衰减 ⇒ 低帧率下墙钟变长（20fps ≈ 500ms）。这是刻意的、与 AA 自己的
+      帧数口径（RISE_FRAMES）一致；真机上若嫌长，调 frames 即可，不必改结构。
+   · 可调：setGradeSoftenConfig(peak/frames)；探针语义（QOS_IMMUNE）下恒 0，
+     像素门零污染（probe/aa-progressive-guard.mjs [P] 支实证）。 */
+
+const soften = { pr:-1, left:0 };
+/** 产品侧权威开关（本项目套路：要按住一个每帧推进的东西必须走产品侧开关）。
+    换档软化现在**尚未接到 window.__garden**（那个暴露块在 11-loop.js，不在本批写域），
+    所以门禁暂时够不到它；接线的两行由 Chief 决定何时加。 */
+export function setGradeSoftenConfig(cfg){
+  if (cfg && Number.isFinite(cfg.peak))   GRADE_SOFTEN.peak   = Math.max(0, Math.min(1, cfg.peak));
+  if (cfg && Number.isFinite(cfg.frames)) GRADE_SOFTEN.frames = Math.max(0, Math.round(cfg.frames));
+  return { ...GRADE_SOFTEN };
+}
+export function gradeSoftenState(){
+  return { left:soften.left, value:gradePass.uniforms.uSoften.value, pr:soften.pr,
+           immune:QOS_IMMUNE, ...GRADE_SOFTEN };
+}
 const gradeRenderOrig = gradePass.render.bind(gradePass);
 gradePass.render = function (...a){
   const rb = composer.readBuffer;
   if (rb && rb.depthTexture) sceneDepthTex = rb.depthTexture;
+
+  /* 换档检测（只读像素比） */
+  const pr = renderer.getPixelRatio();
+  if (soften.pr < 0) soften.pr = pr;                       // 首帧：只记基线
+  else {
+    if (pr > soften.pr + 1e-6 && !QOS_IMMUNE) soften.left = GRADE_SOFTEN.frames;
+    soften.pr = pr;                                        // 升降都更新基线
+  }
+  /* 线性衰减：换档当帧给满，之后每帧减一，frames 帧后归零 */
+  const k = soften.left > 0 ? soften.left / Math.max(1, GRADE_SOFTEN.frames) : 0;
+  if (soften.left > 0) soften.left--;
+  const u = gradePass.uniforms;
+  u.uSoften.value = k * GRADE_SOFTEN.peak;
+  if (k > 0){
+    /* 1 texel 用**本帧真正那张输入 RT** 的尺寸算（它已含 pixelRatio）：
+       换档后第一帧就得用新尺寸，否则糊的半径会跟着档位漂移。 */
+    const src = (a && a[2]) || rb;
+    if (src && src.width && src.height) u.uTexel.value.set(1 / src.width, 1 / src.height);
+  }
   return gradeRenderOrig(...a);
 };
 bootMark('后处理链');

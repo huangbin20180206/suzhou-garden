@@ -73,6 +73,20 @@ const check = (name, ok, detail = '') => {
     await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 30000 });
     await page.waitForTimeout(600);      // 余量：缓动收尾 + 环境贴图/替身挂载
   };
+  /* 相机停稳（2026-10-12 补）：等**连续两次轮询的相机位姿完全一致**（OrbitControls 阻尼收敛）。
+     ⚠️ 为什么必须有它：本门头部 65-71 行自己写着"不能睡固定时长"，但 §3/§4 一直在用
+        `waitForTimeout(900)` 赌阻尼收尾 —— 相机没停稳就采样，覆盖率会随残余转动漂移，
+        而 §4 的上限又贴着实测值 ⇒ 时红时绿（本轮的三种读数 52.38/52.79/49.19 横跨阈值）。 */
+  const cameraStill = async () => {
+    await page.evaluate(() => { delete window.__camSnap; });
+    await page.waitForFunction(() => {
+      const c = window.__garden.camera;
+      const now = c.position.toArray().concat(c.quaternion.toArray());
+      const prev = window.__camSnap;
+      window.__camSnap = now;
+      return !!prev && now.every((v, i) => Math.abs(v - prev[i]) < 1e-5);
+    }, null, { timeout: 20000, polling: 80 }).catch(() => {});
+  };
   const setEnv = (time, weather) => page.evaluate(({ time, weather }) => {
     const G = window.__garden;
     G.setEnv('season', 'summer'); G.setEnv('time', time); G.setEnv('weather', weather);
@@ -237,19 +251,35 @@ const check = (name, ok, detail = '') => {
   }
   check('自检：同状态连渲两次画面不变（不是量的场景漂移）', dSelf < 0.01, `同状态差 ${dSelf.toFixed(4)}`);
   check('虹真的画进了像素（开虹 ↔ 关虹 冻结帧差 > 0.3）', dRainbow > 0.3, `全幅平均差 ${dRainbow.toFixed(3)}`);
-  /* ⚠️ 上一条只断"有"，结果我调过头：把带宽放到 10°、强度 0.78 时 **81% 的天空像素**
-     都被染成乳白（单像素最大差 218），画面像蒙了层雾、虹只剩一道淡边 ——
-     用户要的是"一道彩虹"，不是"整片彩霞"。所以必须再断一条**上限**。
-     ⚠️ 门槛按**本门自己的机位**标定（相机抬到 y=3、视高 16m，弧带多落在画面两侧边缘、
-        中间天空不算）：实测收窄后 6.5%；而"用户平视池边"那台机位上是 28%。
-        同一个产品两台机位两个数 —— 所以下限只用来防"完全画不出来"（≈0），
-        上限用来防"糊满整片天"（>50%），中间的量级交给人眼判读。
-     ⚠️ **下限 3% → 0.8%**（2026-10-01）：彩虹从"整圈"改成"一段弧"（老黄："做得小一些，
-        不是所有彩虹都很大"），本机位实测覆盖率随之从 6.5% 降到 1.79%。
-        下限继续按旧值报红就是在**罚用户明确要的效果** —— 与 09-28 那条
-        "判据只断下限/上限要与产品形态同步"是同一条。0.8% 仍远高于"画不出来"（≈0），
-        上限 50% 不动（那道才是防"糊满整片天"的）。 */
-  const skyShare = await page.evaluate(async () => {
+  /* ── 本节口径重写（2026-10-12）────────────────────────────────────────────
+     老黄要的是"一道彩虹"，不是"整片彩霞"，所以上限必须留；但**旧口径与旧上限都已失效**：
+     ① **旧度量量到了 bloom 晕圈，不是虹**：统计区是"左 55% 列的**整幅画面**"、阈值
+        ΣΔ>8（≈2.7 灰阶/通道）—— 这个阈值正好落在后处理 bloom 的多 mip 晕圈量级里。
+        用门禁自存的 `outputs/_diag/afterrain-guard/rainbow-on|off.png` 离线复算（2026-10-12）：
+        旧口径 49.19%，受影响 22.7 万 px 里 **Δ≤45 占 78%**（Δ>45 仅 10.6%、Δ>90 仅 4.7%），
+        **646/700 行**都有受影响像素（连 y=90% 的池面都算）⇒ 量的是"整幅被淡淡提亮"。
+     ② **旧上限 50% 的标定值 1.79% 属 2026-10-01 球面环时代**；产品作者自存的扫描
+        （`02-scene.js:518`）显示 uBright=2.10 时已是 42.4%（余量仅 7.6 点），而
+        2026-10-11 的「彩虹抬高 3 米」（提交 004d214，带芯 5609→23637px，4.2×）把余量吃光
+        ⇒ 52.38% 报红。**这不是虹糊了，是判据的口径和标定都过期了。**
+     ── 新口径 ──
+       **统计区**：画面上 **40% 行**（天空+远山带）× 全宽。下界由**行均值 luma 剖面**定
+         （用关虹帧算）：y=40% 处 154.9 → y=45% 处 127.1，园林实体（屋面/树/水）从 40% 起
+         ⇒ "真天空"到 40% 为止，不再把池面与地面算进"天空像素"。
+       **阈值**：ΣΔ>45（≈15/765，明显可见级），把 bloom 的淡晕排除在"受影响"之外。
+       **标定（本机位，用上述自存帧复算，2026-10-12）**：
+         正常 b=2.10 → **21.9%**；b=3.20（"糊满整片天"那一档）线性下界 **32.1%**。
+         （旧口径 2.10→3.20 实测 42.4→71.6 = 1.69× > 亮度比 1.524× ⇒ bloom 非线性让真实
+          违规值**高于**这个下界，牙口实际更足。）
+       **上限 28%**：对正常 1.28× 余量、对违规预测 ≥1.15× 牙口。牙口不靠这个预测 ——
+         下面有一条**实测**负例自检（现场把 uBright 拨到 3.20 再量一次）。
+       **下限 0.8% 不变**：仍只用来防"完全画不出来"（与 09-28"判据要与产品形态同步"同一条）。 */
+  const SKY_ROW_FRAC = 0.40, SKY_THR = 45, SKY_CAP = 28, SKY_MIN = 0.8;
+  /* 单次"开虹 ↔ 关虹"冻结帧差分，返回**可见受影响天空像素占比**（见上方口径说明）。
+     `bright` 非 null 时临时把 uBright 拨到该值（负例自检用）—— uBright 是静态 uniform，
+     只有 02-scene 定义它、没有任何每帧代码回写（12-env 只写 uRainbow），所以拨得住；
+     量完立刻还原。 */
+  const skyCover = (bright) => page.evaluate(({ rowFrac, thr, bright }) => {
     const G = window.__garden;
     const u = G.scene.children.find(o => o.isMesh && o.material && o.material.uniforms
                                       && o.material.uniforms.uRainbow).material.uniforms;
@@ -257,21 +287,37 @@ const check = (name, ok, detail = '') => {
     cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
     const ctx = cv.getContext('2d');
     const shot = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0); return ctx.getImageData(0, 0, cv.width, cv.height).data; };
-    const keep = u.uRainbow.value;
-    u.uRainbow.value = keep; const on = shot();
-    u.uRainbow.value = 0;    const off = shot();
-    u.uRainbow.value = keep;
+    const keepRu = u.uRainbow.value;
+    const keepB = (bright != null && u.uBright) ? u.uBright.value : null;
+    if (keepB != null) u.uBright.value = bright;
+    u.uRainbow.value = keepRu; const on = shot();
+    u.uRainbow.value = 0;      const off = shot();
+    u.uRainbow.value = keepRu;
+    if (keepB != null) u.uBright.value = keepB;
+    const rows = Math.max(1, Math.round(cv.height * rowFrac));
     let changed = 0, total = 0;
-    for (let i = 0, n = 0; i < on.length; i += 4, n++){
-      /* 只统计**天空上半部**（每行的前 55% 宽度） */
-      if (n % cv.width >= cv.width * 0.55) continue;
-      if (Math.abs(on[i] - off[i]) + Math.abs(on[i+1] - off[i+1]) + Math.abs(on[i+2] - off[i+2]) > 8) changed++;
-      total++;
+    for (let y = 0; y < rows; y++) for (let x = 0; x < cv.width; x++){
+      const i = (y * cv.width + x) * 4; total++;
+      if (Math.abs(on[i] - off[i]) + Math.abs(on[i+1] - off[i+1]) + Math.abs(on[i+2] - off[i+2]) > thr) changed++;
     }
     return +(changed / total * 100).toFixed(2);
-  });
-  check('虹是"一道"而不是"一片"（受影响天空像素 0.8%~50%，别糊满整片天）',
-    skyShare > 0.8 && skyShare < 50, `受影响天空像素 ${skyShare}%（本机位实测 1.79%；改前整圈那次 6.5%；糊满整片天那次 81%）`);
+  }, { rowFrac: SKY_ROW_FRAC, thr: SKY_THR, bright: bright == null ? null : bright });
+
+  await settle();          // 环境过渡走完（本门既有 helper）
+  await cameraStill();     // 相机阻尼走完：旧版直接沿用 §3 的固定 900ms 睡眠就采样
+  const skyA = await skyCover(null);
+  const skyB = await skyCover(null);
+  check('虹是"一道"而不是"一片"（可见受影响天空像素 0.8%~28%，别糊满整片天）',
+    skyA > SKY_MIN && skyA < SKY_CAP && skyB > SKY_MIN && skyB < SKY_CAP,
+    `可见受影响天空像素 ${skyA}% / ${skyB}%（新口径 ΣΔ>${SKY_THR} × 上 ${SKY_ROW_FRAC * 100}% 行；` +
+    `2026-10-12 标定：正常 21.9%、b3.20 下界 32.1%；旧口径 1.79%→52.38%）`);
+  check('§4 抖动自检：同状态连测两次的覆盖率差 ≤2 点（旧版贴阈值随机红绿的直接原因）',
+    Math.abs(skyA - skyB) <= 2.0, `${skyA}% vs ${skyB}%（差 ${Math.abs(skyA - skyB).toFixed(2)} 点，上限 2）`);
+  /* 负例自检（**实测**，不是我的预测）：把 uBright 拨到 3.20 —— 产品作者记的"糊满整片天"
+     那一档（旧口径 71.6%，见 02-scene.js:519）—— 新口径必须照样报红。 */
+  const skyBad = await skyCover(3.20);
+  check('负例自检：uBright=3.20（糊满整片天那档）在新口径下必须报红',
+    skyBad >= SKY_CAP, `b=3.20 实测 ${skyBad}% ≥ 上限 ${SKY_CAP}%？（预测下界 32.1%）`);
 
   /* ⚠️⚠️ 第九轮新增"拱形落位"三条（老黄："弧度太低了，角度不对，做得弧度再大一些，高一些"）。
      这三条把"弧度"变成**可量化、可回归**的东西：球面环方案里矢高被几何锁死在 4~6°

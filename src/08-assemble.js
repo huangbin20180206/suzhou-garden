@@ -474,6 +474,18 @@ export const FIG_PALETTE = {
      浅玉色衣缘的话，与袍身明度差只有个位数、交领读不出来（figure-audit 会红）。 */
   moonwhite:{ robe:0xCFD6DA, trim:0x4E5866, sash:0x2A3550 },   // 月白 · 观鱼人（拱桥）
   lilac:   { robe:0xA98BBF, trim:0xE0D6C8, sash:0x4A3A5E },   // 丁香 · 仕女（井边）
+  /* 赭红 · 马夫（马厩 · 2026-10-12 补开）。**为什么必须新开一色**：马夫的 slot 是 7.5~18
+     （晨+午都在场），与 7.5~12 的**书童乙**重叠；原先他直接复用了 `ochre`，于是这一对
+     slot 重叠且**同色**（#A8804E ↔ #A8804E，ΔRGB=0）—— 正是 figure-audit「同框可区分」
+     （slot 重叠对要求 ΔRGB ≥ 60）会红的那种缺陷。不去动档期（会丢掉晨间喂马），也不借
+     别人的色（`vermilion` 是朱红孩童的），照本表既有体例新开一色。
+     实测（口径同 figure-palette 的 RGB 欧氏距离，对**所有 slot 重叠色**取最小值）：
+       · ochre 80.0 / plum 72.0 / moss 116.9 / navy 141.0 / indigo 152.1 / slate 160.0 /
+         celadon 170.9 / lilac 171.6 / moonwhite 241.3 ⇒ 最小 **72.0**（vs plum，余量 12）
+       · 与草坪绿 #457441 = 110.8（马厩建在草皮上，LAWN_D 60 的 1.8 倍）
+       · L=78.4 ≥ 70（非近黑剪影）；与 trim 差 144.9、与 sash 差 38.0（都 ≥ 25）
+     ⚠️ 取色时**别往下压暗**：同一色相的 0x7A2E2E 明度只有 62.1 < 70，会反而红「近黑剪影」那条。 */
+  russet:  { robe:0xA03A28, trim:0xE8DFC8, sash:0x4A2018 },   // 赭红 · 马夫（马厩）
 };
 const figMat = (color, rough) => new THREE.MeshStandardMaterial({ color, roughness: rough, metalness: 0.0, envMapIntensity: 0.3 });
 /* ══ 半写实贴图与皮肤件（2026-10-06 · 用户选"第 3 档：半写实"）══════════════════
@@ -1051,7 +1063,7 @@ const D_SCHEDULES = [
        那条老教训（观鱼人/仕女都踩过）。
      · 位置/高度**不在这里定**：马厩在延迟批里建，而这里是模块求值期 ⇒ 先给一个粗坐标，
        由马厩那边的 deferBootFirst 用 `userData.stable.groom` **回填**（见那一段的注释）。 */
-  { pose:'pointDown', skin:'ochre', x: 40, z: -8, y: 0,
+  { pose:'pointDown', skin:'russet', x: 40, z: -8, y: 0,
     yaw: Math.PI / 2, s: 0.96, leanX: 0.10, headDown: 0.34,
     h0: 7.5, h1: 18.0, stroll: null, feed: true },
 ];

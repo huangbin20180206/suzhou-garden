@@ -2,7 +2,7 @@
 import { THREE } from '../vendor.js';
 import { camera, renderer, RENDER_SCALE, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState } from './02-scene.js';
-import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled } from './10-post.js';
+import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
@@ -1803,6 +1803,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      setEnabled(true) 依然不升档（见 AA.setEnabled 注释）。 */
                   aaState: () => AA.state(), aaSetStep: (s) => AA.setStep(s),
                   aaSetEnabled: (v) => AA.setEnabled(v), aaEnabled: () => AA.state().allowed,
+                  setGradeSoftenConfig: (c) => setGradeSoftenConfig(c),  gradeSoftenState: () => gradeSoftenState(),
                   /* PMREM 四时段缓存：门禁要断言"切时段时反射色变了但只烘一次" */
                   envBakeState,
                   probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,
@@ -1919,7 +1920,10 @@ const GUIDE_FORCE = (() => { try { return /[?&]guide=1/.test(location.search); }
 const GUIDE = { on:false, i:0 };
 /* ── 引导要不要按"触控口径"说话/动手？ ──
    判据与 CSS 那条窄屏/触控媒体查询**同一条件**（单一真值来源）：面板在
-   `(max-width:520px)` 或 `(hover:none)` 时走的是"手机版式"（见 index.html 同名媒体查询），
+   `(max-width:768px)` 或 `(hover:none)` 时走的是"手机版式"（见 index.html 同名媒体查询），
+   ⚠️ 2026-10-12：index.html 两条窄屏 @media 的断点由 520 抬到 768（补的是 521~767px 且
+      hover:hover 那一带 —— 旧断点下该带落回桌面版式、按钮约 28px）。本表达式是那条媒体
+      查询的**复制品**，必须同源同值，见 index.html:473-480 与 README:672。
    引导的文案与"要不要替用户把面板推开"必须按同一口径决定，否则手机上会出现
    "引导按桌面逻辑把面板推出来"这种自相矛盾。
    `?touch=1 / ?touch=0` 是本项目探针惯例的显式覆盖（同 ?guide=1 / ?tier=）。 */
@@ -1928,7 +1932,7 @@ function guideTouchUI(){
     if (/[?&]touch=1/.test(location.search)) return true;
     if (/[?&]touch=0/.test(location.search)) return false;
   } catch { /* 少见的 location 不可读，按媒体查询走 */ }
-  try { return matchMedia('(max-width:520px), (hover:none)').matches; } catch { return false; }
+  try { return matchMedia('(max-width:768px), (hover:none)').matches; } catch { return false; }
 }
 function guideEl(){ return document.getElementById('guide'); }
 function guideRender(){

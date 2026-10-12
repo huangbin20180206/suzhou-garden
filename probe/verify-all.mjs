@@ -140,6 +140,15 @@ const SUITES = [
      这条还管"引导会不会自己把面板推出来"和"带鼠标的平板（hover:hover）在窄窗口
      会不会把面板顶出右缘" —— 两者共用同一套 CSS 媒体查询，但入口不同。 */
   ['移动端控制面板 mobile-panel', 'probe/mobile-panel-guard.mjs'],
+  /* 触控命中区（2026-10-12 建，几秒；纯样式/几何、**不启动 3D 场景**，故不进 quick 的"≤1 分钟"预算也负担得起）：
+     守 smoke 与 mobile-panel-guard 都照不到的四类元素 —— `#env .hint-toggle`（label + checkbox）、
+     `#env input[type=range]`、`#guide .g-acts button`、`#loading #ld-quick`。
+     这四处在 2026-10-12 之前**没有任何门禁在守**：两道门的命中区判据都只查 `#env button`，
+     而 guide-guard 的阈值 38px 恰好等于当时的实现值 ⇒ 恒绿（"有覆盖面错觉"）。
+     三个语义档一起判：窄屏（390 触控 / 640 非触控）四类 ≥44px；桌面 900 断言**基值未被回归**
+     （38 / 22 / 无 min-height / 6px 9px）。另在 320px 量 #stats 的文字渲染宽 vs 可用宽。
+     自带三条负例自检（逻辑喂 30px / 页内注入 30px / #stats 注入超长文本）。 */
+  ['触控命中区 touch-target', 'probe/touch-target-guard.mjs'],
   /* 梅花（2026-10-07 建，~30~110s）：远处看得见花（默认机位"藏花"必须改变画面的像素、且偏花色）
      + 近处看得出是梅花（单朵 ≥40px）+ 夏季无花 + **缺陷态负例自检**（alphaTest .42 必须报红）。
      老黄："从这个角度看两株梅花，根本看不出颜色，甚至连有花都看不出来" ⇒ 这条门禁守的是
