@@ -63,6 +63,11 @@ export { perchingAnchors, addPerchingAnchor, VIEW_CORRIDOR, corridorT, corridorR
    门面约束（方案§3.2）—— import 后 export，不写 export ... from。
    ⚠️ baitPoints 的构造与 markUnderwater(baitPoints) 的先后顺序在 06g 内保持原样（方案 §4.3 S7）：
       顶层构造次序一改，折射层静默失效。tubeRadiusRamp 的定义与导出行都留本文件原位，不在此门面内。 */
+/* ⚠️ 溯源注（2026-10-13 收口）：紧邻上一段末尾关于 tubeRadiusRamp「留本文件原位」的表述**已过时** ——
+   它实际定义在 src/06i-trees.js:581，并在该文件 :657 由 `export { tubeRadiusRamp }` 导出；
+   本文件 :184 只是 import 转发、:185 只是再 export 一次，均非定义处。
+   原句一字未动：它记录的是「W5 拆分当日」的判断（当时确实还没搬），改写会使其失去凭据。
+   先例：sw.js:80-84、probe/shadow-bake-guard.mjs:7、probe/verify-all.mjs:313 同为加注不改写。 */
 import { KOI_ORBITS, BAIT_LIFE, BAIT_ATTRACT_R, baitPoints, BAITS, baitsActive, dropBait, updateBaits, nearestBait, KOI_OBSTACLES, KOI_BEHAVIOR, koiAvoidOffset, koiStartleAt, koiStartleOffset, koiStartleEnergy, koiCohesionOffset, koiBehaviorOffset } from './06g-koi.js';
 export { KOI_ORBITS, BAIT_LIFE, BAIT_ATTRACT_R, baitPoints, BAITS, baitsActive, dropBait, updateBaits, nearestBait, KOI_OBSTACLES, KOI_BEHAVIOR, koiAvoidOffset, koiStartleAt, koiStartleOffset, koiStartleEnergy, koiCohesionOffset, koiBehaviorOffset };
 /* 涟漪池（鱼跃/雨滴/点击共用的 64 环 InstancedMesh，含 onBeforeCompile 注入 instanceAlpha）

@@ -5,6 +5,11 @@
 // ⚠️ KOI_BEHAVIOR 是对象导出、koiBehaviorOffset 等是行为层入口；06f-ripple（涟漪池）将来
 //    单向依赖本模块取 KOI_BEHAVIOR.startleFromRipple 与 koiStartleAt，依赖方向 06 → {06f, 06g}。
 // ⚠️ tubeRadiusRamp 的**定义与导出行都留在 06-vegetation.js 原位**（不在本模块范围）。
+// ⚠️ 溯源注（2026-10-13 收口）：上一句关于 tubeRadiusRamp「定义与导出行都留在 06-vegetation.js」的表述**已过时** ——
+//    它实际定义在 src/06i-trees.js:581，并在该文件 :657 由 `export { tubeRadiusRamp }` 导出；
+//    06-vegetation.js :184/:185 只是 import 转发与再 export，均非定义处。
+//    原句一字未动：它记录的是拆分当日的判断（当时确实还没搬），改写会使其失去凭据。
+//    先例：sw.js:80-84、probe/shadow-bake-guard.mjs:7、probe/verify-all.mjs:313 同为加注不改写。
 import { THREE } from '../vendor.js';
 import { TAU, CFG } from './00-config.js';
 import { POND_RADII, markUnderwater } from './05-water.js';
