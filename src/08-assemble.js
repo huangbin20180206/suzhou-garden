@@ -2441,7 +2441,7 @@ world.add(makePondPads(lotusSpots));
    保留一点金属微光、让漫反射主导，颜色回到贴图本色。
    size 按真实金刚鹦鹉体长 ~0.85m **放大到 1.1m** —— 实测 0.85m 在池边（10m 外）
    只有 ~10px 红点，达不到老黄要的"更显眼"（园林是氛围场景，尺寸略夸张可接受）。
-   ⚠️ 落点见下方 MACAW_SPOTS（第十轮重选，池边三锚点直视可见的北坡肩部）；
+   ⚠️ 落点见下方 MACAW_SPOTS（历届重选史都在注释里；2026-10-14 起 ③ 在西假山顶、①② 留东假山顶 —— 两座真山之间才飞得出"换峰"）；
    它与石上小鸟的落点（ROCK_SPOTS，山顶）已完全分离，不再需要"让开 0.7m"的偏移
    ——那条偏移是为避免鹦鹉挡住小鸟"脚底贴石面"的射线判定，新落点天然不重叠。 */
 /* ⚠️⚠️ 第十轮重选落点（老黄："你把鹦鹉移到这个假山的顶部，顺便说一下，我只看到了
@@ -2495,12 +2495,30 @@ const MACAW_SPOTS = [
        ① (9.2, 6.20, 15.7)  —— 真峰顶（全山东面最高石面，射线实测 y=6.20）；
        ② (9.6, 6.12, 15.7)  —— 尖顶东肩，只低 0.08m，与 ① 并肩读作"守在顶上"；
        ③ (10.0, 5.88, 16.5) —— 右侧岩台，彼此 0.93~1.17m，三只都读得清不糊成一团。
+     ⚠️ 2026-10-14 起 ③ **已不在东假山**：三点同山时"换峰飞行"实际只挪 1m、
+        用户从来没看出鸟在飞（Chief 定位）⇒ ③ 整体挪去西假山峰顶，见下方该点注释。
      ⚠️ 与石上小鸟（ROCK_SPOTS，z 16.4~16.75、y 3.87~4.68）的间距：三只分别 1.58~1.88m
      （上一轮只有 0.35~0.75m），birds-guard"小鸟脚底贴石面"的上打射线碰不到鹦鹉，
      比上一轮更安全。 */
   [9.2, 6.20, 15.7],
   [9.97, 6.114, 16.17],
-  [10.0, 5.88, 16.5],
+  /* ③ 西假山峰顶台地 —— 2026-10-14 从东假山右岩台 (10.0,5.88,16.5) 整体挪来。
+     ⚠️⚠️ 挪窝根因：原三点全在东假山、彼此仅 0.93~1.17m，"换峰飞行"实际是 1.4 秒
+     挪 1 米，**用户从来没看出鸟在飞**（Chief 定位）。落点拉开到两座真山之间
+     （东 ① ↔ 西 ③ 水平距 **14.9m**），飞行才读得出来。
+     ⚠️ 高度是探针实测、不是手填：outputs/_diag/macaw-west2-probe.log
+     （probe/_tmp-macaw-west2.mjs，西假山心 (−6.5,14.2) 周围 0.2m 网格 121 点，
+     逐点全分层命中 + 默认机位可见性 + 东①→各候选弧线净空）。筛选口径：
+       ① 顶层层高 3.2~5.6m（地面 ~1.7m 以上、石尖/树冠 6m 以下的"可站"区间）；
+       ② 默认机位（1400×800、intro=0）直视可见（锚点→脚面+0.15m 反向射线首中即目标）；
+       ③ 东①→该点巡航弧（smoothstep 贝塞尔）全程 0.3m 净空无碰撞（上下各一射线）。
+     实测 (-5.7,5.02,15.0)：层 5.02/3.61/1.74、vis=true、弧线碰撞 0；同在零碰撞
+     集合里的 (-5.5,5.24,15.0) 等是同一片 5.0~5.24m 台地（四邻 5.01~5.24，取中线点）。
+     ⚠️ 山心附近的 4.1~4.4m 候选全部落选：弧线在终点前 0.1m 内擦 6m 级石尖
+     （1.1m 体长的鸟会穿模），明细见同日志"碰撞点"列。
+     ⚠️ 与石上小鸟（ROCK_SPOTS，东假山 z 16.4~16.75）保持 >15m；西假山没有
+     ROCK_SPOTS 小鸟，不会把 birds-guard"脚底贴石面"引红。 */
+  [-5.7, 5.02, 15.0],
 ];
 /* ⚠️⚠️ 第十五轮（老黄二次实拍"鹦鹉仍不对"）：落点本身其实已经到位 —— 射线复核
    （outputs/_diag/macaw-final-check.mjs，spring/clear/noon 默认机位）三只脚底
@@ -2512,7 +2530,7 @@ const MACAW_SPOTS = [
    ⚠️ 教训：峰顶选点要按**屏幕间距**筛，不能按世界间距 —— 世界 0.4m 里沿视线方向
    的那 0.35m 投到画面上等于 0。
    ⇒ 本轮把 ② 挪到 (9.97, 6.114, 16.17)（沿屏幕 x 方向挪开，石面只低 0.086m），
-     与 ① 在屏幕上拉开 27px（1208 → 1235）；③ 不动。
+     与 ① 在屏幕上拉开 27px（1208 → 1235）；③ 不动（**仅指本轮**；2026-10-14 ③ 已因"换峰飞行看不出"挪去西假山顶，见下方该点注释）。
    ⚠️ 峰顶脊约 1.5m 宽、屏幕横向量程只有约 40px，三只不可能拉得很开：试过
    (10.4,16.6)（石面 4.92）与 (10.6,16.2)（石面 5.06）都会掉出"山顶"，不取。 */
 /* ══ 金刚鹦鹉的作息与动作（2026-10-05 第十六轮）══════════════════════════
@@ -2532,6 +2550,9 @@ const MACAW_SPOTS = [
       探针可复现（运行时动效本来允许 Math.random，能用确定性就不用随机）。 */
 const MACAWS = [];
 const MACAW_LIFT = 2.4;                       // 起飞/落下时抬升的高度（m）
+const MACAW_CRUISE = 1.6;                     // 换点巡航弧顶额外高度（m）
+const MACAW_TAKEOFF = 0.35, MACAW_LANDING = 0.55; // 内部飞行 起/落时长（秒）
+const MACAW_FLY_DUR = 1.4;                    // 内部飞行巡航时长（秒）
 const MACAW_DEPART = 0.55, MACAW_ARRIVE = 0.75;
 /* ⚠️ flutter 时长 0.42→0.55：与下面"整段只走 2 个周期"配套 —— 2/0.55 = 3.6Hz，
    60fps 下每帧相位 0.38rad、30fps 下 0.76rad，都在"看得出来是扇动"的采样率上。 */
@@ -2559,6 +2580,90 @@ export function updateMacaws(dt, t){
     else if (m.mode === 'away' && want){ m.mode = 'arrive'; m.mt = 0; }
     m.mt += dt;
 
+    /* ── 内部换点飞行：白天在 MACAW_SPOTS 各峰顶间弧线移动 ──
+       ⚠️⚠️ 2026-10-14 运动学校对（macaw-guard：roll/pitch ≤8、yaw ≤22 rad/s，按仿真时钟
+       计量、与帧率无关）。三处不变量，改前必读：
+       ① 航向取**最短角**（见触发处 flyYaw）：东↔西原始 atan2 差可达 7.2rad，直接混
+          会让起飞段 yaw ≈41 rad/s；
+       ② 振翅相位用全程累积 flightT，**不随 mt 复位**：mt 每换态归零，sin(mt*26) 会从
+          sin(36.4)=−0.96 跳回 0，单帧 Δroll≈0.17rad≈10.3 rad/s（撞 roll≤8）；
+       ③ 俯仰沿**路径解析斜率**连续：起降段端点 = 巡航贝塞尔在 v=0/1 的斜率，换态处
+          严格相等（老写法 takeoff 收尾 −0.34、巡航起步 +0.24，单帧跳 0.58rad≈34）。
+       ④ 弧顶高 flyYMid 在 trigger 处**算一次存字段**、三分支共用：距离缩放
+          （dist/8 钳 0.2~1）。同源是闭合性的构造保证 —— 各分支各算一遍正是
+          41.7 rad/s 那类"两处公式抄不一致"bug 的成因。
+       ⚠️ 飞行时长常数 MACAW_TAKEOFF/FLY_DUR/LANDING（0.35/1.4/0.55）不许动 ——
+          上面三处连续性全靠这组时长闭合。**节拍阈值不在此列**：它在下方 trigger 处，
+          2026-10-14 由"8~22s/次"改为"首飞 10/14/18s、之后 60~120s/次"（改因：
+          旧节拍下 40s 窗末必然有鸟在天上，macaw-guard ① 连挂）。
+       ⚠️⚠️ 改节拍必须重跑 macaw-guard **两遍**且两遍都得绿 —— ① 是节拍稳定性判据，
+           单遍绿可能是运气（旧节拍下线前实测两遍全挂在①）。 */
+    if (m.mode === 'takeoff'){
+      m.flightT += dt;
+      const u = Math.min(1, m.mt / MACAW_TAKEOFF);
+      const lift = u * u;                               // 加速上升
+      const h0 = m.flyFrom.y + MACAW_LIFT;
+      const yMid = m.flyYMid;                       // 与 cruise/land 同源（闭合性靠它）
+      const pitchUp = Math.atan2(2 * (yMid - h0), Math.max(m.flyDist, 0.001)); // 巡航起步斜率
+      h.position.set(m.flyFrom.x, m.flyFrom.y + lift * MACAW_LIFT, m.flyFrom.z);
+      /* 俯仰用 smoothstep 斜坡（不是 u²：u² 末端速率 2/0.35，短距腾跃时 pitchUp≈1.3rad
+         ⇒ 7.4 rad/s 贴线；smoothstep 末端速率 1.5/0.35 ⇒ ≤5.6，留余量） */
+      h.rotation.set(pitchUp * (u * u * (3 - 2 * u)) + 0.08 * Math.sin(m.flightT * 26 + 1.1) * lift,
+                     m.yaw + (m.flyYaw - m.yaw) * lift,
+                     Math.sin(m.flightT * 26) * 0.18 * lift);
+      if (u >= 1){ m.mode = 'cruise'; m.mt = 0; }
+      continue;
+    }
+    if (m.mode === 'cruise'){
+      m.flightT += dt;
+      const u = Math.min(1, m.mt / MACAW_FLY_DUR);
+      const v = u * u * (3 - 2 * u);                    // smoothstep：起降缓、中段匀速（读作巡航）
+      const p0 = m.flyFrom, p3 = m.flyTo;
+      const h0 = p0.y + MACAW_LIFT;
+      const h3 = p3.y + MACAW_LIFT * 0.6;
+      const x = p0.x + (p3.x - p0.x) * v;
+      const z = p0.z + (p3.z - p0.z) * v;
+      const yMid = m.flyYMid;                       // 与 takeoff/land 同源（闭合性靠它）
+      const y = (1 - v) * (1 - v) * h0 + 2 * (1 - v) * v * yMid + v * v * h3;
+      h.position.set(x, y, z);
+      /* 俯仰 = 贝塞尔解析斜率：端点与起降段闭合，且不会像差分那样在 u→1 退化成 0 跳变 */
+      const dydv = -2 * (1 - v) * h0 + 2 * (1 - 2 * v) * yMid + 2 * v * h3;
+      h.rotation.set(Math.atan2(dydv, Math.max(m.flyDist, 0.001)) + 0.08 * Math.sin(m.flightT * 26 + 1.1),
+                     m.flyYaw,
+                     Math.sin(m.flightT * 26) * 0.18);
+      if (u >= 1){ m.mode = 'land'; m.mt = 0; }
+      continue;
+    }
+    if (m.mode === 'land'){
+      m.flightT += dt;
+      const u = Math.min(1, m.mt / MACAW_LANDING);
+      const lift = 1 - (u * u);                         // 减速下降
+      const h3 = m.flyTo.y + MACAW_LIFT * 0.6;
+      const yMid = m.flyYMid;                       // 与 takeoff/cruise 同源（闭合性靠它）
+      const pitchDn = Math.atan2(2 * (h3 - yMid), Math.max(m.flyDist, 0.001)); // 巡航收尾斜率（负）
+      h.position.set(m.flyTo.x, m.flyTo.y + lift * MACAW_LIFT * 0.6, m.flyTo.z);
+      const blend = 1 - lift;                           // 0→1：航向回正到 yaw0
+      /* 俯仰从巡航收尾斜率 pitchDn 缓回 0（不是反向！第一版写成 0→pitchDn，
+         落地一瞬从 pitchDn 跳回 0，实测 pitch 角速度 41.7 rad/s，撞 roll/pitch≤8）。
+         ⚠️ 收尾必须随 lift（=1−u²）而不是 smoothstep：smoothstep 在 u=1 的导数
+         还有 0，但第一版收在 u=1 的值恰是 pitchDn≠0，接栖停 rest 的 pitch=0
+         会再跳一次（实测 9.4 rad/s）。与 roll/wobble 同用 lift ⇒ u=1 三项全为 0，
+         与栖停的静止基准逐项相等，落地无跳。 */
+      h.rotation.set(pitchDn * lift + 0.08 * Math.sin(m.flightT * 26 + 1.1) * lift * lift,
+                     m.flyYaw + (m.yaw0 - m.flyYaw) * blend,
+                     Math.sin(m.flightT * 26) * 0.18 * lift);
+      if (u >= 1){
+        m.base.copy(m.flyTo); m.mt = 0;
+        if (!want){ m.mode = 'depart'; }   // 飞行期间天气突变：落到目的地再走，不从半空瞬移
+        else {
+          m.mode = 'perch'; m.ev = 'rest'; m.c++;
+          m.evT = 1.2 + h01(m.i * 7 + 3, m.c) * 2.6;
+          m.yaw = m.yawT = m.yaw0;
+        }
+      }
+      continue;
+    }
+
     if (m.mode === 'depart' || m.mode === 'arrive'){
       const dur = m.mode === 'depart' ? MACAW_DEPART : MACAW_ARRIVE;
       const u = Math.min(1, m.mt / dur);
@@ -2584,8 +2689,54 @@ export function updateMacaws(dt, t){
     }
     if (m.mode === 'away'){ h.visible = false; continue; }
 
-    /* ── 栖停：事件驱动 ── */
+    /* ── 栖停：事件驱动（含内部换点起飞） ── */
     h.visible = true;
+    /* 白天偶尔换峰：落点只在 MACAW_SPOTS 内跳，弧线往返。
+       ⚠️ 只在 ev==='rest'（静止小动作，pitch/roll 基准都是 0）时触发 —— 若从 flutter/
+       preen 的半空中接飞行，起手一帧就要补上人家 0.24rad 的滚转 ⇒ Δroll≈14 rad/s，
+          直接撞 macaw-guard 的 roll≤8。等当前小动作做完再走，肉眼无差别。 */
+    if (want && m.ev === 'rest'){
+      m.perchT = (m.perchT || 0) + dt;
+      /* 节拍（2026-10-14，Chief 派单）：首飞早、之后稀。
+         · 首飞阈值按鸟错开 10/14/18s —— 观众一进园就马上看得到真飞，且 40s
+           门禁窗内一定有飞行帧可量飞行姿态安全性（② 才有的可测）；
+         · 之后转 60~120s 一次（真鹦鹉久栖偶飞）⇒ 40s 窗末有 25s+ 全员栖停
+           余量，macaw-guard ①「窗末 3 只全 perch」才立得住。
+         ⚠️ 为什么必须"首飞早+之后稀"：日常 8~22s 一飞时，任意时刻约 35% 概率
+           有鸟在天上（单鸟在飞占比 2.3/(8~22+2.3)≈12~22%×3 只），40s 窗末
+           撞上是常态 —— 门禁 run1/run2 连挂 ①（perch/cruise/takeoff）就是这个。
+         ⚠️ 阈值全走确定性 h01（与全局随机流无关、探针可复现）；m.c 计数逻辑
+           与飞行时长常数 0.35/1.4/0.55 都不动。*/
+      const thr = m.flown ? 60 + h01(m.i * 3 + 1, m.c) * 60 : 10 + m.i * 4;
+      if (m.perchT > thr){
+        m.perchT = 0;
+        const others = MACAW_SPOTS.filter(s => Math.abs(s[0] - m.base.x) > 0.01 || Math.abs(s[2] - m.base.z) > 0.01);
+        if (others.length){
+          const t = others[Math.floor(h01(m.i * 3 + 2, m.c) * others.length)];
+          m.flyFrom = new THREE.Vector3(m.base.x, m.base.y, m.base.z);
+          m.flyTo = new THREE.Vector3(t[0], t[1], t[2]);
+          m.flyDist = Math.hypot(m.flyTo.x - m.flyFrom.x, m.flyTo.z - m.flyFrom.z);
+          /* 弧顶高：基础 1.6m，按距离缩（短跳配小弧）。算一次存字段，三个飞行分支
+             共用同一个 yMid —— 端点闭合靠"同源"保证，不靠各分支重复算对。
+             ⚠️ 为什么必须缩放：①② 是同峰并肩两点、相距仅 0.9m。恒 1.6m 弧高时，
+             0.9m 水平距配 1.6m 落差 ⇒ 弧顶俯仰扫过率 ≈9.9 rad/s（离线逐帧仿真
+             1/60 实测 8.61，上门禁因真实 dts 更细还要高约 1），撞 macaw-guard 的
+             pitch≤8；且 0.9m 挪 1.6m 弧视觉上像气球，不像鸟。
+             跨山（≈15m）时 dist/8>1 钳到 1 ⇒ 弧高仍是满值 1.6m，长飞行动轴不变。 */
+          m.flyYMid = Math.max(m.flyFrom.y + MACAW_LIFT, m.flyTo.y + MACAW_LIFT * 0.6)
+                      + MACAW_CRUISE * Math.min(1, Math.max(0.2, m.flyDist / 8));
+          /* 航向取最短角：atan2(sin(dy),cos(dy)) 把差值折回 [-π,π]。
+             东→西原始差 ≈−7.2rad（绕整圈 413°、峰值 yaw 角速度 ≈41 rad/s
+             超 macaw-guard 22；且鸟会在空中多转一圈才对准航向）。 */
+          const dYaw = Math.atan2(m.flyTo.x - m.flyFrom.x, m.flyTo.z - m.flyFrom.z) - m.yaw;
+          m.flyYaw = m.yaw + Math.atan2(Math.sin(dYaw), Math.cos(dYaw));
+          m.flightT = 0;
+          m.flown = 1;                                    // 首飞之后转"稀"节拍（见上）
+          m.mode = 'takeoff'; m.mt = 0;
+          continue;
+        }
+      }
+    }
     m.evT -= dt;
     if (m.evT <= 0){
       const r = h01(m.i * 7 + 3, m.c * 5 + 1);
