@@ -37,10 +37,90 @@ const check = (name, ok, detail = '') => {
   console.log(`${ok ? '  ✓' : '  ✗'} ${name}${detail ? ' — ' + detail : ''}`);
 };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-/* 过渡由仿真时间推进（dt 钳到 50ms），软渲染低帧率下 2.8 秒过渡可能等 1 分钟。
-   探针把 dur 调短 + 轮询 ENV.t>=1 —— 插值机制照跑，只是不等墙钟。 */
-const settled = page => page.waitForFunction(() => window.__garden && window.__garden.ENV.t >= 1,
-  null, { timeout: 30000, polling: 250 }).then(() => true).catch(() => false);
+/* ── 仿真推进速率 → 超时换算（2026-10-13 修 CI smoke 误红）─────────────────────
+   根因：本文件等的三样东西 —— ENV.t 收敛、camFly 飞行落位 —— **由仿真时间推进**
+   （ENV.t += dt / ENV.dur，src/11-loop.js:952；CAM_FLY.t += dt / dur，
+   src/08-assemble.js:3256；dt 来自 stepSim），而墙钟超时闸曾**写死 30000ms**。
+   两者只在真 GPU 上等价。慢机上仿真远远落后墙钟：src/11-loop.js:878 MAX_STEPS=6
+   （一帧最多补 100ms 仿真）+ :887 补步用尽即 simAccum=0 丢弃余量 ⇒ 每墙钟秒只推进
+   约 0.1s 仿真。CI 软渲染 ci.yml:15 自述约 2.4s/帧 ⇒ 仿真/墙钟 ≈ 0.1/2.4 ≈ 0.042，
+   即仿真比墙钟慢约 24 倍 ⇒ 30000ms 墙钟只够推进约 1.25s 仿真。
+
+   ⚠️ 修法是**换算超时口径**，不是放宽断言：`ENV.t>=1` 与 `!camFly()` 两个判据一字未动，
+      等不到仍照样报红。超时值 = 需要的仿真秒数 / 实测推进速率 × 余量，取自页面 simClock。
+
+   ⚠️⚠️ 本段改过两轮，**第一轮算出来等于没改**，这个坑值得留给后人：
+   首版按 `needed = ENV.dur`（探针已压到 0.25s）、slack=4 折算：
+   0.25 / 0.042 × 4 ≈ 23.8 秒 < 地板 30000ms ⇒ `Math.max(30000, …)` 把结果整段夹回
+   30000ms，**与改前一毫秒不差**；r=1（真 GPU）到 r=0.02（比 CI 还慢 2 倍）全区间如此。
+   ⇒ 改了 75 行仍会红。教训：**带地板的折算必须先把折算表按 r 全区间打出来再写代码**，
+      否则「以为放宽了、实际被地板吃掉」在运行时完全看不出来（本次就是靠打表才发现）。
+
+   ⚠️⚠️ 更要紧的一条实测结论，与「smoke 在 CI 上必然误红」的初始假设**相反**：
+   逐条核算（r=0.042）⇒ settled 只等 ENV.t>=1，需 0.25 仿真秒 = **5.9 秒**，
+   旧值 30000ms 有 **20 倍冗余，从来不是 CI 判红的瓶颈**；
+   真正必然超时的是 **camFly**：dur=1.4 仿真秒 ÷ 0.042 = **33.3 秒 > 旧值 30 秒**，
+   而那处原带 `.catch(() => {})` 把超时**静默吞掉**（已修，见下方巡游段）。
+   ⇒ settled 这段保留折算，是为**未来更慢的环境**（比 CI 还慢 2~10 倍的机器）留余量，
+     **不是它治好了本次 CI**，别把它当功劳记。 */
+/* 实测推进速率（仿真秒 / 墙钟秒）。读页面自己的 simClock，不写死 0.042 ——
+   那个数只在 CI 软渲染下成立，真 GPU 下 r≈1。采样窗 1.2s：软渲染一帧就 2.4s，
+   窗太短会读到「一帧都没走完」；太长则每处开销可观（12 处 × 1.2s ≈ 14s，可接受）。 */
+async function measureRate(page){
+  const a = await page.evaluate(() => window.__garden.simClock());
+  const w0 = Date.now();
+  await sleep(1200);
+  const b = await page.evaluate(() => window.__garden.simClock());
+  const dWall = (Date.now() - w0) / 1000;
+  /* 采样窗内仿真没推进 ⇒ 页面没在跑（挂了/卡了）。此时回落 1.0 是**故意**的：
+     让预算维持地板值、尽快报红，而不是给一个天文数字把 40 分钟的 CI 作业拖到被杀。 */
+  return (dWall > 0 && b > a) ? (b - a) / dWall : 1;
+}
+/* 换算墙钟超时。rate = 仿真秒/墙钟秒，needed = 需要的**仿真秒**，slack = 余量系数。
+   ⚠️⚠️ 返回**毫秒**。这里踩了本轮唯一一个真 bug，值得留给后人：
+   首版写的是 `needed / rate * slack` —— 结果单位是**秒**（0.5/0.042×3 = 35.7），
+   却直接拿去和 `Math.max(30000, …)` 这个**毫秒**地板比大小 ⇒ 折算值 36 被地板 30000
+   整段吃掉，**改了 75 行与改前一毫秒不差**。漏的就是那个 ×1000。
+   ⇒ 判据（这类 bug 的通用抓手）：**折算式与阈值必须当场标注单位，并把折算表打全**。
+     前两轮曾误判成「地板太高」而两次动地板（一次降到 12000、一次想改 needed），
+     全是在治标；直到把两侧单位并排写出来才看见真凶。
+
+   ⚠️ 地板**保持 30000ms 不动**，中途降过一次又收回：降到 12000 会让**真 GPU** 下
+     settled 从 30s 掉到 12s ⇒ 那是对本机门禁的收紧，属回归，不能为慢机的改善牺牲本机。 */
+const WALL_FLOOR = 30000;   // 毫秒。真 GPU 下等一次 0.25s 过渡的旧档位，保留不动。
+/* ⚠️ rate 必须**封顶**在「还能容忍的慢」之内，否则页面已挂（rate=0）时
+   `needed / 1e-6 * slack * 1000` 会算出 15 亿毫秒（41 天）——
+   那不是给慢机留余量，而是把 ci.yml 的 40 分钟作业拖到**被杀**，
+   表现为「超时」而不是「红」，恰恰丢掉了这次修复要恢复的判别力。
+   封顶 0.01（仿真比墙钟慢 100 倍）⇒ 上界 needed/slack 反推 ≈ 75s，
+   远小于 40 分钟，而比 CI 现状慢 4 倍以上的机器仍能拿到足额预算。
+   —— 有牙自证第 6 例抓到的就是这个（期望回落地板 30000，实际 15 亿）。 */
+const RATE_MIN = 0.01;      // 仿真/墙钟速率下限：再慢就是「页面没在跑」，不是「机器慢」
+const wallBudget = (rate, needed, slack) =>
+  Math.max(WALL_FLOOR, Math.ceil(needed / Math.max(rate, RATE_MIN) * slack * 1000));  // ×1000 = 秒→毫秒
+/* settled 等的是**一次完整过渡**：ENV.dur（探针压到 0.25s，但兜底 2.8s）
+   × 走完它所需的仿真秒，再留 3× 余量盖住首帧未推进与 setEnv 往返。
+   ⚠️ 取 needed 用 Math.max(dur, 0.5) 兜底：dur 已被上一段代码压到 0.25，
+      若哪天读到的 dur 是 undefined/0，折算会退化成 0 → 撞地板，与真实需求无关。 */
+const settled = async page => {
+  const rate = await measureRate(page);
+  const needed = Math.max(await page.evaluate(() => window.__garden.ENV.dur || 2.8), 0.5);
+  const ms = wallBudget(rate, needed, 3);
+  try {
+    await page.waitForFunction(() => window.__garden && window.__garden.ENV.t >= 1,
+      null, { timeout: ms, polling: 250 });
+    return true;
+  } catch {
+    /* 报红时把读数打出来，否则「超时」是黑箱：仿真推进到哪 / 墙钟等了多久 / 速率多少。
+       能分辨「慢机等不够」与「仿真真没走（页面挂了）」这两件完全不同的事。 */
+    const st = await page.evaluate(() => ({ t: window.__garden.ENV.t, s: window.__garden.simClock() }));
+    const info = await page.evaluate(() => window.__garden.simState());
+    console.log(`    [settled 超时] ENV.t=${Number(st.t).toFixed(3)}（需 ≥1）· ` +
+      `仿真已走 ${Number(st.s).toFixed(2)}s · 预算 ${ms}ms 墙钟 · 采样速率 ${rate.toFixed(4)} 仿真s/墙钟s` +
+      ` · 本帧补步 ${info.steps}/${info.maxSteps} @ ${Number(info.fixed * 1000).toFixed(1)}ms`);
+    return false;
+  }
+};
 /* ── 等 stats 标签刷新到位（2026-09-18 新增，修竞态）──
    `#stats` 不是逐帧写的：渲染循环里按**累加节拍**（约 0.5 秒）刷新一次。
    于是"设完状态就立刻读 textContent"是在赌 HUD 那一拍恰好已经跑过 ——
@@ -48,16 +128,31 @@ const settled = page => page.waitForFunction(() => window.__garden && window.__g
    harness 换到真 GPU（37ms/帧）后这个赌局输了：实测连跑 3 次，2 次读到上一拍的旧标签
    （"切夜"读到"午夏"、"晨雾"读不到"薄雾"）。
    ⚠️ 这类"读一次"的断言换 harness 时是最先碎的 —— 判据要改成**轮询到谓词成立**。 */
-async function waitStats(page, test, ms = 6000){
+/* ⚠️ 2026-10-13：#stats 的刷新条件是**墙钟累加** `acc += rawDt; if (acc >= 0.5)`
+   （src/11-loop.js:1399-1400，注释自述「必须用 rawDt」）⇒ 一拍只要 0.5 **墙钟**秒，
+   **不依赖仿真速率**，与上面 settled/camFly 那两个仿真钟判据是不同的口径，别混为一谈。
+   慢机上每帧 2.4s，一帧就跨过 0.5s 节拍 ⇒ 刷新只会比真 GPU 更快，不是更慢。
+   真正吃时间的是「读到的那一拍内容对不对」：状态刚 setEnv、那一拍还带着旧标签。
+   ⇒ 6s 在慢机上够不够，取决于那之后有几帧可用，不是由节拍本身决定；
+     统一抬到 12s（留 20 帧以上）即可覆盖，仍是**只改等多久、test() 一字未动**。 */
+const STATS_BUDGET = 12000;
+async function waitStats(page, test, ms = STATS_BUDGET){
   const read = () => page.evaluate(() => (document.getElementById('stats') || {}).textContent || '');
   const t0 = Date.now();
   for (;;){
     const txt = await read();
     if (test(txt)) return { ok: true, txt };
-    if (Date.now() - t0 > ms) return { ok: false, txt };
+    if (Date.now() - t0 > ms) {
+      /* 超时把读到的东西原样打出来：空字符串说明 #stats 一拍都没刷新过（与"有旧标签但谓词不成立"
+         是两回事，后者说明状态真没落位 —— 不打出来就没法分辨）。 */
+      console.log(`    [waitStats 超时] ${ms}ms 内谓词未成立 · 读到 ${txt ? JSON.stringify(statsLineRaw(txt)) : '(空 —— #stats 一拍未刷新)'} ` +
+        `· 墙钟已走 ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+      return { ok: false, txt };
+    }
     await sleep(80);
   }
 }
+const statsLineRaw = txt => String(txt).split('\n').filter(l => l.includes('·')).join(' ').trim();
 /* stats 里那行"天气 · 时刻季节"：两处断言都要它，取法统一在这里 */
 const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) || '').trim();
 
@@ -439,9 +534,24 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   check('巡游：启动后状态 on 且首站 hero', tour0.st.on === true && tour0.st.idx === 0, JSON.stringify(tour0.st));
   check('巡游：首站字幕为立峰·云根', /云根/.test(tour0.cap), tour0.cap);
   // 等首站飞行落定（camFly 熄灭），再确认停留计时不提前切站
-  await page.waitForFunction(() => window.__garden && !window.__garden.camFly(),
-    null, { timeout: 30000, polling: 200 }).catch(() => {});
+  /* ⚠️ 2026-10-13：原来这里是 `.catch(() => {})` **静默吞掉超时**。
+     后果是两条：① 飞行没落定就继续取样，tourFly.idx 读到的是**飞行途中**的状态 ⇒ 假读数；
+     ② 真超时也无人知道。这与"等不到就红"的门禁原则直接冲突。
+     超时同样按推进速率换算：CAM_FLY.t += dt / CAM_FLY.dur（src/08-assemble.js:3256），
+     巡游飞行 dur=1.4 秒（src/08-assemble.js:3533 gotoViewpoint(id, 1.4, 'tour')）
+     ⇒ 需要的仿真秒数取 camFlyState().dur 实测值，不写死。 */
+  const flyRate = await measureRate(page);
+  const flyDur = await page.evaluate(() => window.__garden.camFlyState().dur || 1.4);
+  const flyMs = wallBudget(flyRate, flyDur, 4);
+  const flyOK = await page.waitForFunction(() => window.__garden && !window.__garden.camFly(),
+    null, { timeout: flyMs, polling: 200 }).then(() => true).catch(() => false);
+  if (!flyOK){
+    const st = await page.evaluate(() => window.__garden.camFlyState());
+    console.log(`    [camFly 超时] 飞行未落定：t=${Number(st.t).toFixed(3)}（需 ≥1）· dur=${st.dur}s · ` +
+      `owner="${st.owner}" · 预算 ${flyMs}ms 墙钟 · 速率 ${flyRate.toFixed(4)} 仿真s/墙钟s`);
+  }
   const tourFly = await page.evaluate(() => window.__garden.tourState());
+  check('巡游：首站飞行按期落定（camFly 熄灭）', flyOK, `owner=${tourFly.idx === 0 ? 'tour' : '?'} 飞行 dur=${flyDur}s`);
   check('巡游：飞行落定后仍在首站（不提前切站）', tourFly.idx === 0, `idx=${tourFly.idx}`);
   // 用户接管：画布 pointerdown 应停巡游并收字幕
   const tourTake = await page.evaluate(() => {
