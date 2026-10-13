@@ -141,6 +141,12 @@ const SUITES = [
      口径提示：本条实测 18 个方向 / 300.3°，与上面那条的 11 个 / 180° **不可直接比** ——
      后者走完整滑杆链路且排除夜间月亮接管，前者直接取参数含夜间。详见该文件内注释。 */
   ['烘焙产物前提 shadow-product', 'probe/shadow-product-gate.mjs'],
+  /* playwright-args-guard（2026-10-13 建，毫秒级；纯静态、零浏览器零 GPU）：
+     抓 page.evaluate 实参个数超限的误用 —— 2026-10-13 云端 smoke 只跑 4m22s 就 failure
+     的真因就是它（多参同步抛 Too many arguments，本地三道门全隐形）。
+     判据：实参 ≥4 一律红；实参 3 且第 3 参不是以 { 开头的对象字面量则红。
+     只判 evaluate 不判 waitForFunction（后者本就是 (fn, arg, options) 三参，合法）。 */
+  ['playwright 实参个数 playwright-args-guard','probe/playwright-args-guard.mjs'],
   ['阴影视体覆盖 shadow-cover','probe/shadow-cover.mjs'],
   ['无头回归 smoke',         'probe/smoke.mjs'],
   /* 手机/平板控制面板（2026-10-07 建，~40s）：进场收起 / 点方印才出 / 触控命中区 /
@@ -624,6 +630,9 @@ if (byGates && !LIST.length){
   console.error(`[verify-all] ✗ --gates=${GATES_ARG} 没有匹配到任何门（可用名字见 SUITES 表）——拒绝以「0 道门全绿」收场`);
   process.exit(1);
 }
+const gitHead = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim();
+const gitDirty = spawnSync('git', ['status', '--porcelain', '-uno'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim().length > 0;
+say(`[verify-all] HEAD=${gitHead || '?'}${gitDirty ? ' DIRTY' : ''} · ${new Date().toISOString()}`);
 if (byGates) say(`[verify-all] 🎯 --gates=${GATES_ARG} ⇒ 只跑 ${LIST.length} 道：${LIST.map(([l]) => l).join('、')}`);
 if (QUICK_MODE && !SELFTEST){
   say(`[verify-all] ⚡ quick 模式：${LIST.length}/${SUITES.length} 道（快门 + 广覆盖；发布前仍须跑全量 npm run verify）`);
@@ -676,8 +685,13 @@ for (const [name, rel] of LIST){
   const out = (r.stdout || '').trim();
   const ok = r.status === 0;
   if (ok){
-    const tail = out.split('\n').slice(-3).join('\n');
-    if (tail) say(tail);
+    /* 绿门也保留带 ✓/✗ 的行（这些行 — 后面就是读数），上限 40 行；末尾仍附原来的末 3 行。
+       红门行为不变（走 dumpRed 完整明细）。 */
+    const lines = out.split('\n');
+    const marked = lines.filter(l => l.includes('✓') || l.includes('✗')).slice(0, 40);
+    const tail = lines.slice(-3).filter(l => !marked.includes(l));
+    const keep = marked.concat(tail.length ? ['', ...tail] : []);
+    if (keep.length) say(keep.join('\n'));
     if (retried){
       say(`⚠⚠ **FLAKY（偶发）**：${name} —— 第 1 次 exit=1、重跑 exit=0。`);
       say('   ⚠️ 这不等于"通过"：它说明**这门不稳**。排查两条线：① GPU 档位（_harness 明说 ANGLE');
