@@ -17,7 +17,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT } from './01-materials.js';
 import { world } from './08-assemble.js';
 import { POND_RADII } from './05-water.js';
-import { treeLanternInsts } from './06-vegetation.js';
+import { treeLanternInsts } from './06i-trees.js';
 import { TAU, CFG, mulberry32, rnd } from './00-config.js';
 
 /* ↓ 全部由 12-env.js 的 bindFestival(...) 注入（见文件头；沿用原名字是故意的，搬来的代码零改动） */

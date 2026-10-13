@@ -15,7 +15,8 @@ import { skyMesh, rainbowMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, 
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
 import { TAU, HOOKS, ENV_REF, mulberry32, CFG } from './00-config.js';
-import { spawnRipple, rainRippleActive, treeLanternInsts } from './06-vegetation.js';
+import { spawnRipple, rainRippleActive } from './06f-ripple.js';
+import { treeLanternInsts } from './06i-trees.js';
 import { POND_RADII, groundHeight, insidePond } from './05-water.js';
 /* 2026-10-05 拆分：电闪雷鸣 + 春节烟花已搬进 12b-sky.js（那边**不能** import 本模块，故由本模块注入状态机）。
    ⚠️ 这里的 import 是**必须**的，不要图省事改写成 `export { ... } from './12b-sky.js'`：

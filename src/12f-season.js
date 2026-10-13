@@ -15,7 +15,7 @@ import { MAT, SEASON_TINT_REGISTRY, wetUniform, WET_MATS, addWind } from './01-m
 import { renderer } from './02-scene.js';
 import { world } from './08-assemble.js';
 import { markCasterBoxDirty, fitShadowCamera } from './09-lights.js';
-import { treeLanternInsts } from './06-vegetation.js';
+import { treeLanternInsts } from './06i-trees.js';
 import { PRECIP_INDOOR } from './12e-precip.js';
 import { HOOKS } from './00-config.js';
 /* ⚠️ 灯会的 4 个材质与挂灯收集**住在 12c**：存在性表要按它们开合（河灯/烛焰/灯串），

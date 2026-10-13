@@ -9,7 +9,7 @@ import { THREE } from '../vendor.js';
 import { TAU, rnd, mulberry32, bootMark } from './00-config.js';
 import { WIND, AUX_PASS_HIDDEN } from './01-materials.js';   // 风向偏移；AUX_PASS_HIDDEN = 别让 GTAO 把萤火虫/雨雪当成实心体写进法线 pass
 import { scene, renderer, ACTIVE_QUALITY } from './02-scene.js';   // 萤火虫/镜头天气层要挂进场景；按画质档决定粒子数
-import { makeMistSpriteTex } from './06-vegetation.js';
+import { makeMistSpriteTex } from './06j-herbs.js';
 
 /* ══ 雾团（2026-09-28 · "半遮半掩"活雾，老黄设计）════════════════════════
    与雾絮场（上）互补：雾絮是全园均匀的低层纱；雾团是**定向遮挡** ——

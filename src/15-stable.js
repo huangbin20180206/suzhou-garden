@@ -27,7 +27,7 @@ import { THREE, GLTFLoader, mergeGeometries } from '../vendor.js';
 import { mesh, box, makeColumn, makeLatticePanel } from './03-factory.js';
 import { MAT, pavingNormalTex, registerWeatherRoles } from './01-materials.js';
 import { groundHeight } from './05-water.js';
-import { tubeRadiusRamp } from './06-vegetation.js';
+import { tubeRadiusRamp } from './06i-trees.js';
 import { renderer, scene, camera } from './02-scene.js';
 /* 季节门控（冬天才有口鼻白雾）走 ENV —— 方向单纯（12-env 不 import 本模块，见它的 import 表），
    所以直接 import，不必像 12b/12c 那样开注入槽。 */

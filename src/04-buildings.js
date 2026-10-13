@@ -1,6 +1,6 @@
 // 04-buildings: from index.html inline 491..936
 import { THREE } from '../vendor.js';
-import { makeWisteria } from './06-vegetation.js';
+import { makeWisteria } from './06j-herbs.js';
 import { mesh, box, makeQueTu, makeGuaLuo, makeLatticePanel, makeChangChuang, makeJiangnanWindow, makeChineseRoof, makeCeiling, instancedBoxes, instancedRoundRafters, DOUGONG_H, instancedGeo, makeDougongGeo, makeColumn, makeCorrugatedSlab } from './03-factory.js';
 import { MAT, makeInkWashTex, makePlaqueTex } from './01-materials.js';
 import { bootMark } from './00-config.js';
