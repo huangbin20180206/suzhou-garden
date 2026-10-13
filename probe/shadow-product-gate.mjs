@@ -60,10 +60,22 @@ const T = {
   /* CASTER_TEXEL_CM：阴影视体 texel 尺寸（既有门 :125 运行时算，需场景）→ 来源待定 */
 };
 
+/* 实测计时起点：把「<1s 快门」这个**推断**变成实测（Chief 2026-10-13 裁决）。 */
+const T_START = process.hrtime.bigint();
+const ms = () => Number(process.hrtime.bigint() - T_START) / 1e6;
+
 const results = [];
 const check = (name, ok, detail) => {
   results.push({ name, ok: !!ok });
   console.log(`  ${ok ? '\u2713' : '\u2717'} ${name}${detail ? ' \u2014 ' + detail : ''}`);
+};
+
+/* 「跳过」必须**显式打出来**：静默略过的话，日后没人知道这道门当时跑没跑、也看不出它为何没测。
+   （Chief 2026-10-13 裁决）—— 故 ⊘ / ✓ / ✗ 三态并存，且 skipped 不计入 fails。 */
+let skipped = 0;
+const skip = (name, why) => {
+  skipped++;
+  console.log('  \u2298 \u8df3\u8fc7 ' + name + ' \u2014 \u5c5e\u9884\u671f\uff1a' + why);
 };
 
 const norm = v => { const l = Math.hypot(v[0], v[1], v[2]); return [v[0]/l, v[1]/l, v[2]/l]; };
@@ -128,13 +140,14 @@ check(`S4 段内 sunPos 是**线性插值**（残差 <= ${T.LINEAR_RESIDUAL_MAX}
   + `（mixInto 12a-presets.js:563 是纯线性 ⇒ 理论残差 0；任一非线性改动都会让它抬头）`);
 
 /* ══ S5 产物清单 ══ */
-/* 这道门是「守前提」的、不是「守产物」的。烘焙尚未做 ⇒ **产物不存在属预期**，判绿。
+/* 这道门是「守前提」的、不是「守产物」的。烘焙尚未做 ⇒ **产物不存在属预期**。
    这里刻意不 import fs、不扫目录：产物路径至今没有任何代码或文档定义过（查不到），
-   真要守产物清单，得先有产物规范。本条此刻守的是「没有产物时门仍绿」。 */
-const PRODUCT_SPEC_KNOWN = false;
-check('S5 产物清单一致性（**当前无产物属预期**，判绿；产物规范尚不存在 ⇒ 来源待定）',
-  true,
-  `产物规范状态：${PRODUCT_SPEC_KNOWN ? '已定义' : '未定义（查不到：全仓无产物路径/命名约定）'} ⇒ 此刻只断言「无产物不报红」`);
+   真要守产物清单，得先有产物规范。
+   ⚠️ Chief 2026-10-13 裁决：报「**跳过**」而非「判绿」—— 静默判绿的话，日后没人知道
+      这道门当时跑没跑、也看不出它为何没测。故走 ⊘ 三态输出，skipped 不计入 fails。 */
+const PRODUCT_SPEC_KNOWN = false;   // 全仓无产物路径/命名约定 ⇒ 规范尚不存在（来源待定）
+skip('S5 产物清单一致性',
+  '烘焙尚未做、无产物属预期；且全仓无产物路径/命名约定（产物规范不存在 ⇒ 来源待定）');
 
 /* ══ S6 实时阴影口径 ══ */
 /* ⚠️⚠️ 口径更正（第一次写错，已修）：本条最初判「DirectionalLight 数量 == 1」⇒ 基线自己就红。
@@ -158,3 +171,27 @@ const oneCaster = castCount === 1;
 check('S6 实时阴影仍是**单投影**光源口径（烘焙产物不得与实时阴影叠加的前提）',
   oneCaster,
   litSrc + '｜前提③要求「投影方向光 == 1 盏」（既有门 :159）；判的是 castShadow=true 的**声明数**，不是方向光总数（fill 09-lights.js:217 刻意不投影）');
+
+/* ══ 三态判读 ══ */
+console.log('');
+console.log('  ── 判红时的三态判读（不要跳过）──');
+const failed = results.filter(r => !r.ok);
+if (!failed.length){
+  console.log('  全绿 ⇒ 前提①（太阳方向连续）仍成立，烘焙仍判不可行；本门无需翻口径。');
+} else {
+  console.log('  红 ' + failed.length + ' 条。三种可能，需按下列顺序排除：');
+  console.log('   ① 测法自身出错 —— 先把上面各条的 detail 读数与基准值比一比：');
+  console.log('      若读数「差一点点」（如弧长 300.3 → 299.x），是浮点或末位差，属测法问题，改容差重跑；');
+  console.log('   ② 代码改了但前提没变 —— 读数出现**结构性**变化（如线性残差从 0 变成 O(1)）；');
+  console.log('      这是 mixInto/paramsAtHour 被改动的信号，属回归，应修代码而非改阈值；');
+  console.log('   ③ 前提确实变了 —— 读数呈现「离散化」特征（弧长骤减、独立方向数骤减到个位数）；');
+  console.log('      说明太阳被改成离散档位，烘焙可能真的可行了 ⇒ 此时该重跑 shadow-bake-guard 全套，');
+  console.log('      并按其 :161 注释「真要做，这道门该改口径」翻转结论。');
+}
+
+const fails = failed.length;
+console.log('\n[shadow-product-gate] ' + (fails ? fails + ' FAILED' : 'ALL PASS')
+  + '（' + results.length + ' 项断言' + (skipped ? '，' + skipped + ' 项跳过' : '') + '）');
+/* 实测耗时：把「<1s 快门」这个推断变成实测（Chief 2026-10-13 裁决）。 */
+console.log('  实测总耗时 **' + ms().toFixed(0) + ' ms**（纯 node / 零浏览器 / 零 GPU）；阈值出处见文件头与 T 注释。');
+process.exit(fails ? 1 : 0);
