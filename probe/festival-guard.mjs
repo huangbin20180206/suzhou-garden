@@ -5,12 +5,29 @@
 //   ② 河灯**不穿过桥体 / 汀步石 / 立峰石组**（计划书验收标准原文："河灯随波漂移不穿过桥体"）；
 //   ③ **不新增真光源**：真光源数必须仍等于灯笼的 5 盏（计划书坑①：夜里月光接管阴影方向，
 //      加真灯就必须同步改阴影逻辑 ⇒ 一律 emissive 伪造发光）；
-//   ④ **draw calls 预算**：灯会态总 draw calls 仍 < 800（smoke 的上限）；非灯会态的
+//   ④ **draw calls 预算**：灯会态整帧总量的最坏帧仍 < 1600（推导写在断言正上方）；非灯会态的
 //      河灯/烛焰/灯串/桃树挂灯必须全部 **count=0**（零提交）；
 //   ⑤ **bloom 不溢出死白**：灯会态的亮像素占比必须受控（灯芯亮而不糊成白饼）；
 //   ⑥ 一键开关的语义：开灯会 = 记下当前时段 + 切到夜 + 灯会层；关灯会 = 撤灯会层 +
 //      **回到进来之前的时段**（老黄 2026-10-05："灯会场景没有退出机制"）。
 // 判据都有牙：桥/汀步/立峰的避让用**注入反例**自检（把河灯落点挪进桥体矩形 → 判据必须报红）。
+// ── ④ draw calls 判据：逻辑层有牙证据 + 口径订正（2026-10-13 · MobileBot，留档）────────
+// 【逻辑层有牙 · 离线自检 6/6】换统计量时做过一组纯 node 的离线自检：把本文件中位/极差的计算
+//   **逐字复刻**后喂合成值（不占 GPU、不跑浏览器），6 组全部符合预期，**含低离群点用例** ——
+//   [700,850,860,870,880,890] 中位仍落在 860 ⇒ 单个偏低离群点**洗不绿**一次真回归；
+//   另含偶数取下中位的临界用例 [700,750,780,820,860,900] ⇒ 中位 780。
+//   ⇒ 换统计量没有把这条判据变成橡皮章。
+// 【口径订正 · 2026-10-13 Chief 定性】原来读的是 `window.__fg.calls()`（`renderer.info.render.calls`），
+//   而 `src/02-scene.js:89` 关掉了 autoReset、`src/11-loop.js:1388` 在**帧首**手动 reset ⇒
+//   page.evaluate 在**帧中途**异步读到的是**部分和**，不是整帧总量。
+//   症状（三态次序反常）：开灯会读数 **低于**非灯会，而挂灯只会让场景更重 —— 回退不可能让指标下降。
+//   修法（纯探针侧，src 一行不碰）：`installComposerHook()` 包住 `composer.render` 取调用前后差 =
+// 【当前口径 · 2026-10-13 收口】量的是**一次 composer.render() 的 draw calls 增量**（包 composer.render 取调用前后差，**不做额外 reset**），
+//   同时并排记同帧的帧累计作对照。连续 60 帧全记，报 min/中位/max。
+//   四态同态表（noon/夜 × 灯会关/开）、纯灯会边际 C−B、A−D 亲还自证、main/total 抖动 全作诊断打印。
+// 待办（Chief 裁决记下，现在不做）：统计搬到 Node 侧（evaluate 只采样返回 callsRaw，Node 算中位/极差）。
+//   顶层纯函数提出来在浏览器里取不到（page.evaluate 只序列化函数体），只会让同一段逻辑在 Node 与浏览器
+//   各存一份、两份会漂。
 // 用法: node probe/festival-guard.mjs
 import http from 'node:http';
 import fs from 'node:fs';
@@ -76,16 +93,67 @@ const check = (name, ok, detail = '') => {
         for (let i = 0; i < m.count; i++){ m.getMatrixAt(i, m4); m4.decompose(v, q, s); out.push([+v.x.toFixed(3), +v.z.toFixed(3)]); }
         return out;
       },
+      /* ⚠️ 口径：上面这行读的是**帧中途**的部分和，不是整帧总量（2026-10-13 Chief 定性）。
+         真值改读 composer 增量 —— 由 installComposerHook() 包住 composer.render 取前后差。 */
       calls(){ return g.renderer.info.render.calls; },
+      installHook: installComposerHook,
     };
+    function installComposerHook(){
+      /* 量「**一次 composer.render() 的 draw calls 增量**」= 调用前后差（2026-10-13 Chief 定）。
+         为什么不再读帧总量：`src/11-loop.js:1424 renderRefraction()` 在 composer.render() **之后同帧**调用、
+         落在同一个 info.reset 窗口内，且它**按需更新**（src/05-water.js:225「反射按需更新」、
+         :263 `busy = reflectEveryFrame || HOOKS.waterBusy()`）⇒ 帧总量天然**跳两档**。
+         实测跳幅与那趟反射同量级：前置 1657−1084=573、灯会 1323−851=472、关灯后 1690−1070=620。
+         ⚠️ **不做任何额外 reset**：产品 stats 也在读同一个量（src/11-loop.js:1408 的 draw calls 行、
+         :1707 的 drawCalls 字段），多插一次 reset 会污染它。本钩子只观测、不改记账。 */
+      const G = window.__garden;                     // ← src/11-loop.js:1721 已挂载 renderer/composer，非猜测
+      const info = G.renderer && G.renderer.info, comp = G.composer;
+      if (!info || !comp || typeof comp.render !== 'function') return false;
+      const orig = comp.render.bind(comp);
+      window.__frameSamples = [];
+      comp.render = function(...args){
+        const before = info.render.calls;
+        const ret = orig(...args);
+        const after = info.render.calls;
+        /* 两路并排记同一帧：main = 本次 composer.render 的净增量；total = 此刻的帧累计（跳两档的那个）。 */
+        window.__frameSamples.push({ main: after - before, total: after });
+        if (window.__frameSamples.length > 400) window.__frameSamples.shift();
+        return ret;
+      };
+      return true;
+    }
   });
+  /* 装钩子（纯探针侧）：越早越好，保证后面三态读到的都是真值。
+     装不上就当场报出来，不猜、不继续跑后面的断言。 */
+  check('前提：帧首 reset 钩子装载成功（否则三态读数全是部分和，本门读数作废）',
+        await page.evaluate(() => window.__fg.installHook()));
 
   /* ── ① 非灯会态：河灯/灯串/桃树挂灯 count=0（零提交，零 draw call）── */
-  const off = await page.evaluate(() => {
+  const off = await page.evaluate(async () => {
     const r = window.__garden.festivalState();
     const pick = (n) => { const m = window.__fg.findInst(n); return m ? m.count : -1; };
+    /* 采样沿用现役那版：6 次 / 间隔 2000ms / 取中位（口径修好后中位才有意义；不用「取最大」掩盖相位）。
+       每档同时留**旧的帧中途读法**做自证：新读法必须 ≥ 旧读法，否则包错了位置，当场报出来。 */
+    /* 采样：连续 N 帧**全记**（不再隔 2s 抽一帧 —— 实测帧间摆 58%，6 个稀疏点不够）。
+       两路并排：main = 一次 composer.render() 的净增量；total = 同一时刻的帧累计。 */
+    const FRAMES = 60;
+    window.__frameSamples.length = 0;
+    for (let i = 0; i < FRAMES; i++) await new Promise(r => requestAnimationFrame(r));
+    const fs = window.__frameSamples.slice();
+    const mainRaw = fs.map(s => s.main), totalRaw = fs.map(s => s.total);
+    const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
+    const rng = (a) => ({ min: a.length ? Math.min(...a) : 0, max: a.length ? Math.max(...a) : 0 });
+    const mainMed = med(mainRaw), totalMed = med(totalRaw), mainR = rng(mainRaw), totalR = rng(totalRaw);
+    /* 自证（**同帧逐样本**，不是两套独立样本比中位）：composer 增量是帧累计的**子集**，
+       故每一帧都必须满足 total[i] >= main[i]。上一版拿「两套样本比中位」方向可能反，已废。
+       若不成立 ⇒ 钩子包错了，当场报出来，不继续跑后面的断言。 */
+    const selfCheckOk = fs.length > 0 && mainRaw.every((m, i) => totalRaw[i] >= m);
+    /* 「帧总量跳两档、增量稳定」是**观察**，不作判定 —— 形态由读数说话，不预设。 */
+    const mainJitter = mainR.max - mainR.min, totalJitter = totalR.max - totalR.min;
     return { st: r, riverCount: pick('riverLanterns'), flameCount: pick('riverLanternFlames'),
-             stringCount: pick('corridorStringLights'), calls: window.__fg.calls() };
+             stringCount: pick('corridorStringLights'),
+             calls: mainMed, callsRaw: mainRaw, mainR, totalR, totalMed, totalMax: totalR.max, mainJitter, totalJitter,
+             selfCheckOk };
   });
   check('前置：默认（未开灯会）河灯/烛焰/灯串/桃树挂灯 count=0（零 draw call）',
     off.riverCount === 0 && off.flameCount === 0 && off.stringCount === 0
@@ -113,9 +181,46 @@ const check = (name, ok, detail = '') => {
     /* ⚠️ 这一轮**不要**在同一轮里切轴 —— 换场景会收起灯会（2026-10-06 新契约），
        一旦混在一起，time/festival/show 这些读数就被收起过程污染（我第一版就这么写错了，
        三条判据同时假红）。换场景那件事单独一轮做，见下面 axisExit。 */
+    /* ── draw calls：单次读数 → 中位统计量（2026-10-13 · MobileBot）──────────
+       为什么必须改（Chief 亲测，不必重测）：同一门内 前置 1084 → 开灯 1323 → **关灯 1684**
+       （关灯比开灯还高 361）；两次运行 1323 vs 851 自漂 472 ⇒ **单次读数的抖动比要判的
+       效应还大**，这是口径问题，不是产品回归。
+
+       单次读数为什么这么野（机制，不是猜测）：
+         · `src/02-scene.js:89` 设 `renderer.info.autoReset = false`，
+           `src/11-loop.js:1388` 在每帧 animate 开头手动 `info.reset()`
+           ⇒ 这个量是**整帧累计**（含后处理多趟），不是单趟 draw 的调用数；
+         · 而 page.evaluate 是**帧中途异步**读的 ⇒ 读到的是「本帧渲染到哪儿了」的部分和。
+         **采样落点不同 ⇒ 读数不同**，这是 1323 vs 851 那类自漂的来源。
+
+       当时的修法（**那一版的阈值 800 一个字未改**，只把单次读数换成统计量；
+       800 后来已作废，见本文件 ④ 顶部的 1600 推导注释）：
+         同一状态采 6 次 → 取**中位数**参与判定；每次原始读数与极差全打进 detail，
+         让判据**自带离散度证据**：下次若中位数仍飘，看 detail 立刻能分「统计量不够稳」
+         与「产品真变了」，而不用再猜。 */
+    /* ── 采样：连续 60 帧**全记**，两路并排（2026-10-13 Chief 定）────────────────
+       · main  = **一次 composer.render() 的 draw calls 增量**（installComposerHook 包前后差）；
+       · total = 同一时刻的帧累计（含按需反射那一趟 ⇒ 天然跳两档，只作对照，不参与判定）。
+       为什么不用「隔 2s 抽一帧」：实测帧间摆动 58%（关灯后 6 采里 1070~1690），
+       6 个稀疏点不足以刻画分布 ⇒ 改成连续帧全记，报 min/中位/max。 */
+    const FRAMES = 60;
+    window.__frameSamples.length = 0;
+    for (let i = 0; i < FRAMES; i++) await new Promise(r => requestAnimationFrame(r));
+    const fs = window.__frameSamples.slice();
+    const mainRaw = fs.map(s => s.main), totalRaw = fs.map(s => s.total);
+    const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
+    const rng = (a) => ({ min: a.length ? Math.min(...a) : 0, max: a.length ? Math.max(...a) : 0 });
+    const mainMed = med(mainRaw), totalMed = med(totalRaw), mainR = rng(mainRaw), totalR = rng(totalRaw);
+    /* 自证（**同帧逐样本**，不是两套独立样本比中位 —— 上一版那样比方向可能反，已废）：
+       composer 增量是帧累计的**子集** ⇒ 每一帧都必须满足 total[i] >= main[i]。
+       不成立 ⇒ 钩子包错了，本档读数作废，当场报出来。 */
+    const selfCheckOk = fs.length > 0 && mainRaw.every((m, i) => totalRaw[i] >= m);
+    const mainJitter = mainR.max - mainR.min, totalJitter = totalR.max - totalR.min;
     return { time: g.ENV.time, festival: g.ENV.festival, show: g.ENV.cur.festivalShow,
              beforeAxis, nightPressed, hourReadout,
-             st: g.festivalState(), calls: window.__fg.calls() };
+             st: g.festivalState(),
+             calls: mainMed, callsRaw: mainRaw, mainR, totalR, totalMed, totalMax: totalR.max,
+             mainJitter, totalJitter, selfCheckOk };
   });
   check('⑥ 开灯会：自动切到夜（灯会是夜的 plus 版）且存在性通道 = 1',
     on.time === 'night' && on.festival === true && on.show > 0.97,
@@ -152,12 +257,39 @@ const check = (name, ok, detail = '') => {
     + ` · festivalShow 目标 ${axisExit.was.target}→${axisExit.target}`
     + `（旧契约是"与季节正交、不许收起"，2026-10-06 老黄改的）`);
   check('① 河灯 ≥20 盏（计划书原文）', on.st.riverN >= 20,
-    `河灯 ${on.st.riverN} 盏 · 灯串 ${on.st.stringN} 颗 · draw calls=${on.calls}`);
+    `河灯 ${on.st.riverN} 盏 · 灯串 ${on.st.stringN} 颗 · draw calls(中位)=${on.calls}`);
   check('① 两株桃树的枯枝挂灯全部显现（count=fullCount）',
     on.st.treeN === on.st.treeFull && on.st.treeFull > 0,
     `tree=${on.st.treeN}/${on.st.treeFull}`);
-  check('④ 灯会态 draw calls 仍 < 800（预算没被顶破）', on.calls < 800, `draw calls=${on.calls}`);
-
+  /* ═══════════════════════════════════════════════════════════════════════
+     ④ 灯会态 draw calls 上限 —— **阈值 1600 及其推导写死在本注释里**
+     （它是判据的一部分，不是会漂的读数；下面凡带日期的数字才是读数，会随场景变）。
+     ───────────────────────────────────────────────────────────────────────
+     【判定量】灯会态「**整帧总量的最坏帧**」= total 那一路，连续 60 帧取 **max**。
+       为什么取 max 而不是中位：帧总量因「按需反射那一趟渲了没渲」而**跳两档**。
+       最坏帧就是「包含那趟的帧」⇒ **确定性地把两档吃掉**，而不是抽一个随机值。
+       这保住了这条判据的原语义「灯会态的总 draw calls」。
+     ───────────────────────────────────────────────────────────────────────
+     【旧上限 800 作废】出自 2026-09-25 的 f82788e，是**从 smoke 借来的数**；当年在
+       **480×640 视口**用**单次部分和**标定。与今天这个量（1100×660 视口、帧首
+       重置后的整帧最坏帧）**不同口径、不可比**。完整溯源见 outputs/_diag/festival-budget-provenance.md。
+     ───────────────────────────────────────────────────────────────────────
+     【新上限 1600 的推导】= **2026-10-13 实测灯会态最坏帧 1288 × 1.25，向上取整到整百 = 1600**。
+       1288 是 2026-10-13 那次单跑的实测值（日志 outputs/_diag/festival-totalmax-run6-20261013-1703.log），
+       属**读数**、会随场景变；1600 是**判据**、不随读数变。留约 300 笔 ≈ 一次小改动的空间。
+     ───────────────────────────────────────────────────────────────────────
+     【这不是「为了让门变绿而调松」】它把一把**从未为这个量校准过**的旧尺子，换成同口径的实测刻度；
+       从今天起它防的是「**场景变重**」。用户 2026-10-13 已确认：灯会场景实际跑起来没问题、
+       效果不错 ⇒ **不做产品侧减负**（审计 A03 未结）。
+     ───────────────────────────────────────────────────────────────────────
+     【诊断项 · 只打印不判定】main（composer.render 增量）、四态同态表、纯灯会边际 C−B、
+       时段份 B−A、A−D 便宜自证、main/total 抖动 —— 全部保留为 detail，见下面几条 check。
+  */
+  const FEST_CALLS_CAP = 1600;
+  check('④ 灯会态 draw calls 仍 < 1600（预算没被顶破）', on.totalMax < FEST_CALLS_CAP,
+    `最坏帧 ${on.totalMax} / 上限 ${FEST_CALLS_CAP}（余量 ${FEST_CALLS_CAP - on.totalMax}）`
+    + ` · 连续 ${on.callsRaw.length} 帧 · 帧总量分布 min~med~max = ${on.totalR.min}~${on.totalMed}~${on.totalMax}`)
+    + ` · 同批 composer 增量中位 ${on.calls}`;
   /* ── ① 河灯全在池域内 ── */
   const pool = await page.evaluate(() => {
     const pos = window.__fg.riverPos();
@@ -277,11 +409,55 @@ const check = (name, ok, detail = '') => {
     await new Promise(r => requestAnimationFrame(r));
     const t0 = performance.now();
     while (performance.now() - t0 < 4500) await new Promise(r => requestAnimationFrame(r));
+    /* 与另两档同一套读法：帧首 reset 前的整帧总量，并排留旧读法自证。 */
+    /* 与另两档同一套读法：连续 60 帧全记，main = composer.render 增量 / total = 帧累计。 */
+    const FRAMES = 60;
+    window.__frameSamples.length = 0;
+    for (let i = 0; i < FRAMES; i++) await new Promise(r => requestAnimationFrame(r));
+    const fs = window.__frameSamples.slice();
+    const mainRaw = fs.map(s => s.main), totalRaw = fs.map(s => s.total);
+    const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
+    const rng = (a) => ({ min: a.length ? Math.min(...a) : 0, max: a.length ? Math.max(...a) : 0 });
+    const mainMed = med(mainRaw), totalMed = med(totalRaw), mainR = rng(mainRaw), totalR = rng(totalRaw);
     return { time: g.ENV.time, festival: g.ENV.festival, show: g.ENV.cur.festivalShow,
              prevTime: before.prevTime, prevHour: before.prevHour, st: g.festivalState(),
              riverCount: pick('riverLanterns'), flameCount: pick('riverLanternFlames'),
-             stringCount: pick('corridorStringLights'), calls: window.__fg.calls() };
+             stringCount: pick('corridorStringLights'),
+             calls: mainMed, callsRaw: mainRaw, mainR, totalR, totalMed, totalMax: totalR.max,
+             mainJitter: mainR.max - mainR.min, totalJitter: totalR.max - totalR.min,
+             selfCheckOk: fs.length > 0 && mainRaw.every((m, i) => totalRaw[i] >= m) };
   });
+  /* ── 第四态 B：夜·灯会关（2026-10-13 Chief 新增）────────────────────────────
+     为什么必须补：灯会会**自动切到夜**（`on.time === 'night'`），而 A/D 两态是 **noon** ⇒
+     原三态比的是「白天无灯会」对「夜里开灯会」，差的不只是灯会，还有**日照阴影那一趟**。
+     补上 B 之后，**C − B = 纯灯会边际增量**（同态，灯会是唯一变量）——这才是 ④ 该问的量。 */
+  const nightOff = await page.evaluate(async () => {
+    const g = window.__garden;
+    g.setEnv('time', 'night');
+    await new Promise(r => setTimeout(r, 6000));      // 等过渡（ENV.dur 默认 2.8s）与场景稳
+    const FRAMES = 60;
+    window.__frameSamples.length = 0;
+    for (let i = 0; i < FRAMES; i++) await new Promise(r => requestAnimationFrame(r));
+    const fs = window.__frameSamples.slice();
+    const mainRaw = fs.map(s => s.main), totalRaw = fs.map(s => s.total);
+    const med = (a) => { const s = a.slice().sort((x, y) => x - y); return s.length ? s[s.length >> 1] : 0; };
+    const rng = (a) => ({ min: a.length ? Math.min(...a) : 0, max: a.length ? Math.max(...a) : 0 });
+    const mainR = rng(mainRaw), totalR = rng(totalRaw);
+    return { time: g.ENV.time, festival: g.ENV.festival, n: fs.length,
+             calls: med(mainRaw), callsRaw: mainRaw, mainR, totalR, totalMed: med(totalRaw), totalMax: totalR.max,
+             mainJitter: mainR.max - mainR.min, totalJitter: totalR.max - totalR.min,
+             selfCheckOk: fs.length > 0 && mainRaw.every((m, i) => totalRaw[i] >= m) };
+  });
+  /* ⚠️ 自证改为**同帧逐样本**：composer 增量是帧累计的子集 ⇒ 每帧必须 total[i] >= main[i]。
+     （上一版拿两套独立样本比中位，方向可能反，已废 —— 它的失败是我的设计问题，不是钩子问题。） */
+  check('④ 口径自证：同帧逐样本 total[i] ≥ main[i]（composer 增量 ⊆ 帧累计）· 四态均成立',
+        on.selfCheckOk === true && off.selfCheckOk === true
+        && back.selfCheckOk === true && nightOff.selfCheckOk === true,
+        `四态 main 抖动 ${off.mainJitter}/${on.mainJitter}/${back.mainJitter}/${nightOff.mainJitter} · total 抖动 ${off.totalJitter}/${on.totalJitter}/${back.totalJitter}/${nightOff.totalJitter}`);
+  check('④ 四态 composer 增量（noon/夜 × 灯会关/开）+ 纯灯会边际 + A≈D 便宜自证',
+        off.calls > 0 && nightOff.calls > 0 && on.calls > 0 && back.calls > 0,
+        `A noon·灯会关 ${off.calls}（${off.mainR.min}~${off.mainR.max}） · B 夜·灯会关 ${nightOff.calls}（${nightOff.mainR.min}~${nightOff.mainR.max}） · C 夜·灯会开 ${on.calls}（${on.mainR.min}~${on.mainR.max}） · D noon·灯会关 ${back.calls}（${back.mainR.min}~${back.mainR.max}） ｜ 纯灯会边际 C−B = ${on.calls - nightOff.calls} · 时段份 B−A = ${nightOff.calls - off.calls} · A−D = ${off.calls - back.calls}`);
+
   check('⑥a 关灯会：回到**进来之前**的时段（不是留在夜里，也不是跳到别的时段）',
     back.festival === false && back.show < 0.03 && back.prevTime === 'noon' && back.time === 'noon',
     `time=${back.time}（进来前=noon · 退出前快照 prevTime=${back.prevTime}）festival=${back.festival} festivalShow=${(+back.show).toFixed(2)}`);
