@@ -3459,6 +3459,33 @@ export const VIEWPOINTS = (()=>{
       pos: new THREE.Vector3(-13, 12, 26),
       target: new THREE.Vector3(-6, 10.5, -18),
       minDist: 2.0 },
+    /* ── 导览增补三站（2026-10-13 · P0-4③）──
+       与 hero/stele 同一条路：锚点取项目里已存在的实体或轨道的实际落点，反算不写死；
+       机位键走面板 data-view + 巡游 TOUR_ORDER + 字幕 TOUR_CAPTIONS。
+       minDist 全部显式写齐（否则 OrbitControls.update() 会按 CAM_MIN_DIST 钳半径，
+       README P2-1 已记过这一坑）；落位实测见 probe/_tmp-tour-visual.mjs 的落位表。 */
+    /* 「观鱼」：锦鲤轨道（06g-koi.js:28-36）左瓣 cx=-7.5、右瓣 cx=+7.5，中点 (0,3)
+       是三条贯穿轨道共用的一片水面。机位贴水 y=1.55、从南岸往北看，minDist 2.0。 */
+    { id:'koi', label:'观鱼',
+      pos: new THREE.Vector3(0.0, 1.55, 11.4),
+      target: new THREE.Vector3(0.0, 0.15, 3.0),
+      minDist: 2.0 },
+    /* 「匾联」：远香堂匾额 04-buildings.js:374-378（plaque 4.6x1.35，落在堂前檐梁上）、
+       前檐金柱对联同文件 :381-384。堂位 (0,0,-12.8)（本文件 :153），
+       机位在草坪 (0, 2.2, -5.7) 朝 (0, 3.9, -7.5)；避开先生晨课的站位（同文件 :1008）。
+       minDist 3.0。 */
+    { id:'plaque', label:'匾联',
+      pos: new THREE.Vector3(0.0, 2.2, -5.7),
+      target: new THREE.Vector3(0.0, 3.9, -7.5),
+      minDist: 3.0 },
+    /* 「曲桥」：石拱桥本文件 :183-187（04-buildings makeArchBridge）落位 (8.4,0,4.6)、
+       rotation.y=pi/2。机位在东北下游侧、不上桥（与 :267-272 的步行约定一致），
+       连汀步入画；桥面倾角经 controls.minPolarAngle=0.055rad 折算后取 (1.8, 1.35, 12.6)。
+       minDist 2.0。 */
+    { id:'bridge', label:'曲桥',
+      pos: new THREE.Vector3(1.8, 1.35, 12.6),
+      target: new THREE.Vector3(8.4, 0.65, 4.6),
+      minDist: 2.0 },
   ];
 })();
 export function gotoViewpoint(id, dur = 1.4, owner = 'manual'){
@@ -3472,7 +3499,7 @@ export function gotoViewpoint(id, dur = 1.4, owner = 'manual'){
 
 /* ── P2-2 带字幕巡游 ──
    在既有 gotoViewpoint/flyTo 之上加一层"按序自动走 + 每站出字幕"：
-   · 顺序 hero → stele → hall → pavilion → overview，首站从当前画面飞过去（flyTo 语义不变）；
+   · 顺序见下方 TOUR_ORDER（2026-10-13 起 8 站），首站从当前画面飞过去（flyTo 语义不变）；
    · 每站停留 dwell（默认 6s，含 1.4s 飞行），字幕在飞行开始即出（边飞边读）；
    · 用户一接管（pointerdown/wheel/任意导览键/时辰滑杆）即停巡游并收字幕 —
      巡游是"带看"，不是"锁死"，接管权永远在用户手里；
@@ -3480,6 +3507,20 @@ export function gotoViewpoint(id, dur = 1.4, owner = 'manual'){
 const TOUR_CAPTIONS = {
   hero:     { title: '立峰 · 云根', text: '古人谓石为云之根 —— 池南水际一峰特置，瘦皱漏透，配石矶底座与岸上题名「云根」。' },
   stele:    { title: '题名石 · 云根', text: '峰侧一块卧石半埋岸土，石面刻「云根」二字。云出石中，石即是根 —— 名字就写在石头上。' },
+  /* 「观鱼」站（2026-10-13 · P0-4③ 增补）：锦鲤轨道中心的锚点取 06g-koi.js:29 左瓣 cx=-7.5/cz=0
+     与右瓣 cx=7.5/cz=0 的中点 (0,3) —— 那是 11 条鱼 + 2 泳龟的 passages 一起经过的腰心。
+     机位贴水（y=1.55，栏杆上沿视线），离注视点 8.4m；minDist 放开到 2.0（该处池宽裁得紧）。
+     文案贴 06g 投喂的既有设定（点水面撒饵→鱼放弃轨道游来抢食）。 */
+  koi:      { title: '观鱼', text: '池水腰心 —— 十一尾锦鲤沿三圈椭圆轨道巡游，还有两只泳龟慢慢蹭。站在岸上撒一把食，邻近的鱼会丢下轨道游来抢。' },
+  /* 「匾联」站：远香堂檐下匾额「远香堂」+ 前檐金柱对联「碧水涵明月清风自在」，
+     都在 04-buildings.js:372-384 手份。机位在堂前草坪（z≈-5.7 以南，人阅读机位再往南退开
+     人物站位以外的位置），仰角看匾与联一起入画；minDist 3.0（堂前檐距近）。 */
+  plaque:   { title: '匾联', text: '檐下「远香堂」匾额，前檐金柱一副对联：碧水涵明月，清风自在。匾与联是这堂的题眼，读完再看满堂荷香。' },
+  /* 「曲桥」站：石拱桥在池东南跨水（04-buildings makeArchBridge，08-assemble 落位 (8.4,·,4.6)、
+     rotation.y=π/2），桥心即拱顶。机位从**桥的东北上下游侧**取景，连同汀步（z≈5.6 线）一起入画。
+     ⚠️ 这个站位刻意**不上桥**：巡游观鱼者的步行路径（实走到 z≥9.7 的南端引桥，见 :267-272 注释）
+     用的就是"不上桥"这条约定，机位口径一致。minDist 2.0（桥心近水）。 */
+  bridge:   { title: '曲桥', text: '池东南石拱桥跨水，桥南接着一排汀步。拱顶起在水线上，绕桥走一圈，两侧水面各有一番景。' },
   hall:     { title: '远香堂', text: '拙政园中区主厅 —— 四面厅，荷风四面，香远益清。夏日荷香满堂，即是此景。' },
   pavilion: { title: '荷风四面', text: '临水水榭 —— 三面临水，一面接岸。午后到这里听雨，雨点打在荷叶上最响。' },
   overview: { title: '全园', text: '一池三山式水院 —— 水居其半，建筑临水，假山作屏。晨雾与暮色最见层次。' },
@@ -3490,7 +3531,13 @@ const SEASON_CAPTIONS = {
   autumn: { title: '秋 · 霜降', text: '桂香渐远，枫色染上池岸，石峰在澄水里更显瘦峻。' },
   winter: { title: '冬 · 大雪', text: '雪压竹梢，亭台静敛，满园水墨只剩清瘦的骨架。' },
 };
-const TOUR_ORDER = ['hero', 'stele', 'hall', 'pavilion', 'overview'];
+/* 巡游清单（2026-10-13 · P0-4③ 增补）：
+   原五站的顺序、机位、停留时长与字幕语义**一字不动**；新三站插在「题名石近观」与「远香堂」之间，
+   让巡游从「题名石」接「观鱼 → 匾联 → 曲桥」再收「远香堂 → 荷风四面 → 全园」，是一条顺水的带看线。
+   不把梅 / 马厩 / 彩虹 / 流星雨 / 烟花这几个**情境机位**加进来：
+     梅/马厩是**位置**机位（在园内的隐角，巡查幕上能看懂），但彩虹/流星雨/烟花是**场景**机位
+     （要 雨后初晴 / 夜 / 夜 才有东西看）—— noon/summer/clear 的巡游里它们就是空景。 */
+const TOUR_ORDER = ['hero', 'stele', 'koi', 'plaque', 'bridge', 'hall', 'pavilion', 'overview'];
 export const TOUR = { on: false, idx: 0, dwell: 6.0, wait: 0 };
 let captionOwner = '';
 export const captionEl = () => document.getElementById('caption');

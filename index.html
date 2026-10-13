@@ -278,6 +278,12 @@
   #env button[data-view="plumYellow"]::before{ color:#C9A227; }                  /* 腊梅 · 蜡黄 */
   #env button[data-view="stable"]::before{ color:#8C6A3F; }                       /* 马厩 · 鞍棕 */
   #env button[data-view="stableNear"]::before{ color:#A87C4A; }                   /* 厩内 · 浅鞍棕 */
+  /* 导览增补三站（2026-10-13 · P0-4③）：配色取自既有六条的调色逻辑 ——
+     观鱼 = 锦鲤的红白斑（锦红）；匾联 = 远香堂朱红（同一栋，与 hall 同色但用不同前缀区分
+     不合适 ⇒ 用碑褐之外的"墨褐"）；曲桥 = 石拱桥汉白玉的灰白。 */
+  #env button[data-view="koi"]::before{ color:#B44A3A; }                          /* 观鱼 · 锦红 */
+  #env button[data-view="plaque"]::before{ color:#6E5B47; }                       /* 匾联 · 墨褐 */
+  #env button[data-view="bridge"]::before{ color:#7E8C93; }                       /* 曲桥 · 汉白玉灰 */
   #env button[data-act="season-demo"]::before{ color:#DB5E92; }                  /* 四季 · 桃红 */
   #env button[data-act="tour"]::before{ color:#3F76AE; }                         /* 巡游 · 靛蓝 */
   #env button[data-act="reel"]::before{ color:#D9862C; }                         /* 流转 · 暖橙 */
@@ -852,6 +858,12 @@
       <button data-view="hall">远香堂</button>
       <button data-view="pavilion">荷风四面</button>
       <button data-view="overview">全园</button>
+      <!-- 导览增补三站（2026-10-13 · P0-4③）：观鱼 / 匾联 / 曲桥 —— 与上方五站同一条路，
+           机位在 VIEWPOINTS（08-assemble）、字幕在 TOUR_CAPTIONS、巡游在 TOUR_ORDER；
+           锚点取项目里已存在的落点（锦鲤轨道中点 / 远香堂匾联 / 石拱桥），坐标见 08-assemble。 -->
+      <button data-view="koi">观鱼</button>
+      <button data-view="plaque">匾联</button>
+      <button data-view="bridge">曲桥</button>
       <button data-view="plumRed">红梅</button>
       <button data-view="plumYellow">腊梅</button>
       <!-- 马厩（2026-10-09）：南墙外的马厩院子（4 匹马 + 2 驾双轮马车 + 马夫）。
@@ -865,7 +877,7 @@
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
       <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
       <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得</button>
-      <span class="hint">Z 巡览 / T 巡游 / Y 四季 / 5 6 7 8 9 机位</span>
+      <span class="hint">Z 巡览 / T 巡游 / Y 四季</span>
     </div>
     <div class="row">
       <span class="lbl">留影</span>
