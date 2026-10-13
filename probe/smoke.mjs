@@ -282,16 +282,41 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   } else {
     check('五类 GLB 资产均已挂载（未降级）', !!glb, glb ? JSON.stringify(glb) : '未挂载');
   }
-  const fishMoving = await page.evaluate(async () => {
-    const fs = window.__garden.scene.getObjectByName?.call ? null : null;
+  /* 锦鲤在游动（2026-10-13 改等待口径，判据 0.001m 一字未动）──
+     ⚠️ 原来是「固定 sleep 1200ms 后读一次」。软渲染**一帧就要 2.4s**（ci.yml:15），
+     若这 1.2s 内一帧都没渲染，position 压根不会被更新 ⇒ 必然判红。
+     今天没红纯属侥幸：前面步骤已跑过 4 秒多帧 —— **靠别处跑过，不是靠本处保障**。
+     ⇒ 改成**轮询到位移达标 + 设上界**，与本文件 waitStats 既有范式一致。
+     上界直接复用 measureRate/wallBudget，不新造一套口径（unit 与地板只有一套）。
+     needed 取 0.5 仿真秒：实测最慢线速度下走满 0.001m 约需 0.076 仿真秒，0.5 是 6.6 倍余量。 */
+  const fishRate = await measureRate(page);
+  const fishMs = wallBudget(fishRate, 0.5, 3);
+  const fish = await page.evaluate(async (ms, rate) => {
     let group = null;
     window.__garden.scene.traverse(o => { if (o.userData && o.userData.fishes) group = o; });
-    if (!group) return false;
+    if (!group) return { ok: false, why: '没找到 fishes 组' };
     const p0 = group.userData.fishes[0].position.clone();
-    await new Promise(r => setTimeout(r, 1200));
-    return group.userData.fishes[0].position.distanceTo(p0) > 0.001;
-  });
-  check('锦鲤在游动（1.2 秒内位置变化）', fishMoving);
+    const t0 = Date.now();
+    for (;;){
+      const d = group.userData.fishes[0].position.distanceTo(p0);
+      if (d > 0.001) return { ok: true, d };
+      if (Date.now() - t0 > ms) return { ok: false, d, waited: Date.now() - t0 };
+      /* 轮询间隔必须跨得上一帧，**按注释做却没做**（接任时自审发现）：
+         软渲染一帧 2.4s，原值 300ms ⇒ 绝大多数轮询读到的都是同一个 position，
+         白跑上百次页面往返。真 GPU 一帧 37ms 时 300ms 反而是合理的。
+         ⇒ 用已实测的速率换算间隔：走满「一帧」仿真量所需墙钟 = (1/60) / r。
+         r=1（真 GPU）⇒ 17ms；r=0.042 ⇒ 397ms。区间本身自洽，不需要额外下限。 */
+      const frameMs = Math.ceil((1 / 60) / Math.max(rate, 0.01) * 1000);
+      await new Promise(r => setTimeout(r, Math.max(30, Math.min(frameMs, 3000))));
+    }
+  }, fishMs, fishRate);
+  const fishDisp = (fish.d || 0).toFixed(5);
+  if (!fish.ok){
+    console.log(`    [锦鲤超时] 等待 ${fishMs}ms 墙钟内位移未达标 · 当前位移 ${fishDisp}m（需 > 0.001）· ` +
+      `仿真速率 ${fishRate.toFixed(4)} 仿真s/墙钟s` + (fish.why ? ` · ${fish.why}` : '') +
+      (fish.waited ? ` · 实等 ${fish.waited}ms` : ''));
+  }
+  check('锦鲤在游动（位移 > 0.001m）', fish.ok, fish.why || `位移 ${fishDisp}m`);
 
   // ── 5. 环境轴切换与过渡 ──
   await page.evaluate(() => { window.__garden.ENV.dur = 0.25; });   // 探针加速过渡（见 settled 注释）
