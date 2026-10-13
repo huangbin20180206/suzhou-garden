@@ -390,17 +390,17 @@ export function makeTaihuHeroGeo({ height = 3.4, baseR = 0.50, seed = 11, sink =
     /* P2-1 名石进阶 —— 在既有腔体 AO 之上加三层，同属顶点色烘焙、零运行时开销。
        量级设计见下方三处行内注释。朝向相关（苔痕北侧、SSS 法线外探）放到
        computeVertexNormals 之后做第二遍（法线在那之前不存在）。 */
-    /* 水线分层（原单条 stain 拆成三道印）：
-       浸水暗带 y<0.02（常年没水，压 0.45，钳 0.5）+
-       潮汐渍线 0.06/0.10m 两条细线（高斯窄峰 σ=0.018，各压 0.18）+
-       溅水淡带 0.12~0.30m（指数衰减，压 0.08）。y>0.30 全归零。 */
+    /* 水线分层（原单条 stain 拆成三道印；2026-10-13 打磨加深一档，hero 机位 14m 外仍能读出深色圈）：
+       浸水暗带 y<0.02（常年没水，压 0.55，钳 0.6）+
+       潮汐渍线 0.06/0.10m 两条细线（高斯窄峰 σ=0.022，各压 0.24）+
+       溅水淡带 0.12~0.35m（指数衰减，压 0.10）。y>0.35 全归零。 */
     let stain = 0;
-    if (y < 0.30){
-      if (y < 0.02) stain = 0.45;
+    if (y < 0.35){
+      if (y < 0.02) stain = 0.55;
       else {
-        const g06 = Math.exp(-((y - 0.06) * (y - 0.06)) / (2 * 0.018 * 0.018));
-        const g10 = Math.exp(-((y - 0.10) * (y - 0.10)) / (2 * 0.018 * 0.018));
-        stain = 0.18 * g06 + 0.18 * g10 + 0.08 * Math.exp(-(y - 0.12) / 0.09);
+        const g06 = Math.exp(-((y - 0.06) * (y - 0.06)) / (2 * 0.022 * 0.022));
+        const g10 = Math.exp(-((y - 0.10) * (y - 0.10)) / (2 * 0.022 * 0.022));
+        stain = 0.24 * g06 + 0.24 * g10 + 0.10 * Math.exp(-(y - 0.12) / 0.11);
       }
     }
     /* 深腔底再压暗：occ 高（≥6/10 方向被挡）说明是孔洞深处，与孔缘透光拉开景深。
@@ -408,12 +408,12 @@ export function makeTaihuHeroGeo({ height = 3.4, baseR = 0.50, seed = 11, sink =
     const cavity = occ / DIRS.length;              // 0~1，越大越深
     const cavityDark = cavity >= 0.6 ? 0.12 * Math.min(1, (cavity - 0.6) / 0.4) : 0;
     /* 苔痕噪声预采样（朝向在第二遍判，这里只记噪声门）：高频 fbm 咬边，
-       0.45 阈硬切 + 0.12 羽化，苔斑边缘参差。 */
+       0.42 阈硬切 + 0.12 羽化，苔斑边缘参差。 */
     const mossN = fbm3(x * 3.1 + 7, y * 3.1, z * 3.1, seed + 77, 2);
-    const mossGate = Math.min(1, Math.max(0, (mossN - 0.45) / 0.12));
+    const mossGate = Math.min(1, Math.max(0, (mossN - 0.42) / 0.12));
     /* 风化色斑：低频噪声在暖灰与冷灰之间游走 */
     const mot = fbm3(x * 0.75 + 21, y * 0.5, z * 0.75, seed + 5, 2);
-    let shade = (0.62 + 0.38 * ao) * (1 - Math.min(0.55, stain));
+    let shade = (0.62 + 0.38 * ao) * (1 - Math.min(0.62, stain));
     shade *= (1 - cavityDark);             // 深腔底再压暗 ≤0.12（与孔缘透光拉景深）
     const warm = 0.93 + 0.14 * mot;
     col.push(shade * warm, shade * (0.985 - 0.03 * mot), shade * (0.95 - 0.07 * mot));
@@ -463,18 +463,18 @@ export function makeTaihuHeroGeo({ height = 3.4, baseR = 0.50, seed = 11, sink =
   /* P2-1 第二遍：苔痕（北侧+低位）与孔缘假 SSS（透光薄边）。
      必须在 computeVertexNormals 之后（法线之前不存在）+ 碎片剔除之前
      （剔除会重映射顶点，缓存数组 mossCache/cavityCache 与 pos 同序，剔除时同步搬）。
-     ① 苔痕：法线北向点积 >0.25（北为 -z，按 sunPos 东西轴推定）才长；
-        高度门：y<1.2 全量、1.2~2.2m 线性淡出、>2.2m 不长（苔亲水）；
-        强度 ≤0.28，颜色往冷绿 (0.72,0.82,0.60) 拉：c = mix(c, mossTint*k, moss)。
+     ① 苔痕：法线北向点积 >0.18（北为 -z，按 sunPos 东西轴推定）才长；
+        高度门：y<1.4 全量、1.4~2.6m 线性淡出、>2.6m 不长（苔亲水）；
+        强度 ≤0.36，颜色往冷绿 (0.70,0.83,0.58) 拉：c = mix(c, mossTint*k, moss)。
         mossTint 取"苔色 × 当前明度"：直接 mix 会把 AO 压平，所以按苔量只换色相、
         明度乘回原 shade 比（mossLum 保亮）。
      ② 孔缘假 SSS：薄壁透光。沿法线外 0.06m 采样仍在石内（sample<0）→ 对面有石，
-        说明此处是薄壁/孔缘而非实心深腔；且 cavity 中等（0.25~0.6，浅腔缘）才提亮：
-        往暖透 (1.06,0.94,0.80) 提 ≤0.10。深腔（cavity>0.6）已在第一遍压暗，不提。
+        说明此处是薄壁/孔缘而非实心深腔；且 cavity 中等（0.22~0.65，浅腔缘）才提亮：
+        往暖透 (1.06,0.94,0.80) 提 ≤0.15。深腔（cavity>0.65）已在第一遍压暗，不提。
         薄壁判据用 SDF 采样（精确）而非法线夹角（噪声大）。 */
   {
     const nrm = g.attributes.normal;
-    const MOSS_TINT = [0.72, 0.82, 0.60];
+    const MOSS_TINT = [0.70, 0.83, 0.58];
     const SSS_WARM = [1.06, 0.94, 0.80];
     let mossN = 0, sssN = 0;
     for (let vi = 0; vi < nrm.count; vi++){
@@ -483,9 +483,9 @@ export function makeTaihuHeroGeo({ height = 3.4, baseR = 0.50, seed = 11, sink =
       /* — 苔痕 — */
       const north = -nz;                       // 北 = -z
       let moss = 0;
-      if (north > 0.25 && py < 2.2 && mossCache[vi] > 0){
-        const hGate = py < 1.2 ? 1 : (2.2 - py) / 1.0;
-        moss = 0.28 * Math.min(1, (north - 0.25) / 0.45) * hGate * mossCache[vi];
+      if (north > 0.18 && py < 2.6 && mossCache[vi] > 0){
+        const hGate = py < 1.4 ? 1 : (2.6 - py) / 1.2;
+        moss = 0.36 * Math.min(1, (north - 0.18) / 0.45) * hGate * mossCache[vi];
         if (moss > 0.003){
           const lum0 = 0.299 * col[vi * 3] + 0.587 * col[vi * 3 + 1] + 0.114 * col[vi * 3 + 2];
           const lumT = 0.299 * MOSS_TINT[0] + 0.587 * MOSS_TINT[1] + 0.114 * MOSS_TINT[2];
@@ -498,10 +498,10 @@ export function makeTaihuHeroGeo({ height = 3.4, baseR = 0.50, seed = 11, sink =
       }
       /* — 孔缘假 SSS — */
       const cav = cavityCache[vi];
-      if (cav > 0.25 && cav < 0.6){
+      if (cav > 0.22 && cav < 0.65){
         const ox = px + nx * 0.06, oy = py + ny * 0.06, oz = pz + nz * 0.06;
         if (sample(ox, oy, oz) < 0){           // 对面 6cm 内仍是石头 → 薄壁
-          const sss = 0.10 * Math.min(1, (cav - 0.25) / 0.2) * (1 - (cav - 0.25) / 0.35 * 0.5);
+          const sss = 0.15 * Math.min(1, (cav - 0.22) / 0.2) * (1 - (cav - 0.22) / 0.43 * 0.5);
           col[vi * 3]     = Math.min(1.2, col[vi * 3] * (1 + (SSS_WARM[0] - 1) * sss * 3));
           col[vi * 3 + 1] = Math.min(1.2, col[vi * 3 + 1] * (1 + (SSS_WARM[1] - 1) * sss * 3));
           col[vi * 3 + 2] = Math.min(1.2, col[vi * 3 + 2] * (1 + (SSS_WARM[2] - 1) * sss * 3));
