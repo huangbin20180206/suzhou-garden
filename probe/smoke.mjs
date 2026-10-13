@@ -291,7 +291,12 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
      needed 取 0.5 仿真秒：实测最慢线速度下走满 0.001m 约需 0.076 仿真秒，0.5 是 6.6 倍余量。 */
   const fishRate = await measureRate(page);
   const fishMs = wallBudget(fishRate, 0.5, 3);
-  const fish = await page.evaluate(async (ms, rate) => {
+  /* ⚠️⚠️ 这里曾让云端 CI 直接崩掉（2026-10-13 09:32 run 38332013849 smoke=failure），
+     而 Chief 当时误判成「等待口径还不够」，往错方向改了半小时。真因：**page.evaluate 只能接收
+     一个参数**（本仓 playwright-core 抛 `Too many arguments... wrap them in an object.`），
+     而这里曾传 (ms, rate) 两个 ⇒ 探针在锦鲤这一步异常退出，整个 smoke 提前结束。
+     ⇒ 多参数必须打包成对象；且改完探针必须**实跑**，本地真 GPU 跑不出来不算验过。 */
+  const fish = await page.evaluate(async ({ ms, rate }) => {
     let group = null;
     window.__garden.scene.traverse(o => { if (o.userData && o.userData.fishes) group = o; });
     if (!group) return { ok: false, why: '没找到 fishes 组' };
@@ -309,7 +314,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
       const frameMs = Math.ceil((1 / 60) / Math.max(rate, 0.01) * 1000);
       await new Promise(r => setTimeout(r, Math.max(30, Math.min(frameMs, 3000))));
     }
-  }, fishMs, fishRate);
+  }, { ms: fishMs, rate: fishRate });
   const fishDisp = (fish.d || 0).toFixed(5);
   if (!fish.ok){
     console.log(`    [锦鲤超时] 等待 ${fishMs}ms 墙钟内位移未达标 · 当前位移 ${fishDisp}m（需 > 0.001）· ` +
