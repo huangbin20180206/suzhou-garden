@@ -64,12 +64,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
    ⇒ settled 这段保留折算，是为**未来更慢的环境**（比 CI 还慢 2~10 倍的机器）留余量，
      **不是它治好了本次 CI**，别把它当功劳记。 */
 /* 实测推进速率（仿真秒 / 墙钟秒）。读页面自己的 simClock，不写死 0.042 ——
-   那个数只在 CI 软渲染下成立，真 GPU 下 r≈1。采样窗 1.2s：软渲染一帧就 2.4s，
-   窗太短会读到「一帧都没走完」；太长则每处开销可观（12 处 × 1.2s ≈ 14s，可接受）。 */
+   那个数只在 CI 软渲染下成立，真 GPU 下 r≈1。
+
+   ⚠️⚠️ 采样窗**必须长于一帧**。这是 Chief 自查抓到的第二个真缺陷（第一个是秒/毫秒错配）：
+   首版采样窗取 1.2s，而软渲染**一帧就要 2.4s**（ci.yml:15 自述）⇒ 1.2s 窗口连一帧都跑不完，
+   前后两次 simClock 读数**必然相同** ⇒ 走进「没推进 ⇒ 回落 1.0」那条分支 ⇒
+   按 r=1 算出 camFly 预算 30s，而真实需求 33.3s ⇒ **折算完全失效、CI 仍红**。
+   ⇒ 这类「实测速率」的写法，采样窗与最小步进周期的关系是**硬约束**，不是调优项：
+     窗 < 一帧 ⇒ 恒读到 0；窗 = 一帧 ⇒ 恰好可能跨 0；窗须显著大于一帧。
+   现取 **4000ms**（≈ 1.7 倍软渲染帧长）。代价 12 处 × 4s ≈ 48s，相对 ci.yml 的
+   timeout-minutes: 40 与本门实测分钟级耗时可忽略；换来的是任何比真 GPU 慢 ≤ ~10 倍的环境
+   都能正确测出 r。若嫌慢，正确做法是**只在第一次调用时测一次并缓存**，而不是把窗调短。 */
+const RATE_WINDOW_MS = 4000;   // 采样窗：必须 > 最慢环境的一帧时长（软渲染 ≈2.4s）
 async function measureRate(page){
   const a = await page.evaluate(() => window.__garden.simClock());
   const w0 = Date.now();
-  await sleep(1200);
+  await sleep(RATE_WINDOW_MS);
   const b = await page.evaluate(() => window.__garden.simClock());
   const dWall = (Date.now() - w0) / 1000;
   /* 采样窗内仿真没推进 ⇒ 页面没在跑（挂了/卡了）。此时回落 1.0 是**故意**的：
