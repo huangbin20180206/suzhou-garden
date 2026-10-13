@@ -47,7 +47,7 @@ npm run serve        # 静态服务器 → http://127.0.0.1:8935
 npm run check        # 语法门禁（src/*.js 逐个 node --check，1 秒）
 npm run audit        # 拆分守卫：漏 import / 给 import 绑定赋值 / 引用内联专有名（3 秒）
 npm test             # 无头回归 55 项（Playwright 加载真实页面做断言）
-npm run verify       # **一条命令串行跑全部 77 道门**（≈15m，交付前必跑）
+npm run verify       # **一条命令串行跑全部 77 道门**（≈90m，交付前必跑；2026-10-13 实测 91 分钟）
 
 npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 ```
@@ -154,7 +154,7 @@ npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 **工程侧**
 启动失败兜底 UI · 几何合并前机器校验（属性计数 / 索引越界 / 非有限坐标）·
 WebGL 上下文恢复 · 移动端 320px 布局与 `aria-pressed` · `window.__garden` 调试口（供采集脚本与测试驱动）·
-无头回归门禁 **77 道**（`npm run verify` 串行跑通，≈20m；其中 `npm test` = smoke 单门 **55 项断言全绿**）。
+无头回归门禁 **77 道**（`npm run verify` 串行跑通，≈90m，2026-10-13 实测 91 分钟；其中 `npm test` = smoke 单门 **55 项断言全绿**）。
 （口径基准：**2026-10-04**。门数以 `verify-all.mjs` 的 `SUITES` 表为唯一真值 —— 想拿准数就数它，
 别信本文里的数字：这段话自己就漂过七次，30 → 52 → 56 → 57 → 58 → 59 → 67。）
 **2026-10-04 本批收口**：把 8 道"**有牙、能跑、却一直不在链上**"的结论门收回 `SUITES`
@@ -283,7 +283,7 @@ suzhou-garden/
 │                        ＋ thunder.mp3（懒加载的点缀音效）。其余全部程序化生成
 ├─ probe/                探针 85 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
 │                        ⚙️ 一次性诊断脚本归档在 `probe/_attic/<日期>/`（不入库，搬回原路径即复原）
-│  ├─ verify-all.mjs     **一条命令串行跑全部 77 道门**（`npm run verify`，≈15m；门数以它的 SUITES 表为准）
+│  ├─ verify-all.mjs     **一条命令串行跑全部 77 道门**（`npm run verify`，≈90m，2026-10-13 实测 91 分钟；门数以它的 SUITES 表为准）
 │  ├─ check.mjs          语法门禁：src/*.js 逐个 node --check
 │  ├─ codeonly-unit.mjs  语法判定单元门禁：`_codeonly.mjs` 的"什么算引用"契约（判宽=假红、判窄=假绿，两个方向都静默）
 │  ├─ import-audit.mjs   拆分守卫（4 条判据，见「单文件拆模块」）：漏 import / 给 import 绑定赋值 /
@@ -585,8 +585,8 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
   （纯 node，各 <3s，紧跟 check 之后 —— 拆模块的错误在浏览器里要么"加载即炸"、要么更坏的静默）。
 - **验证**：`npm run verify` 二十一门全绿；smoke **50/50**；draw calls **693 < 800**（该项由性能优化 A 拿下，
   原 869 红已解除，见下）。
-  ⚠️ 以上是**当日**基线；门禁链其后长到 **77 道**、smoke 到 **55 项**，draw calls 现读 **299**
-  （693 → 299 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
+  ⚠️ 以上是**当日**基线；门禁链其后长到 **77 道**、smoke 到 **55 项**，draw calls 现读 **383**
+  （2026-10-13 实测：draw calls 383 / 三角形 1,815,188 / geos 696 / tex 65。693 → 383 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
 
 **拆模块暴露出的四类缺陷（都已修，且都已固化成门禁）** —— 这是本次最有价值的部分，
 因为其中三类**不报错、不崩、只有专门的判据看得见**：
@@ -731,7 +731,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 **明确推迟的（下一批梯队，已建单跟踪）：**
 * 静态/动态投射物分离 + 阴影烘焙（CSM 已实测负优化；烘焙是既定替代，估 5~10 天量级，且改观感要在真屏幕验收）；
-* **06-vegetation 二次拆分（进行中）**：12-env 那一半**已拆完**（2026-10-05 六步 → `12a-presets`/`12b-sky`/`12c-festival`/`12d-lantern`/`12e-precip`/`12f-season`；12-env 现 1215 行含空行 / 1179 行非空），**只剩 `06-vegetation.js`**（4891 / 4756 行，**全仓最大**）且只走了第一步（`06b-atmos.js`）。风险不变：import 成环 + 需整轮门禁兜底（现 **77 道**）。可执行方案（W0~W8 切缝 / 逐步验收 / 回退点）见 `docs/refactor-plan-12env-06veg-2026-10-12.md`；
+* **06-vegetation 二次拆分（已完成）**：12-env 那一半 2026-10-05 六步已拆完（→ `12a-presets`/`12b-sky`/`12c-festival`/`12d-lantern`/`12e-precip`/`12f-season`），`06-vegetation` 这一半 **W0~W9 九步已全部收官**：`06-vegetation.js` **4892 → 188 行（-96.2%）**，拆出 9 个模块 `06a-rng`/`06c-organs`/`06d-corridor`/`06e-assets`/`06f-ripple`/`06g-koi`/`06h-rock`/`06i-trees`/`06j-herbs`，src 模块 26 → 35。全量 **77 道**门已验证**零真红**，`layout-fingerprint` **逐位一致**（园子画面一个像素没变，纯搬家零逻辑改动）。方案与逐步验收见 `docs/refactor-plan-12env-06veg-2026-10-12.md`；
 * 批次3 高精资产上预载管线（预载体系已按 10MB 建好、现资产仅 1.1MB 在空转；需要美术选型与人眼验收）；
 * 明信片分享/9:16（需分享渠道的产品决策）。
 
