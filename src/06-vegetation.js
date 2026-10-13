@@ -68,8 +68,8 @@ export { perchingAnchors, addPerchingAnchor, VIEW_CORRIDOR, corridorT, corridorR
    本文件 :184 只是 import 转发、:185 只是再 export 一次，均非定义处。
    原句一字未动：它记录的是「W5 拆分当日」的判断（当时确实还没搬），改写会使其失去凭据。
    先例：sw.js:80-84、probe/shadow-bake-guard.mjs:7、probe/verify-all.mjs:313 同为加注不改写。 */
-import { KOI_ORBITS, BAIT_LIFE, BAIT_ATTRACT_R, baitPoints, BAITS, baitsActive, dropBait, updateBaits, nearestBait, KOI_OBSTACLES, KOI_BEHAVIOR, koiAvoidOffset, koiStartleAt, koiStartleOffset, koiStartleEnergy, koiCohesionOffset, koiBehaviorOffset } from './06g-koi.js';
-export { KOI_ORBITS, BAIT_LIFE, BAIT_ATTRACT_R, baitPoints, BAITS, baitsActive, dropBait, updateBaits, nearestBait, KOI_OBSTACLES, KOI_BEHAVIOR, koiAvoidOffset, koiStartleAt, koiStartleOffset, koiStartleEnergy, koiCohesionOffset, koiBehaviorOffset };
+import { KOI_ORBITS, BAIT_LIFE, BAIT_ATTRACT_R, baitPoints, BAITS, baitsActive, dropBait, updateBaits, nearestBait, KOI_OBSTACLES, KOI_BEHAVIOR, koiAvoidOffset, koiStartleAt, koiStartleOffset, koiStartleEnergy, koiCohesionOffset, koiBehaviorOffset, makeKoiGroup } from './06g-koi.js';
+export { KOI_ORBITS, BAIT_LIFE, BAIT_ATTRACT_R, baitPoints, BAITS, baitsActive, dropBait, updateBaits, nearestBait, KOI_OBSTACLES, KOI_BEHAVIOR, koiAvoidOffset, koiStartleAt, koiStartleOffset, koiStartleEnergy, koiCohesionOffset, koiBehaviorOffset, makeKoiGroup };
 /* 涟漪池（鱼跃/雨滴/点击共用的 64 环 InstancedMesh，含 onBeforeCompile 注入 instanceAlpha）
    已搬至 src/06f-ripple.js（W4 拆分，2026-10-12）；搬出的理由与实测依据见该文件内的注释块。
    门面约束（方案§3.2）—— import 后 export，不写 export ... from。
@@ -78,84 +78,10 @@ export { KOI_ORBITS, BAIT_LIFE, BAIT_ATTRACT_R, baitPoints, BAITS, baitsActive, 
 import { rippleInst, rainRippleActive, rippleCapacity, spawnRipple, lastRippleAge, ripplesActive, updateRipples } from './06f-ripple.js';
 export { rippleInst, rainRippleActive, rippleCapacity, spawnRipple, lastRippleAge, ripplesActive, updateRipples };
 
-/* 锦鲤：沿椭圆轨道游动 */
-export function makeKoiGroup(n = 11){
-  const g = new THREE.Group();
-  g.position.set(0, 0, 3);          // 池塘中心（与 POND_SHAPE 对齐）
-  g.userData.fishes = [];
-  /* ── 预抽（2026-09-23 · T0）────────────────────────────────────────────
-     为什么必须挪到这里抽：这 4×n 次 rr() 原来写在 GLB 的 onLoad 里 —— 而 onLoad
-     **什么时候**执行取决于模型何时加载完（冷启动要取文件，热启动走 HTTP 缓存）。
-     全局流的位置只由"抽了多少次"决定 ⇒ 锦鲤落地早/晚，**其后**的抽样整体偏移量就不同；
-     而柳/竹/立峰是**延迟批**（首帧之后才跑，每批之间让出一帧），恰好落在这个窗口里
-     ⇒ 全园布局随"加载时序"漂移，且不报任何错。
-     实测（2026-09-23，两次加载同一份代码）：157 个实例化网格里 **76 个不同，且全部落在延迟批**
-     —— 柳叶条数 7992 vs 7995、竹竿首实例位置 (−0.09,0,0.90) vs (0.84,0,0.32)；
-     而**模块期网格逐个逐实例完全一致**（正是"漂移发生在延迟批执行窗口内"的指纹）。
-     修法：把 4×n 次抽取挪到本函数**被调用**的时刻（模块期、同步、顺序固定），回调里只读不抽。
-     ⚠️ 次数与顺序必须与原来**逐条一致**（t → speed → jitter → phase），否则等于改了布局。
-     ⚠️ `Math.random()*18`（riseAt）也要一起预抽：它虽不是全局流，但**冻结 Math.random 的探针**
-        靠"调用顺序固定"才可复现（竹叶洗牌也吃这条流），留在异步回调里等于把顺序交给时序。 */
-  const KOI_DRAW = [];
-  for (let i = 0; i < n; i++){
-    KOI_DRAW.push({ t: rr(0, TAU), speed: rr(0.10, 0.22), jitter: rr(0.72, 1.0),
-                    phase: rr(0, TAU), rise: Math.random() * 18 });
-  }
-  /* ── 双轨入口（2026-10-02 · CDN 可选基址）────────────────────────────────
-     CDN 关（默认）：走 else 的直接 load —— 语句形状与旧版相同（assetUrl 对空 base
-     原样返回），请求 URL、回调、时序一字不变；
-     CDN 开：经 13-preload 的 withCdnFallback 包壳 —— CDN 失败（onError 或超 60%
-     预载预算）自动用本地路径重试一次，**本地也失败**才落到 koiOnErr 的
-     settleAsset(false)。三个回调体一字未改：回调里只读 KOI_DRAW 的预抽值，
-     绝不碰任何随机流（本函数开头的铁律，开了 CDN 也不放松）。 */
-  const koiOnLoad = (gltf)=>{
-    const src = gltf.scene;
-    const b1 = new THREE.Box3().setFromObject(src);
-    const s1 = b1.getSize(new THREE.Vector3());
-    src.scale.setScalar(0.72 / Math.max(s1.x, s1.y, s1.z));
-    src.updateMatrixWorld(true);
-    const b2 = new THREE.Box3().setFromObject(src);
-    const c2 = b2.getCenter(new THREE.Vector3());
-    const halfH = (b2.max.y - b2.min.y) / 2;      // 用于判"鱼背有没有露出水面"
+/* 锦鲤建组 makeKoiGroup（2026-10-13 从本文件原 :82-158 搬至 src/06g-koi.js，按拆分口径归 koi 模块，纯搬家逐字未改；
+   经上部 KOI 门面 import/export 转出，调用方 08-assemble.js:1629 不动）。 */
 
-    for (let i = 0; i < n; i++){
-      const holder = new THREE.Group();
-      const f = src.clone(true);
-      f.position.sub(c2);                       // 以模型中心为原点
-      f.traverse(o=>{ if (o.isMesh){ o.castShadow = false; o.receiveShadow = false; } });
-      holder.add(f);
-      const d = KOI_DRAW[i];                    // 预抽值（见函数开头）：回调里**绝不**抽流
-      holder.userData = {
-        orbit: i % KOI_ORBITS.length,
-        t: d.t, speed: d.speed,
-        jitter: d.jitter, phase: d.phase,
-        riseAt: 6 + d.rise, rising: false, riseT0: 0, halfH,
-      };
-      g.add(holder);
-      g.userData.fishes.push(holder);
-    }
-    /* 锦鲤是异步挂载的：layer 不被子节点继承，必须等 holder 们都进了组再统一打一遍
-       折射层标记 —— 漏了就是「水面折射里一条鱼都没有」，而且不报错。 */
-    markUnderwater(g);
-    HOOKS.settleAsset?.('assets/koi.glb', true);      // 预载清单：到位（13-preload 经 HOOKS 延迟绑定）
-  };
-  const koiOnProgress = (e)=>{                        // ← 第三槽：原为 `undefined`，现接 onProgress
-    HOOKS.reportAssetProgress?.('assets/koi.glb', e.loaded, e.total);
-  };
-  const koiOnErr = (e)=>{
-    /* 失败也必须报给预载清单，否则 required:false 的项走不进替身流程 */
-    HOOKS.settleAsset?.('assets/koi.glb', false, e);
-    console.warn('koi.glb 加载失败', e);
-  };
-  if (ASSET_CDN.base){
-    withCdnFallback('assets/koi.glb', (reqUrl)=>new Promise((resolve, reject)=>{
-      new GLTFLoader().load(reqUrl, resolve, koiOnProgress, reject);
-    })).then(koiOnLoad, koiOnErr);
-  } else {
-    new GLTFLoader().load(assetUrl('assets/koi.glb'), koiOnLoad, koiOnProgress, koiOnErr);
-  }
-  return g;
-}
+
 /* GLB 资产加载（双轨入口 + 两级缓存 + 解码器装配）已搬至 src/06e-assets.js（W3 拆分，2026-10-12）；
    搬出的理由与实测依据见该文件内的注释块。门面约束（方案§3.2）—— import 后 export，不写 export ... from。
    ⚠️ assetFailures 是 export let **活绑定**：门面 import 的是计数器本身，11-loop 读到的
