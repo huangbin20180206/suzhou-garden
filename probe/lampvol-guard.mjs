@@ -744,29 +744,109 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
     await sleep(400);
   }
 
-  /* 热点定位（2026-09-24 做硬）：差分最强的那一格必须落在光团所在格（±1 格）。
-     ⚠️ 原来只拿 **单对** ON[0]/OFF[0] 全幅找最强格 —— 单对会被瞬时噪声（萤火/浮尘/雾絮
-        恰好扫过别的格，同状态噪声 0.27~0.46）顶上去：别的格真值只差零点几，瞬时粒子
-        一叠就把"最强格"顶到别处 ⇒ 时红时绿。按项目既定方针把**统计量**做硬（不是抬容差）：
-        每格取 **12 对样本的差分中位数**（同 mist-guard 多帧中位数的思路）—— 瞬时粒子被
-        中位数吃掉，判据意图（最强差分格 = 光团所在格、别处没有假光）一个字没变。
-        顺带报出"次强格"的值与领先量，红了好定位（多灯笼 setLampVol 是全局的，
-        游廊 3 盏一起灭、它们的格有真实差分，贴边时先看这里）。 */
-  const hot = (() => {
-    let best = { v: -1, x: 0, y: 0 }, second = { v: -1, x: 0, y: 0 };
+  /* 热点定位 · 2026-10-13 改口径：差分场必须**整体**落在光团上，而不是"最强格落在哪一格"。
+     ⚠️ 为什么不能只看最强格：取景把相机放在光团正前方 camMinDist 处（:293-305），
+        灯笼**本体是不透明的**，正压在光团球心上 ⇒ 该处差分被压成 ≈0；而光团在本体之外的
+        暗背景上贡献近乎均匀的抬亮。差分场因此是一个**中心被挖空的圆盘**，最强格必然落在
+        本体剪影边缘、离中心约两个格 —— 这与"光团挂错位置"无关，是**几何必然**。
+     ⇒ 改成两条并列子条件（仍是一条 check，阈值一个都不放松）：
+       A 位置（遮挡不敏感）：算**全格差分值的加权重心**（权重就是各格 v，无门槛），
+         要求它离光团球心投影**逐轴** ≤1 格。圆盘绕中心对称 ⇒ 本体挡不挡都不改重心；
+         支撑集恒为整幅画面，不随任何单格起伏而变。
+       B 保语义：最强格的**格心**离光团球心投影 ≤1.5×BR（盘半径的 1.5 倍）。只问
+         "最强差分还在不在光团盘上"，不要求精确落格 ⇒ 遮挡同样毁不掉它。
+     两个子条件都直接与 box.x/box.y 比像素，顺带消掉旧口径 floor(box/CELL)*CELL 的量化跳变
+     （取景点恰在画面正中时 sx 常等于 W/2，而 W/2 正是 CELL 的整数倍，抖一像素就翻一格）。
+     每格仍取 12 对样本的差分中位数（同 mist-guard 多帧中位数思路）：瞬时粒子被中位数吃掉。
+     ⚠️ A 为什么**不能**用"取 v ≥ 0.5×vMax 的格再求重心"：那个门槛是**相对 vMax** 的，而
+        vMax 是**单格峰值**、坐在灯笼剪影边缘上、随风摆动 —— 它一抬高，门槛就把圆盘里近乎
+        均匀的那片抬亮整片切掉，集合收缩、重心跟着飘（实测同一份代码，集合大小在三个量级
+        间跳）。**支撑集依赖一个本身不稳的量，必然继承它的抖动**：那是统计量选错，不是
+        容差不够，放宽容差只会把真缺陷一起放过。改无阈值的值加权重心后，支撑集固定、权重
+        正比真实差分。旧的门槛重心仍打印，但**降级为诊断、不再参与判定**。 */
+  const SIG_FRAC = 0.5;                 // **仅用于诊断打印**：旧门槛集合，已不作判据（见上）
+  const HOT_CAP_BR = 1.5;               // 子条件 B 的上限，单位 = 盘半径 BR
+  const evalHot = (ONs, OFFs) => {
+    const cells = [];
     for (let gy = 0; gy < H; gy += CELL) for (let gx = 0; gx < W; gx += CELL) {
-      const cxp = Math.min(W - 1, gx + CELL / 2), cyp = Math.min(H - 1, gy + CELL / 2);
-      const v = med(ON.map((im, i) => boxDiff(im, OFF[i], cxp, cyp, CELL / 2)));
-      if (v > best.v){ second = best; best = { v, x: gx, y: gy }; }
-      else if (v > second.v) second = { v, x: gx, y: gy };
+      const cx = Math.min(W - 1, gx + CELL / 2), cy = Math.min(H - 1, gy + CELL / 2);
+      cells.push({ gx, gy, cx, cy, v: med(ONs.map((im, i) => boxDiff(im, OFF[i], cx, cy, CELL / 2))) });
     }
-    return { ...best, secondV: second.v, secondAt: [second.x, second.y] };
-  })();
-  const cxCell = Math.floor(box.x / CELL) * CELL, cyCell = Math.floor(box.y / CELL) * CELL;
-  check('差分热点落在光团所在格（±1 格）——光团没挂错位置，别处也没有假光',
-    Math.abs(hot.x - cxCell) <= CELL && Math.abs(hot.y - cyCell) <= CELL,
-    `热点 (${hot.x},${hot.y}) 值 ${hot.v.toFixed(2)} · 光团格 (${cxCell},${cyCell})` +
-    ` · 次强格 (${hot.secondAt.join(',')}) 值 ${hot.secondV.toFixed(2)}（领先 ${(hot.v - hot.secondV).toFixed(2)}）`);
+    const hot = cells.reduce((a, b) => b.v > a.v ? b : a);
+    const second = cells.reduce((a, b) => (b === hot || b.v <= a.v ? a : b), { v: -1, gx: 0, gy: 0 });
+    /* A 的判据量 = **全格值加权重心**（无门槛）：mcx = Σ(v·cx)/Σv，对全部格求和。
+       支撑集恒为整幅画面、权重正比各格真实差分 ⇒ 不依赖任何单格峰值。 */
+    const vSum = cells.reduce((s, c) => s + c.v, 0);
+    const wcx = vSum > 0 ? cells.reduce((s, c) => s + c.v * c.cx, 0) / vSum : box.x;
+    const wcy = vSum > 0 ? cells.reduce((s, c) => s + c.v * c.cy, 0) / vSum : box.y;
+    const dmx = wcx - box.x, dmy = wcy - box.y;
+    /* 旧的门槛重心：只作**诊断**打印，不参与判定。 */
+    const sig = cells.filter(c => c.v >= SIG_FRAC * hot.v);
+    const tmcx = sig.reduce((s, c) => s + c.cx, 0) / sig.length;
+    const tmcy = sig.reduce((s, c) => s + c.cy, 0) / sig.length;
+    const hotDist = Math.hypot(hot.cx - box.x, hot.cy - box.y);
+    const hotCap = HOT_CAP_BR * BR;
+    /* okA 的 `vSum > 0` 前置：全幅差分为 0（光团压根不贡献像素）时加权重心无定义 ⇒ 判红。
+       它同时挡住两种情形：**除零** 与 **无光团**（后者是"灯没亮"，必须红而不是恒绿）。 */
+    const okA = vSum > 0 && Math.abs(dmx) <= CELL && Math.abs(dmy) <= CELL;
+    const okB = hotDist <= hotCap;
+    return { hot, second, sigN: sig.length, cellsN: cells.length, vSum,
+             wcx, wcy, dmx, dmy, tmcx, tmcy,
+             hotDist, hotCap, okA, okB, ok: okA && okB };
+  };
+  const hotDetail = v =>
+    `A 值加权重心 (${v.wcx.toFixed(1)},${v.wcy.toFixed(1)}) 偏移 (${v.dmx.toFixed(1)},${v.dmy.toFixed(1)})、容差 ±${CELL} ⇒ ${v.okA ? '绿' : '红'}` +
+    ` · B 最强格 (${v.hot.gx},${v.hot.gy}) 格心 (${v.hot.cx},${v.hot.cy}) 值 ${v.hot.v.toFixed(2)} 离光团 ${v.hotDist.toFixed(1)}px ≤ ${HOT_CAP_BR}×BR=${v.hotCap.toFixed(1)}px ⇒ ${v.okB ? '绿' : '红'}` +
+    ` · Σv=${v.vSum.toFixed(1)} · vMax=${v.hot.v.toFixed(2)} · 次强格 (${v.second.gx},${v.second.gy}) 值 ${v.second.v.toFixed(2)}（领先 ${(v.hot.v - v.second.v).toFixed(2)}）` +
+    ` · [诊断·不作判据] 旧门槛重心 (${v.tmcx.toFixed(1)},${v.tmcy.toFixed(1)}) 偏移 (${(v.tmcx - box.x).toFixed(1)},${(v.tmcy - box.y).toFixed(1)})、显著格 ${v.sigN}/${v.cellsN}`;
+  const hv = evalHot(ON, OFF);
+  check('差分场落在光团上：①全格值加权重心逐轴 ≤1 格 ②最强格离光团 ≤1.5×盘半径（光团没挂错位置，别处也没有假光）',
+    hv.ok, hotDetail(hv));
+
+  /* ── 自检模式（LAMPVOL_SELFCHECK=1，默认整段跳过）· 缺陷态注入，证明上面这条判据**有牙** ──
+     缺陷 = 「光团挂错位置」：把所有光团整体横移。
+     · **只在开灯帧存在**：光团网格 uLamp=0 时全透明（src/12d-lantern.js:321），所以位移只在
+       ON 帧显形；若像本门 :712 那条注入自检那样两帧都注入，差分会直接抵消、什么也测不到。
+     · 位移量按**格宽**定（4 格），不写死像素/米：位移太小推不出容差，太大会把光团推出画面 ——
+       推出画面后差分整体消失、显著格退化成全画面，重心反而回到画面中心，判据就假绿了。
+     · 量完必须**原样还原并回读验证**，自检不得给后面的断言留任何场景残留。 */
+  if (process.env.LAMPVOL_SELFCHECK === '1') {
+    console.log('\n[体积光] 自检模式：注入缺陷态「光团整体横移」，要求上面这条判据实测报红');
+    const shiftM = CELL * 4 / view.pxPerM;                 // 4 格宽的横向位移
+    const moved = await page.evaluate((dx) => {
+      const g = window.__garden; const list = [];
+      g.scene.traverse(o => { if (o.name === 'lampVol' && o.parent) list.push(o); });
+      window.__lvSaved = list.map(o => [o.position.x, o.position.y, o.position.z]);
+      list.forEach(o => { o.position.x += dx; });
+      return list.length;
+    }, shiftM);
+    check('自检·缺陷注入成功（光团整体横移，只在开灯帧可见 ⇒ 差分不抵消）', moved === LANTERNS,
+      `横移 ${shiftM.toFixed(2)}m（≈${(shiftM * view.pxPerM).toFixed(0)}px = ${CELL * 4 / CELL} 格），命中 ${moved}/${LANTERNS} 个光团`);
+    const sON = [], sOFF = [];
+    for (let i = 0; i < 4; i++) { sON.push(decodePNG(await shotOn())); sOFF.push(decodePNG(await shotOff())); }
+    const sv = evalHot(sON, sOFF);
+    check('自检·缺陷态下子条件 A 判红（重心被推出 1 格容差）', !sv.okA, hotDetail(sv));
+    check('自检·缺陷态整条判据报红（有牙，不是恒绿）', !sv.ok, hotDetail(sv));
+    const restored = await page.evaluate(() => {
+      const g = window.__garden; const saved = window.__lvSaved || []; let k = 0;
+      g.scene.traverse(o => {
+        if (o.name !== 'lampVol' || !o.parent || k >= saved.length) return;
+        o.position.set(saved[k][0], saved[k][1], saved[k][2]); k++;
+      });
+      let m = 0, j = 0;                                       // 回读活对象，验证真的还原了
+      g.scene.traverse(o => {
+        if (o.name !== 'lampVol' || !o.parent || j >= saved.length) return;
+        const s = saved[j++];
+        m = Math.max(m, Math.abs(o.position.x - s[0]), Math.abs(o.position.y - s[1]), Math.abs(o.position.z - s[2]));
+      });
+      delete window.__lvSaved;
+      return { n: k, read: j, total: saved.length, worst: m };
+    });
+    check('自检·光团位置已原样还原（回读比对，最大残差必须为 0，不给后续断言留残留）',
+      restored.total === LANTERNS && restored.n === restored.total && restored.read === restored.total && restored.worst === 0,
+      `回写 ${restored.n}/${restored.total} · 回读 ${restored.read} · 最大残差 ${restored.worst}`);
+    await page.evaluate(v => window.__garden.setLampVol(v), lampOn);   // 连灯态一起还原，自检不留任何场景残留
+  }
   /* ⚠️ 还原判据比 luma 不比像素：光团 shader 自带 uTime 湍流花纹，开灯两张图天然对不上 */
   check('还原 uLamp 后亮度回到开灯态（|Δluma| < 信号一半，非单向漂移）',
     Math.abs(loc(BK) - med(lumaOn)) < Math.abs(dLoc) / 2,
