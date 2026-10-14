@@ -486,11 +486,20 @@ export function seasonDemoCaption(){
 }
 
 /* ══ 状态机与过渡 ══ */
+/* ══ 切换过渡时长（2026-10-14 Chief 派单："切时辰/天气时画面用 2~3 秒平滑过渡过去，
+   不许一下跳变"）═════════════════════════════════════════════════════════
+   过渡机制**本来就在**：setEnv 每次换轴都 ENV.from=当前实际画面 → ENV.to=resolveEnv()、
+   ENV.t=0，11-loop 每帧 mixInto(ENV.cur, from, to, e) 逐通道插值（数字/Color/数组/grade），
+   e 走 smoothstep-in-out。所以光照/雾/雨量/snowAmount 这些**连续参数**一直是平滑的 ——
+   显式化为命名常量是为了：① 让"2~3 秒"成为可指认、可教唆、可断言的量（探针可读 ENV.dur）；
+   ② 与 06b-atmos 的"下雨因果链"共用同一条时间轴（雨延迟 0.45×dur 起步，见那边 update）。
+   ⚠️ 别改成 <2：因果链（起风→天暗→落雨）要在这条轴上排布，太短会挤成同时。 */
+export const ENV_TRANS_DUR = 2.8;               // 秒；区间 2~3 的中间值
 export const ENV = {
   time:'noon', season:'summer', weather:'clear',
   festival:false,                                 // 上元灯会（第 4 层开关，见 makeFestivalLights 一段）
   hour:12.5,                                   // 连续时辰（0~24）：按钮切时段只是对齐到锚点
-  cur:null, from:null, to:null, t:1, dur:2.8,      // dur = 过渡时长（秒）
+  cur:null, from:null, to:null, t:1, dur:ENV_TRANS_DUR,   // dur = 过渡时长（秒，见上）
 };
 /* 拆分（2026-10-05）：三轴预设与合成规则在 12a-presets.js，它在函数体里**只读** ENV。
    ⚠️ 必须注入在下一行 `ENV.cur = resolveEnv()` **之前** —— 那一行一路会读 ENV.weather。 */

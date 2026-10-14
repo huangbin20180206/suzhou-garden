@@ -422,18 +422,68 @@ export function makeLensWeather(cam){
   cam.add(points);
   points.visible = false;
   let rain = 0, snow = 0;
+  /* ══ 下雨的因果链（2026-10-14 Chief 派单："下雨要讲因果：先起风、天色压暗，再落雨点"）═══
+     为什么在此处做、而不是改 11-loop 的调用点：调用方传进来的 rainTarget/snowTarget 是
+     **参数层**的 ENV.cur.rainAmount —— 它跟着 setEnv 的 2.8s 过渡（mixInto 逐帧插值）
+     已经在平滑涨落了。因果链缺的是**次序**：老写法 rain 以 dt*2.2（约 0.5s）追目标，
+     于是 clear→storm 切换那一瞬，风（uWind，也来自参数层的 windMul，同步涨）与雨点
+     几乎同时出现，"先起风再落雨"读不出来。
+     ⇒ 在这里给目标加一条**延迟斜坡**：目标涨时 rainGoal 延迟 RAIN_DELAY_FRAC×2.8s 才起步、
+        按 RAM_RISE_RATE 起涨；目标落时立即跟着落（雨停可以快，起雨必须有前戏）。
+     风的因果不需要本模块做：WIND.uWindVec 是风向单位向量、风力档位由 2b-wind 的 L1/L2
+     按 windClock 独立调度，而底值风 uWindGlobal 吃 WIND_FORCE.v×gain —— gain=windGain(windMul)
+     随参数层 2.8s 平滑涨 ⇒ **风先动**是参数层天然保证的，本模块只管把雨的启动排到它后面。
+     "天色压暗"同理由参数层承担（sunIntensity/fogDensity/grade 都是逐帧插的连续量）。
+     ⚠️ visible 从硬阈值（rain>0.015）改为连续 fade：老写法在阈值处整片粒子瞬间生灭，
+       眼睛是一次"跳变"；fade 与 shader 的 uRain 同步，生灭读作"渐起/渐收"。
+     ⚠️ 时序状态（rainGoal/prevTgt）是**确定性**的：只吃 dt 与传入目标，不吃随机流。 */
+  /* 起雨前奏两档（2026-10-14 实测标定，见 outputs/_diag/weather-causal-trace.log）：
+     · 延迟 1.6s（≈0.57×过渡）—— 风起到六成、天色已压暗，雨才起步；
+     · 起涨 0.6/s —— 约 1.7s 才满档。第一版 1.26s/1.5pers 实测出来是"憋一下再倒下来"：
+       延迟够了但起涨太陡，0.3s 就冲到可见量，读作跳变而不是渐起。 */
+  const RAIN_DELAY_S = 1.6;                      // 起雨延迟：风/暗先行，雨在此之后才起步
+  const RAIN_RISE_RATE = 0.6;                    // 起涨速率（/s）：0.6/s ⇒ ~1.7s 渐起满档
+  const FADE_FULL = 0.06;                        // 淡入到头：与 shader 的可见门同量级
+  let rainGoal = 0;                              // 经因果链延迟后的实际目标
+  let prevRainTgt = 0;                           // 上一帧的传入目标（用来识别"开始变天"）
+  let riseT = -1;                                // 起涨计时器；<0 = 还没轮到雨动
+  let fade = 0;                                  // 粒子显隐的连续淡入淡出
+  let tgtNow = 0;                                // 本帧传入的目标（供 causal() 读出）
   return {
     points,
     update(dt, aspect, rainTarget, snowTarget, windVec){
-      rain += (rainTarget - rain) * Math.min(1, dt * 2.2);
+      /* 目标"上涨"且此前没在涨 ⇒ 进入起雨前戏（风先行，见上方注释） */
+      if (rainTarget > prevRainTgt + 1e-4 && riseT < 0){
+        riseT = 0;                               // 前戏开始：先只起风、天渐暗，雨不动
+      } else if (rainTarget <= prevRainTgt + 1e-4){
+        riseT = -1;                              // 目标停涨/回落：前戏取消，雨可直接收
+      }
+      if (riseT >= 0){
+        riseT += dt;
+        if (riseT >= RAIN_DELAY_S) rainGoal = Math.min(rainTarget, rainGoal + RAIN_RISE_RATE * dt);
+      } else {
+        rainGoal = rainTarget;                   // 停雨无前戏，直接跟
+      }
+      prevRainTgt = rainTarget;
+      rain += (rainGoal - rain) * Math.min(1, dt * 2.2);
       snow += (snowTarget - snow) * Math.min(1, dt * 2.2);
       mat.uniforms.uAspect.value = aspect;
       mat.uniforms.uRain.value = rain;
       mat.uniforms.uSnow.value = snow;
       mat.uniforms.uWind.value.copy(windVec);
-      points.visible = rain > 0.015 || snow > 0.015;
+      /* visible 从硬阈值改为随连续量 fade：老写法 rain>0.015 一旦跨过整片粒子瞬间出现，
+         在"渐起"的雨里是一次可读的跳变。alpha 由 shader 的 uRain 自己连续驱动
+         （fragment 里 inten = uRain*0.5），fade 只负责"显/隐"这一刀切平滑化。 */
+      const wantFade = (rain > 0.004 || snow > 0.004) ? 1 : 0;
+      fade += (wantFade - fade) * Math.min(1, dt * (wantFade ? 3.2 : 4.5));
+      points.visible = fade > 0.01;
+      tgtNow = rainTarget;
     },
     level: () => Math.max(rain, snow),
+    /* 供探针断言因果链：传入目标 vs 经延迟的实际目标 vs 粒子实际强度、前戏已走多久 */
+    causal: () => ({ target: +tgtNow.toFixed(4), goal: +rainGoal.toFixed(4),
+                     rain: +rain.toFixed(4), riseT: +riseT.toFixed(3),
+                     delay: +RAIN_DELAY_S.toFixed(2), fade: +fade.toFixed(3) }),
   };
 }
 

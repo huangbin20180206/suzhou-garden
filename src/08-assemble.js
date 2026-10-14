@@ -2804,6 +2804,15 @@ export function macawState(){
   }));
 }
 
+/* ── boulder-hero 预取（2026-10-14 · 试水单死锁修复，Chief 实测裁定）──
+   预载清单（13-preload）在**模块求值期**就把 7 件计入预算，warmBoot（11-loop）等
+   全部 settle 或 180s 超时才放行；而本文件里 boulder 的 fetch 只住在 deferred
+   heroStones（deferBootFirst，首帧之后才跑）里 ⇒ warmBoot 不放行 ⇒ 首帧不出 ⇒
+   heroStones 不跑 ⇒ fetch 不发起 ⇒ settle 不到 ⇒ 循环等到 180s 才按失败结算。
+   修法：**模块期先预取一份**（空回调），等摆位分支跑同 key 时命中 assetCache
+   同步落位 —— 与 Macaw 同机制、同一条先到先得。原程序化回滚档不动。 */
+loadAssetOnce('assets/boulder-hero.glb', 4.49, () => {});
+
 loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
   for (const s of MACAW_SPOTS){
     const holder = new THREE.Group();
@@ -3123,18 +3132,55 @@ deferBootFirst('立峰·云根', function heroStones(){
     markUnderwater(shelf);
     world.add(shelf);
     validateGeometry(shelf.geometry, 'taihuShelf');
-    const hero = mesh(makeTaihuHeroGeo({
-      height: 4.5, baseR: 0.80, seed: 11, sink: sink, holeCount: 9, eyeRatio: 0.25,
-      main: [0.70, 0.36], sec: [0.47, 0.22], bump: [0.24, 0.13],
-      lean: [0.85, 1.10], biteN: 4, biteR: [0.42, 0.68], biteD: [1.05, 1.45],
-      furrowMul: 1.10, foot: [0.95, 0.28],
-    }), MAT.taihuHero, { name:'taihuHero' });
-    hero.position.set(hx, 0, hz);
-    hero.rotation.y = 0.62;
-    hero.userData.noMerge = true;                  // ⚠️ 顶点色（AO/水线）会被几何合并丢掉
-    markUnderwater(hero);                          // 同上：立峰站在池底上，水下段 1.24m
-    world.add(hero);
-    validateGeometry(hero.geometry, 'taihuHero');
+    /* ── 太湖石主峰·源选择（2026-10-14 · 试水单）──
+       默认走 CC0 试水件：assets/boulder-hero.glb（Poly Haven boulder_01 → Blender GLB，
+       5.94MB / 66122 面 / 立姿 1.27×1.00×1.83m，选型批次见 research/cc0-scout/SHORTLIST.md #1）。
+       · `?heroSrc=proc` 露程序化原始峰（对比截图用）——探针惯例的显式覆盖，不吃全局随机。
+       · 原程序化主峰**原样保留**在这条 if 里，一键回滚 = 下面参数锁回 'proc'；**不要 commit，等用户看图点头**。
+       · GLB 走 loadAssetOnce 的归一化模板（最大维=targetSize、底部 y=0），holder 摆位/朝向按原主峰同口径
+         （hx/hz 同位、-sink 入池底、ry 同 0.62、markUnderwater + noMerge 同标注）；
+         targetSize 4.5 与原 height 同值 → 顶高 ≈ 3.32m，与原峰水上水下覆盖一致。 */
+    const heroSrc = (()=>{ try { return new URLSearchParams(location.search).get('heroSrc') === 'proc' ? 'proc' : 'glb'; } catch { return 'glb'; } })();
+    if (heroSrc === 'proc'){
+      /* ── 原程序化主峰（回滚档，一字未动） ── */
+      const hero = mesh(makeTaihuHeroGeo({
+        height: 4.5, baseR: 0.80, seed: 11, sink: sink, holeCount: 9, eyeRatio: 0.25,
+        main: [0.70, 0.36], sec: [0.47, 0.22], bump: [0.24, 0.13],
+        lean: [0.85, 1.10], biteN: 4, biteR: [0.42, 0.68], biteD: [1.05, 1.45],
+        furrowMul: 1.10, foot: [0.95, 0.28],
+      }), MAT.taihuHero, { name:'taihuHero' });
+      hero.position.set(hx, 0, hz);
+      hero.rotation.y = 0.62;
+      hero.userData.noMerge = true;                // ⚠️ 顶点色（AO/水线）会被几何合并丢掉
+      markUnderwater(hero);                        // 同上：立峰站在池底上，水下段 1.24m
+      world.add(hero);
+      validateGeometry(hero.geometry, 'taihuHero');
+    console.log('[特置立峰·proc 档] 位置 (' + hx.toFixed(2) + ', ' + hz.toFixed(2) + ') 岸半径 ' + shoreR.toFixed(2)
+                + ' 入土 ' + sink.toFixed(2) + 'm 面数 ' + hero.geometry.userData.tris
+                + ' 法线一致率 ' + hero.geometry.userData.normalAgree
+                + ' 连通分量 ' + hero.geometry.userData.islands
+                + ' 苔痕 ' + (hero.geometry.userData.mossVerts || 0)
+                + ' 透光缘 ' + (hero.geometry.userData.sssVerts || 0)
+                + ' 用时 ' + (performance.now() - t0).toFixed(0) + 'ms');
+    } else {
+      /* ── CC0 试水件（boulder_01，试水 · 不回滚到此处即不生效） ── */
+      /* ⚠️ 与 13-preload 同写法：url 带 assets/ 前缀（同 placeAssets('assets/Turtle.glb', ...)）。 */
+      loadAssetOnce('assets/boulder-hero.glb', 4.49, (sv)=>{
+        const holder = new THREE.Group();
+        holder.name = 'taihuHero';
+        holder.position.set(hx, -sink, hz);
+        holder.rotation.y = 0.62;
+        holder.add(sv);
+        holder.userData.noMerge = true;            // 防几何 merge 吃掉模板归一化偏移（Koi 同机制）
+        holder.traverse(o1=>{ if (o1.isMesh){ o1.castShadow = true; o1.receiveShadow = true; } });
+        markUnderwater(holder);                    // 立峰站池底，水下段与原峰同口径
+        world.add(holder);
+        refillHeroVp();                            // 机位回填（同一几何反算，proc/glb 同prefab）
+        console.log('[特置立峰·GLB 试水] 位置 (' + hx.toFixed(2) + ', ' + hz.toFixed(2)
+                    + ') 入土 ' + sink.toFixed(2) + 'm / 面数 66122（Blender 实测）'
+                    + ' / 包体 5.94MB / 立姿 1.27×1.00×1.83m');
+      });
+    }
     /* 伴石：同源生成、小一号，一块半浸 —— 单独一块立石在实景里像"插上去的" */
     /* ⚠️ 伴石沉深了会变成棕色"木桩"（样张实测：入土 1.0m / 石高 1.15m → 87% 没在水下，
        整块被水线渍带压成深褐）。改成矮而宽、只埋 25cm，露出水面才有"伴石"的读法。 */
@@ -3323,11 +3369,17 @@ deferBootFirst('立峰·云根', function heroStones(){
     world.add(stele);
     console.log('[题名石刻] 云根 @ (' + sx.toFixed(2) + ', ' + sz.toFixed(2) + ')');
     /* P1-4 延迟装配补遗：VIEWPOINTS 初始化时立峰还没建，hero 机位当时只能用兜底参数 ——
-       现在石已落地，按同一套「包围盒反算」把机位刷成精确构图（与同步装配时完全一致）。 */
-    {
+       现在石已落地，按同一套「包围盒反算」把机位刷成精确构图（与同步装配时完全一致）。
+       试水单（2026-10-14）：GLB 分支下主峰是**异步**进场的，回填封装成函数 —— proc 在
+       heroStones 回调里同步调，GLB 在 loadAssetOnce 的 cb 里调（同一几何反算，一字不差）。 */
+    /* 必须函数声明（块内提升）：GLB 预取命中走同步回调，早于此行执行，const 版 TDZ。 */
+    function refillHeroVp() {
+      const ho = world.children.find(o => o.name === 'taihuHero');
+      if (!ho) return;
+      {
       const out2 = new THREE.Vector3(hx, 0, hz).normalize();
       const side2 = new THREE.Vector3(-out2.z, 0, out2.x);
-      const bb2 = new THREE.Box3().setFromObject(hero);
+      const bb2 = new THREE.Box3().setFromObject(ho);
       const need2 = (bb2.max.y - bb2.min.y) * 0.72 + 2.6;
       const dist2 = (need2 / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2))) * 1.5;
       const vp = VIEWPOINTS.find(v => v.id === 'hero');
@@ -3337,7 +3389,9 @@ deferBootFirst('立峰·云根', function heroStones(){
                    hz - out2.z * dist2 + side2.z * dist2 * 0.20);
         vp.target.set(hx, bb2.max.y * 0.46, hz);
       }
+      }
     }
+    if (heroSrc === 'proc'){ refillHeroVp(); }
     /* 「云根」近观机位回填：字心 = 刻字面 group（materialIndex 1）全部顶点的局部均值 →
        世界坐标（与探针 probe/stele-legibility.mjs 同款取法，不写死坐标）。
        D = 2.8m：fov 46° / 16:9 下，石头 2.9m 的长边约占画幅 68%，两字尺寸是净室判据的 0.68 倍。
@@ -3364,13 +3418,6 @@ deferBootFirst('立峰·云根', function heroStones(){
       }
     }
     bootMark('立峰几何');
-    console.log('[特置立峰] 位置 (' + hx.toFixed(2) + ', ' + hz.toFixed(2) + ') 岸半径 ' + shoreR.toFixed(2)
-                + ' 入土 ' + sink.toFixed(2) + 'm 面数 ' + hero.geometry.userData.tris
-                + ' 法线一致率 ' + hero.geometry.userData.normalAgree
-                + ' 连通分量 ' + hero.geometry.userData.islands
-                + ' 苔痕 ' + (hero.geometry.userData.mossVerts || 0)
-                + ' 透光缘 ' + (hero.geometry.userData.sssVerts || 0)
-                + ' 用时 ' + (performance.now() - t0).toFixed(0) + 'ms');
   } catch (err){
     console.warn('[特置立峰] 生成失败，已跳过：', err && err.message);
   }
