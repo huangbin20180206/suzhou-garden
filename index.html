@@ -49,6 +49,14 @@
   #caption.show{opacity:1;transform:translateX(-50%) translateY(0)}
   #caption b{display:block;font-size:15px;letter-spacing:.3em;margin-bottom:4px;font-weight:600}
   #caption span{display:block;font-size:12px;letter-spacing:.08em;line-height:1.7;opacity:.88}
+  /* 悬停小字标签（2026-10-14）：跟随鼠标，非模态，pointer-events:none */
+  #hover-label{position:fixed;z-index:7;pointer-events:none;
+    padding:3px 10px;border-radius:4px;font-size:12px;letter-spacing:.1em;
+    background:rgba(14,17,22,.72);color:#EDE6D6;
+    box-shadow:0 2px 8px rgba(0,0,0,.35);
+    opacity:0;transform:translateY(4px);
+    transition:opacity .18s,transform .18s;white-space:nowrap}
+  #hover-label.show{opacity:1;transform:translateY(0)}
   #stats{position:fixed;right:16px;bottom:14px;font:11px/1.6 ui-monospace,Consolas,monospace;
     color:var(--ui-fg);opacity:.92;pointer-events:none;text-align:right;user-select:none;
     white-space:pre;transition:color .6s;
@@ -918,6 +926,7 @@
   </div>
 </div>
 <div id="caption" aria-live="polite"><b></b><span></span></div>
+<div id="hover-label" role="status" aria-live="polite"></div>
 <div id="guide" role="dialog" aria-label="首次引导">
   <div class="g-ring"></div>
   <div class="g-bubble">

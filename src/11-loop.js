@@ -1422,6 +1422,7 @@ function animate(){
      ② 水面用的是**上一帧**的池底贴图 —— 鱼游得慢，一帧延迟肉眼无感。
      ⚠️ 在 composer 之前调会把 stats 的 draw call 记账顺序打乱（reset 在 composer 前）。 */
   renderRefraction();
+  _tickHover();
 }
 
 /* ── 首帧那 5 秒怎么治（2026-09-20 · B3）────────────────────────
@@ -2045,6 +2046,72 @@ function guideMaybeAuto(){
   addEventListener('keydown', dismiss, true);
   addEventListener('resize', ()=>{ if (GUIDE.on) guideRender(); });
 })();
+
+/* ── 悬停小字标签（2026-10-14 · 互动②）──
+   鼠标划过物体时浮出小字提示（如「荷叶」「太湖石」「远香堂」「锦鲤」「石拱桥」）。
+   非模态、pointer-events:none —— 不挡任何按钮的点击/命中区。
+   仅 matchMedia('（hover:hover）') 且非窄屏时启用；触屏/手机版式不启用。
+   Raycaster 节流（每 6 帧一次），不对全场景每帧射线。
+   文案挂场景里现有的实体命名（VIEWPOINTS 的 label 与材质名同源）。 */
+const _hoverEl = document.getElementById('hover-label');
+const _hoverRay = new THREE.Raycaster();
+const _hoverNdc = new THREE.Vector2();
+let _hoverX = 0, _hoverY = 0;
+let _hoverFrame = 0;
+const _HOVER_INTERVAL = 6;
+const _hoverTargets = [];
+let _hoverTried = false;
+
+/* 构建可拾取目标表：obj → label。
+   waterSurface / koiGroup / lanternGroups 是 11-loop 已导入的引用。
+   taihuHero / taihuCompanion 通过 world.traverse 按 name 找。 */
+function _buildHoverTargets(){
+  if (waterSurface) _hoverTargets.push({ obj: waterSurface, label: '池水' });
+  if (koiGroup) _hoverTargets.push({ obj: koiGroup, label: '锦鲤' });
+  for (const pivot of (lanternGroups||[])) _hoverTargets.push({ obj: pivot, label: '灯笼' });
+  world.traverse(o => {
+    if (o.name === 'taihuHero') _hoverTargets.push({ obj: o, label: '太湖石' });
+    if (o.name === 'taihuCompanion') _hoverTargets.push({ obj: o, label: '太湖石' });
+  });
+}
+
+function _hoverEnabled(){
+  try {
+    return matchMedia('(hover:hover)').matches && !matchMedia('(max-width:768px)').matches;
+  } catch { return false; }
+}
+
+renderer.domElement.addEventListener('pointermove', (e)=>{
+  _hoverX = e.clientX; _hoverY = e.clientY;
+  const r = renderer.domElement.getBoundingClientRect();
+  _hoverNdc.set(((e.clientX - r.left) / r.width) * 2 - 1,
+               -((e.clientY - r.top) / r.height) * 2 + 1);
+});
+
+function _tickHover(){
+  if (!_hoverEl) return;
+  if (!_hoverEnabled()){ _hoverEl.classList.remove('show'); return; }
+  if (!_hoverTried){ _buildHoverTargets(); _hoverTried = true; }
+  if (!_hoverTargets.length) return;
+  if (++_hoverFrame % _HOVER_INTERVAL !== 0) return;
+  _hoverRay.setFromCamera(_hoverNdc, camera);
+  const objs = _hoverTargets.map(t=>t.obj);
+  const hits = _hoverRay.intersectObjects(objs, true);
+  if (!hits.length){ _hoverEl.classList.remove('show'); return; }
+  const hit = hits[0];
+  let label = null;
+  for (const t of _hoverTargets){
+    if (hit.object === t.obj){ label = t.label; break; }
+    let found = false;
+    hit.object.traverseAncestors(a => { if (a === t.obj) found = true; });
+    if (found){ label = t.label; break; }
+  }
+  if (!label){ _hoverEl.classList.remove('show'); return; }
+  _hoverEl.textContent = label;
+  _hoverEl.style.left = (_hoverX + 14) + 'px';
+  _hoverEl.style.top = (_hoverY - 10) + 'px';
+  _hoverEl.classList.add('show');
+}
 
 /* ── PWA 离线注册（P1-3）──
    只在 http(s) 下注册（file:// 无 SW）；注册失败静默（离线能力是加分项，不是门禁）。 */
