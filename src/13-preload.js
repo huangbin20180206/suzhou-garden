@@ -175,6 +175,10 @@ export const PRELOAD_MANIFEST = [
      虽然有点假但是至少能看"——撤空版他判"荷花还是没有修好"）。与 sw.js 的 GLBS 同步。
      required: false —— GLB 拉不到时页面不该停在加载页，荷花丛缺位即缺位。 */
   { url: 'assets/koi.glb',         bytes: 208000, stage: '取', label: '锦鲤', required: true  },
+  /* 2026-10-14 试水批次：太湖石主峰替换件（Poly Haven boulder_01 → Blender GLB，改浅灰重导后 5.46MB），
+     与 sw.js GLBS 同步登记（preload-manifest-sync 门盯着）。required:false——
+     GLB 拉不到时按既有回退：heroSrc=proc 一致即可对齐（试水期间程序化档保留）。 */
+  { url: 'assets/boulder-hero.glb', bytes: 5462812, stage: '取', label: '太湖石', required: false },
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
   { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
