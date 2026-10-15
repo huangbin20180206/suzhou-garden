@@ -104,4 +104,4 @@ jobs:
         run: npm ci --include=dev
 
       - name: 纯 node 门禁子集（不起浏览器 · 无 GPU 依赖）
-        run: npm run verify -- --gates=preload-manifest-sync,wind-trajectory,shadow-product-gate,codeonly-unit
+        run: npm run verify -- --gates=preload-manifest-sync,wind-trajectory,shadow-product-gate,codeonly-unit,unit-pure,vendor-fresh

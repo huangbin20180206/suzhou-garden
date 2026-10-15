@@ -1,0 +1,10 @@
+{
+  "entrySha": "d662228b0eae9dad",
+  "deps": {
+    "three": "^0.184.0",
+    "meshoptimizer": "^1.2.0",
+    "draco": "^0.0.1",
+    "ktx-parse": "^2.0.0",
+    "esbuild": "^0.28.2"
+  }
+}

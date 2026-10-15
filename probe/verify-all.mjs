@@ -123,6 +123,13 @@ const NODE = process.execPath;
 const SUITES = [
   ['语法门禁 check',         'probe/check.mjs'],
   ['语法判定单元 codeonly-unit','probe/codeonly-unit.mjs'],
+  /* 纯函数单测 unit-pure（2026-10-15 · 完结 Phase 2）：node:test，118ms，零浏览器。
+     守 00-config 的随机确定性 + 12a 的插值/边界/互斥矩阵（2b-wind 因顶层建 Canvas
+     纹理进不来 node，见 unit-pure.mjs 头注释）。 */
+  ['纯函数单测 unit-pure', 'probe/unit-pure.mjs'],
+  /* vendor 新鲜度 vendor-fresh（2026-10-15）：vendor.js 入库但为构建产物，
+     build-entry.js/依赖版本变而 vendor 未重打时红。修：build + --record。 */
+  ['构建物新鲜度 vendor-fresh', 'probe/vendor-fresh.mjs'],
   /* ── 2026-10-03 · 预载清单一致性（纯 node / <1s）──
      守的是"sw.js 的 GLBS 与 13-preload 的 PRELOAD_MANIFEST 是同一批"这条**写在注释里、
      此前无人把守**的红线：2026-10-02 加金刚鹦鹉时只改了 13、漏了 sw.js，
