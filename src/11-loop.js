@@ -2062,16 +2062,66 @@ const _HOVER_INTERVAL = 6;
 const _hoverTargets = [];
 let _hoverTried = false;
 
-/* 构建可拾取目标表：obj → label。
-   waterSurface / koiGroup / lanternGroups 是 11-loop 已导入的引用。
-   taihuHero / taihuCompanion 通过 world.traverse 按 name 找。 */
+/* 构建可拾取目标表：obj → label（2026-10-14 深夜扩面 · 用户真机反馈"只看到池水"）。
+   根因有三，前两条都在旧版这 8 行里：
+   ① 时机：表只在首帧建一次（_hoverTried 一次性闸），而立峰在 deferBootFirst 延迟批
+     （11-loop 首帧后才 runDeferredBoot）、锦鲤是 GLB 异步挂载（06g onLoad）——
+     首帧时 taihuHero 还不在 world、koiGroup 还是空 Group ⇒ traverse 什么都找不到。
+   ② 覆盖：陆上物体（荷叶/荷花/石凳/桥/灯笼/马厩/远香堂/假山/树）根本不在表里。
+   ③ 水面恒最近：raycast 按距离排序，水面永远在鱼/水下物之前 —— 旧版只看 hits[0]，
+     指向水下任何东西的射线都会先撞水面、读成"池水"（命中判定处一并修）。
+   修法：name 精确匹配 + 材质兜底匹配双通道挂标签（不硬编码坐标）；表在首帧先建兜底版，
+   bootDonePromise 兑现后重建（延迟批与 GLB 都已进场）；命中判定改"按距离序找第一个
+   有标签的命中"，水面不再是永久赢家。 */
 function _buildHoverTargets(){
+  _hoverTargets.length = 0;
   if (waterSurface) _hoverTargets.push({ obj: waterSurface, label: '池水' });
   if (koiGroup) _hoverTargets.push({ obj: koiGroup, label: '锦鲤' });
   for (const pivot of (lanternGroups||[])) _hoverTargets.push({ obj: pivot, label: '灯笼' });
-  world.traverse(o => {
-    if (o.name === 'taihuHero') _hoverTargets.push({ obj: o, label: '太湖石' });
-    if (o.name === 'taihuCompanion') _hoverTargets.push({ obj: o, label: '太湖石' });
+  /* 用 scene.traverse 而非 world.traverse（2026-10-15）：折射克隆（KoiFish 等）挂在
+     scene 下不在 world 里 —— 用 world 只建出"正主"表，克隆命中链全落空。 */
+  scene.traverse(o => {
+    if (o.name === 'taihuHero' || o.name === 'taihuCompanion') _hoverTargets.push({ obj: o, label: '太湖石' });
+    else if (o.name === 'stoneLantern') _hoverTargets.push({ obj: o, label: '石灯笼' });
+    /* ⚠️ 锦鲤的命中体是折射克隆：renderRefraction 把水下克隆挂在主 scene 下渲染 RT，
+       它们的祖先链里没有 koiGroup ⇒ traverseAncestors 匹配不到 —— 必须按 mesh 自带名
+       'KoiFish' 直挂（06g 的 GLB 节点名）。主树里的正主仍走 koiGroup 分支。 */
+    else if (o.name === 'KoiFish') _hoverTargets.push({ obj: o, label: '锦鲤' });
+    else if (o.name === 'taihuPeak' || o.name === 'taihuBoulder') _hoverTargets.push({ obj: o, label: '假山' });
+    else if (o.name === 'bridgeBody') _hoverTargets.push({ obj: o, label: '石拱桥' });
+    else if (o.name === 'plaque') _hoverTargets.push({ obj: o, label: '匾额「远香堂」' });
+    else if (o.name === 'pavilionPlaque') _hoverTargets.push({ obj: o, label: '匾额「荷风四面」' });
+    else if (o.name === 'propTableTop' || o.name === 'propTablePed' || o.name === 'propStool'
+          || o.name === 'propQinStool') _hoverTargets.push({ obj: o, label: '石桌石凳' });
+    else if (o.name === 'lotusStem' || o.name === 'lotusCalyx') _hoverTargets.push({ obj: o, label: '荷花' });
+    /* 荷花系小件（茎/萼/瓣/蓬）会被 mergeStatics 并进合并网格而丢名 —— name 分支
+       命中率有限，真正兜住它们的是材质匹配（lotus/lily/lotusPod 系都是单例）。 */
+    else if (o.name === 'lotusBud' || o.name === 'podHouse' || o.name === 'podFace') _hoverTargets.push({ obj: o, label: '莲蓬' });
+    else if (o.name && /^horse(Cheek|Muzzle|Ear|ManeTuft|Hoof|Saddle|Girth)$/.test(o.name))
+      _hoverTargets.push({ obj: o, label: '马' });
+    else if (o.name && /^carriage(Bed|Side|Back|Front|Canopy|Pole|Yoke|Shaft|Axle)/.test(o.name))
+      _hoverTargets.push({ obj: o, label: '马车' });
+    else if (o.name && !/^stableRoad/.test(o.name)
+          && /^(stable|stall|hay|feed|fence|hitch|yard|trough|plinth|stableRoof|stableRidge|stableGable|stableBeam)/.test(o.name))
+      _hoverTargets.push({ obj: o, label: '马厩' });
+    else if (o.name === 'terraceLower' || o.name === 'terraceUpper') _hoverTargets.push({ obj: o, label: '远香堂' });
+    else {
+      /* 材质兜底（树系大多没有 group name）：柳/桃/梅/竹/芭蕉 ——
+         材质是 01-materials 的模块级单例，比对 identity 零开销。 */
+      const mk = o.material || null;
+      if (mk === MAT.willowBark || mk === MAT.willowLeaf) _hoverTargets.push({ obj: o, label: '柳树' });
+      else if (mk === MAT.peachLeaf || mk === MAT.peachBlossom || mk === MAT.peachFruit) _hoverTargets.push({ obj: o, label: '桃树' });
+      else if (mk === MAT.plumTrunk || mk === MAT.plumLeaf || mk === MAT.plumBlossomRed
+            || mk === MAT.plumBlossomYellow || mk === MAT.plumBud) _hoverTargets.push({ obj: o, label: '梅树' });
+      else if (mk === MAT.bambooB && o.name === 'bambooBranch') _hoverTargets.push({ obj: o, label: '竹子' });
+      else if (mk === MAT.banana) _hoverTargets.push({ obj: o, label: '芭蕉' });
+      else if (mk === MAT.marble) _hoverTargets.push({ obj: o, label: '石拱桥' });   // 桥身独占材质（mergeStatics 并名后靠材质认）
+      else if (mk === MAT.taihuLobe || mk === MAT.taihuLobeDark || mk === MAT.taihu || mk === MAT.taihuDark) _hoverTargets.push({ obj: o, label: '假山' });
+      else if (mk === MAT.lotus) _hoverTargets.push({ obj: o, label: '荷花' });
+      else if (mk === MAT.lily) _hoverTargets.push({ obj: o, label: '荷叶' });
+      else if (mk === MAT.lotusPod || mk === MAT.lotusPodAged || mk === MAT.lotusPodDark
+            || mk === MAT.lotusSeed) _hoverTargets.push({ obj: o, label: '莲蓬' });
+    }
   });
 }
 
@@ -2088,23 +2138,62 @@ renderer.domElement.addEventListener('pointermove', (e)=>{
                -((e.clientY - r.top) / r.height) * 2 + 1);
 });
 
+function _labelOf(hit){
+  for (const t of _hoverTargets){
+    if (hit.object === t.obj) return t.label;
+    let found = false;
+    hit.object.traverseAncestors(a => { if (a === t.obj) found = true; });
+    if (found) return t.label;
+  }
+  return null;
+}
+
 function _tickHover(){
   if (!_hoverEl) return;
   if (!_hoverEnabled()){ _hoverEl.classList.remove('show'); return; }
-  if (!_hoverTried){ _buildHoverTargets(); _hoverTried = true; }
+  if (!_hoverTried){
+    _buildHoverTargets(); _hoverTried = true;
+    /* 延迟批（柳/竹/立峰）与 GLB（锦鲤/石灯笼 holder）都在首帧后才进场 ——
+       bootDone 兑现后重建一次表，兜底版作废。幂等：重复 resolve 无副作用。 */
+    import('./08-assemble.js').then(m => m.bootDonePromise).then(() => {
+      _hoverTargets.length = 0;
+      _buildHoverTargets();
+      /* GLB 异步件（石灯笼 holder / 锦鲤）可能晚于 bootDone 才进场 —— 5s 后补建一次，
+         覆盖"重建时机早于 GLB 回调"的窗口（石灯笼悬停空标签的根因）。 */
+      return new Promise(r2 => setTimeout(r2, 5000));
+    }).then(() => {
+      _hoverTargets.length = 0;
+      _buildHoverTargets();
+    }).catch(() => {});
+  }
   if (!_hoverTargets.length) return;
   if (++_hoverFrame % _HOVER_INTERVAL !== 0) return;
   _hoverRay.setFromCamera(_hoverNdc, camera);
   const objs = _hoverTargets.map(t=>t.obj);
   const hits = _hoverRay.intersectObjects(objs, true);
   if (!hits.length){ _hoverEl.classList.remove('show'); return; }
-  const hit = hits[0];
+  /* 按**距离序**取第一个有标签的命中 —— 修"只看到池水"：水面（透明）在射线上的距离
+     恒近于水下的一切（鱼/水草/莲蓬），旧版只看 hits[0] 就让池水成了永久赢家。
+     现在水下命中可以透过水面被读到；而陆上小物体（荷叶/石凳）不会被更远的
+     大物件抢走提示。上限 8 个命中足够覆盖"水+鱼+水草"的叠层。 */
+  /* 盖面物让位（2026-10-15 复盘）：水面/荷叶在射线距离上恒近于鱼/莲蓬，"第一个有标签"
+     仍会让它们永久赢 —— 与旧版只看 hits[0] 同病。规则：若首个命中是池水/荷叶，
+     向后扫 1.2m 找更深的鱼/莲蓬/荷花命中；找不到才回落到盖面物标签。 */
   let label = null;
-  for (const t of _hoverTargets){
-    if (hit.object === t.obj){ label = t.label; break; }
-    let found = false;
-    hit.object.traverseAncestors(a => { if (a === t.obj) found = true; });
-    if (found){ label = t.label; break; }
+  const l0 = _labelOf(hits[0]);
+  if (l0 === '池水' || l0 === '荷叶'){
+    const d0 = hits[0].distance;
+    for (let h = 1; h < hits.length && h < 12; h++){
+      if (hits[h].distance - d0 > 1.2) break;
+      const lb = _labelOf(hits[h]);
+      if (lb && lb !== '池水' && lb !== '荷叶'){ label = lb; break; }
+    }
+    if (!label) label = l0;
+  } else {
+    for (let h = 0; h < hits.length && h < 8; h++){
+      label = _labelOf(hits[h]);
+      if (label) break;
+    }
   }
   if (!label){ _hoverEl.classList.remove('show'); return; }
   _hoverEl.textContent = label;
