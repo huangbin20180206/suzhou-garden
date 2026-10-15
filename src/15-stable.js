@@ -244,13 +244,21 @@ export function decorateHorseGeometry(srcGeo, seed = 1){
     parts.push(taperedTube(pts, [0.019, 0.015, 0.005], 6).toNonIndexed());
   }
 
-  /* ③ 眼睛（头侧压扁的球，**贴着侧面最外点 + 外推 0.006** 保证鼓出表面）④ 鼻孔 + 嘴
-     ⚠️ 眼睛在低模上要"读得出来"必须够大且够鼓：半径 0.030（≈6cm 实径）、x 方向压到 0.60
-        让它是个"贴片"而不是个球；颜色近黑但不纯黑（纯黑读成"洞"）。 */
+  /* ③ 眼睛（头侧压扁的球）④ 鼻孔 + 嘴
+     ⚠️ 2026-10-14 用户报"马的眼睛变成金鱼的突眼"—— 上一版为"低模上读得出"把半径做到 0.030
+        （≈6cm 实径）且外推 +0.006 保证鼓出表面 ⇒ 眼球整颗凸在马头侧面，读作金鱼突眼。
+        真马眼球外露部分远小于眼球本体（大半嵌在眼窝里）⇒ 本次按"嵌进眼窝"改：
+          · 半径 0.030 → **0.019**（≈3.8cm 实径）
+          · 外推 +0.006 → **+0.004**（只略微露出，不鼓成球）
+          · x 压扁 0.60 → **0.42**（更贴片：马眼在马头上是"一小片深色"，不是颗球）
+        迭代记录：0.021/−0.004 太深（黑窟窿）→ 0.025/+0.002 太大（两颗黑球，harness 机位实拍比对
+        比原版更凸）→ 本轮 0.019/+0.004/压扁 0.42。
+          · 压扁 x 0.60 保持（贴片化，防止再读成球）
+        颜色仍近黑不纯黑（纯黑读成"洞"）。 */
   for (const sx of [-1, 1]){
-    const g = new THREE.SphereGeometry(0.030, 8, 6).toNonIndexed();
-    g.scale(0.60, 1.0, 1.15);
-    g.translate(sx * (ANCH.eye[0] + 0.006), ANCH.eye[1], ANCH.eye[2]);
+    const g = new THREE.SphereGeometry(0.019, 8, 6).toNonIndexed();
+    g.scale(0.42, 1.0, 1.05);
+    g.translate(sx * (ANCH.eye[0] + 0.004), ANCH.eye[1], ANCH.eye[2]);
     parts.push(g);
   }
   for (const sx of [-1, 1]){
@@ -709,6 +717,17 @@ export function loadStableHorses(stableGroup){
         o.material.roughness = 0.82;
         o.material.envMapIntensity = 0.30;
         o.material.map = null;                        // 模型自带贴图是没人引用的 normal-bake，别留引用
+        /* ── 表皮质感（2026-10-14 · 用户报"马的表皮毛发不像活物、放大看太干净"）──
+           病因：六个 horse* 材质都是**纯色 + 常数粗糙度**（0.86~0.90）⇒ 高光是均匀塑料面，
+           没有任何表面变化。模型自带的那张 normal-bake 没人引用（材质里是 null），
+           且本单不改 GLB、不改 01-materials ⇒ 在**材质侧**贴一张程序化噪声粗糙度图：
+             · 噪声按微小噪点 + 低频斑块合成（毛流的高低不平），乘进 roughness；
+             · 6 匹马用**同一张**贴图（clone 前生成一次、缓存在模块级），确定性、不加包体；
+             · 512² 单通道灰图（roughness 只读 G 通道），显存 ~1MB、构建 <10ms。
+           ⚠️ 不用各向异性：three 的 MeshStandardMaterial 无 anisotropy 位，specular 走 GGX；
+              改粗糙度是同一视觉目标下最稳的落点。 */
+        o.material.roughnessMap = horseCoatRoughTex();
+        o.material.roughness = 0.92;                   // 贴图是乘子 ⇒ 基数抬高一点给噪声留范围
         o.material.needsUpdate = true;
         o.castShadow = true;
         o.userData.noMerge = true;                    // 异步进来、错过 mergeStatics，显式标一下
@@ -772,6 +791,47 @@ export function loadStableHorses(stableGroup){
    （深色"袜"是把四条腿从身体里分出来的关键 —— 整条腿同色时出图判读"找不到腿"）；
    ③ 深色鬃尾。躯干/颈/头/腿都用变速管（沿曲线变径的管），颈+头+耳+鬃挂 headG ⇒
    `graze` 一转就是低头吃草。 */
+/* ── 马的表皮粗糙度噪声图（2026-10-14 · 六条修复单第 1 条）────────────────────
+   程序化合成、确定性（用固定种子的 mulberry32，不吃全局 rnd 流 —— 否则全园抽样会漂）。
+   两张噪声叠加：① 高频细点（毛丝）② 低频斑块（皮下起伏）。只写 G 通道（three 的
+   roughnessMap 读 G），R/B 填 1 不参与。生成一次缓存复用（6 匹马共享同一纹理实例）。 */
+let _horseCoatTex = null;
+function horseCoatRoughTex(){
+  if (_horseCoatTex) return _horseCoatTex;
+  const S = 512;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  const img = ctx.createImageData(S, S);
+  const rr2 = mulberry32(20261014);            // 私有流：确定性，不消耗全局 rnd
+  /* 低频斑块：先生成 32×32 的粗网格再双线性放大（当作皮下起伏） */
+  const G = 32, grid = new Float32Array(G * G);
+  for (let i = 0; i < G * G; i++) grid[i] = rr2(0.55, 1.0);
+  const sample = (u, v) => {
+    const x = u * (G - 1), y = v * (G - 1);
+    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
+    const x1 = Math.min(x0 + 1, G - 1), y1 = Math.min(y0 + 1, G - 1);
+    const a = grid[y0 * G + x0], b = grid[y0 * G + x1];
+    const c = grid[y1 * G + x0], d = grid[y1 * G + x1];
+    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
+  };
+  for (let y = 0; y < S; y++){
+    for (let x = 0; x < S; x++){
+      const lo = sample(x / S, y / S);                 // 低频：0.55~1.0
+      const hi = 0.90 + rr2(0, 0.10);                  // 高频细点
+      const g = Math.max(0, Math.min(1, lo * hi)) * 255;
+      const o = (y * S + x) * 4;
+      img.data[o] = 255; img.data[o + 1] = g; img.data[o + 2] = 255; img.data[o + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(cv);
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.repeat.set(2, 2);                              // 拉高噪声频率，避免大面积同斑
+  _horseCoatTex = tex;
+  return tex;
+}
+
 export function makeHorse(coatMat = MAT.horseChestnut, opts = {}){
   const g = new THREE.Group();
   const mane = opts.maneMat || MAT.horseMane;
@@ -904,6 +964,45 @@ export function makeCarriage(opts = {}){
         post.position.set(sx * 0.40 + s2 * 0.19, yokeY - 0.24, 1.98); g.add(post);
       }
     }
+    /* ── 口络带（2026-10-14 · 用户报"马嘴和套车器具之间没有连接、悬空，像各自咬了一根木棍"）──
+       ⚠️⚠️ 坐标系是这一条的关键（首版画错、出图"带子垂到马胸前"）：
+         车 rotation.y=π ⇒ **车局部 +z = 世界 −z**；车心世界 z=−0.6 ⇒ 局部 z 与 世界 z 关系
+         `世界z = −0.6 − 局部z`。
+         实测（运行期探针）：辕里两匹马心世界 z≈0.85 ⇒ **车局部 z≈−1.45**（负侧！），
+         马嘴世界 z≈−0.30 ⇒ 车局部 z≈**−0.30**；横轭在局部 +1.98（世界 −2.58）= **在马的后面**。
+         即"马站在车的后方、辕朝相反方向" —— 首版把带子画在局部 +1.98→+2.96，
+         等于挂在车头那侧，与马嘴隔了 3m，所以出图看着是悬空垂落。
+       修法：把口络带画在**马身这一侧**（局部 z 为负），形成嘴→颊带→鼻革→缰绳的闭环：
+         · 鼻革 at 局部 z≈−0.30（= 马嘴正中），y≈0.98
+         · 颊带 从鼻革两侧斜向后上 to 局部 z≈−0.75, y≈1.15（马颊）
+         · 缰绳 从颊带上端向后 to 局部 z≈−1.30, y≈1.25（车辕/颈圈侧），形成可读的连接
+       半径 0.012~0.015（皮带量级）；与既有 strap(MAT.harness) 同材质，不引入新资产。 */
+    const MX = sx0 => sx0 * 0.40;                 // 两匹马横向（与辕距对齐）
+    for (const sx of [-1, 1]){
+      /* 鼻革：跨过马嘴的一小段横带 */
+      const nose = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(MX(sx) - 0.075, 0.99, -0.30),
+        new THREE.Vector3(MX(sx),        0.97, -0.38),
+        new THREE.Vector3(MX(sx) + 0.075, 0.99, -0.30),
+      ]);
+      g.add(mesh(new THREE.TubeGeometry(nose, 6, 0.014, 5, false), strap, { name: 'bridleNose', cast: false }));
+      for (const s2 of [-1, 1]){
+        /* 颊带：鼻革侧端 → 马颊侧后方（斜向上后） */
+        const cheek = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(MX(sx) + s2 * 0.075, 0.99, -0.30),
+          new THREE.Vector3(MX(sx) + s2 * 0.095, 1.08, -0.55),
+          new THREE.Vector3(MX(sx) + s2 * 0.105, 1.16, -0.78),
+        ]);
+        g.add(mesh(new THREE.TubeGeometry(cheek, 6, 0.013, 5, false), strap, { name: 'bridleCheek', cast: false }));
+        /* 缰绳：颊带上端 → 向后拉到车辕/颈圈侧（形成"套着"的连续读法） */
+        const rein = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(MX(sx) + s2 * 0.105, 1.16, -0.78),
+          new THREE.Vector3(MX(sx) + s2 * 0.115, 1.22, -1.10),
+          new THREE.Vector3(MX(sx) + s2 * 0.120, 1.26, -1.42),
+        ]);
+        g.add(mesh(new THREE.TubeGeometry(rein, 8, 0.012, 4, false), strap, { name: 'bridleRein', cast: false }));
+      }
+    }
   } else {
     for (const sx of [-1, 1]){
       const shaftCurve = new THREE.CatmullRomCurve3([
@@ -939,19 +1038,27 @@ export function makeCarriage(opts = {}){
 
 /* ── 草料捆（马夫手里那捆）──────────────────────────────────────────────────
    ⚠️ 尺寸按**可读性**定，不按实物：第一版 8cm 粗在 10~20m 只有 1~2px
-      ⇒ 出图判读"手边没有草料"；加粗到 ~12cm、0.34m 长才读得出。 */
+      ⇒ 出图判读"手边没有草料"；加粗到 ~12cm、0.34m 长才读得出。
+   ⚠️⚠️ 2026-10-14 用户报"马夫手里是草料不是竹夹"—— 上一版 9 根**细管**(半径 0.017=1.7cm)
+      从 y=−0.14 到 +0.20 直上直下，配一个**居中硬圆柱**束带 ⇒ 侧影 = "两根细杆 + 一个箍"，
+      读成竹夹/镊子。本次按"**一把蓬松的草束**"重做：
+        · 草茎加到 14 根、半径 0.017 → 0.024（更接近真实麦秆），长度收到 −0.13~+0.16；
+        · 束带**下移**到腰部（y≈−0.045）并收窄到 0.058 —— 草束下半紧、上半**散开**；
+        · 顶端半径外扩到 2.6 倍 ⇒ 蓬松扇形，这是"一把草"与"一根夹"的分界。 */
 export function makeFeedBale(){
   const g = new THREE.Group();
-  for (let i = 0; i < 9; i++){
-    const a = (i / 9) * Math.PI * 2, r = 0.045 + (i % 3) * 0.015;
+  for (let i = 0; i < 14; i++){
+    const a = (i / 14) * Math.PI * 2, r = 0.046 + (i % 4) * 0.014;
     const c = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(Math.cos(a) * r, -0.14, Math.sin(a) * r * 0.6),
-      new THREE.Vector3(Math.cos(a) * r * 1.5, 0.02, Math.sin(a) * r),
-      new THREE.Vector3(Math.cos(a) * r * 2.1, 0.20 + (i % 4) * 0.03, Math.sin(a) * r * 1.4),
+      new THREE.Vector3(Math.cos(a) * r * 0.85, -0.13, Math.sin(a) * r * 0.6),
+      new THREE.Vector3(Math.cos(a) * r * 1.20, -0.02, Math.sin(a) * r * 0.9),
+      new THREE.Vector3(Math.cos(a) * r * 3.10, 0.17 + (i % 5) * 0.024, Math.sin(a) * r * 2.60),
     ]);
-    g.add(mesh(new THREE.TubeGeometry(c, 5, 0.017, 5, false), MAT.straw, { name: 'feedStrand', cast: false }));
+    g.add(mesh(new THREE.TubeGeometry(c, 6, 0.030, 5, false), MAT.straw, { name: 'feedStrand', cast: false }));
   }
-  const tie = mesh(new THREE.CylinderGeometry(0.068, 0.068, 0.045, 8), MAT.harness, { name: 'feedTie' });
+  /* 束带：下移到腰部、半径收窄 —— 上半散开才读得出"一把"而不是"一夹" */
+  const tie = mesh(new THREE.CylinderGeometry(0.070, 0.070, 0.046, 8), MAT.harness, { name: 'feedTie' });
+  tie.position.y = -0.045;
   g.add(tie);
   return g;
 }
@@ -1538,8 +1645,12 @@ export function makeStable(cx, cz, opts = {}){
      （也就是朝马嘴），栅栏（z=−4.7）**以内**。
      ⚠️ 2026-10-11：从 z=−4.35 收到 **−4.05**（老黄："马夫看不出来喂马的动作"）——
      实测马鼻端在 z≈−3.77、马夫伸手再往前 ~0.4m，原来两处相隔 1.0m 以上，
-     出图判读"草离马嘴还差一点距离、人和马是摆拍式对峙"；收近后草捆正好抵在马嘴前。 */
-  const groomLocal = [1.5, -4.05];
+     出图判读"草离马嘴还差一点距离、人和马是摆拍式对峙"；收近后草捆正好抵在马嘴前。
+     ⚠️⚠️ 2026-10-14 用户报"马夫和吃草的马穿模"—— 收到 −4.05 后马夫躯干与马头前伸段**重叠**
+     （改前出图实测：马夫背影直接糊住马脸）。折中回退 **0.25m 到 −4.30**：仍是"伸手可及"的
+     喂食距离（草捆抵在马嘴前 ~0.15m），但躯干不再插进马头。这是六条里**最小改动**的一条
+     —— 只动一个数，不碰手臂角度、也不碰马的低头幅度。 */
+  const groomLocal = [1.5, -4.30];
   /* ⚠️ 打 noMerge 必须放在**所有槽位内容都挂完之后**（挽具是在上面的循环里挂进 slot.group 的）——
      放在 addHorseSlot 里会漏掉挽具，那些件照样被烘进 mergedStatic 而永远摘不掉。 */
   for (const s of horseSlots) markNoMerge(s.group);
