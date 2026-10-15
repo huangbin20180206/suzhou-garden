@@ -11,7 +11,7 @@
 import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT } from './01-materials.js';
 import { camera, ACTIVE_QUALITY } from './02-scene.js';
-import { world } from './08-assemble.js';
+import { world } from './02-scene.js';
 import { TAU } from './00-config.js';
 
 /* ── 夜间的灯笼：自发光小体 + Bloom 辉光 ──

@@ -7,11 +7,11 @@ import { THREE, mergeGeometries } from '../vendor.js';
    before initialization"，渲染循环每帧重复）。这两处都只在**事件回调**里调用，
    回调触发时所有模块早已就绪 → 走 00-config 的 HOOKS 延迟绑定（见该文件注释）。 */
 import { MAT, waterSurface, DISTANT_MATS, SEASON_TINT_REGISTRY, addWind, wetUniform, WET_MATS, SNOW_COVER_MATS, SNOW_HOOK, AUX_PASS_HIDDEN } from './01-materials.js';
-import { world, dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart,
+import { dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart,
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
          cancelCamFly, CAM_FLY, introActive, introCancel, geese, GOOSE } from './08-assemble.js';
 import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
-import { skyMesh, rainbowMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
+import { skyMesh, rainbowMesh, scene, world, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
 import { TAU, HOOKS, ENV_REF, mulberry32, CFG } from './00-config.js';

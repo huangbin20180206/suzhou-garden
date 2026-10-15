@@ -15,7 +15,7 @@
       "季节存在性"表里还在用，所以本文件把它们 export 出去（其余一律不导出）。 */
 import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT } from './01-materials.js';
-import { world } from './08-assemble.js';
+import { world } from './02-scene.js';
 import { POND_RADII } from './05-water.js';
 import { treeLanternInsts } from './06i-trees.js';
 import { TAU, CFG, mulberry32, rnd } from './00-config.js';

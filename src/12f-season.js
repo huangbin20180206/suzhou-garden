@@ -13,7 +13,7 @@
 import { THREE } from '../vendor.js';
 import { MAT, SEASON_TINT_REGISTRY, wetUniform, WET_MATS, addWind } from './01-materials.js';
 import { renderer } from './02-scene.js';
-import { world } from './08-assemble.js';
+import { world } from './02-scene.js';
 import { markCasterBoxDirty, fitShadowCamera } from './09-lights.js';
 import { treeLanternInsts } from './06i-trees.js';
 import { PRECIP_INDOOR } from './12e-precip.js';

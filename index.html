@@ -1058,13 +1058,13 @@ setTimeout(() => { if (!window.__garden) bootFail('初始化超时（15 秒仍�
 
 import { windClock, DIR_N, DIR_STEP, WIND_DIR, updateWindDir, FORCE_TIERS, WIND_FORCE, forceBand, windGain, updateWindForce, gust, updateWind } from './src/2b-wind.js';
 
-import { app, renderer, GPU_NAME, SOFTWARE_GL, PROBE_DRIVEN, QOS_IMMUNE, GPU_TIER, SUPERSAMPLE, RENDER_SCALE, scene, camera, controls, CAM_MIN_DIST, CAM_HOME, resetCamera, skyMesh, lumOf, ENV_BAKE_LUM } from './src/02-scene.js';
+import { app, renderer, GPU_NAME, SOFTWARE_GL, PROBE_DRIVEN, QOS_IMMUNE, GPU_TIER, SUPERSAMPLE, RENDER_SCALE, scene, world, camera, controls, CAM_MIN_DIST, CAM_HOME, resetCamera, skyMesh, lumOf, ENV_BAKE_LUM } from './src/02-scene.js';
 import { mesh, box, makeColumn, instancedBoxes, instancedGeo, makeCorrugatedSlab, DOUGONG_H, makeDougongGeo, makeChineseRoof, makeCeiling, makeQueTu, makeGuaLuo, makeJiangnanWindow, makeChangChuang, makeLatticePanel, makeWallRun, makeWallCap } from './src/03-factory.js';
 import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './src/04-buildings.js';
 import { POND_PTS, insidePond, POND_RADII, makePond, makeBankRocks, makeArchBridge, makeSteppingStones } from './src/05-water.js';
 import { makeReedBladeGeo, makeBamboo, makeWisteria, perchingAnchors, makeAquatic, KOI_ORBITS, rippleInst, spawnRipple, updateRipples, makeKoiGroup, assetFailures, loadAssetOnce, placeAssets, MIST_WHITE, MIST, makeMistField, makeTaihuHeroGeo, makeWillow, makeBananaPlant, makeLotusPod, makeRockChain, makeRockery, makeWaterGrass } from './src/06-vegetation.js';
 import { makeGround, makePaving, makeWalls, makeDistantHills, makeDragonfly } from './src/07-ground.js';
-import { world, runDeferredBoot, FIG_HAIR, FIG_PALETTE, figures, koiGroup, dragonflies, perchingDragonflies, PERCH_LIFT, perchShowOK, updatePerchingDragonflies, GLB_LOTUS_STEM_H, swimTurtles, HERO_POS, CAM_FLY, flyTo, updateCamFly, VIEWPOINTS, gotoViewpoint, TOUR, captionEl, showCaption, hideCaption, tourStop, tourStart, updateTour, tourUserTakeover } from './src/08-assemble.js';
+import { runDeferredBoot, FIG_HAIR, FIG_PALETTE, figures, koiGroup, dragonflies, perchingDragonflies, PERCH_LIFT, perchShowOK, updatePerchingDragonflies, GLB_LOTUS_STEM_H, swimTurtles, HERO_POS, CAM_FLY, flyTo, updateCamFly, VIEWPOINTS, gotoViewpoint, TOUR, captionEl, showCaption, hideCaption, tourStop, tourStart, updateTour, tourUserTakeover } from './src/08-assemble.js';
 
 import { sun, casterBox, casterBoxDirty, refreshCasterBox, fitShadowCamera, amb, fill, hemiLight } from './src/09-lights.js';
 
