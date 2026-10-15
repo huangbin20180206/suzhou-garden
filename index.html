@@ -26,7 +26,7 @@
      而不是一块惨白。⇒ 这是**兜底**，不是修复；根因（哪块区域为什么没被画到）仍待定位。
      ⚠️ 只改 CSS 背景，不动画布像素 —— 读画布取像素的路径（明信片/长曝光）不受影响。 */
   #app canvas{background:#0B0E12}
-  canvas{display:block;width:100%;height:100%}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
   /* UI 可读性：文字浮在"任意背景"上，只调字色永远不稳（正午雾色算出的 luminance 是 0.724，
      旧的 dark<0.10 判据几乎从不成立，于是永远是 34% 白底 + 深灰字 + 标签 opacity .66，
      压到亮绿草地上对比度只有 2.2:1）。解法是给面板一层**固定衬底**，
@@ -57,6 +57,7 @@
     opacity:0;transform:translateY(4px);
     transition:opacity .18s,transform .18s;white-space:nowrap}
   #hover-label.show{opacity:1;transform:translateY(0)}
+  #see-lantern{ display:none; }
   #stats{position:fixed;right:16px;bottom:14px;font:11px/1.6 ui-monospace,Consolas,monospace;
     color:var(--ui-fg);opacity:.92;pointer-events:none;text-align:right;user-select:none;
     white-space:pre;transition:color .6s;
@@ -532,6 +533,14 @@
     /* row-gap 只管"折行之后行与行之间"的距离 —— 2px 是"手指不会误点、又省高度"的折中
        （拆行后的面板总高见 drawer-content 那条注释的实测） */
     #env .row{ flex-wrap: wrap; gap: 6px; row-gap: 2px; }
+    /* 手机端“看灯笼”浮动入口（2026-10-14 手机适配）：默认 display:none，窄屏/触屏才显示；
+       置于右下角，避开左下角面板与顶部字幕；≥46px 触控下限。 */
+    #see-lantern{ display:inline-flex; position:fixed; right:10px; bottom:74px; z-index:8;
+      align-items:center; justify-content:center; min-width:64px; min-height:46px; padding:0 14px;
+      border-radius:10px; font-size:13px; letter-spacing:.1em; color:#EDE6D6;
+      background:rgba(14,17,22,.72); border:1px solid rgba(207,65,54,.6);
+      box-shadow:0 3px 10px rgba(0,0,0,.4); touch-action:manipulation;
+      -webkit-tap-highlight-color:transparent; }
     #env .lbl {
       width: auto;
       min-width: 2.7em;
@@ -897,6 +906,9 @@
     </div>
   </div>
 </div>
+    <!-- 手机端“看灯笼”入口（2026-10-14 手机适配）：默认隐藏，仅窄屏/触屏媒体查询显示；
+         置于 #env 之外，不进 aria-pressed / 命中区门禁。 -->
+    <button id="see-lantern" data-act="lantern" aria-label="走近看石灯笼，夜里火袋发光" title="飞到石灯笼近前，夜里火袋发光">看灯笼</button>
 <div id="loading">
   <div class="ld-bg"></div>
   <div class="ld-wash"></div>
@@ -1061,6 +1073,28 @@ import { composer, AO_ENABLED, gtaoPass, bloom, gradePass } from './src/10-post.
 import { lanternGroups, hash21Lantern, weatherMutexReason, weatherTag, effectiveWeather, ENV_SEASON, mixInto, timeLabelNow, applyEnv, applyPresence, wetApplied, ENV, setEnv, weatherAllowed, envEl, REEL, toggleReel, advanceReel, PRECIP, updatePrecip, updatePostRain, updateRainRipples } from './src/12-env.js';
 
 import './src/11-loop.js';
+</script>
+<!-- 手机端「看灯笼」接线（2026-10-14 手机适配②）：只在此文件内，不碰 11-loop.js
+     （悬停等价物已划给 VisualBot）。点 #see-lantern → 走 __garden.flyTo 飞到石灯笼近前 + 出字幕。 -->
+<script>
+(function(){
+  var btn = document.getElementById('see-lantern');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var g = window.__garden; if (!g || !g.scene || !g.flyTo) return;
+    var pos = null;
+    /* world 是 scene 的子节点；直接用已暴露的 scene 遍历找石灯笼 holder */
+    g.scene.traverse(function(o){ if (!pos && o.name === 'stoneLantern'){ var v = new g.THREE.Vector3(); o.getWorldPosition(v); pos = v; } });
+    if (!pos) return;
+    var camPos = new g.THREE.Vector3(pos.x, pos.y + 1.1, pos.z + 3.0);
+    var aim = new g.THREE.Vector3(pos.x, pos.y + 0.7, pos.z);
+    g.flyTo(camPos, aim, 1.4, 1.5, 'lantern');
+    var cap = document.getElementById('caption');
+    if (cap){ var b = cap.querySelector('b'), s = cap.querySelector('span');
+      if (b) b.textContent = '石灯笼'; if (s) s.textContent = '北岸石灯，四面火窗透光；夜里火袋自发光。';
+      cap.classList.add('show'); setTimeout(function(){ cap.classList.remove('show'); }, 6000); }
+  });
+})();
 </script>
 </body>
 </html>
