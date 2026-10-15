@@ -448,7 +448,7 @@ suzhou-garden/
 | 拆分 | `npm run audit` | `import-audit.mjs` 四条判据（漏 import / 给 import 绑定赋值 / 引用内联专有名），3 秒 |
 | 拆分 | `node probe/codeonly-unit.mjs` | `_codeonly.mjs` 的"什么算引用"契约单元测试，0.2 秒 |
 | 回归 | `npm test` | Playwright 无头加载真实页面，**55 项断言**，退出码即结论 |
-| 全量 | `npm run verify` | **一条命令串行跑全部 79 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。**门数口径**：`verify-all.mjs` 的 `SUITES.length`（2026-10-12 实测 **77**，2026-10-13 新增烘焙产物前提门后为 **78**；`verify:quick` = 12）。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
+| 全量 | `npm run verify` | **一条命令串行跑全部 79 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。**门数口径**：`verify-all.mjs` 的 `SUITES.length`（2026-10-12 实测 **77**，2026-10-13 新增烘焙产物前提门与 playwright-args-guard 后为 **79**，2026-10-15 实测 `SUITES.length` = 79；`verify:quick` = 12）。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
 | 分层 | `npm run verify:quick` | 12 道快门（≈3 分钟）：check / codeonly-unit / preload-manifest-sync / import-audit / smoke / pageerror / **figure-foot-guard** / layout-fingerprint / random / **pmrem-env** / **fixed-timestep** / **water-fresnel** —— 日常改动后的兜底 |
 | 分层 | `node probe/verify-all.mjs --gates=mist-guard,hill-guard` | 只跑指定门（对 path 与 label 做子串匹配；**匹配不到就响亮报错**，不许"0 道门全绿"） |
 | 视觉 | 截图比对 | 新截图命名带版本号（`-v2`），与 `outputs/shots-*` 基线对比 |
@@ -731,7 +731,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 **明确推迟的（下一批梯队，已建单跟踪）：**
 * 静态/动态投射物分离 + 阴影烘焙（CSM 已实测负优化；烘焙是既定替代，估 5~10 天量级，且改观感要在真屏幕验收）；
-* **06-vegetation 二次拆分（已完成）**：12-env 那一半 2026-10-05 六步已拆完（→ `12a-presets`/`12b-sky`/`12c-festival`/`12d-lantern`/`12e-precip`/`12f-season`），`06-vegetation` 这一半 **W0~W9 九步已全部收官**：`06-vegetation.js` **4892 → 188 行（-96.2%）**，拆出 9 个模块 `06a-rng`/`06c-organs`/`06d-corridor`/`06e-assets`/`06f-ripple`/`06g-koi`/`06h-rock`/`06i-trees`/`06j-herbs`，src 模块 26 → 35。全量 **77 道**门已验证**零真红**，`layout-fingerprint` **逐位一致**（园子画面一个像素没变，纯搬家零逻辑改动）。方案与逐步验收见 `docs/refactor-plan-12env-06veg-2026-10-12.md`；
+* **06-vegetation 二次拆分（已完成）**：12-env 那一半 2026-10-05 六步已拆完（→ `12a-presets`/`12b-sky`/`12c-festival`/`12d-lantern`/`12e-precip`/`12f-season`），`06-vegetation` 这一半 **W0~W9 九步已全部收官**：`06-vegetation.js` **4892 → 188 行（-96.2%）**，拆出 9 个模块 `06a-rng`/`06c-organs`/`06d-corridor`/`06e-assets`/`06f-ripple`/`06g-koi`/`06h-rock`/`06i-trees`/`06j-herbs`，src 模块 26 → 35。全量 **79 道**门已验证**零真红**，`layout-fingerprint` **逐位一致**（园子画面一个像素没变，纯搬家零逻辑改动）。方案与逐步验收见 `docs/refactor-plan-12env-06veg-2026-10-12.md`；
 * 批次3 高精资产上预载管线（预载体系已按 10MB 建好、现资产仅 1.1MB 在空转；需要美术选型与人眼验收）；
 * 明信片分享/9:16（需分享渠道的产品决策）。
 
