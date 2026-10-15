@@ -2,8 +2,11 @@
 import { THREE } from '../vendor.js';
 import { validateGeometry, mergeStatics, fitShadowCamera } from './09-lights.js';
 import { collectAOSkip } from './10-post.js';
-import { applyEnv, collectSeasonCaches, ENV, envEl, initEnvScene } from './12-env.js';
-import { scene, world, renderer, camera, controls, CAM_MIN_DIST, CAM_HOME, PROBE_DRIVEN } from './02-scene.js';
+import { applyEnv, collectSeasonCaches, ENV, initEnvScene } from './12-env.js';
+/* 2026-10-15 W1/W2/W3 拆分收尾：controls / CAM_MIN_DIST / CAM_HOME / PROBE_DRIVEN 的用法
+   已随巡游与机位搬进 08d-tour.js，本模块再无引用 ⇒ 从 import 面删掉（原先从 W0 之前
+   的 23/8/5/2 次引用一路降到 0）。 */
+import { scene, world, renderer, camera } from './02-scene.js';
 import { bootMark, rr, TAU, mulberry32, rnd, CFG } from './00-config.js';
 
 /* ── W2（2026-10-15）：jr/WR 两条布局流已搬进 ./08b-figures.js（同一枚对象）。
@@ -23,10 +26,10 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildin
 /* 15-stable（2026-10-09 · 老黄："院子外围做一个马厩：停 4 匹马、2 驾双轮马车、一个马夫喂草料"）：
    建筑 + 马 + 马车 + 场院杂物整组在那个模块里；**马夫不在这里建** —— 人物工厂 makeScholar
    就在本文件下方，马厩模块持有它会造成循环 import。这里只import 马厩整体与"手里的草料捆"。 */
-import { makeStable, makeFeedBale, loadStableHorses, makeStableRoad } from './15-stable.js';
+import { makeStable, loadStableHorses, makeStableRoad } from './15-stable.js';
 import { mesh } from './03-factory.js';
 import { MAT, willowOrigins, rockNormalTex, registerWeatherRoles } from './01-materials.js';
-import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS, makeWoodBucket, BUCKET_HANDLE_H, setGoPiecesVisible } from './14-props.js';
+import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
    8 · 组装场景
    ══════════════════════════════════════════════════════════════ */
@@ -248,8 +251,7 @@ world.add(makeRockChain([
 /* ── W1（2026-10-15）：步行路径与行走声明已搬进 ./08d-tour.js ──
    buildWalkPath() 必须在这个位置调用（布景之后、人物之前）：
    射线取样要求此刻 world 里只有地形/水/桥/山。 */
-import { WALK_PATH, buildWalkPath, walkPointAt, WALKERS,
-         WALK_SPEED, WALK_TURN, WALK_STRIDE, WALK_BOB, WALK_SWAY } from './08d-tour.js';
+import { WALK_PATH, buildWalkPath, walkPointAt, WALKERS } from './08d-tour.js';
 export { WALK_PATH, walkPointAt, WALKERS };
 buildWalkPath();
 
