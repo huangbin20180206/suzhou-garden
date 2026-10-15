@@ -71,3 +71,37 @@ jobs:
         run: npm test
         env:
           GARDEN_SOFT: '1'
+
+  # ── 发布前把关（2026-10-14 加）：master 分支 push 时，在静态门禁之上再跑 6 道纯 node 门 ──
+  # 为什么只跑纯 node：CI runner 无 GPU，浏览器门走软渲染（实测约 2.4s/帧）。
+  #   2026-10-13 首次真跑时，smoke 作业就是这样跑了 15 分 30 秒才失败 —— 浏览器门在云上
+  #   既慢又脆（固定 sleep / 等待上限在低帧率下成批碎）。所以这道 job 刻意避开浏览器：
+  #   把「合并进 master 才发现结构性错误」这条风险用**零 GPU 依赖**的方式兜住。
+  # 6 道门的来历：probe/verify-all.mjs 的 SUITES 共 79 道，其中**不起浏览器**的只有这 6 道
+  #   （check / codeonly-unit / import-audit 已由 static job 跑，这里用 --gates 补齐另外几道
+  #   并复用既有脚本，不新增测试脚本、不改任何门的判定逻辑）：
+  #     probe/preload-manifest-sync.mjs  预载清单 vs sw.js GLBS 一致性（纯 node <1s）
+  #     probe/wind-trajectory.mjs        风场位移轨迹（纯数学 <1s）
+  #     probe/shadow-product-gate.mjs    阴影烘焙前提（纯静态）
+  #     probe/codeonly-unit.mjs          语法判定单元契约
+  #   （--gates 是 verify-all 既有参数，子串匹配，见 verify-all.mjs:598-636）
+  # 注：--gates 命中 0 道时 verify-all 会**主动报错退出**（L630），不会以「0 道全绿」收场。
+  release-gate:
+    name: 发布前把关（master · 6 道纯 node 门）
+    runs-on: ubuntu-latest
+    needs: static
+    if: github.ref == 'refs/heads/master'
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20.x'
+          cache: npm
+
+      - name: 安装依赖（含 devDependencies）
+        run: npm ci --include=dev
+
+      - name: 纯 node 门禁子集（不起浏览器 · 无 GPU 依赖）
+        run: npm run verify -- --gates=preload-manifest-sync,wind-trajectory,shadow-product-gate,codeonly-unit
