@@ -2812,6 +2812,9 @@ export function macawState(){
    修法：**模块期先预取一份**（空回调），等摆位分支跑同 key 时命中 assetCache
    同步落位 —— 与 Macaw 同机制、同一条先到先得。原程序化回滚档不动。 */
 loadAssetOnce('assets/boulder-hero.glb', 4.49, () => {});
+/* 石灯笼（2026-10-14）：与 boulder 同一条规矩 —— 预载清单在**模块求值期**计数，
+   若 fetch 只住在 deferred 批里就会 warmBoot 死锁（boulder 已踩过一次）。 */
+loadAssetOnce('assets/stone-lantern.glb', 1.05, () => {});
 
 loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
   for (const s of MACAW_SPOTS){
@@ -2880,6 +2883,28 @@ placeAssets('assets/Turtle.glb', 0.5, [
   { x: -13.6, y: 0.34, z: 5.4, ry: 1.3, s: 0.8 },
   { x:  12.8, y: 0.3, z: -0.8, ry: 4.1, s: 0.85 },
 ]);
+/* ── 石灯笼（2026-10-14 · DIY L0 首件 · 纯接线）──────────────────────────────
+   GLB：assets/stone-lantern.glb（research/diy-lantern 自制，186KB / 1000 面 / 高 1.05m）。
+   摆位：research/diy-first-target.md §4 **实算主位**——(4.0, −3.8) 北岸，地面 y 走
+   `groundHeight(x,z)` 助手（**不手写 y**；那份实测值 0.053）。选它的实测依据：
+   距岸线 1.62m（岸石带半径 ≤0.75m ⇒ 净隙 0.65m 不相撞）· 最近既有物 corridor 8.8m ·
+   离两个南岸导览机位均 ≥4.5m ⇒ 桥机位与 koi 机位均入画。**别自己另找点**（那份量过）。
+   朝向：火袋四面开窗 ⇒ 朝向无所谓，取 ry=0 保持模型自身朝向（确定性，不吃随机）。
+   ⚠️ 火袋 `lantern_glow` 的 emissive([1,0.74,0.34]) 是**模型自带**，本接线不改材质、
+      也**不新增真光源** —— 与 06c-organs 既有挂灯同一条口径（场内真光源仍只有那 5 盏）。
+   归一化：走 loadAssetOnce 模板（最大维 = 1.05 = 原高 ⇒ 缩放 1.0，实际不放大不改形）。
+   备位 (18.1, 5.2) 亭东先不摆（依据里写明：先做主位，效果确认再摆）。 */
+loadAssetOnce('assets/stone-lantern.glb', 1.05, (srcL)=>{
+  const holder = new THREE.Group();
+  holder.name = 'stoneLantern';
+  const lx = 4.0, lz = -3.8;
+  holder.position.set(lx, groundHeight(lx, lz), lz);
+  holder.add(srcL);
+  holder.traverse(o=>{ if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
+  world.add(holder);
+  console.log('[石灯笼] 落位 (' + lx.toFixed(1) + ', ' + lz.toFixed(1) + ') y='
+              + groundHeight(lx, lz).toFixed(3) + ' · 高 1.05m · 1000 面');
+});
 // 乌龟：池中缓游
 export const swimTurtles = [];
 /* ── 预抽（2026-09-23 · T0）：同 makeKoiGroup 的理由 —— 这 4×2 次 rr() 不能留在异步回调里。

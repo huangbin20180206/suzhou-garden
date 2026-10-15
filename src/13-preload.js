@@ -179,6 +179,10 @@ export const PRELOAD_MANIFEST = [
      与 sw.js GLBS 同步登记（preload-manifest-sync 门盯着）。required:false——
      GLB 拉不到时按既有回退：heroSrc=proc 一致即可对齐（试水期间程序化档保留）。 */
   { url: 'assets/boulder-hero.glb', bytes: 5462812, stage: '取', label: '太湖石', required: false },
+  /* 2026-10-14 石灯笼（DIY L0 首件 · 纯接线）：research/diy-lantern/stone-lantern.glb 原样拷入。
+     186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙，不新增真光源）。
+     摆位依据 research/diy-first-target.md §4 主位 (4.0,-3.8) y=0.053（岸距 1.62m、最近物 8.8m）。 */
+  { url: 'assets/stone-lantern.glb', bytes: 190864, stage: '取', label: '石灯笼', required: false },
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
   { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
