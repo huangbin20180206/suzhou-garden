@@ -4,7 +4,7 @@ import { CFG, rnd, rr, mulberry32, TAU, registry, BOOT, bootMark } from './00-co
 /* ══════════════════════════════════════════════════════════════
    1 · 材质库（命名角色，全局复用）
    ══════════════════════════════════════════════════════════════ */
-import { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex, makePlumBarkTex } from './01b-textures.js';
+import { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeLotusPetalTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex, makePlumBarkTex } from './01b-textures.js';
 export { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex };   // 先 import 再 export：别写成 export { X } from …（探针 import-audit 会误报"用到 X 但没 import"）
 export const WATER_REFLECT_SHADER = {
   uniforms: {
@@ -537,7 +537,8 @@ export const MAT = {
   peachFruit: new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.62, metalness:0.0, envMapIntensity:0.35 }),
   peachPetal: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xFFFFFF, roughness:0.92, metalness:0.0, envMapIntensity:0.2, side:THREE.DoubleSide, alphaTest:0.45 }),
   lily:     new THREE.MeshStandardMaterial({ color:0x3E7A34, roughness:0.7,  envMapIntensity:0.5, side:THREE.DoubleSide }),
-  lotus:    new THREE.MeshStandardMaterial({ color:0xF2C7D4, roughness:0.62, envMapIntensity:0.55, side:THREE.DoubleSide }),
+  /* 2026-10-14：加瓣面贴图（渐变+脉络，见 01b makeLotusPetalTex）—— color 仍留作 tint 基准。 */
+  lotus:    new THREE.MeshStandardMaterial({ color:0xFFFFFF, map:makeLotusPetalTex(), roughness:0.62, envMapIntensity:0.55, side:THREE.DoubleSide }),
   reed:     new THREE.MeshStandardMaterial({ color:0x3F6B34, roughness:0.86, envMapIntensity:0.3, side:THREE.DoubleSide }),
   // —— 装饰 ——
   gauze:    new THREE.MeshPhysicalMaterial({ color:0xF4F0E4, roughness:0.55, metalness:0.0,

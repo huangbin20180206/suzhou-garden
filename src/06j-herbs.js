@@ -526,7 +526,12 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
   const petalGeo = makeLotusPetalGeo();
   const petalInst = new THREE.InstancedMesh(petalGeo, MAT.lotus, nLotus * petals);
   petalInst.castShadow = false;
-  const coreInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.055, 0.040, 0.050, 12), MAT.gold, nLotus);
+  /* 花心重做（2026-10-14 用户近看反馈"花朵中心点不对、几何图片叠加"）：
+     旧 = 一个金色小圆柱塞子（MAT.gold），近看是塑料扣。换成两件实体：
+     ① 花托盅（MAT.lotusPod 黄绿、上宽下窄）② 花蕊环（8 根小柱实例，MAT.lotusSeed）。
+     全部实例化，draw call +1。 */
+  const coreInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.048, 0.030, 0.052, 12), MAT.lotusPod, nLotus);
+  const stamenInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.0038, 0.0030, 0.030, 5), MAT.lotusSeed, nLotus * 8);
   const pm = new THREE.Matrix4(), pp = new THREE.Vector3(), pq = new THREE.Quaternion(), ps = new THREE.Vector3();
   const qTilt = new THREE.Quaternion(), qSpin = new THREE.Quaternion();
   const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
@@ -543,7 +548,10 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
     const sc = rr(0.092, 0.116);      // 花朵直径 0.22~0.28m（真实荷花 15~25cm）
     // 花梗（2026-09-29：棱数 5→12 —— 低棱柱被风摆时棱面轮流朝前，看起来像"杆在
     // 旋转、忽粗忽细"（老黄暴雨近看反馈）；12 棱剪影平滑）
-    const stemH = fy - CFG.water + 0.06;
+    /* 茎顶收到花底内（2026-10-14 用户近看反馈"茎和花朵中心点不对"）：
+       旧 +0.06 让茎尖高出花萼顶约 5cm —— 近看花心里竖着一截棍尖。花萼只盖到 +0.0095，
+       茎必须止于萼内：+0.01。茎与花心的 xy 本来同轴（fx/fz 一致），错的是 z 这 6cm。 */
+    const stemH = fy - CFG.water + 0.01;
     const stemM = mesh(new THREE.CylinderGeometry(0.026, 0.040, stemH, 12), MAT.lily, { name:'lotusStem' });
     stemM.position.set(fx, CFG.water + stemH/2, fz);
     g.add(stemM);
@@ -569,11 +577,19 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
     addPerchingAnchor('flower', petalInst, i * petals);
     ring(mid,   0.78, 0.30, 0.24);     // 中圈
     ring(inner, 0.38, 0.20, 0.50);     // 内圈：收拢成杯
-    pp.set(fx, fy + 0.16*sc, fz); pq.identity(); ps.setScalar(sc);
+    pp.set(fx, fy + 0.10*sc, fz); pq.identity(); ps.setScalar(sc);
     pm.compose(pp, pq, ps); coreInst.setMatrixAt(i, pm);
+    /* 花蕊环：绕花托一圈、立在托面上沿（花心实体化第二步）。
+       近看花心 = "黄绿托 + 一圈米色蕊丝"，不再是金色塞子。 */
+    for (let k = 0; k < 8; k++){
+      const sa = (k/8)*TAU + 0.4;
+      pp.set(fx + Math.cos(sa)*0.024*sc, fy + 0.128*sc, fz + Math.sin(sa)*0.024*sc);
+      pm.compose(pp, pq, ps.setScalar(sc));
+      stamenInst.setMatrixAt(i*8 + k, pm);
+    }
   }
-  petalInst.instanceMatrix.needsUpdate = coreInst.instanceMatrix.needsUpdate = true;
-  g.add(petalInst, coreInst);
+  petalInst.instanceMatrix.needsUpdate = coreInst.instanceMatrix.needsUpdate = stamenInst.instanceMatrix.needsUpdate = true;
+  g.add(petalInst, coreInst, stamenInst);
   return g;
 }
 

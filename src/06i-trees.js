@@ -1903,7 +1903,8 @@ export function makeLotusPod(x, z, h = 0.85){
     const fa = rr(0, TAU), fRad = rr(0.30, 0.55);
     const fx = Math.cos(fa) * fRad, fz = Math.sin(fa) * fRad;
     const fh = rr(0.45, 0.8);
-    const stemH = fh + 0.06;
+    /* 茎顶收到花底内（2026-10-14 同 06j 的修法：旧 +0.06 茎尖戳出花头 5cm）。 */
+    const stemH = fh + 0.01;
     const fStem = mesh(new THREE.CylinderGeometry(0.008, 0.013, stemH, 5), MAT.lily, { name:'flowerStem' });
     fStem.position.set(fx, stemH / 2, fz);
     g.add(fStem);

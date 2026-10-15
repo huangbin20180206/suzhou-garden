@@ -545,6 +545,50 @@ export function makePeachPetalTex(){
   return tex;
 }
 
+/* 荷瓣贴图（2026-10-14 · 用户近看反馈"花朵是明显的几何图片叠加"）：
+   旧 MAT.lotus 是纯色 F2C7D4，20 瓣同色塑料片。本贴图给瓣面三件事：
+   ① 纵向渐变：瓣根近白 → 瓣尖粉（真实荷花瓣尖色深）；
+   ② 中脉 + 4 条侧脉的细线（放射状，读出"瓣是有结构的"）；
+   ③ 边缘一线更深的粉（瓣缘翻光）。
+   坐标约定与 makeLotusPetalGeo 的 uv 对齐：v=0 瓣根、v=1 瓣尖、u -1..1 宽向。
+   无 alpha（几何本身就是瓣形，不需要假瓣），sRGB。 */
+let _lotusPetalTex = null;
+export function makeLotusPetalTex(){
+  if (_lotusPetalTex) return _lotusPetalTex;
+  const W = 128, H = 256;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  /* ① 纵向渐变：根白尖粉（linearGradient 沿 v） */
+  const g = c.createLinearGradient(0, H, 0, 0);         // y=H 瓣根 → y=0 瓣尖
+  g.addColorStop(0.00, '#FDF3F6');                      // 瓣根近白
+  g.addColorStop(0.35, '#F6D3DE');                      // 下半浅粉
+  g.addColorStop(0.80, '#EEAEC2');                      // 上半粉
+  g.addColorStop(1.00, '#E89BB5');                      // 瓣尖深粉
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  /* ② 脉络：中脉 1 条 + 侧脉 4 条，从瓣根向瓣尖放射、细、半透明深粉 */
+  c.strokeStyle = 'rgba(214,120,150,0.55)';
+  c.lineWidth = 1.6;
+  const vein = (x0, x1) => {
+    c.beginPath();
+    c.moveTo(x0, H);
+    c.quadraticCurveTo((x0 + x1) / 2 + (x1 - x0) * 0.18, H * 0.5, x1, 6);
+    c.stroke();
+  };
+  vein(W/2, W/2);                                        // 中脉（直）
+  for (let k = 1; k <= 4; k++){
+    const spread = (W * 0.44) * (k / 4);
+    vein(W/2, W/2 + (k % 2 ? 1 : -1) * spread);          // 左右各两条
+  }
+  /* ③ 瓣缘一线更深（顶端 8% 一道浅缘线，模拟瓣缘翻光） */
+  c.strokeStyle = 'rgba(199,90,130,0.5)';
+  c.lineWidth = 2.2;
+  c.beginPath(); c.moveTo(W*0.30, 4); c.quadraticCurveTo(W/2, -2, W*0.70, 4); c.stroke();
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _lotusPetalTex = tex;
+  return tex;
+}
+
 /* ⚠️⚠️ 梅的瓣贴图（2026-10-06 二轮 · 老黄："梅花颜色也不对"）：**必须是白/灰底**。
    真因不在材质底色，而在**这张贴图是粉的**（上面桃瓣：底 250,205,216 + 内 238,150,178）——
    粉贴图 × 黄色实例色 = **橙锈色**，所以腊梅怎么调都读作锈红、红梅也发闷。
