@@ -1354,28 +1354,10 @@ placeAssets('assets/Turtle.glb', 0.5, [
   { x: -13.6, y: 0.34, z: 5.4, ry: 1.3, s: 0.8 },
   { x:  12.8, y: 0.3, z: -0.8, ry: 4.1, s: 0.85 },
 ]);
-/* ── 石灯笼（2026-10-14 · DIY L0 首件 · 纯接线）──────────────────────────────
-   GLB：assets/stone-lantern.glb（research/diy-lantern 自制，186KB / 1000 面 / 高 1.05m）。
-   摆位：research/diy-first-target.md §4 **实算主位**——(4.0, −3.8) 北岸，地面 y 走
-   `groundHeight(x,z)` 助手（**不手写 y**；那份实测值 0.053）。选它的实测依据：
-   距岸线 1.62m（岸石带半径 ≤0.75m ⇒ 净隙 0.65m 不相撞）· 最近既有物 corridor 8.8m ·
-   离两个南岸导览机位均 ≥4.5m ⇒ 桥机位与 koi 机位均入画。**别自己另找点**（那份量过）。
-   朝向：火袋四面开窗 ⇒ 朝向无所谓，取 ry=0 保持模型自身朝向（确定性，不吃随机）。
-   ⚠️ 火袋 `lantern_glow` 的 emissive([1,0.74,0.34]) 是**模型自带**，本接线不改材质、
-      也**不新增真光源** —— 与 06c-organs 既有挂灯同一条口径（场内真光源仍只有那 5 盏）。
-   归一化：走 loadAssetOnce 模板（最大维 = 1.05 = 原高 ⇒ 缩放 1.0，实际不放大不改形）。
-   备位 (18.1, 5.2) 亭东先不摆（依据里写明：先做主位，效果确认再摆）。 */
-loadAssetOnce('assets/stone-lantern.glb', 1.05, (srcL)=>{
-  const holder = new THREE.Group();
-  holder.name = 'stoneLantern';
-  const lx = 4.0, lz = -3.8;
-  holder.position.set(lx, groundHeight(lx, lz), lz);
-  holder.add(srcL);
-  holder.traverse(o=>{ if (o.isMesh){ o.castShadow = true; o.receiveShadow = true; } });
-  world.add(holder);
-  console.log('[石灯笼] 落位 (' + lx.toFixed(1) + ', ' + lz.toFixed(1) + ') y='
-              + groundHeight(lx, lz).toFixed(3) + ' · 高 1.05m · 1000 面');
-});
+/* 石灯笼的**摆位**已于 2026-10-17 搬到 15-stable 的 makeStableRoad（老黄："可以放在马厩到
+   院子的这条石板路两侧，每一段距离放一对，毕竟还有晚上进出的需求"）—— 池北岸那一盏撤掉，
+   资产复用到院外石板路两侧。此处**只保留模块期的预取**（见上面那一行空回调的 loadAssetOnce）：
+   预载清单在模块求值期计数，若连预取一起删掉，warmBoot 会等满 180s（boulder 已经踩过一次）。 */
 for (let i = 0; i < 2; i++){
   SWIM_TURTLE_DRAW.push({ t: rr(0, TAU), speed: rr(0.03, 0.07), jitter: rr(0.7, 0.95), phase: rr(0, TAU) });
 }

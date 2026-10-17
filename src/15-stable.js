@@ -28,6 +28,8 @@ import { mesh, box, makeColumn, makeLatticePanel } from './03-factory.js';
 import { MAT, pavingNormalTex, registerWeatherRoles } from './01-materials.js';
 import { groundHeight } from './05-water.js';
 import { tubeRadiusRamp } from './06i-trees.js';
+/* GLB 复用入口（院外石板路旁的石灯笼，2026-10-17）。⚠️ 06e 不 import 本模块 ⇒ 不成环。 */
+import { loadAssetOnce } from './06e-assets.js';
 import { renderer, scene, camera } from './02-scene.js';
 /* 季节门控（冬天才有口鼻白雾）走 ENV —— 方向单纯（12-env 不 import 本模块，见它的 import 表），
    所以直接 import，不必像 12b/12c 那样开注入槽。 */
@@ -1401,6 +1403,212 @@ export function makeStableRoad(){
                                                  roughness: 0.96, metalness: 0.0 });
     registerWeatherRoles(mat, { snow: 1, wet: 1 });
     g.add(mesh(geo, mat, { name: 'stableRoadPebble', cast: false, receive: true }));
+  }
+
+  /* ── ②b 院门口扇形补铺（2026-10-17 · 老黄："马厩到院子的石板路在入院的地方有缺失，
+     要填充满，不能留一个扇形的缺口"）────────────────────────────────────────────
+     ── 缺口是怎么来的 ──
+     石板路半宽 HW=0.86（路宽 1.72m），而正面栅栏的车门开口是 1.8×2 = **3.6m**
+     （见下面 runFence：正面两段各留到 ±1.8）。路头 CP[0] 在 (40, 4.2)、院门线在
+     (40, 2.7) ⇒ 这 1.5m 里宽度要从 1.72m 扩到 3.6m，而原来那一段**没有任何铺装**
+     ⇒ 出图判读就是两侧各一块楔形秃地拼成的扇形缺口。
+     ── 补法 ──
+     补一块"喇叭口"：北端与车门同宽（±1.80）、南端收到与路面同宽（±0.86）；
+     北端还往门里伸 0.4m 当**门槛石**（否则门线处会留一条横缝）。逐点采样地形高、
+     同一套四角棱柱石板与色调抖动 ⇒ 与路面同质，缝里露出的同样是垫层深色。
+     宽度函数：z ≤ 2.95 恒 1.80（门洞区），2.95 → 4.20 用 smoothstep 收到 0.86。
+     ⚠️ 本块刻意**复用 ② 的角点写法**而不是把它抽成公共函数：② 的错缝与绕向是被近景
+        判读反复修过的（顶面朝下 ⇒ 从上看全黑那次），抽函数等于动那段已验证的代码。
+     ⚠️ 侧向量取 (-1,0,0)：与路面同一条口径（side × tan = +y 才保证顶面朝上）。 */
+  {
+    const Z0 = 2.30, ZT = 2.95, Z1 = 4.20;        // 门槛内 / 开始收口 / 接到路头
+    const W0 = 1.80, W1 = HW;                     // 车门半开口 → 路半宽
+    const apronW = (z) => {
+      if (z <= ZT) return W0;
+      const u = Math.min(1, (z - ZT) / (Z1 - ZT));
+      return W0 + (W1 - W0) * (u * u * (3 - 2 * u));   // smoothstep：口部收得柔，不像被切了角
+    };
+    const apronFrame = (z) => ({ p: new THREE.Vector3(40.0, 0, z), tan: new THREE.Vector3(0, 0, 1),
+                                 side: new THREE.Vector3(-1, 0, 0) });
+    /* 垫层（与 ① 同色、同厚）：跟着宽度变化的一条窄带 */
+    {
+      const N = 26, pos = [], uv = [], idx = [];
+      let acc = 0, prev = null;
+      for (let i = 0; i <= N; i++){
+        const z = Z0 + (Z1 - Z0) * (i / N);
+        if (prev !== null) acc += Math.abs(z - prev);
+        prev = z;
+        const w = apronW(z);
+        for (const s of [1, -1]){
+          const x = 40.0 + s * w;
+          pos.push(x, groundHeight(x, z) + 0.045, z);
+          uv.push(s * w / 2.6, acc / 2.6);
+        }
+      }
+      for (let i = 0; i < N; i++){ const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0x6E675D,
+                                                   roughness: 0.98, metalness: 0.0 });
+      registerWeatherRoles(mat, { snow: 1, wet: 1 });
+      g.add(mesh(geo, mat, { name: 'stableGateBed', cast: false, receive: true }));
+    }
+    /* 石板：与 ② 同款四角棱柱（顶面 +0.060 / 底面 +0.004），左右两条各自相位与步长 */
+    {
+      const pos = [], col = [], idx = [];
+      const addSlab = (A2, B2, sA, sB, tone) => {
+        const corners = [
+          A2.p.clone().addScaledVector(A2.side, sA),
+          A2.p.clone().addScaledVector(A2.side, sB),
+          B2.p.clone().addScaledVector(B2.side, sB),
+          B2.p.clone().addScaledVector(B2.side, sA),
+        ];
+        const base = pos.length / 3;
+        for (const q of corners){
+          const gy = groundHeight(q.x, q.z);
+          pos.push(q.x, gy + 0.060, q.z);
+          pos.push(q.x, gy + 0.004, q.z);
+          col.push(tone, tone * 0.985, tone * 0.955, tone * 0.88, tone * 0.87, tone * 0.85);
+        }
+        idx.push(base + 0, base + 2, base + 4, base + 0, base + 4, base + 6);
+        for (let k = 0; k < 4; k++){
+          const a = base + k * 2, b = base + ((k + 1) % 4) * 2;
+          idx.push(a, b, b + 1, a, b + 1, a + 1);
+        }
+      };
+      for (const sgn of [1, -1]){
+        let z = Z0 + jit(0.05, 0.35);
+        while (z < Z1 - 0.20){
+          const len = jit(0.42, 0.62);
+          const zA = z, zB = Math.min(Z1, z + len);
+          const FS = apronFrame(zA), FE = apronFrame(zB);
+          /* 外缘按该段最窄处内收（保证任何一块都不越界），内缘固定 ±0.025 ⇒ 中缝整齐 */
+          const wOut = Math.min(apronW(zA), apronW(zB)) - 0.02 - jit(0.0, 0.075);
+          const sOut = sgn * wOut, sIn = sgn * (0.025 + jit(-0.008, 0.008));
+          const a2 = Math.min(sOut, sIn - 0.06), b2 = Math.max(sOut, sIn);
+          addSlab(FS, FE, Math.min(a2, b2), Math.max(a2, b2), jit(0.58, 1.0));
+          z += len + jit(0.030, 0.070);
+        }
+      }
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+      geo.setIndex(idx); geo.computeVertexNormals();
+      const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0xFFFFFF,
+        vertexColors: true, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
+      registerWeatherRoles(mat, { snow: 1, wet: 1 });
+      g.add(mesh(geo, mat, { name: 'stableGateSlab', cast: true, receive: true }));
+    }
+    /* 卵石镶边：只沿**收口段**两侧（门洞区两侧是栅栏立柱，铺到那儿反而怪） */
+    {
+      const proto = new THREE.SphereGeometry(1, 6, 4);
+      const parts = [];
+      const step = 0.19;
+      const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
+      for (let z = ZT; z < Z1; z += step){
+        const w = apronW(z);
+        for (const s of [1, -1]){
+          for (const row of [0.095, 0.225]){
+            const qx = 40.0 + s * (w + row + jit(-0.02, 0.02)), qz = z + jit(-0.055, 0.055);
+            const rr2 = jit(0.044, 0.092), tone = jit(0.46, 1.05);
+            const gg = proto.clone();
+            const cAttr = new Float32Array(gg.attributes.position.count * 3);
+            for (let i = 0; i < cAttr.length; i += 3){
+              const j2 = jit(-0.06, 0.06);
+              cAttr[i] = tone + j2; cAttr[i+1] = (tone + j2) * 0.99; cAttr[i+2] = (tone + j2) * 0.95;
+            }
+            gg.setAttribute('color', new THREE.Float32BufferAttribute(cAttr, 3));
+            PP.set(qx, groundHeight(qx, qz) + rr2 * 0.34, qz);
+            Q.setFromEuler(new THREE.Euler(0, jit(0, 6.28), 0));
+            SC.set(rr2, rr2 * 0.5, rr2);
+            M.compose(PP, Q, SC);
+            gg.applyMatrix4(M);
+            parts.push(gg);
+          }
+        }
+      }
+      const geo = mergeGeometries(parts, false);
+      parts.forEach(x => x.dispose());
+      proto.dispose();
+      const mat = new THREE.MeshStandardMaterial({ color: 0x8E8B84, vertexColors: true,
+                                                   roughness: 0.96, metalness: 0.0 });
+      registerWeatherRoles(mat, { snow: 1, wet: 1 });
+      g.add(mesh(geo, mat, { name: 'stableGatePebble', cast: false, receive: true }));
+    }
+  }
+
+  /* ── ④ 路旁石灯笼（2026-10-17 · 老黄："石灯笼可以放在马厩到院子的这条石板路两侧，
+     每一段距离放一对，毕竟还有晚上进出的需求"）────────────────────────────────────
+     原摆位（池北岸 (4.0,−3.8) 单独一盏，08c-aquatic 里）**撤掉**，资产改在这里复用到路上。
+     桩位：沿曲线弧长等分 5 站、每站左右各一盏，横向 ±1.55m —— 卵石镶边最外缘约 1.18m
+     （HW + 0.225 + 卵石半径 0.092），留 0.37m 净隙；灯笼底座半径 0.28m。
+     首站从 6m 起、末站离路尾 3m：别怼在院门口（那儿留给石狮）与南门口。
+     座石：每盏下垫一块方座（0.92×0.30×0.92，顶面比草皮高 0.04、其余埋进土里）——
+     草坡有 ±0.1m 起伏，不垫的话 0.55m 宽的底座必然有一角悬空。
+     ⚠️ 10 盏按**材质合并成 2 个网格**（石身 + 火袋，座石并进石身那个桶），不是 10 棵节点树。
+     ⚠️ **不新增真光源**：火袋的 emissive 是模型自带的（与 06c 挂灯同口径）；也就是说夜里
+        读作"亮着的灯"，但它不照亮地面（真要照亮得加 10 盏点光，代价另算）。 */
+  {
+    const N = 5, LR = curve.getLength();
+    const OFF = 1.55;
+    const spots = [];
+    for (let i = 0; i < N; i++){
+      const d = 6.0 + (LR - 9.0) * (i / (N - 1));
+      const { p, tan, side } = frameAt(Math.min(0.999, d / LR));
+      for (const s of [1, -1]){
+        const q = p.clone().addScaledVector(side, s * OFF);
+        spots.push({ x: q.x, z: q.z, ry: Math.atan2(tan.x, tan.z) });
+      }
+    }
+    /* 给"看灯笼"入口留一个**稳定的锚点**：合并后的网格没有单盏位置可言，
+       而手机端那个浮动按钮要飞到一个具体近前。锚点取第一对（离院门最近的一对）。 */
+    const anchor = new THREE.Object3D();
+    anchor.name = 'stoneLanternAnchor';
+    anchor.position.set(spots[0].x, groundHeight(spots[0].x, spots[0].z) + 0.70, spots[0].z);
+    g.add(anchor);
+    console.log('[路旁石灯笼] 桩位：' + spots.map(s => '(' + s.x.toFixed(1) + ',' + s.z.toFixed(1) + ')').join(' '));
+    loadAssetOnce('assets/stone-lantern.glb', 1.05, (srcL)=>{
+      const buckets = new Map();
+      const push = (mat, geo) => {
+        if (!buckets.has(mat.uuid)) buckets.set(mat.uuid, { mat, parts: [] });
+        buckets.get(mat.uuid).parts.push(geo);
+      };
+      /* 先认材质身份：名字带 glow 的是火袋，另一个是石身（座石跟石身同材质、同桶） */
+      let stoneMat = null;
+      srcL.traverse(o => { if (o.isMesh && !/glow/i.test(o.material.name || '')) stoneMat = o.material; });
+      if (!stoneMat) srcL.traverse(o => { if (o.isMesh) stoneMat = o.material; });
+      const M4 = new THREE.Matrix4(), Q4 = new THREE.Quaternion(),
+            S4 = new THREE.Vector3(1, 1, 1), P4 = new THREE.Vector3();
+      for (const st of spots){
+        const base = groundHeight(st.x, st.z);
+        const h = new THREE.Group();
+        h.position.set(st.x, base - 0.010, st.z);
+        h.rotation.y = st.ry;
+        h.add(srcL.clone(true));
+        h.updateMatrixWorld(true);
+        h.traverse(o => {
+          if (!o.isMesh) return;
+          const gg = o.geometry.clone();
+          gg.applyMatrix4(o.matrixWorld);
+          push(o.material, gg);
+        });
+        /* 座石：0.30 厚、顶面比该点草皮高 0.04 ⇒ 底下 0.26m 埋进坡里，四个角都不悬空 */
+        const padGeo = box(0.92, 0.30, 0.92);
+        P4.set(st.x, base + 0.04 - 0.15, st.z);
+        Q4.setFromEuler(new THREE.Euler(0, st.ry, 0));
+        M4.compose(P4, Q4, S4);
+        padGeo.applyMatrix4(M4);
+        push(stoneMat, padGeo);
+      }
+      for (const { mat, parts } of buckets.values()){
+        const geo = mergeGeometries(parts, false);
+        parts.forEach(x => x.dispose());
+        g.add(mesh(geo, mat, { name: 'roadLantern', cast: true, receive: true }));
+      }
+      console.log('[路旁石灯笼] ' + spots.length + ' 盏（含座石）· 合并成 ' + buckets.size + ' 个网格');
+    });
   }
   /* 石板开投影之后，投射物集合变了 ⇒ 置脏让它进那张**静态**阴影图（11-loop 的收尾也会刷一次，
      这里显式做一道保险：本函数在延迟批里跑，顺序一旦被改动，石板就会"没有接触阴影"）。 */
