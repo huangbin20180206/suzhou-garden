@@ -210,63 +210,76 @@ export function decorateHorseGeometry(srcGeo, seed = 1){
   ANCH.mouth   = lowestSurfacePoint(geo, HORSE_ANCHOR_APPROX.mouth[2], 0.040, 0.032);
   ANCH.crestTop = snapAnchor(geo, [0, HORSE_ANCHOR_APPROX.crest[2][1], HORSE_ANCHOR_APPROX.crest[2][2]], 1);
 
-  /* ① 鬃毛：沿颈脊一串向后下方垂的发绺（11 绺，长度带确定性起伏） */
+  /* ① 鬃毛：沿颈脊向下垂的**有厚度毛束**。
+     ⚠️⚠️ 2026-10-16 修（老黄红框⑤："鬃尾发片"）——
+       旧版虽然用了圆管，但 11 绺都从同一条 x=0 的脊线、沿同一个方向下垂，
+       侧面看成了一排贴在一起的窄片；根因不是颜色，而是**没有横向层次和弯曲**。
+       改成 9 绺、每绺独立的 x 偏移/长度/弯曲，根部加粗、尖端收细，
+       让它读成一束有体积的散毛。r() 只来自本函数的私有流，不碰全局布局随机数。 */
   const crestCurve = new THREE.CatmullRomCurve3(
     HORSE_ANCHOR_APPROX.crest.map(c => new THREE.Vector3(c[0], c[1], c[2])));
-  const down = new THREE.Vector3(0, -0.86, -0.50).normalize();
-  for (let i = 0; i < 11; i++){
-    const p0 = crestCurve.getPointAt(i / 10);
-    const len = 0.085 + 0.035 * Math.sin(i * 2.3 + 0.7);
-    const sway = 0.02 * Math.sin(i * 1.7);
-    const pts = [p0.clone(),
-      p0.clone().addScaledVector(down, len * 0.45).add(new THREE.Vector3(sway * 0.6, 0, -0.006)),
-      p0.clone().addScaledVector(down, len).add(new THREE.Vector3(sway, 0, -0.014))];
-    parts.push(taperedTube(pts, [0.0165, 0.0115, 0.0035], 5).toNonIndexed());
+  const down = new THREE.Vector3(0, -0.88, -0.48).normalize();
+  const maneSide = new THREE.Vector3(0.72, -0.34, 0.08).normalize();
+  for (let i = 0; i < 9; i++){
+    const u = i / 8;
+    const p0 = crestCurve.getPointAt(u);
+    const side = (i - 4) * 0.004 + (r() - 0.5) * 0.010;
+    const len = 0.105 + 0.040 * r();
+    const bend = (r() - 0.5) * 0.030;
+    const root = p0.clone().addScaledVector(maneSide, side);
+    const p1 = root.clone().addScaledVector(down, len * 0.45)
+      .addScaledVector(maneSide, bend * 0.45);
+    const p2 = root.clone().addScaledVector(down, len)
+      .addScaledVector(maneSide, bend)
+      .add(new THREE.Vector3(0, 0, -0.010 - 0.008 * r()));
+    parts.push(taperedTube([root, p1, p2], [0.022, 0.014, 0.003], 6).toNonIndexed());
   }
 
   /* ② 尾巴：**尾根埋进臀内 4cm 再往外长**（否则出图判读"尾巴生硬地插进臀部、下半截悬空脱节"），
-     主要**向下垂**（真马尾巴接近垂直，不是斜向后 40°），主干粗、散毛贴拢 ⇒ 读作"一束"而不是"几根带子"。 */
+     主要**向下垂**（真马尾巴接近垂直，不是斜向后 40°），主干粗、散毛贴拢 ⇒ 读作"一束"而不是"几根带子"。
+     ⚠️⚠️ 2026-10-16 修（老黄红框④："马尾巴和后腿这里多出来的是什么"）——
+       上一版渲出来是**一块扁平板**，读作"马屁股后面插了块木板"。三处成因一起改：
+         ① 散毛只 4 根、横向发散 sin(a)*0.30 被 normalize 之后的 y/z 分量压得几乎为 0
+            ⇒ 7 根全挤在同一个垂直平面里 = 平板；横向系数 0.30 → **0.52**、根数 4 → **7**；
+         ② 垂向不够：back 的 z 分量 −0.44 让尾巴"斜着往后戳"，改成 **−0.34**（更贴垂直）；
+         ③ 主干太细（0.038 起）在 15m 外只剩一条线 ⇒ 加到 **0.042** 起、径向段数 6 → 7。
+       改后尾束横向铺开约 0.27m、垂长约 0.65m，侧看是"一束垂毛"、后看是"一片散开"。
+       ⚠️ 本段用私有流 r()（bare 调用，不带区间参数）；增删 r() 的调用次数只影响尾巴自身的确定性，
+          碰不到全局 rnd ⇒ 不漂布局指纹。 */
   const tailRoot = snapAnchor(geo, [0, 0.230, -0.445], 1);
   ANCH.tailRoot = tailRoot;
-  const back = new THREE.Vector3(0, -0.88, -0.44).normalize();
+  const back = new THREE.Vector3(0, -0.93, -0.34).normalize();
   const rootIn = new THREE.Vector3(tailRoot[0], tailRoot[1] + 0.030, tailRoot[2] + 0.045);
   {
     const pts = [rootIn.clone(), rootIn.clone().addScaledVector(back, 0.08),
       rootIn.clone().addScaledVector(back, 0.20), rootIn.clone().addScaledVector(back, 0.33)];
-    parts.push(taperedTube(pts, [0.038, 0.031, 0.024, 0.012], 6).toNonIndexed());
+    parts.push(taperedTube(pts, [0.042, 0.034, 0.027, 0.014], 7).toNonIndexed());
   }
-  for (let i = 0; i < 4; i++){
-    const a = (i / 3 - 0.5) * 0.62;
-    const dir = new THREE.Vector3(Math.sin(a) * 0.30, back.y, back.z).normalize();
-    const len = 0.30 + 0.04 * r();
+  for (let i = 0; i < 7; i++){
+    const a = (i / 6 - 0.5) * 0.95;
+    const dir = new THREE.Vector3(Math.sin(a) * 0.52, back.y, back.z).normalize();
+    const len = 0.30 + 0.06 * r();
     const p0 = rootIn.clone().addScaledVector(back, 0.12);
     const pts = [p0.clone(), p0.clone().addScaledVector(dir, len * 0.5), p0.clone().addScaledVector(dir, len)];
-    parts.push(taperedTube(pts, [0.019, 0.015, 0.005], 6).toNonIndexed());
+    parts.push(taperedTube(pts, [0.018, 0.014, 0.004], 6).toNonIndexed());
   }
 
-  /* ③ 眼睛（头侧压扁的球）④ 鼻孔 + 嘴
-     ⚠️ 2026-10-14 用户报"马的眼睛变成金鱼的突眼"—— 上一版为"低模上读得出"把半径做到 0.030
-        （≈6cm 实径）且外推 +0.006 保证鼓出表面 ⇒ 眼球整颗凸在马头侧面，读作金鱼突眼。
-        真马眼球外露部分远小于眼球本体（大半嵌在眼窝里）⇒ 本次按"嵌进眼窝"改：
-          · 半径 0.030 → **0.019**（≈3.8cm 实径）
-          · 外推 +0.006 → **+0.004**（只略微露出，不鼓成球）
-          · x 压扁 0.60 → **0.42**（更贴片：马眼在马头上是"一小片深色"，不是颗球）
-        迭代记录：0.021/−0.004 太深（黑窟窿）→ 0.025/+0.002 太大（两颗黑球，harness 机位实拍比对
-        比原版更凸）→ 本轮 0.019/+0.004/压扁 0.42。
-          · 压扁 x 0.60 保持（贴片化，防止再读成球）
-        颜色仍近黑不纯黑（纯黑读成"洞"）。 */
-  for (const sx of [-1, 1]){
-    const g = new THREE.SphereGeometry(0.019, 8, 6).toNonIndexed();
-    g.scale(0.42, 1.0, 1.05);
-    g.translate(sx * (ANCH.eye[0] + 0.004), ANCH.eye[1], ANCH.eye[2]);
-    parts.push(g);
-  }
-  for (const sx of [-1, 1]){
-    const g = new THREE.SphereGeometry(0.014, 7, 5).toNonIndexed();
-    g.scale(0.80, 1.10, 1.0);
-    g.translate(sx * (ANCH.nostril[0] + 0.003), ANCH.nostril[1], ANCH.nostril[2]);
-    parts.push(g);
-  }
+  /* ③ 眼睛 ④ 鼻孔 —— ⚠️⚠️ 2026-10-16 定案：**不再加几何**，改由顶点色画（见 bakeHorseShading ⑦）。
+     为什么推翻了前面所有"加/缩/沉一颗球"的做法：
+       读 assets/Horse.glb 证实这匹模型 **1 mesh / 1 material / 无 baseColorTexture（只有法线图）**
+       ⇒ 它**根本没画眼睛**，而低模头壳上**没有眼窝**这种结构来接住一颗球。
+       于是球心无论怎么摆（贴表面 / 外推 / 内沉），那颗球都必然**有一半露在体外**：
+       实测（probe/_tmp-horse-darkclust.mjs 对合并几何做近黑顶点聚类）——
+       鼻孔球那一簇的质心离马体最近的非黑顶点 **0.060 局部 = 11.7cm 世界**，
+       出图就是一粒**悬在口鼻前面的黑豆**（老黄红框①"是贴片还是悬空的"、②"休息的马两个悬空的点"）。
+       而**烘进顶点色的暗斑**画在**马体原有顶点**上 ⇒ 从构造上就不可能悬空、不可能凸出，
+       且零新增三角形、零新增 draw call。低模上一块深色斑就是马眼，远看完全够用。
+       ⇒ 眼睛/鼻孔的**形状与颜色全交给 bakeHorseShading ⑦**，本函数不再产出这两件。
+     （历史留档：0.030/+0.006 金鱼突眼 → 0.019/+0.004 悬空球 → 0.017/−0.004 仍是球 ——
+      三次都在"加几何"这条路上打转，根因是**这颗球本来就不该存在**。） */
+
+  /* ⑤ 嘴：仍是**一根细长方体**（3cm 高的一线），因为它落在口鼻**最下缘的棱**上，
+     那里顶点太稀，纯靠顶点色画不出一条连贯的嘴线。薄片贴着下缘走 ⇒ 不会像球那样凸出。 */
   {
     const g = new THREE.BoxGeometry(0.066, 0.013, 0.020).toNonIndexed();
     g.translate(ANCH.mouth[0], ANCH.mouth[1] + 0.006, ANCH.mouth[2]);   // 抬一点 ⇒ 恰好切在口鼻下缘
@@ -299,7 +312,14 @@ export function horseWeights(geo){
               hoof: new Float32Array(N), mane: new Float32Array(N), muzzle: new Float32Array(N) };
   for (let i = 0; i < N; i++){
     const x = p.getX(i), y = p.getY(i), z = p.getZ(i);
-    w.head[i]   = sm(0.13, 0.30, z) * sm(0.06, 0.20, y);
+    /* ⚠️⚠️ 2026-10-16 修（老黄红框②："休息的马怎么还有两个悬空的点"）——
+       头部门的 y 阈值原来是 sm(0.06, 0.20, y)：**口鼻一带（y≈0.13~0.19）只拿到 0.4~0.55 权重**。
+       而装饰补件（嘴盒 y≈0.128、鼻孔球 y≈0.185）正是长在口鼻上的 ⇒ 低头时它们**只转一半**。
+       吃草/受喂那两匹 graze 0.80~0.95（≈34~41°），补件落后 ~15cm 悬在半空 ——
+       就是出图里"马嘴前面飘着两颗黑豆"。阈值下压到 sm(0.00, 0.12, y)：
+       口鼻（y≥0.12）拿满权重 1，整颗头连嘴带鼻一起转，不再有落后件。
+       ⚠️ 不影响躯干/腿：z 门 sm(0.13, 0.30, z) 先把颈以前的顶点挡在外面了。 */
+    w.head[i]   = sm(0.13, 0.30, z) * sm(0.00, 0.12, y);
     /* ⚠️ 2026-10-11 修：y 门原来是 sm(0.16,0.02,y) —— 而侧影实测（outputs/_diag/horse-shape.mjs）
        尾根落在 **y≈0.17~0.26** 那一带 ⇒ 旧门在 y>0.16 处权重为 0，**尾巴上半截根本不跟着转**，
        摇尾只剩根部一小块在动，远看就是"尾巴没动"。放宽到 sm(0.36,0.08,y)，
@@ -413,16 +433,25 @@ export function bakeHorseShading(geo, w, opts = {}){
       const n = Math.sin(x * 57.1 + y * 31.7 + z * 43.3) * Math.sin(x * 23.9 - z * 67.3 + y * 11.3);
       c.multiplyScalar(1 + 0.17 * dd * n);
     }
-    /* ⑦ 眼睛 / 鼻孔 / 嘴（按补件锚点，含左右镜像） */
+    /* ⑦ 眼睛 / 鼻孔 / 嘴 —— ⚠️⚠️ 2026-10-16 起这三样**只靠顶点色**（几何侧的眼/鼻球已删，
+       见 decorateHorseGeometry ③④ 的根因记录：那颗球无论怎么摆都必然凸出/悬空）。
+       画在**马体原有顶点**上 ⇒ 构造上不可能悬空。
+       两个细节：
+         · **软边**（线性淡出）而不是硬圆 —— 硬边在低模上读作"贴了一张圆纸片"；
+         · 眼睛按**沿头轴拉长**算距离（马眼是横条不是圆点），z 半径放大 1.5 倍；
+           鼻孔稍窄一点（1.25 倍）。 */
     if (ANCH){
-      const e = Math.min(d2(ANCH.eye[0], ANCH.eye[1], ANCH.eye[2], x, y, z),
-                         d2(-ANCH.eye[0], ANCH.eye[1], ANCH.eye[2], x, y, z));
-      const nz = Math.min(d2(ANCH.nostril[0], ANCH.nostril[1], ANCH.nostril[2], x, y, z),
-                          d2(-ANCH.nostril[0], ANCH.nostril[1], ANCH.nostril[2], x, y, z));
+      const dEye = (ax) => { const dx = x - ax, dy = y - ANCH.eye[1], dz = (z - ANCH.eye[2]) / 1.5;
+        return dx * dx + dy * dy + dz * dz; };
+      const dNos = (ax) => { const dx = x - ax, dy = y - ANCH.nostril[1], dz = (z - ANCH.nostril[2]) / 1.25;
+        return dx * dx + dy * dy + dz * dz; };
+      const e = Math.min(dEye(ANCH.eye[0]), dEye(-ANCH.eye[0]));
+      const nz = Math.min(dNos(ANCH.nostril[0]), dNos(-ANCH.nostril[0]));
       const m = d2(ANCH.mouth[0], ANCH.mouth[1], ANCH.mouth[2], x, y, z);
-      if (e < 0.032 * 0.032) c.lerp(EYEC, 0.96);
-      else if (nz < 0.022 * 0.022) c.lerp(NOSEC, 0.88);
-      else if (m < 0.036 * 0.036) c.lerp(NOSEC, 0.86);
+      const RE = 0.045, RN = 0.032, RM = 0.040;
+      if (e < RE * RE) c.lerp(EYEC, 0.97 * Math.min(1, (1 - Math.sqrt(e) / RE) * 2.4));
+      else if (nz < RN * RN) c.lerp(NOSEC, 0.90 * Math.min(1, (1 - Math.sqrt(nz) / RN) * 2.2));
+      else if (m < RM * RM) c.lerp(NOSEC, 0.88 * Math.min(1, (1 - Math.sqrt(m) / RM) * 2.0));
     }
     col[i*3]     = Math.min(1, Math.max(0, c.r));
     col[i*3 + 1] = Math.min(1, Math.max(0, c.g));
@@ -715,19 +744,33 @@ export function loadStableHorses(stableGroup){
         o.material.vertexColors = true;               // ← 顶点色 = 最终颜色（绝对色）
         o.material.metalness = 0.0;
         o.material.roughness = 0.82;
-        o.material.envMapIntensity = 0.30;
-        o.material.map = null;                        // 模型自带贴图是没人引用的 normal-bake，别留引用
-        /* ── 表皮质感（2026-10-14 · 用户报"马的表皮毛发不像活物、放大看太干净"）──
-           病因：六个 horse* 材质都是**纯色 + 常数粗糙度**（0.86~0.90）⇒ 高光是均匀塑料面，
-           没有任何表面变化。模型自带的那张 normal-bake 没人引用（材质里是 null），
-           且本单不改 GLB、不改 01-materials ⇒ 在**材质侧**贴一张程序化噪声粗糙度图：
-             · 噪声按微小噪点 + 低频斑块合成（毛流的高低不平），乘进 roughness；
-             · 6 匹马用**同一张**贴图（clone 前生成一次、缓存在模块级），确定性、不加包体；
-             · 512² 单通道灰图（roughness 只读 G 通道），显存 ~1MB、构建 <10ms。
-           ⚠️ 不用各向异性：three 的 MeshStandardMaterial 无 anisotropy 位，specular 走 GGX；
-              改粗糙度是同一视觉目标下最稳的落点。 */
-        o.material.roughnessMap = horseCoatRoughTex();
-        o.material.roughness = 0.92;                   // 贴图是乘子 ⇒ 基数抬高一点给噪声留范围
+        o.material.envMapIntensity = 0.05;            // ← 0.30：马背上一整片太阳镜面，读作"湿塑料"
+        /* ⚠️ 模型自带的贴图是没人引用的 normal-bake，丢掉；下面换成我们自己的**毛流图**。 */
+        o.material.map = null;
+        /* ── 表皮质感（2026-10-14 起，2026-10-16 重做 · 老黄："马还是模型的表面，没有毛发遮挡，
+              还会反射太阳光"，"毛还是模型的表面光滑度，没有毛发感"）─────────────────────────
+           三次尝试的结论，按效果排序记在这里，别再往回退：
+             ❌ 只贴噪声粗糙度图 —— 上一版的范围是 0.55~1.0，而 roughnessMap 是**乘子**
+                （有效粗糙度 = roughness × G），最低落到 0.92×0.55 ≈ 0.51
+                ⇒ 背上照样一片紧致镜面高光 = "湿塑料"。而且它只改光泽、不改颜色，
+                低模那一块块硬边多边形依旧裸露。
+             ⚠️ 只加法线图 —— 有效但**不够**：本模型 6245 面、面法线之间是硬边，
+                屏幕空间切线的派生噪声盖不过面法线的台阶。
+             ✅ **漫反射毛流图（本版）** —— 直接把"毛"写进颜色乘子，才真的挡住模型表面。
+                三样一起上：
+                  ① map：顺向条带（竖沟 + 横向鳞片 + 过渡毛边），乘在顶点色上 ⇒ 毛流可见；
+                  ② roughnessMap：同一个高度场转出来的粗糙度，范围收到 0.86~1.00；
+                  ③ normalMap：由同一高度场中心差分求得 ⇒ 光照上也起绒。
+                三张**同一处生成**（必然对得上），且全在材质侧 ⇒ **零新增 draw call**
+                （加真正的毛发壳要多渲 2~3 遍、多 12 个 draw call，马厩已经很密）。
+           ⚠️ 贴图是乘子在**线性空间**做的，回程必须标 sRGB（CanvasTexture 默认线性、
+              sRGB 才是 map 该有的采样色域）——两者对不上就是整体偏暗/偏亮。 */
+        const coat = horseCoatMaps();
+        o.material.map = coat.color;
+        o.material.roughnessMap = coat.rough;
+        o.material.normalMap = coat.normal;
+        o.material.normalScale.set(0.45, 0.45);
+        o.material.roughness = 0.98;                   // 贴图是乘子 ⇒ 有效粗糙度落在 0.84~0.98
         o.material.needsUpdate = true;
         o.castShadow = true;
         o.userData.noMerge = true;                    // 异步进来、错过 mergeStatics，显式标一下
@@ -791,45 +834,95 @@ export function loadStableHorses(stableGroup){
    （深色"袜"是把四条腿从身体里分出来的关键 —— 整条腿同色时出图判读"找不到腿"）；
    ③ 深色鬃尾。躯干/颈/头/腿都用变速管（沿曲线变径的管），颈+头+耳+鬃挂 headG ⇒
    `graze` 一转就是低头吃草。 */
-/* ── 马的表皮粗糙度噪声图（2026-10-14 · 六条修复单第 1 条）────────────────────
-   程序化合成、确定性（用固定种子的 mulberry32，不吃全局 rnd 流 —— 否则全园抽样会漂）。
-   两张噪声叠加：① 高频细点（毛丝）② 低频斑块（皮下起伏）。只写 G 通道（three 的
-   roughnessMap 读 G），R/B 填 1 不参与。生成一次缓存复用（6 匹马共享同一纹理实例）。 */
-let _horseCoatTex = null;
-function horseCoatRoughTex(){
-  if (_horseCoatTex) return _horseCoatTex;
+/* ── 马皮"毛发"贴图组（2026-10-16 · 老黄："马还是模型的表面，没有毛发遮挡，还会反射太阳光"）
+   一张各向异性高度场 → 派生 ①毛流图（map）②粗糙度图 ③法线图，同一处生成，三张必然对得上。
+   程序化合成、确定性（固定种子的 mulberry32，**不吃全局 rnd 流** —— 否则全园抽样会漂）。
+   ⚠️ 三层都用**整数格数**的正方形网格按模回绕采样：格子数整除贴图边长 ⇒ 平铺无缝，
+      与本项目其它 Canvas 贴图同一套做法（重复 2×2 时不能有接缝）。
+   ⚠️ 最细一层的格宽 8px（512/64）—— 再细就过采样，远景会闪（mipmap 也救不了）。 */
+let _horseCoat = null;
+function horseCoatMaps(){
+  if (_horseCoat) return _horseCoat;
   const S = 512;
-  const cv = document.createElement('canvas');
-  cv.width = cv.height = S;
-  const ctx = cv.getContext('2d');
-  const img = ctx.createImageData(S, S);
-  const rr2 = mulberry32(20261014);            // 私有流：确定性，不消耗全局 rnd
-  /* 低频斑块：先生成 32×32 的粗网格再双线性放大（当作皮下起伏） */
-  const G = 32, grid = new Float32Array(G * G);
-  for (let i = 0; i < G * G; i++) grid[i] = rr2(0.55, 1.0);
-  const sample = (u, v) => {
-    const x = u * (G - 1), y = v * (G - 1);
-    const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0;
-    const x1 = Math.min(x0 + 1, G - 1), y1 = Math.min(y0 + 1, G - 1);
-    const a = grid[y0 * G + x0], b = grid[y0 * G + x1];
-    const c = grid[y1 * G + x0], d = grid[y1 * G + x1];
-    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy;
-  };
-  for (let y = 0; y < S; y++){
-    for (let x = 0; x < S; x++){
-      const lo = sample(x / S, y / S);                 // 低频：0.55~1.0
-      const hi = 0.90 + rr2(0, 0.10);                  // 高频细点
-      const g = Math.max(0, Math.min(1, lo * hi)) * 255;
-      const o = (y * S + x) * 4;
-      img.data[o] = 255; img.data[o + 1] = g; img.data[o + 2] = 255; img.data[o + 3] = 255;
+  const r2 = prRange(mulberry32(20261016));   // 私有流（区间映射，见 prRange 的警告）
+  /* cx/cy = 一层在横向/纵向铺多少个格。cx ≫ cy + 整数格 ⇒ 顺向的毛流。
+     ⚠️ 配比按两轮实测调过（这是第三次）：
+        第一版三层（12/28/64）峰值太软（中心差分只有 ~0.05）⇒ 像素对比度不到 4%，2m 外等于没画；
+        第二版把低频层（cx=12, cy=2）加重 ⇒ **跑过头**，出来的是几道又长又宽的斜带，
+        马读成"一块雕花的木头"。
+        现在低频只留一点点（cx 8/16 合计 0.26）、重量压在中高频（32/64/128 合计 0.74），
+        cy 普遍抬高 ⇒ 条带变**短而密**，是"毛"不是"年轮"。 */
+  const OCT = [{ cx: 8,   cy: 4,  w: 0.10 },
+               { cx: 16,  cy: 6,  w: 0.16 },
+               { cx: 32,  cy: 10, w: 0.24 },
+               { cx: 64,  cy: 18, w: 0.28 },
+               { cx: 128, cy: 32, w: 0.22 }];
+  const H = new Float32Array(S * S);
+  for (const o of OCT){
+    const { cx, cy, w } = o;
+    const g = new Float32Array(cx * cy);
+    for (let i = 0; i < g.length; i++) g[i] = r2(-1, 1);
+    for (let y = 0; y < S; y++){
+      const fy = y / S * cy, iy = Math.floor(fy), ty = fy - iy;
+      const r0 = iy % cy, r1 = (iy + 1) % cy;
+      const row0 = r0 * cx, row1 = r1 * cx;
+      for (let x = 0; x < S; x++){
+        const fx = x / S * cx, ix = Math.floor(fx), tx = fx - ix;
+        const c0 = ix % cx, c1 = (ix + 1) % cx;
+        const a = g[row0 + c0], b = g[row0 + c1], c = g[row1 + c0], d = g[row1 + c1];
+        H[y * S + x] += w * ((a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty);
+      }
     }
   }
-  ctx.putImageData(img, 0, 0);
-  const tex = new THREE.CanvasTexture(cv);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.repeat.set(2, 2);                              // 拉高噪声频率，避免大面积同斑
-  _horseCoatTex = tex;
-  return tex;
+  const mk = () => { const cv = document.createElement('canvas'); cv.width = cv.height = S; return cv; };
+  const cvC = mk(), cvR = mk(), cvN = mk();
+  const xc = cvC.getContext('2d'), xr = cvR.getContext('2d'), xn = cvN.getContext('2d');
+  const imgC = xc.createImageData(S, S), imgR = xr.createImageData(S, S), imgN = xn.createImageData(S, S);
+  const at = (x, y) => H[(((y % S) + S) % S) * S + (((x % S) + S) % S)];
+  const grey = (v, img, o4) => { const q = Math.max(0, Math.min(255, v)) | 0;
+    img.data[o4] = q; img.data[o4 + 1] = q; img.data[o4 + 2] = q; img.data[o4 + 3] = 255; };
+  const K = 18;                                // 梯度 → 法线的斜率增益（K40 那版把马打成搓衣板，K7 太软看不出）
+  for (let y = 0; y < S; y++){
+    for (let x = 0; x < S; x++){
+      const h = H[y * S + x];
+      const o4 = (y * S + x) * 4;
+      /* ① 毛流（map）：**只做暗化**，范围 0.945~1.00。
+         ⚠️ 幅度按三轮实测收敛：0.58 那次是"雕花的木头"，0.80 那次是**虎斑**
+         （10cm 宽的黑斜纹，远看像斑马）—— 这里要的是"表面不平"，不是"有条纹"。
+         起伏交给法线图去做（下面 ③），颜色只留一层几乎看不见的呼吸。 */
+      grey((0.9725 + 0.0275 * h) * 255, imgC, o4);
+      /* ② 粗糙度（roughnessMap 读 .g）：范围 0.88~1.00，只留起伏，不自己造光滑斑块 */
+      grey((0.94 + 0.06 * Math.abs(h)) * 255, imgR, o4);
+      /* ③ 法线：高度场中心差分 → 切线空间法线。K 18 ≈ 峰值斜度 0.5rad——
+         掠射光下起绒，又不至于把表面打成搓衣板（K 40 那版就是搓衣板）。 */
+      let nx = -(at(x + 1, y) - at(x - 1, y)) * K;
+      let ny = -(at(x, y + 1) - at(x, y - 1)) * K;
+      const inv = 1 / Math.sqrt(nx * nx + ny * ny + 1);
+      nx *= inv; ny *= inv;
+      imgN.data[o4]     = (nx * 0.5 + 0.5) * 255;
+      imgN.data[o4 + 1] = (ny * 0.5 + 0.5) * 255;
+      imgN.data[o4 + 2] = (inv * 0.5 + 0.5) * 255;
+      imgN.data[o4 + 3] = 255;
+    }
+  }
+  xc.putImageData(imgC, 0, 0);
+  xr.putImageData(imgR, 0, 0);
+  xn.putImageData(imgN, 0, 0);
+  const prep = (cv) => {
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(3, 3);                        // 拉高频率：2×2 时条纹太宽，整匹马读成虎斑
+    t.anisotropy = 4;
+    return t;
+  };
+  /* ⚠️ 色域三张各不相同，错了就是整体偏亮/偏暗或光照错向：
+       · color 是**颜色**贴图 ⇒ 必须 SRGBColorSpace；
+       · roughness / normal 是**数据**贴图 ⇒ 必须留在线性（NoColorSpace，CanvasTexture 默认值），
+         标成 sRGB 会把数值掰弯、法线直接指错方向。 */
+  const color = prep(cvC);
+  color.colorSpace = THREE.SRGBColorSpace;
+  _horseCoat = { color, rough: prep(cvR), normal: prep(cvN) };
+  return _horseCoat;
 }
 
 export function makeHorse(coatMat = MAT.horseChestnut, opts = {}){
@@ -1036,30 +1129,77 @@ export function makeCarriage(opts = {}){
   return g;
 }
 
+/* ⚠️⚠️ 私有流必须自己包一层区间映射：`mulberry32(seed)` 返回的是**裸的 `()=>[0,1)`**，
+   带 (min,max) 签名的是 00-config 的 `rr`（= `(a,b)=>a+rnd()*(b-a)`），不是它本身。
+   2026-10-16 实测踩到：把 `mulberry32(...)` 直接当 `(a,b)` 调，参数被**静默忽略**、
+   一律返回 0~1 —— 草茎的 `r` 于是涨到 1.03、再乘 3.4 倍外扩 ⇒ 草捆变成一个 6 米大的
+   几何体糊在镜头上（3 次截图排查才定位到）。同型写法在本文件**至少出现过两次**
+   （旧的 horseCoatRoughTex 也是），凡新建私有流一律走这两个函数。 */
+const prRange = (prng) => (a, b) => a + prng() * (b - a);
+
 /* ── 草料捆（马夫手里那捆）──────────────────────────────────────────────────
-   ⚠️ 尺寸按**可读性**定，不按实物：第一版 8cm 粗在 10~20m 只有 1~2px
-      ⇒ 出图判读"手边没有草料"；加粗到 ~12cm、0.34m 长才读得出。
-   ⚠️⚠️ 2026-10-14 用户报"马夫手里是草料不是竹夹"—— 上一版 9 根**细管**(半径 0.017=1.7cm)
-      从 y=−0.14 到 +0.20 直上直下，配一个**居中硬圆柱**束带 ⇒ 侧影 = "两根细杆 + 一个箍"，
-      读成竹夹/镊子。本次按"**一把蓬松的草束**"重做：
-        · 草茎加到 14 根、半径 0.017 → 0.024（更接近真实麦秆），长度收到 −0.13~+0.16；
-        · 束带**下移**到腰部（y≈−0.045）并收窄到 0.058 —— 草束下半紧、上半**散开**；
-        · 顶端半径外扩到 2.6 倍 ⇒ 蓬松扇形，这是"一把草"与"一根夹"的分界。 */
+   ⚠️ 尺寸按**可读性**定，不按实物：10~20m 外 8cm 粗只有 1~2px ⇒ 出图判读"手边没有草料"，
+      所以整体做到约 0.3m 长、0.2m 粗才读得出。
+   ⚠️⚠️ 2026-10-16 第三次返工（老黄："马夫手上拿的是草，怎么会是几节竹棍还把手夹在竹棍里面"）
+      —— 前两版都是**把这个读数做反了**：
+        第一版 9 根半径 0.017 的直管 + 居中硬圆柱束带 ⇒ 侧影"两根细杆 + 一个箍" = 竹夹；
+        第二版把茎加到 14 根、半径 0.030、顶端放射到 2.6 倍 ⇒ 侧影变成**一把摊开的黄扇子**，
+        而且捆心就落在手心里 ⇒ 手从草中间穿出来 = "手夹在竹棍里面"。
+      根因两条，这次都从几何上解掉：
+        ① "几节竹棍"——单根 0.030 半径是 **6cm 粗的棒**，14 根各自独立又都笔直 → 就是竹签。
+           改成 **34 根半径 0.009~0.012**（真麦秆 2cm 上下）的**变速管**：根粗梢细、整体向 +z
+           侧倾 ~20°，密密麻麻叠在一起 —— 密到一定程度，单根就不再被读成"一根杆"，
+           而是一片**草束的质感**（这正是"一根夹"与"一把草"的区别）。
+           ⚠️ 必须用 tubeRadiusRamp 做**锥形**：等径管哪怕再细，34 根也是 34 根棍子。
+        ② "手夹在竹棍里"——捆的原点原来压在**手心里**。改成原点在**握点下方 0.13m**、
+           草茎从握点上下各露一截（上短下长，像**倒提**一把草），
+           捆的 AABB 上缘因此比手低 ⇒ 手是**握住草捆上端**，不再是穿在草中间。
+           ⚠️ 顺带把簇的横向铺开从 0.40m 收到 **0.24m**：一把草不该比马头还宽。
+   ⚠️ 全程只用私有流（mulberry32 固定种子）：这里若吃全局 rnd，全园布局会静默漂移（铁律 1）。 */
+const FEED_BALE = (() => {
+  const pr = prRange(mulberry32(20261016));   // 私有流（区间映射，见上面的警告）
+  const out = [];
+  for (let i = 0; i < 56; i++){
+    const a = (i / 56) * Math.PI * 2 + pr(-0.11, 0.11);
+    /* ⚠️ 束口半径与顶端外扩倍数一起定"稠密还是稀疏"：第一版 34 根、外扩 3.4 倍
+       ⇒ 出图判读"还是几根黄签子"，因为 34 根摊在 0.42m 直径上、彼此离得开。
+       现在 44 根、外扩只给 2.4 倍（0.24m 直径）—— **密到重叠**才读得出"一把草"。 */
+    const r = 0.008 + pr(0, 0.026) + (i % 4) * 0.005;
+    const zTip = 0.100 + pr(0, 0.070);           // 茎长不齐，束口才毛糙
+    const zMid = zTip * 0.46;
+    out.push({ a, r, rad: 0.011 + pr(0, 0.005), zTip, zMid,
+               tilt: pr(-0.16, 0.16),                 // 逐根微偏，别像一把牙签
+               y0: -0.075 - pr(0, 0.030) });          // 握点在上、根茬在下
+  }
+  return out;
+})();
 export function makeFeedBale(){
   const g = new THREE.Group();
-  for (let i = 0; i < 14; i++){
-    const a = (i / 14) * Math.PI * 2, r = 0.046 + (i % 4) * 0.014;
+  /* ⚠️ 34 根草茎**必须并成一个几何**：一根一个 mesh 就是 34 个 draw call，
+     mergeStatics 又碰不到它们（整个捆挂着 noMerge，跟着马夫的手臂动）——
+     一个小道具吃掉 36 个 draw call 是不该付的代价。并完只剩 2 个（草 + 束带）。 */
+  const strands = [];
+  for (const s of FEED_BALE){
+    const ca = Math.cos(s.a), sa = Math.sin(s.a);
+    const P = (r, z, y) => new THREE.Vector3(ca * r, y, sa * r + z);
+    /* 起点在**竖直轴外**一点点（r 0.95 倍）—— 草是从手里往上往外张开的，不是从一根杆上插出来 */
     const c = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(Math.cos(a) * r * 0.85, -0.13, Math.sin(a) * r * 0.6),
-      new THREE.Vector3(Math.cos(a) * r * 1.20, -0.02, Math.sin(a) * r * 0.9),
-      new THREE.Vector3(Math.cos(a) * r * 3.10, 0.17 + (i % 5) * 0.024, Math.sin(a) * r * 2.60),
+      P(s.r * 0.95, -0.030, s.y0),
+      P(s.r,        0.010, -0.062 + s.tilt * 0.05),
+      P(s.r * 2.10, s.zMid, 0.008 + s.tilt * 0.08),
+      P(s.r * 2.00, s.zTip, 0.030 + s.tilt * 0.12),
     ]);
-    g.add(mesh(new THREE.TubeGeometry(c, 6, 0.030, 5, false), MAT.straw, { name: 'feedStrand', cast: false }));
+    strands.push(new THREE.TubeGeometry(c, 6, s.rad, 5, false));
   }
-  /* 束带：下移到腰部、半径收窄 —— 上半散开才读得出"一把"而不是"一夹" */
-  const tie = mesh(new THREE.CylinderGeometry(0.070, 0.070, 0.046, 8), MAT.harness, { name: 'feedTie' });
-  tie.position.y = -0.045;
-  g.add(tie);
+  g.add(mesh(mergeGeometries(strands, false), MAT.straw, { name: 'feedStrands', cast: false }));
+  /* 束带：麻绳两圈（束腰 + 略上收口），不再是"一个居中的硬箍" */
+  const ties = [];
+  for (const [y, r, h] of [[-0.038, 0.049, 0.020], [-0.012, 0.055, 0.017]]){
+    const t = new THREE.CylinderGeometry(r, r, h, 10);
+    t.translate(0, y, 0);
+    ties.push(t);
+  }
+  g.add(mesh(mergeGeometries(ties, false), MAT.harness, { name: 'feedTie' }));
   return g;
 }
 

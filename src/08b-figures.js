@@ -361,15 +361,27 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
   hem.position.y = 0.045;
   g.add(hem);
   // 立领（第三轮加高 + 浅色上缘 —— "无脖"读成"高领"）
-  const collar = mesh(new THREE.CylinderGeometry(0.066, 0.072, 0.075, 10), ink, { name:'scholarCollar' });
+  /* ⚠️⚠️ 2026-10-16 收窄筒身（老黄："马夫这个头和颈，太搞笑了"）——
+     原先立领是 (0.066, 0.072)、再乘躯干层的椭圆缩放 (FIG_EW 1.15, FIG_ED 0.82)，
+     正面半宽 0.066×1.15 = **7.6cm**，而里面的脖子只有 0.040~0.047 ⇒ 四周留着
+     **2~4cm 的空腔**：半球头 + 细脖 + 一圈宽领口 = 截图里那根从灯罩里伸出来的杆子。
+     收成 (0.0560, 0.0595) / 上缘 0.0565 ⇒ 正面半宽 6.4cm，与 0.047 的脖子只差 1.7cm，
+     是"领口贴着脖子"而不是"脖子插在筒里"。
+     ⚠️ 连带三处必须同步，否则领口的浅色缘会**悬空/穿模**（缘本来就只比领大 0.5mm）：
+        · collarEdge 外径 0.0665 → 0.0565；
+        · 后领中缝 seamCurve 的起点 z 从 −0.075 收到 −0.064（原来在领内壁上）；
+        · 交领 lapel 的起点 x 从 0.050 收到 0.044（原本戳在领筒外壁上）。
+     ⚠️ 不动脖子本身：0.040→0.047 已经是"成人脖子"的比例，怪的是领口不是脖子
+        （加粗脖子会把脖子做成一根柱子，那是另一个方向的错）。 */
+  const collar = mesh(new THREE.CylinderGeometry(0.0560, 0.0595, 0.075, 10), ink, { name:'scholarCollar' });
   collar.position.y = 1.25;
   g.add(collar);
-  const collarEdge = mesh(new THREE.CylinderGeometry(0.0665, 0.0665, 0.012, 10), inkLight, { name:'scholarCollarEdge' });
+  const collarEdge = mesh(new THREE.CylinderGeometry(0.0565, 0.0565, 0.012, 10), inkLight, { name:'scholarCollarEdge' });
   collarEdge.position.y = 1.282;
   g.add(collarEdge);
   // 后领中缝（第四轮：box 埋进了袍内 —— 改为**贴背曲线管**，沿袍背 S 轮廓全段外凸 1cm）
   const seamCurve = new THREE.CatmullRomCurve3([
-    new THREE.Vector3(0, 1.26, -0.075),   // 颈后
+    new THREE.Vector3(0, 1.26, -0.064),   // 颈后（领壁内侧，不穿出领口）
     new THREE.Vector3(0, 1.19, -0.196),   // 肩背（袍背 -0.186，外凸 1cm）
     new THREE.Vector3(0, 1.04, -0.182),
     new THREE.Vector3(0, 0.82, -0.160),  // 腰背
@@ -383,7 +395,7 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
      参考图里人人有交领，那是"一眼汉服"的构件；没有它，正面看就是一件圆筒色块。
      z 由 profR 按袍身轮廓实时算出 + 外凸 1.2cm —— 贴弧面，既不穿模也不悬空。 */
   for (const side of [-1, 1]){
-    const pts = [[0.050, 1.235], [0.030, 1.10], [0.005, 0.95], [-0.028, 0.875]];
+    const pts = [[0.044, 1.235], [0.030, 1.10], [0.005, 0.95], [-0.028, 0.875]];
     const lapel = new THREE.CatmullRomCurve3(pts.map(([ax, y]) => {
       const x = side * ax, r = profR(prof, y) + 0.012;
       return new THREE.Vector3(x, y, Math.sqrt(Math.max(r * r - x * x, 0.0004)));
@@ -505,6 +517,15 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
   /* 头球用脸贴图（2026-10-06 半写实）：一颗球 = 发型 + 脸（贴图里发区与 FIG_HAIR 同值，
      与下面的发髻/盘髻无缝衔接）。分段 14×11 → 16×13：脸窗 ±46° 需要 ~16 经段才不糊。 */
   headG.add(mesh(new THREE.SphereGeometry(0.086, 16, 13), figFaceMatA, { name:'scholarHead' }));
+  /* 下颌（2026-10-16 B方案：老黄"脖子和脑袋明显不匹配，只能远看"）。
+     病根：头是正球 + 颈是直杆，中间没有任何下巴过渡 ⇒ 棒棒糖。
+     修法：颅顶保持 0.086（脸贴图 UV 按这个半径画的，不能动），下颌加一颗
+     素肤色小椭球（前伸 2cm、托住下巴），与颈顶交叠 —— 球和杆之间有了"下巴"，
+     侧面剪影从"球插杆"变成"颅+颌+颈"三段。素肤色不用脸贴图（小球上贴整张脸会糊）。 */
+  const jaw = mesh(new THREE.SphereGeometry(0.062, 12, 10), figSkinMat, { name:'scholarJaw' });
+  jaw.scale.set(0.88, 0.78, 0.92);
+  jaw.position.set(0, -0.042, 0.024);
+  headG.add(jaw);
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'scholarKnot' });
   knot.position.set(0, 0.098, -0.020);
   knot.scale.set(1, 0.95, 1);
@@ -528,25 +549,33 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
     headG.add(coil);
   }
   /* 簪（第五轮根因：4mm 簪径在 1.5m 视距只有 2px，被抗锯齿吃掉 —— 不是变换问题）。
-     加粗到 16mm（风格化簪）+ 两端簪头珠（0.02m，4~5px 可读），"常见机位一头可见"达标 */
+     加粗到 16mm（风格化簪）+ 两端簪头珠（0.02m，4~5px 可读），"常见机位一头可见"达标
+     ⚠️ 2026-10-16 B方案二（老黄"发簪也是悬空的球"）：旧簪长 0.132、两端珠距头心
+     0.10~0.13m —— 头球半径才 0.086，珠子整个浮在空气里。截短到 0.10、珠距 0.05，
+     簪心沉到发髻中心，珠子贴着头发，远看杆被吃掉也只剩"贴发的两点"，不再是"飘着的两球"。 */
   const pinMat = new THREE.MeshStandardMaterial({ color:0xC9CDB8, roughness:0.6, metalness:0.0, envMapIntensity:0.5 });
-  const pin = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.132, 5), pinMat, { name:'scholarPin' });
+  const pin = mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.100, 6), pinMat, { name:'scholarPin' });
   pin.rotation.order = 'ZYX';
   pin.rotation.set(0, 0.55, Math.PI / 2 + 0.14);   // 近水平（俯仰 8°），斜偏 30°
-  pin.position.set(0.008, 0.096, -0.022);
+  pin.position.set(0, 0.088, -0.020);
   headG.add(pin);
   const pinAxis = new THREE.Vector3(-0.824, -0.122, 0.505);
   for (const e of [-1, 1]){
-    const bead = mesh(new THREE.SphereGeometry(0.010, 6, 5), pinMat, { name:'scholarPinBead' });
-    bead.position.set(0.008 + pinAxis.x * 0.066 * e, 0.096 + pinAxis.y * 0.066 * e, -0.022 + pinAxis.z * 0.066 * e);
+    const bead = mesh(new THREE.SphereGeometry(0.013, 7, 6), pinMat, { name:'scholarPinBead' });
+    bead.position.set(pinAxis.x * 0.050 * e, 0.088 + pinAxis.y * 0.050 * e, -0.020 + pinAxis.z * 0.050 * e);
     headG.add(bead);
   }
   root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不能跟着躯干的椭圆缩放一起被压扁
   /* 颈（肤色，2026-10-06 半写实）：填"立领顶(1.2875) → 头底(1.359)"之间那段透缝
      —— 原来袍口收在 1.31、头球下缘 1.359，中间是一条看得见的黑缝。
      圆柱 y 1.245~1.405：下端没入立领、上端没入头球，只露中段 ~7cm 的脖子。
-     挂 root（不挂 g）：不被椭圆缩放压扁，与头球同一套截面语义。 */
-  const neck = mesh(new THREE.CylinderGeometry(0.040, 0.047, 0.16, 10), figSkinMat, { name:'scholarNeck' });
+     挂 root（不挂 g）：不被椭圆缩放压扁，与头球同一套截面语义。
+     ⚠️⚠️ 2026-10-16 下端由 0.047 外扩到 **0.062**（老黄："马夫这个头和颈，太搞笑了"）。
+     原来的圆柱是**等径细杆**（0.040→0.047，几乎不收分），从领口直挺挺伸到下巴 ⇒
+     出图判读就是"一根棒棒糖"：球 + 杆 + 一条硬边。真人脖子是**上细下粗**、
+     向斜方肌散开的，所以下端要给足外扩量（0.062 ≈ 领口内径 0.056 × 1.1），
+     让它**在领口里就化开**、露出来的那一小段带上"往上收"的走势，而不是一根柱子。 */
+  const neck = mesh(new THREE.CylinderGeometry(0.052, 0.062, 0.16, 10), figSkinMat, { name:'scholarNeck' });
   neck.position.y = 1.325;
   root.add(neck);
   // 呼吸相位 + 不参与合并（要每帧微动）
@@ -858,14 +887,14 @@ function attachFeedBale(root){
   const b = makeFeedBale();
   b.name = 'propFeedBaleHand';
   b.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
-  /* 捆的原点在**捆腰**（makeFeedBale 里草茎从 −0.10 到 +0.14）⇒ 让它落在手心里：
-     手 y ≈ 0.96（'take' 点列的拢手球高度）⇒ 捆心与手同高，草茎上下各露一截。 */
+  /* 捆的原点 = **握点**（草茎从原点上下各露一截：上 0.13 / 下 0.12，像倒提一把草）
+     ⇒ 原点落在手心里，手就是**握住草捆上端**。⚠️ 2026-10-16 之前原点在捆腰、捆腰又压在
+     手心里 ⇒ 手从草中间穿出来，正是老黄说的"手夹在竹棍里面"。 */
   b.position.copy(local);
-  /* ⚠️ 2026-10-11 改姿（老黄："马夫看不出来喂马的动作"）：原来 `(0.25, 0.4, 0.15)` 基本是
-     **竖着**一捆草（出图判读："那束草是垂直竖立的，离马嘴还差一点距离，看不出互动"）。
-     喂马的手是**把草往前递**的 ⇒ 绕 X 转 ~54°，让草茎的长轴从竖直倒向前方（朝马嘴那侧），
-     再带一点点偏航，读作"递到马嘴边上的草"。 */
-  b.rotation.set(0.95, 0.25, 0.10);
+  /* ⚠️ 2026-10-11 改姿（老黄："马夫看不出来喂马的动作"）：绕 X 转 ~36°，草茎长轴从竖直
+     倒向**前下方**（朝马嘴那侧）—— 递草的手势。2026-10-16 随新几何从 0.95 收到 0.62：
+     新捆的原点在握点、草茎本来就从 ±y 张开，再转 54° 会翘成"举着扫帚"。 */
+  b.rotation.set(0.62, 0.30, 0.14);
   root.add(b);
   return b;
 }
@@ -980,6 +1009,12 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
      孩子袍口收在 0.96、头下缘 0.945 —— 头和袍本身重叠，没有露颈的缝，不加颈。
      分段 12×10 → 14×12（同站姿的理由：脸窗要够细）。 */
   headG.add(mesh(new THREE.SphereGeometry(0.075, 14, 12), figFaceMatC, { name:'childHead' }));
+  /* 小孩同补下颌（与大人同一手法，按比例缩小：大人 0.062 → 小孩 0.054），
+     否则一家同框，大人有下巴、小孩还是球插杆。 */
+  const childJaw = mesh(new THREE.SphereGeometry(0.054, 12, 10), figSkinMat, { name:'childJaw' });
+  childJaw.scale.set(0.88, 0.78, 0.92);
+  childJaw.position.set(0, -0.037, 0.021);
+  headG.add(childJaw);
   for (const side of [-1, 1]){
     /* 双总角（第六轮）：原 r=0.026 / ±0.030 / y=0.085 —— 剪影上是两个**带 V 形缺口的小圆包**，
        在 2.5m 视距（样张 10a）直接读成"耳朵"。修法：加大到 0.030、上移、向中线靠拢到 ±0.024，
@@ -1193,25 +1228,30 @@ export function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go'
   headG.position.set(0, NECK_Y + 0.135, 0.03);
   headG.rotation.x = pose === 'go' ? 0.40 : (pose === 'qin' ? 0.30 : 0.24);
   headG.add(mesh(new THREE.SphereGeometry(0.086, 16, 13), figFaceMatA, { name:'seatHead' }));
+  /* 坐姿同补下颌（与站姿同尺寸：两姿势同框必须是一套头，见本文件顶部"逐字对齐"）。 */
+  const seatJaw = mesh(new THREE.SphereGeometry(0.062, 12, 10), figSkinMat, { name:'seatJaw' });
+  seatJaw.scale.set(0.88, 0.78, 0.92);
+  seatJaw.position.set(0, -0.042, 0.024);
+  headG.add(seatJaw);
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'seatKnot' });
   knot.position.set(0, 0.098, -0.020);
   headG.add(knot);
   const pinMat = new THREE.MeshStandardMaterial({ color:0xC9CDB8, roughness:0.6, metalness:0.0, envMapIntensity:0.5 });
-  const pin = mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.132, 5), pinMat, { name:'seatPin' });
+  const pin = mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.100, 6), pinMat, { name:'seatPin' });
   pin.rotation.order = 'ZYX';
   pin.rotation.set(0, 0.55, Math.PI / 2 + 0.14);
-  pin.position.set(0.008, 0.096, -0.022);
+  pin.position.set(0, 0.088, -0.020);
   headG.add(pin);
   const pinAxis = new THREE.Vector3(-0.824, -0.122, 0.505);
   for (const e of [-1, 1]){
-    const bead = mesh(new THREE.SphereGeometry(0.010, 6, 5), pinMat, { name:'seatPinBead' });
-    bead.position.set(0.008 + pinAxis.x * 0.066 * e, 0.096 + pinAxis.y * 0.066 * e, -0.022 + pinAxis.z * 0.066 * e);
+    const bead = mesh(new THREE.SphereGeometry(0.013, 7, 6), pinMat, { name:'seatPinBead' });
+    bead.position.set(pinAxis.x * 0.050 * e, 0.088 + pinAxis.y * 0.050 * e, -0.020 + pinAxis.z * 0.050 * e);
     headG.add(bead);
   }
   root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不参与躯干椭圆缩放（同站姿）
   /* 颈（肤色，2026-10-06 半写实）：同站姿 —— 填"衣缘顶(0.994) → 头底(1.049)"那段透缝。
      圆柱 y 0.95~1.09：下端没入立领、上端没入头球，露中段 ~5cm。挂 root。 */
-  const seatNeck = mesh(new THREE.CylinderGeometry(0.040, 0.047, 0.14, 10), figSkinMat, { name:'seatNeck' });
+  const seatNeck = mesh(new THREE.CylinderGeometry(0.052, 0.060, 0.14, 10), figSkinMat, { name:'seatNeck' });
   seatNeck.position.y = 1.02;
   root.add(seatNeck);
   root.userData.breathPhase = jr() * TAU;
