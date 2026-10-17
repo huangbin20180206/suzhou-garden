@@ -293,6 +293,8 @@
   #env button[data-view="koi"]::before{ color:#B44A3A; }                          /* 观鱼 · 锦红 */
   #env button[data-view="plaque"]::before{ color:#6E5B47; }                       /* 匾联 · 墨褐 */
   #env button[data-view="bridge"]::before{ color:#7E8C93; }                       /* 曲桥 · 汉白玉灰 */
+#env button[data-view="lantern"]::before{ color:#B8935A; }                      /* 石灯笼 · 灯暖（呼应火袋 emissive [1,0.74,0.34]） */
+#env button[data-view="heroPeak"]::before{ color:#7C8B95; }                     /* 主峰近观 · 灰岩（呼应 boulder 浅灰重导） */
   #env button[data-act="season-demo"]::before{ color:#DB5E92; }                  /* 四季 · 桃红 */
   #env button[data-act="tour"]::before{ color:#3F76AE; }                         /* 巡游 · 靛蓝 */
   #env button[data-act="reel"]::before{ color:#D9862C; }                         /* 流转 · 暖橙 */
@@ -793,6 +795,11 @@
         </div>
         <span class="hint" id="hourReadout">12:30</span>
       </div>
+      <!-- 时光自动流转（2026-10-17 由「导览」行挪回本行）：它驱动的就是这一行的 ENV.hour
+           （0.4 h/s ≈ 一整天 60 秒），与时辰滑杆是同一条轴的两种操作。
+           ⚠️ 必须挂在**行的直接子元素**这一层（.time-track 的兄弟），不能塞进 track 里：
+           track 是滑杆自身的容器，塞进去按钮会被压成 58×51 并压在轨道上（2026-10-17 实测）。 -->
+      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
     </div>
     <div class="row">
       <span class="lbl">季节</span>
@@ -800,7 +807,11 @@
       <button data-axis="season" data-v="summer">夏</button>
       <button data-axis="season" data-v="autumn">秋</button>
       <button data-axis="season" data-v="winter">冬</button>
-      <span class="hint">Q W E R</span>
+      <!-- 四季自动演示（2026-10-17 由「导览」行挪回本行）：它演示的就是这一行的春→夏→秋→冬，
+           放在季节行比放在机位行更贴题。⚠️ 挪动原因见「导览」行注释：那一行已放满，再加两个
+           机位按钮会在 1440 宽下把整行挤换行（mobile-panel-guard 有「行高 ≤56px」的断言）。 -->
+      <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
+      <span class="hint">Q W E R / Y 四季</span>
     </div>
     <div class="row">
       <span class="lbl">天气</span>
@@ -881,6 +892,11 @@
       <button data-view="koi">观鱼</button>
       <button data-view="plaque">匾联</button>
       <button data-view="bridge">曲桥</button>
+      <!-- 导览再补两站（2026-10-17 · 方案 research/tour-lantern-hero-plan.md）：
+           石灯笼是新落地的实体、主峰换了 GLB（3639b6f），补上入口让它们在巡游与被看到；
+           机位与字幕同在 08d-tour（VIEWPOINTS / TOUR_CAPTIONS / TOUR_ORDER），本行只管按钮。 -->
+      <button data-view="lantern">石灯笼</button>
+      <button data-view="heroPeak">主峰近观</button>
       <button data-view="plumRed">红梅</button>
       <button data-view="plumYellow">腊梅</button>
       <!-- 马厩（2026-10-09）：南墙外的马厩院子（4 匹马 + 2 驾双轮马车 + 马夫）。
@@ -890,11 +906,9 @@
            站位在院门外、视线正好从院门穿进院场（门框把院场框住），minDist 放开到 1.2
            ⇒ 进来之后还能一路推到马与马车跟前。与「马厩」（越墙远看）互为远近两档。 -->
       <button data-view="stableNear" aria-label="进马厩院近距离观察" title="厩内：站院门口看院场，可一路推到马与马车跟前（0 后面的那个键）">厩内</button>
-      <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
-      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
       <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得</button>
-      <span class="hint">Z 巡览 / T 巡游 / Y 四季</span>
+      <span class="hint">Z 巡览 / T 巡游</span>
     </div>
     <div class="row">
       <span class="lbl">留影</span>

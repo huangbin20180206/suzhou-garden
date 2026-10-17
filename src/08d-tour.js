@@ -442,6 +442,32 @@ export function buildViewpoints(heroPos){
       pos: new THREE.Vector3(1.8, 1.35, 12.6),
       target: new THREE.Vector3(8.4, 0.65, 4.6),
       minDist: 2.0 },
+    /* ── 导览再补两站（2026-10-17 · 方案见 research/tour-lantern-hero-plan.md）──
+       石灯笼是新落地的实体、主峰换了 GLB（3639b6f），巡游里都还没有入口。
+       两站同样走"锚点反算不写死"，站位与距离均在当前树上**实测**过（见各自注释）。 */
+    /* 「石灯笼」：stoneLantern holder 落位由 08c-aquatic 走 groundHeight 算出（实测
+       (4.0, 0.053, −3.8)、高 1.05m），火袋竖向中心在局部 y=0.72 ⇒ 世界 y≈0.77
+       （分段见 research/diy-lantern/build_lantern.py）。
+       ⚠️ 站位取自方案里的三个候选，**只有 B 站得住** —— 2026-10-17 实测（向下射线 +
+       insidePond）：A(2.2,−1.2) 落水、C(5.4,−2.5) 落水，B(2.6,−1.7) 岸上
+       （射线落地 y=0.068、insidePond=false、距灯笼 2.52m、视点比火袋高 0.58m）。
+       方案原推的 B 因此直接定稿。minDist 1.2：1.05m 高的灯要能推近读窗棂。 */
+    { id:'lantern', label:'石灯笼',
+      pos: new THREE.Vector3(2.6, 1.35, -1.7),
+      target: new THREE.Vector3(4.0, 0.77, -3.8),
+      minDist: 1.2 },
+    /* 「主峰近观」：与 hero 互为远近两档 —— hero 是"石 + 座 + 碑 + 倒影"的构图中景
+       （hb 在建模期恒为 null ⇒ 走 14m 兜底），这站推到 6.5m 读石皮。
+       坐标与 hero/stele 同一条路：锚点复用本闭包内的 hp/out/side，不写死世界坐标。
+       实测（2026-10-17·当前树）：taihuHero 包围盒 3.97 × 4.49 × 3.82、水上顶高 3.31m
+       ⇒ 6.5m + fov 46° 的纵向视高 5.5m，峰体（含基座）在框内且留白 ≥1.1m，不切顶；
+       侧偏 0.45 ⇒ 与 stele（正径向 −6m）方位错开，两站不同框。
+       target y=1.9 取峰体中上段；minDist 1.6 显式写齐（不依赖 CAM_MIN_DIST 兜底）。 */
+    { id:'heroPeak', label:'主峰近观',
+      pos: new THREE.Vector3(hp.x - out.x * 6.5 + side.x * 6.5 * 0.45, 1.45,
+                             hp.z - out.z * 6.5 + side.z * 6.5 * 0.45),
+      target: new THREE.Vector3(hp.x, 1.9, hp.z),
+      minDist: 1.6 },
   ];
   })();
   VIEWPOINTS = built;
@@ -458,7 +484,7 @@ export function gotoViewpoint(id, dur = 1.4, owner = 'manual'){
 
 /* ── P2-2 带字幕巡游 ──
    在既有 gotoViewpoint/flyTo 之上加一层"按序自动走 + 每站出字幕"：
-   · 顺序见下方 TOUR_ORDER（2026-10-13 起 8 站），首站从当前画面飞过去（flyTo 语义不变）；
+   · 顺序见下方 TOUR_ORDER（2026-10-17 起 10 站），首站从当前画面飞过去（flyTo 语义不变）；
    · 每站停留 dwell（默认 6s，含 1.4s 飞行），字幕在飞行开始即出（边飞边读）；
    · 用户一接管（pointerdown/wheel/任意导览键/时辰滑杆）即停巡游并收字幕 —
      巡游是"带看"，不是"锁死"，接管权永远在用户手里；
@@ -480,6 +506,13 @@ const TOUR_CAPTIONS = {
      ⚠️ 这个站位刻意**不上桥**：巡游观鱼者的步行路径（实走到 z≥9.7 的南端引桥，见 :267-272 注释）
      用的就是"不上桥"这条约定，机位口径一致。minDist 2.0（桥心近水）。 */
   bridge:   { title: '曲桥', text: '池东南石拱桥跨水，桥南接着一排汀步。拱顶起在水线上，绕桥走一圈，两侧水面各有一番景。' },
+  /* 「石灯笼」站（2026-10-17）：anchor = stoneLantern（08c-aquatic 落位 (4.0,·,−3.8) 北岸）。
+     文案贴既有设定：火袋四面开窗、火袋材质 lantern_glow 的 emissive 由模型自带
+     （12d 灯火体系之外第一件自带发光的实体）⇒「入夜不必点烛」是事实，不是修辞。 */
+  lantern:  { title: '石灯笼', text: '北岸一盏矮灯，笠下火袋四面开窗。入夜不必点烛 —— 火袋里那膛暖光自己亮着，是园中唯一不用点的灯。' },
+  /* 「主峰近观」站：与 hero 站互为远近两档。文案里的"水线与苔痕的层理"指 GLB 浅灰重导
+     （3639b6f）后的石皮；"孔洞里存着雨"接 P0-4 的漏透率口径（±z 17.4% / +x 21.5%）。 */
+  heroPeak: { title: '主峰近观', text: '贴近了看 —— 灰白的石皮上有水线与苔痕的层理，孔洞里存着雨。池南这一峰，越近越见骨。' },
   hall:     { title: '远香堂', text: '拙政园中区主厅 —— 四面厅，荷风四面，香远益清。夏日荷香满堂，即是此景。' },
   pavilion: { title: '荷风四面', text: '临水水榭 —— 三面临水，一面接岸。午后到这里听雨，雨点打在荷叶上最响。' },
   overview: { title: '全园', text: '一池三山式水院 —— 水居其半，建筑临水，假山作屏。晨雾与暮色最见层次。' },
@@ -496,7 +529,14 @@ const SEASON_CAPTIONS = {
    不把梅 / 马厩 / 彩虹 / 流星雨 / 烟花这几个**情境机位**加进来：
      梅/马厩是**位置**机位（在园内的隐角，巡查幕上能看懂），但彩虹/流星雨/烟花是**场景**机位
      （要 雨后初晴 / 夜 / 夜 才有东西看）—— noon/summer/clear 的巡游里它们就是空景。 */
-const TOUR_ORDER = ['hero', 'stele', 'koi', 'plaque', 'bridge', 'hall', 'pavilion', 'overview'];
+/* 2026-10-17 再补两站 ⇒ 10 站。顺序依据（地理顺水，不跳池）：
+   hero(池南立峰) → stele(峰侧卧石) → koi(池腰 0,3) → lantern(北岸 4,−3.8)
+   → plaque(堂前草坪 0,−5.7) → bridge(东南 8.4,4.6) → heroPeak(从桥上回望立峰近景)
+   → hall → pavilion → overview。
+   lantern 卡在 koi 与 plaque 之间：从池腰的水面抬到岸上，再折回堂前，是一条连续的带看线；
+   heroPeak 放在 bridge 之后、hall 之前：把"池南一峰"作为压轴大件收近景，再进远香堂。
+   既有八站的相对顺序**一字未动**。 */
+const TOUR_ORDER = ['hero', 'stele', 'koi', 'lantern', 'plaque', 'bridge', 'heroPeak', 'hall', 'pavilion', 'overview'];
 export const TOUR = { on: false, idx: 0, dwell: 6.0, wait: 0 };
 let captionOwner = '';
 export const captionEl = () => document.getElementById('caption');
