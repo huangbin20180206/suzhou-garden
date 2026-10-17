@@ -183,6 +183,11 @@ export const PRELOAD_MANIFEST = [
      186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙，不新增真光源）。
      摆位依据 research/diy-first-target.md §4 主位 (4.0,-3.8) y=0.053（岸距 1.62m、最近物 8.8m）。 */
   { url: 'assets/stone-lantern.glb', bytes: 190864, stage: '取', label: '石灯笼', required: false },
+  /* 2026-10-18 石狮一对（DIY：research/diy-lions/build_lions_pair.py v5 融球躯干+螺髻，
+     公踩绣球 / 母抚幼狮，左雄右雌按"从门里出来左为雄"摆）。
+     公 312360B / 母 323412B，高 1.08m。required:false —— 拉不到时门口位置空着。 */
+  { url: 'assets/stone-lion-male.glb', bytes: 312360, stage: '取', label: '石狮雄', required: false },
+  { url: 'assets/stone-lion-female.glb', bytes: 323412, stage: '取', label: '石狮雌', required: false },
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
   { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },

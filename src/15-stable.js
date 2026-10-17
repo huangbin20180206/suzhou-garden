@@ -1610,6 +1610,30 @@ export function makeStableRoad(){
       console.log('[路旁石灯笼] ' + spots.length + ' 盏（含座石）· 合并成 ' + buckets.size + ' 个网格');
     });
   }
+  /* ── ⑤ 院门口石狮一对（2026-10-18 · 老黄："门口应该放一对石狮子，注意一公一母"）───
+     规矩（维基"石狮子"条）："从大门里出来时雄在左、雌在右"；雄右前爪踩绣球、雌左前爪抚幼狮。
+     院门朝南（世界 +z，门线 z=2.7、开口 x 38.2~41.8），出来时左手边是 +x ⇒ 雄狮放东 (+x)、雌狮放西。
+     桩位：门外两侧 x=40±2.3、z=3.4（门线外 0.7m、路头 4.2m 以北，不挡喇叭口），面朝南 (+z)。
+     模型：research/diy-lions 自制，公 312KB / 母 323KB，高 1.08m（与 3.6m 门洞比例协调）。
+     朝向：模型在 Blender 里脸朝 +y，glTF yup 导出后脸朝 −z（实拍验证：ry=0 时背对南来的客人），
+     故 rotation.y=PI 让脸朝南迎客。 */
+  {
+    const spots = [
+      { url: 'assets/stone-lion-male.glb', x: 42.3, z: 3.4, name: 'stoneLionMale' },
+      { url: 'assets/stone-lion-female.glb', x: 37.7, z: 3.4, name: 'stoneLionFemale' },
+    ];
+    for (const st of spots){
+      loadAssetOnce(st.url, 1.08, (src)=>{
+        const h = new THREE.Group();
+        h.name = st.name;
+        h.position.set(st.x, groundHeight(st.x, st.z) - 0.01, st.z);
+        h.rotation.y = Math.PI;
+        h.add(src.clone(true));
+        g.add(h);
+        console.log('[门口石狮] ' + st.name + ' 落位 (' + st.x.toFixed(1) + ',' + st.z.toFixed(1) + ')');
+      });
+    }
+  }
   /* 石板开投影之后，投射物集合变了 ⇒ 置脏让它进那张**静态**阴影图（11-loop 的收尾也会刷一次，
      这里显式做一道保险：本函数在延迟批里跑，顺序一旦被改动，石板就会"没有接触阴影"）。 */
   markCasterBoxDirty();

@@ -1286,6 +1286,10 @@ loadAssetOnce('assets/boulder-hero.glb', 4.49, () => {});
 /* 石灯笼（2026-10-14）：与 boulder 同一条规矩 —— 预载清单在**模块求值期**计数，
    若 fetch 只住在 deferred 批里就会 warmBoot 死锁（boulder 已踩过一次）。 */
 loadAssetOnce('assets/stone-lantern.glb', 1.05, () => {});
+/* 石狮一对（2026-10-18）：与石灯笼同一条规矩 —— 预载清单在模块求值期计数，
+   fetch 只住在 deferred 批里会 warmBoot 死锁，故模块期先预取。 */
+loadAssetOnce('assets/stone-lion-male.glb', 1.08, () => {});
+loadAssetOnce('assets/stone-lion-female.glb', 1.08, () => {});
 
 loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
   for (const s of MACAW_SPOTS){
