@@ -1,4 +1,10 @@
-# stone-lion v5（Blender 5.2）：一公一母**两只**，公踩绣球 / 母抚幼狮
+# stone-lion v6（Blender 5.2）：一公一母**两只**，公踩绣球 / 母抚幼狮
+# v6 改动（老黄："石狮子要再打磨打磨" —— 脸是光板是最大毛病）：
+#   · 五官改深色石（眼/鼻/口单独一个网格 + 深色材质），白脸上才读得出来；
+#   · 眼放大前顶（怒目）、耳收小挪高（原来像耷拉的狗耳）、吻下加横口线；
+#   · 脸两侧各加一列腮鬃卷，正面看脸不再是光板；
+#   · 石斑真正进导出：Col 顶点色经 Attribute→Multiply 接进 BSDF（原来只写了属性、
+#     材质没引用，导出器直接丢掉还打 WARNING）。
 # 依据（维基"石狮子"条，2026-10-18 取）：
 #   · 看门石狮成双成对，**左雄右雌**（合男左女右）；判据是"**从大门里出来**时，
 #     雄狮在人的左侧、雌狮在右侧"。
@@ -21,17 +27,25 @@ def apply_all(o):
     act(o); bpy.ops.object.transform_apply(location=False, rotation=True, scale=True); return o
 
 parts = []
-def cube(name, sx, sy, sz, loc, rot=(0, 0, 0)):
+darkParts = []   # 眼/鼻/口：深色石，单独一个网格 + 单独材质
+def cube(name, sx, sy, sz, loc, rot=(0, 0, 0), dark=False):
     bpy.ops.mesh.primitive_cube_add(size=1.0, location=loc)
     o = bpy.context.active_object; o.name = name
     o.scale = (sx, sy, sz); o.rotation_euler = rot
-    parts.append(apply_all(o)); return o
+    (darkParts if dark else parts).append(apply_all(o)); return o
 
 def sph(name, rx, ry, rz, loc, seg=10, ring=7, rot=(0, 0, 0)):
     bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=ring, radius=1.0, location=loc)
     o = bpy.context.active_object; o.name = name
     o.scale = (rx, ry, rz); o.rotation_euler = rot
     parts.append(apply_all(o)); return o
+
+def sphD(name, rx, ry, rz, loc, seg=8, ring=6):
+    """深色件：与 sph 同形，进 darkParts（眼/鼻专用）"""
+    bpy.ops.mesh.primitive_uv_sphere_add(segments=seg, ring_count=ring, radius=1.0, location=loc)
+    o = bpy.context.active_object; o.name = name
+    o.scale = (rx, ry, rz)
+    darkParts.append(apply_all(o)); return o
 
 def torus(name, major, minor, loc, rot=(0, 0, 0), mseg=16, nseg=8):
     bpy.ops.mesh.primitive_torus_add(major_radius=major, minor_radius=minor,
@@ -93,12 +107,19 @@ def build_stone():
             sph('curl%d_%d' % (ri, i), curl, curl, curl,
                 (math.cos(a) * rad, yy, HC[2] + dz), seg=8, ring=6)
 
-    # ── 耳 / 眼（贴在头面上，凸出一点才看得见）──
+    # ── 耳 / 眼 / 鼻 / 口（v6：五官深色石，白脸上才读得出来）──
     for s in (1, -1):
         sd = 'R' if s > 0 else 'L'
-        sph('ear' + sd, 0.052, 0.036, 0.056, (s * 0.122, 0.145, HC[2] + 0.100), seg=8, ring=6)
-        sph('eye' + sd, 0.032, 0.030, 0.030, (s * 0.072, HC[1] + 0.108, HC[2] + 0.036), seg=8, ring=6)
-        sph('nostril' + sd, 0.018, 0.016, 0.014, (s * 0.030, HC[1] + 0.205, HC[2] - 0.020), seg=6, ring=5)
+        sph('ear' + sd, 0.042, 0.030, 0.048, (s * 0.112, 0.150, HC[2] + 0.112), seg=8, ring=6)  # 耳收小挪高（原来像狗耳）
+        sphD('eye' + sd, 0.036, 0.028, 0.034, (s * 0.070, HC[1] + 0.112, HC[2] + 0.038), seg=8, ring=6)  # 眼放大前顶
+        sphD('nostril' + sd, 0.024, 0.018, 0.018, (s * 0.034, HC[1] + 0.210, HC[2] - 0.016), seg=6, ring=5)
+    # 口：吻下横线（v6 修一次：原来 (0.400, 0.823) 整块埋进吻里，外面一点看不见；
+    # 下颌椭球 (0,0.305,Z+0.552,sz 0.072/0.052) 前下表面约 (0, 0.40, 0.79)，口横跨在它外面）
+    cube('mouth', 0.110, 0.022, 0.026, (0, 0.402, Z + 0.580), dark=True)
+    # ── 腮鬃：脸两侧各一列卷，托住脸（正面看不再是光板）──
+    for s in (1, -1):
+        for k, (yy, zz, cc) in enumerate([(0.250, 0.060, 0.040), (0.245, 0.005, 0.042), (0.240, -0.050, 0.040)]):
+            sph('cheek%d_%d' % (s, k), cc, cc, cc, (s * 0.136, yy, HC[2] + zz), seg=8, ring=6)
     # ── 项圈 + 铃铛 ──
     torus('collar', 0.172, 0.026, (0, HC[1] - 0.045, HC[2] - 0.180), rot=(math.pi / 2 - 0.40, 0, 0))
     sph('bell', 0.042, 0.042, 0.046, (0, HC[1] + 0.135, HC[2] - 0.235), seg=8, ring=6)
@@ -130,13 +151,19 @@ def add_cub():
             (cx - 0.030 + math.cos(a) * 0.062, cy + 0.070, cz + 0.030 + math.sin(a) * 0.062), seg=6, ring=5)
     sph('cubTail', 0.030, 0.048, 0.028, (cx, cy - 0.120, cz - 0.010), seg=6, ring=5)
 
-def finalize(name, glb):
-    act(parts[0])
-    for o in parts:
+def join_list(lst, newname):
+    act(lst[0])
+    for o in lst:
         o.select_set(True)
-    bpy.context.view_layer.objects.active = parts[0]
+    bpy.context.view_layer.objects.active = lst[0]
     bpy.ops.object.join()
-    lion = bpy.context.active_object; lion.name = 'stoneLion_' + name
+    o = bpy.context.active_object; o.name = newname
+    return o
+
+def finalize(name, glb):
+    # 石身与五官分别合并（各挂各的材质，否则深色眼一并染白）
+    lion = join_list(parts, 'stoneLion_' + name)
+    dark = join_list(darkParts, 'stoneLion_' + name + '_dark')
     me = lion.data
     col = me.color_attributes.new(name='Col', type='FLOAT_COLOR', domain='POINT')
     for i, v in enumerate(me.vertices):
@@ -148,22 +175,42 @@ def finalize(name, glb):
     mat.use_nodes = True
     bsdf = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
     assert bsdf is not None
-    bsdf.inputs['Base Color'].default_value = (0.760, 0.752, 0.726, 1.0)
+    # Col 顶点色必须被材质引用，导出器才会写进 GLB（原来只建属性不接线，整层斑驳被丢掉还打 WARNING）
+    nt = mat.node_tree
+    attr = nt.nodes.new('ShaderNodeAttribute'); attr.attribute_name = 'Col'; attr.attribute_type = 'GEOMETRY'
+    mix = nt.nodes.new('ShaderNodeMix'); mix.data_type = 'RGBA'; mix.blend_type = 'MULTIPLY'
+    mix.inputs['Factor'].default_value = 1.0
+    mix.inputs['A'].default_value = (0.760, 0.752, 0.726, 1.0)
+    nt.links.new(attr.outputs['Color'], mix.inputs['B'])
+    nt.links.new(mix.outputs['Result'], bsdf.inputs['Base Color'])
     bsdf.inputs['Roughness'].default_value = 0.88
     if 'Metallic' in bsdf.inputs: bsdf.inputs['Metallic'].default_value = 0.0
     me.materials.clear(); me.materials.append(mat)
-    bpy.ops.object.shade_smooth()
+    # 五官深色石：单独材质（比石身深一截，脸上才有五官）
+    dmat = bpy.data.materials.new('lion_dark')
+    dmat.use_nodes = True
+    dbsdf = next((n for n in dmat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+    dbsdf.inputs['Base Color'].default_value = (0.235, 0.215, 0.195, 1.0)
+    dbsdf.inputs['Roughness'].default_value = 0.95
+    if 'Metallic' in dbsdf.inputs: dbsdf.inputs['Metallic'].default_value = 0.0
+    dark.data.materials.clear(); dark.data.materials.append(dmat)
+    for o in (lion, dark):
+        bpy.ops.object.select_all(action='DESELECT')
+        o.select_set(True); bpy.context.view_layer.objects.active = o
+        bpy.ops.object.shade_smooth()
     me.calc_loop_triangles()
-    zs = [v.co.z for v in me.vertices]
-    print('VARIANT=%s TRIS=%d Z=[%.3f,%.3f]' % (name, len(me.loop_triangles), min(zs), max(zs)))
+    zs = [v.co.z for v in me.vertices] + [v.co.z for v in dark.data.vertices]
+    print('VARIANT=%s TRIS=%d+%d Z=[%.3f,%.3f]' % (name, len(me.loop_triangles),
+          len(dark.data.loop_triangles), min(zs), max(zs)))
+    keep = {lion.name, dark.name}
     for o in list(bpy.data.objects):
-        if o.name != lion.name:
+        if o.name not in keep:
             bpy.data.objects.remove(o, do_unlink=True)
     for m in list(bpy.data.materials):
-        if m.name != 'lion_stone':
+        if m.name not in ('lion_stone', 'lion_dark'):
             m.use_fake_user = False
             bpy.data.materials.remove(m, do_unlink=True)
-    assert len(bpy.data.objects) == 1 and len(bpy.data.materials) == 1, '清场失败'
+    assert len(bpy.data.objects) == 2 and len(bpy.data.materials) == 2, '清场失败'
     bpy.ops.export_scene.gltf(filepath=glb, export_format='GLB', export_apply=True, export_yup=True,
                               export_draco_mesh_compression_enable=False, export_materials='EXPORT',
                               export_cameras=False, export_lights=False, use_selection=False)
@@ -172,6 +219,7 @@ def finalize(name, glb):
 for variant in ('male', 'female'):
     bpy.ops.wm.read_factory_settings(use_empty=True)
     parts = []
+    darkParts = []
     build_stone()
     if variant == 'male': add_ball()
     else: add_cub()
