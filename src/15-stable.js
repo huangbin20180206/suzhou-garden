@@ -30,6 +30,9 @@ import { groundHeight } from './05-water.js';
 import { tubeRadiusRamp } from './06i-trees.js';
 /* GLB 复用入口（院外石板路旁的石灯笼，2026-10-17）。⚠️ 06e 不 import 本模块 ⇒ 不成环。 */
 import { loadAssetOnce } from './06e-assets.js';
+/* 路灯真光源要进 lamp 通道（12-env :303 按 worldLights 逐盏发强度）。
+   方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环（与上面 ENV 那条同理）。 */
+import { worldLights } from './12d-lantern.js';
 import { renderer, scene, camera } from './02-scene.js';
 /* 季节门控（冬天才有口鼻白雾）走 ENV —— 方向单纯（12-env 不 import 本模块，见它的 import 表），
    所以直接 import，不必像 12b/12c 那样开注入槽。 */
@@ -1548,8 +1551,7 @@ export function makeStableRoad(){
      座石：每盏下垫一块方座（0.92×0.30×0.92，顶面比草皮高 0.04、其余埋进土里）——
      草坡有 ±0.1m 起伏，不垫的话 0.55m 宽的底座必然有一角悬空。
      ⚠️ 10 盏按**材质合并成 2 个网格**（石身 + 火袋，座石并进石身那个桶），不是 10 棵节点树。
-     ⚠️ **不新增真光源**：火袋的 emissive 是模型自带的（与 06c 挂灯同口径）；也就是说夜里
-        读作"亮着的灯"，但它不照亮地面（真要照亮得加 10 盏点光，代价另算）。 */
+     火袋 emissive 模型自带；真光源见下面 ④b（2026-10-18 起每盏一盏 PointLight）。 */
   {
     const N = 5, LR = curve.getLength();
     const OFF = 1.55;
@@ -1609,6 +1611,27 @@ export function makeStableRoad(){
       }
       console.log('[路旁石灯笼] ' + spots.length + ' 盏（含座石）· 合并成 ' + buckets.size + ' 个网格');
     });
+    /* 10 盏真光源与上面的模型一一同位（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）。
+       每盏一个 PointLight，暖橙 0xFFB45A（与火袋 emissive 同色），灯位 = 火袋中心（地面 +0.68m）。
+       · castShadow 全 false：点光阴影是 6 面立方体贴图，10 盏全开等于每帧多渲 60 张深度图。
+       · distance=7 + decay=2：光只落在灯下路面一圈，不把整片草坡染成橘色。
+       · 灯数启动时定死、运行期只改 intensity（与廊灯同一条铁律，不触发材质重编译）。
+       · 时段开关：推进 worldLights（12-env :303 按 lamp 通道发强度，白天全灭、夜里全亮）。
+       · 摇曳：userData.flick 由 11-loop 逐帧写（烛火式 ±10%，每盏相位用布点序号派生、确定性）。 */
+    for (let i = 0; i < spots.length; i++){
+      const st = spots[i];
+      const L = new THREE.PointLight(0xFFB45A, 0, 7, 2.0);
+      L.position.set(st.x, groundHeight(st.x, st.z) + 0.68, st.z);
+      L.castShadow = false;
+      L.name = 'roadLamp';
+      L.userData.base = 1.6;
+      L.userData.road = true;
+      L.userData.flick = 1;
+      L.userData.flickPh = [i * 2.39, i * 1.73 + 1.1, i * 0.91 + 2.2];
+      g.add(L);
+      worldLights.push(L);
+    }
+    console.log('[路旁石灯笼] 真光源 10 盏（PointLight，无阴影，lamp 通道 + 摇曳）');
   }
   /* ── ⑤ 院门口石狮一对（2026-10-18 · 老黄："门口应该放一对石狮子，注意一公一母"）───
      规矩（维基"石狮子"条）："从大门里出来时雄在左、雌在右"；雄右前爪踩绣球、雌左前爪抚幼狮。

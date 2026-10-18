@@ -521,7 +521,8 @@ export function festivalState(){
       objs: 1,                                  // 一份几何一个对象（合并后的 draw call 代价）
     })),
     hangBuilt: _hangAnchors.built,
-    lampLights: worldLights.length,               // 真光源数必须仍等于灯笼的 5 盏
+    lampLights: worldLights.filter(L => !L.userData.road).length,  // 廊灯 5 盏（路灯另计 roadLights）
+    roadLights: worldLights.filter(L => L.userData.road).length,   // 路灯 10 盏（2026-10-18 用户要加灯）
   };
 }
 

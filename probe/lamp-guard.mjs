@@ -83,40 +83,55 @@ function lumaBox(img, cx, cy, r = 14) {
     const out = [];
     /* 2026-09-25：灯笼从 PointLight 改为 SpotLight（更贴灯笼向下照的物理）。
        判据同步改：接受 isSpotLight，同时保留 isPointLight 兼容。 */
-    L.traverse(o => { if (o.isPointLight || o.isSpotLight) out.push({ i: +o.intensity.toFixed(4), sh: o.castShadow, type: o.isSpotLight ? 'spot' : 'point' }); });
+    L.traverse(o => { if (o.isPointLight || o.isSpotLight) out.push({ i: +o.intensity.toFixed(4), sh: o.castShadow, type: o.isSpotLight ? 'spot' : 'point', name: o.name || '' }); });
     return out;
   });
 
-  /* ── 装配检查 ── */
+  /* ── 装配检查 ──
+     2026-10-18 起真光源 = 廊灯 5（SpotLight）+ 路灯 10（PointLight，name=roadLamp）。
+     廊灯沿用全部旧判据（强度两档 6.5/2.8 精确到 0.05）；路灯带 ±10% 摇曳，
+     只判"装了 10 盏 / 无阴影 / 午灭夜亮"，不断言精确强度。 */
+  const corr = (list) => list.filter(x => x.type === 'spot');
+  const road = (list) => list.filter(x => x.name === 'roadLamp');
   const l0 = await lamps();
-  check('五盏灯笼灯全部装配（堂前 2 + 游廊 3）', l0.length === 5, `实际 ${l0.length} 盏`);
-  check('低/中画质档阴影关闭（SpotLight 投影仅高档前 3 盏开启）',
-    l0.length > 0 && l0.filter(x => x.sh).length <= 3, JSON.stringify(l0.map(x => x.sh)));
+  check('五盏灯笼灯全部装配（堂前 2 + 游廊 3）', corr(l0).length === 5, `实际 ${corr(l0).length} 盏`);
+  check('十盏路灯全部装配（石板路两侧各 5）', road(l0).length === 10, `实际 ${road(l0).length} 盏`);
+  check('低/中画质档阴影关闭（SpotLight 投影仅高档前 3 盏开启；路灯一律无阴影）',
+    l0.length > 0 && l0.filter(x => x.sh).length <= 3 && road(l0).every(x => !x.sh),
+    JSON.stringify(l0.map(x => x.sh)));
 
   /* ── 按时段开关：lamp 通道是否真的接上了 ── */
   const setTime = async (v) => { await page.evaluate(t => window.__garden.setEnv('time', t), v); await settled(); await sleep(400); };
 
   await setTime('noon');
   const ln = await lamps();
-  check('正午 lamp=0：灯全灭（白天不该有灯光落地）',
-    ln.every(x => x.i === 0), JSON.stringify(ln.map(x => x.i)));
+  check('正午 lamp=0：廊灯全灭（白天不该有灯光落地）',
+    corr(ln).every(x => x.i === 0), JSON.stringify(corr(ln).map(x => x.i)));
+  check('正午 lamp=0：路灯全灭', road(ln).every(x => x.i === 0),
+    JSON.stringify(road(ln).map(x => x.i)));
 
   await setTime('night');
   const lni = await lamps();
-  check('夜间 lamp=1：灯全亮', lni.length === 5 && lni.every(x => x.i > 0),
-    JSON.stringify(lni.map(x => x.i)));
-  const mx = Math.max(...lni.map(x => x.i));
+  check('夜间 lamp=1：廊灯全亮', corr(lni).length === 5 && corr(lni).every(x => x.i > 0),
+    JSON.stringify(corr(lni).map(x => x.i)));
+  check('夜间 lamp=1：路灯全亮（摇曳中，强度只判大于 0）',
+    road(lni).length === 10 && road(lni).every(x => x.i > 0),
+    JSON.stringify(road(lni).map(x => x.i)));
+  const mx = Math.max(...corr(lni).map(x => x.i));
   check('堂前挑高更亮、游廊压低（6.5 / 2.8 两档，按 1/d² 反算）',
     Math.abs(mx - 6.5) < 0.05 && lni.some(x => Math.abs(x.i - 2.8) < 0.05),
     `最大 ${mx}，含 2.8 档=${lni.some(x => Math.abs(x.i - 2.8) < 0.05)}`);
 
   await setTime('dusk');
   const ld = await lamps();
-  check('黄昏 lamp=0.25：灯半亮（介于午与夜之间）',
-    ld.every(x => x.i > 0) && Math.abs(Math.max(...ld.map(x => x.i)) - 6.5 * 0.25) < 0.05,
-    JSON.stringify(ld.map(x => x.i)));
-  check('切换时段时灯数恒定（不会触发材质重编译）',
-    (await lamps()).length === 5, `${(await lamps()).length} 盏`);
+  check('黄昏 lamp=0.25：廊灯半亮（介于午与夜之间）',
+    corr(ld).every(x => x.i > 0) && Math.abs(Math.max(...corr(ld).map(x => x.i)) - 6.5 * 0.25) < 0.05,
+    JSON.stringify(corr(ld).map(x => x.i)));
+  check('黄昏 lamp=0.25：路灯半亮（只判大于 0，不判精确值）',
+    road(ld).every(x => x.i > 0), JSON.stringify(road(ld).map(x => x.i)));
+  check('切换时段时灯数恒定（不会触发材质重编译）：廊灯 5 + 路灯 10',
+    corr(await lamps()).length === 5 && road(await lamps()).length === 10,
+    `廊灯 ${corr(await lamps()).length} / 路灯 ${road(await lamps()).length}`);
 
   /* ── 画面证据：夜里「点光开 vs 点光关」 ── */
   await setTime('night');

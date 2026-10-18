@@ -3,7 +3,7 @@
 //   B 院子**围栏**挂**传统红灯笼**（新形制，与花灯可区分）
 //
 // 沿用 festival-guard 的三条铁规矩：
-//   ① **不新增真光源** —— 真光源恒为灯笼那 5 盏（lampLights===5）。
+//   ① **灯会不新增真光源** —— 廊灯 5 + 路灯 10（2026-10-18 起；路灯是用户要加的常驻灯）
 //   ② **非灯会态零提交** —— 三个挂灯网格 count 必须全 = 0。
 //   ③ **draw calls：对同态（夜）基线只有 ~10 的增量**（原"绝对值 < 800"已于 2026-10-12 作废，
 //      失效原因与证据见下方判据③的注释块）。
@@ -128,9 +128,10 @@ const check = (name, ok, detail = '') => {
     off.counts.every(c => c === 0) && off.caps.every(c => c > 0),
     `count=${JSON.stringify(off.counts)} 容量=${JSON.stringify(off.caps)} · draw calls=${off.calls}`);
 
-  /* ── ① 不新增真光源 ── */
-  check('① 不新增真光源：真光源仍是灯笼那 5 盏',
-    off.st.lampLights === 5, `lampLights=${off.st.lampLights}`);
+  /* ── ① 灯会不新增真光源（廊灯 5 + 路灯 10）── */
+  check('① 灯会不新增真光源：廊灯 5 + 路灯 10',
+    off.st.lampLights === 5 && off.st.roadLights === 10,
+    `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}`);
 
   /* ── 开灯会：数量显形 + 判据③ 的两个读数（同态基线 / 灯会态）── */
   const on = await page.evaluate(async () => {
@@ -267,12 +268,13 @@ const check = (name, ok, detail = '') => {
     while (performance.now() - t0 < 4500) await new Promise(r => requestAnimationFrame(r));
     const objs = window.__fl.hangObjs();
     return { show: g.ENV.cur.festivalShow, counts: objs.map(o => o.count),
-             calls: window.__fl.calls(), lamp: g.festivalState().lampLights };
+             calls: window.__fl.calls(), lamp: g.festivalState().lampLights, road: g.festivalState().roadLights };
   });
   check('② 关灯会后三批挂灯 count 归 0（负例：零提交判据确实会因灯会开而变红）',
     back.counts.every(c => c === 0) && back.show < 0.03,
     `count=${JSON.stringify(back.counts)} festivalShow=${(+back.show).toFixed(2)} · draw calls=${back.calls}`);
-  check('① 开关两态真光源都仍是 5 盏', back.lamp === 5, `lampLights=${back.lamp}`);
+  check('① 开关两态真光源都是廊灯 5 + 路灯 10', back.lamp === 5 && back.road === 10,
+    `lampLights=${back.lamp} roadLights=${back.road}`);
 
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));
   await browser.close();

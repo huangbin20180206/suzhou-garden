@@ -300,7 +300,7 @@ export function applyEnv(p){
      ⚠️ 只调 intensity、绝不切 visible：Three 的材质 program 缓存 key 含"参与渲染的灯数"，
      隐藏一盏 = 灯数变化 = 全场材质重新编译（几百毫秒卡顿）。强度归零仍占一点 ALU，
      换来的是切换环境时零重编译 —— 这笔交换是值的。 */
-  for (const L of worldLights) L.intensity = L.userData.base * p.lamp;
+  for (const L of worldLights) L.intensity = L.userData.base * p.lamp * (L.userData.flick ?? 1);
   if (_lampVol){ _lampVol.uniforms.uLamp.value = p.lamp; _lampVol.uniforms.uRain.value = p.rainAmount || 0; }  // 体积光锥 alpha/散射随灯与雨
   if (_groundSplashMat){ _groundSplashMat.uniforms.uLamp.value = p.lamp; _groundSplashMat.uniforms.uRain.value = p.rainAmount || 0; }
 

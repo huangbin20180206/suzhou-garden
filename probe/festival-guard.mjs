@@ -3,8 +3,8 @@
 // 守什么（逐条对应计划书与它的三个"坑"）：
 //   ① 河灯 ≥20 盏且**全部在池域内**、且**随波漂移**（位置在变，不是钉死的装饰）；
 //   ② 河灯**不穿过桥体 / 汀步石 / 立峰石组**（计划书验收标准原文："河灯随波漂移不穿过桥体"）；
-//   ③ **不新增真光源**：真光源数必须仍等于灯笼的 5 盏（计划书坑①：夜里月光接管阴影方向，
-//      加真灯就必须同步改阴影逻辑 ⇒ 一律 emissive 伪造发光）；
+//   ③ **灯会不新增真光源**：2026-10-18 起全场真光源 = 廊灯 5 + 路灯 10（路灯是用户要加的常驻灯；
+//      灯会自己仍一律 emissive 伪造发光，不许再加）；
 //   ④ **draw calls 预算**：灯会态整帧总量的最坏帧仍 < 1600（推导写在断言正上方）；非灯会态的
 //      河灯/烛焰/灯串/桃树挂灯必须全部 **count=0**（零提交）；
 //   ⑤ **bloom 不溢出死白**：灯会态的亮像素占比必须受控（灯芯亮而不糊成白饼）；
@@ -160,9 +160,10 @@ const check = (name, ok, detail = '') => {
       && off.st.treeN === 0 && off.st.treeFull > 0,
     `river=${off.riverCount} flame=${off.flameCount} string=${off.stringCount} · tree=${off.st.treeN}/${off.st.treeFull} · draw calls=${off.calls}`);
 
-  /* ── ③ 真光源数（开灯会前后都必须等于灯笼的 5 盏）── */
-  check('不新增真光源：真光源仍是灯笼的 5 盏', off.st.lampLights === 5,
-    `lampLights=${off.st.lampLights}`);
+  /* ── ③ 真光源数（2026-10-18 起：廊灯 5 + 路灯 10；灯会自己仍不许新增）── */
+  check('真光源 = 廊灯 5 + 路灯 10（灯会不新增真光源）',
+    off.st.lampLights === 5 && off.st.roadLights === 10,
+    `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}`);
 
   /* ── ⑥ 一键切换语义：开 = 夜 + 灯会层；关 = 留夜撤层 ── */
   const on = await page.evaluate(async () => {

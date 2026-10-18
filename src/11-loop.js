@@ -6,6 +6,8 @@ import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, s
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
+/* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
+import { worldLights } from './12d-lantern.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
 import { MIST, MIST_WHITE } from './06j-herbs.js';
 import { perchingAnchors } from './06d-corridor.js';
@@ -954,6 +956,21 @@ function animate(){
     mixInto(ENV.cur, ENV.from, ENV.to, e);
     applyEnv(ENV.cur);
     renderer.shadowMap.needsUpdate = true;   // 过渡中 sunPos/存在性逐帧在动，阴影跟渲
+  }
+  /* 路灯烛火摇曳（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）：
+     10 盏路灯各有确定性相位（布点序号派生，不吃随机流，保证门禁复现）。
+     双层正弦（11.3/27.7 rad/s 两档抖）+ 偶发下凹（pow12 只在波峰附近开口，
+     烛火被风压一下的闪），合成钳在 [0.80, 1.12]，白天 lamp=0 时恒 0。
+     ⚠️ 必须放在过渡块**之后**：过渡里 applyEnv 会按旧 flick 重写 intensity，
+     这里按新 flick 再合成一次，以这里为准。 */
+  for (const L of worldLights){
+    const ph = L.userData.flickPh;
+    if (!ph) continue;
+    const f = 1 + 0.05 * Math.sin(simTime * 11.3 + ph[0])
+              + 0.035 * Math.sin(simTime * 27.7 + ph[1])
+              - 0.18 * Math.pow(Math.max(0, Math.sin(simTime * 0.63 + ph[2])), 12);
+    L.userData.flick = Math.min(1.12, Math.max(0.80, f));
+    L.intensity = L.userData.base * ENV.cur.lamp * L.userData.flick;
   }
   /* 电闪雷鸣（2026-09-30）：必须在 ENV 过渡块**之后**推进 —— 过渡里的 applyEnv 会覆写
      sun/amb/hemi/曝光，顺序反了闪光会被压掉。只在 weather==='thunder' 时真正触发。 */
