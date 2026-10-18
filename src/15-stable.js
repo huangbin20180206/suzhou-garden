@@ -1638,8 +1638,8 @@ export function makeStableRoad(){
      院门朝南（世界 +z，门线 z=2.7、开口 x 38.2~41.8），出来时左手边是 +x ⇒ 雄狮放东 (+x)、雌狮放西。
      桩位：门外两侧 x=40±2.3、z=3.4（门线外 0.7m、路头 4.2m 以北，不挡喇叭口），面朝南 (+z)。
      模型：research/diy-lions 自制，公 312KB / 母 323KB，高 1.08m（与 3.6m 门洞比例协调）。
-     朝向：模型在 Blender 里脸朝 +y，glTF yup 导出后脸朝 −z（实拍验证：ry=0 时背对南来的客人），
-     故 rotation.y=PI 让脸朝南迎客。 */
+     朝向：模型在 Blender 里脸朝 +y，glTF yup 导出后脸朝 −z ⇒ rotation.y=PI 转成 +z（南）迎客。
+     拿数字实证过（暗部网格世界 z=3.64 > 桩位 3.4，脸在南侧）：PI 对，0 是后脑勺。 */
   {
     const spots = [
       { url: 'assets/stone-lion-male.glb', x: 42.3, z: 3.4, name: 'stoneLionMale' },

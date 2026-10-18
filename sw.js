@@ -116,7 +116,7 @@ const CACHE = 'suzhou-garden-v41';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
-const ASSET_CACHE = 'suzhou-garden-assets-v6';   // 2026-10-18 石狮 v6 五官重做（两件 GLB 文件新于 sw.js ⇒ 升桶）   // 2026-10-18 石狮一对：GLBS 新增 stone-lion-male/female.glb（文件新于 sw.js ⇒ 升桶，规则见 probe/check.mjs:74-79）   // 2026-10-14 石灯笼：GLBS 新增 assets/stone-lantern.glb（文件新于 sw.js ⇒ 升桶，规则见 probe/check.mjs:74-79）   // 2026-10-14 试水批次：boulder-hero.glb 改浅灰重导（5.46MB，文件新于 sw.js ⇒ 资产桶按规则再升，见 probe/check.mjs:74-79 规则）
+const ASSET_CACHE = 'suzhou-garden-assets-v8';   // 2026-10-18 石狮 v7 定稿（牙摆到嘴皮前面，两件 GLB 文件新于 sw.js ⇒ 升桶）   // 2026-10-18 石狮 v7 融合版（两件 GLB 文件新于 sw.js ⇒ 升桶）   // 2026-10-18 石狮一对：GLBS 新增 stone-lion-male/female.glb（文件新于 sw.js ⇒ 升桶，规则见 probe/check.mjs:74-79）   // 2026-10-14 石灯笼：GLBS 新增 assets/stone-lantern.glb（文件新于 sw.js ⇒ 升桶，规则见 probe/check.mjs:74-79）   // 2026-10-14 试水批次：boulder-hero.glb 改浅灰重导（5.46MB，文件新于 sw.js ⇒ 资产桶按规则再升，见 probe/check.mjs:74-79 规则）
 const SHELL = [
   './',
   './index.html',

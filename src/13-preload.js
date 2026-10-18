@@ -186,9 +186,10 @@ export const PRELOAD_MANIFEST = [
   /* 2026-10-18 石狮一对（DIY：research/diy-lions/build_lions_pair.py v5 融球躯干+螺髻，
      公踩绣球 / 母抚幼狮，左雄右雌按"从门里出来左为雄"摆）。
      v6：五官深色石（眼/鼻/口独立网格+深色材质）+ 腮鬃 + 石斑真正导出。
-     公 330356B / 母 341412B，高 1.08m。required:false —— 拉不到时门口位置空着。 */
-  { url: 'assets/stone-lion-male.glb', bytes: 330356, stage: '取', label: '石狮雄', required: false },
-  { url: 'assets/stone-lion-female.glb', bytes: 341412, stage: '取', label: '石狮雌', required: false },
+     v7（融合版）：tabbit 身子（坐姿体块+六层须弥座）+ 威猛脸（眉压目斜/张口獠牙/满鬃）。
+     公 321908B / 母 330916B，高 1.01m。required:false —— 拉不到时门口位置空着。 */
+  { url: 'assets/stone-lion-male.glb', bytes: 321908, stage: '取', label: '石狮雄', required: false },
+  { url: 'assets/stone-lion-female.glb', bytes: 330916, stage: '取', label: '石狮雌', required: false },
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
   { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
