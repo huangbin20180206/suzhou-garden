@@ -8,11 +8,18 @@ assets/TaihuRock.glb
 .codely-cli/
 .codely/
 .workbuddy-ai/
+.claude/
 outputs/
 
 # 归档区：一次性诊断脚本 / 拆模块前的旧单体备份。留本机可查，不入库（2026-09-22）
 probe/_attic/
 _attic/
+
+# 临时探针脚本：一次性诊断用，不入库
+probe/_tmp-*
+
+# CC0 原始下载模型库：体积大（~47MB）且可按 SHORTLIST.md 重新下载，不入库
+research/cc0-scout/models/
 
 # AI 工作记忆（agent 的记事本，不是工程产物）
 .workbuddy/
