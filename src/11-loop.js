@@ -23,10 +23,11 @@ import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksS
 /* 竹帘升降：状态与动画都住在 14-props（它拿着帘条子组与卷捆的引用），
    这里只负责每帧推进；UI 侧经 HOOKS.blind 转发（同音景/明信片的既有做法）。 */
 import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } from './14-props.js';
-/* 马厩里那 6 匹真马的"生活"（2026-10-11 · 老黄："低头吃草、尾巴摇晃、抬蹄、仰天抖颈、
-   冬天口鼻白雾"）：姿态是**着色器伪蒙皮**（真模型无骨骼），本模块每帧只推几个角度；
-   白雾的位置也在那边按同一套枢轴复算。放在 15-stable 里（它持有马的材质/几何/槽位）。 */
-import { tickStableLife } from './15-stable.js';
+/* 马厩里那 6 匹真马的"生活"（2026-10-11 建 · 2026-10-19 换 Tinker 骨骼马）：
+   老黄："低头吃草、撅嘴、摇尾巴、动前蹄、抬头晃脑袋和马鬃、冬天口鼻白气"。
+   Tinker 走**真实骨骼**（454 根，见 15-stable 的 applyTinkerPose）；离线/失败时的
+   程序化替身仍走着色器伪蒙皮，同一套状态机分支。白雾位置也在那边算（鼻骨世界坐标）。 */
+import { tickStableLife, horseLifeState } from './15-stable.js';
 /* 马夫"递草料"的摆臂（2026-10-11 · 老黄："人喂马"）：肩枢轴组住在 08-assemble（人物几何是
    那边建的），本模块每帧只推一个角度。 */
 import { tickGroomFeed } from './08-assemble.js';
@@ -958,7 +959,7 @@ function animate(){
     renderer.shadowMap.needsUpdate = true;   // 过渡中 sunPos/存在性逐帧在动，阴影跟渲
   }
   /* 路灯烛火摇曳（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）：
-     10 盏路灯各有确定性相位（布点序号派生，不吃随机流，保证门禁复现）。
+     8 盏路灯各有确定性相位（布点序号派生，不吃随机流，保证门禁复现；2026-10-19 南门口一对撤掉）。
      双层正弦（11.3/27.7 rad/s 两档抖）+ 偶发下凹（pow12 只在波峰附近开口，
      烛火被风压一下的闪），合成钳在 [0.80, 1.12]，白天 lamp=0 时恒 0。
      ⚠️ 必须放在过渡块**之后**：过渡里 applyEnv 会按旧 flick 重写 intensity，
@@ -1825,7 +1826,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                     rough: +m.roughness.toFixed(4), dryRough: m.userData.dryRough,
                     metal: +m.metalness.toFixed(4), dryMetal: m.userData.dryMetal })),
                   wetNow: () => wetApplied,
-                  tourStart, tourStop, tourPlan,
+                  tourStart, tourStop, tourPlan, horseLifeState,
                   tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
                   tourCaption: () => { const el = captionEl(); return el ? el.querySelector('b').textContent : ''; },
                   qosState: () => QOS.state(), setQos: (lv) => QOS.apply(lv),

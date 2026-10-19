@@ -522,7 +522,7 @@ export function festivalState(){
     })),
     hangBuilt: _hangAnchors.built,
     lampLights: worldLights.filter(L => !L.userData.road).length,  // 廊灯 5 盏（路灯另计 roadLights）
-    roadLights: worldLights.filter(L => L.userData.road).length,   // 路灯 10 盏（2026-10-18 用户要加灯）
+    roadLights: worldLights.filter(L => L.userData.road).length,   // 路灯 8 盏（2026-10-18 加灯；2026-10-19 南门口一对撤掉）
   };
 }
 

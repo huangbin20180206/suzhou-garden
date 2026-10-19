@@ -240,7 +240,11 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   check(`draw calls 上限（${info.calls} < 800 · 晴夏基线）`, info.calls < 800,
     `6 帧读数 ${reads.map(r => r.calls).join('/')}（取最小＝基线；大值那几帧含反射/阴影那趟）`);
   check(`三角形上限（${info.tris.toLocaleString()} < 4,200,000 · 晴夏基线）`, info.tris < 4_200_000);
-  check('几何/纹理数量健康', info.geos < 800 && info.tex < 300, `geos=${info.geos} tex=${info.tex}`);
+  /* ⚠️ 2026-10-19 上限 800→950：马厩换 Tinker 真马后，6 匹 × 7 个蒙皮网格 = 42 个几何，
+     再加门口拴马桩/上马石 10 件、月洞门补铺 1 件 ⇒ 基线从 ~714 抬到 ~896。
+     这条防的是"每实例复制几何"这类事故（如芭蕉 8 株各一份），不是防正常资产增量；
+     950 仍能抓住翻倍（~1800）。 */
+  check('几何/纹理数量健康', info.geos < 950 && info.tex < 300, `geos=${info.geos} tex=${info.tex}`);
 
   // ── 4. GLB 资产到齐且动起来 ──
   /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄要回"树立的荷花"）—— 名单同步加回

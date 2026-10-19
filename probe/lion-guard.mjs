@@ -104,11 +104,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   });
   const M = data.male, F = data.female;
 
-  check('公狮落位 x=42.45 / z=3.4', Math.abs(M.pos[0] - 42.45) < 0.02 && Math.abs(M.pos[2] - 3.4) < 0.02,
+  check('公狮落位 x=+2.55 / z=23.9（园墙南月洞门，雄在左）', Math.abs(M.pos[0] - 2.55) < 0.02 && Math.abs(M.pos[2] - 23.9) < 0.02,
     `(${M.pos[0].toFixed(2)}, ${M.pos[2].toFixed(2)})`);
-  check('母狮落位 x=37.55 / z=3.4', Math.abs(F.pos[0] - 37.55) < 0.02 && Math.abs(F.pos[2] - 3.4) < 0.02,
+  check('母狮落位 x=−2.55 / z=23.9（园墙南月洞门，雌在右）', Math.abs(F.pos[0] + 2.55) < 0.02 && Math.abs(F.pos[2] - 23.9) < 0.02,
     `(${F.pos[0].toFixed(2)}, ${F.pos[2].toFixed(2)})`);
-  check('公母间距 4.9m', Math.abs((M.pos[0] - F.pos[0]) - 4.9) < 0.05, `${(M.pos[0] - F.pos[0]).toFixed(2)}m`);
+  check('公母间距 5.1m', Math.abs((M.pos[0] - F.pos[0]) - 5.1) < 0.05, `${(M.pos[0] - F.pos[0]).toFixed(2)}m`);
 
   const sizeOK = (s, label) =>
     s.size[1] > 1.00 && s.size[1] < 1.16 &&
@@ -124,10 +124,14 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     groundOK(M) && groundOK(F),
     `male Δ=${(M.min[1] - M.pos[1]).toFixed(3)} / female Δ=${(F.min[1] - F.pos[1]).toFixed(3)}`);
 
-  /* 门洞 38.2~41.8：雄（东侧）内缘 ≥41.8+0.10；雌（西侧）外缘 ≤38.2−0.10 */
-  const clearM = M.min[0] - 41.8, clearF = 38.2 - F.max[0];
-  check('狮身到门洞净空 ≥10cm（旧桩位只剩 5cm）', clearM >= 0.10 && clearF >= 0.10,
+  /* 园墙南月洞门：圆心 (0,22.5)、洞口半径 1.62、墙面 z=22.8。
+     狮身内缘到洞口边 ≥0.40m，且狮身整体在墙面之外（min.z > 22.8）。 */
+  const clearM = (Math.abs(M.pos[0]) - M.size[0] / 2) - 1.62;
+  const clearF = (Math.abs(F.pos[0]) - F.size[0] / 2) - 1.62;
+  check('狮身到月洞门洞口净空 ≥0.40m', clearM >= 0.40 && clearF >= 0.40,
     `雄内缘 ${(clearM * 100).toFixed(1)}cm / 雌内缘 ${(clearF * 100).toFixed(1)}cm`);
+  check('两狮都在墙面之外（min.z > 墙外皮 22.8）', M.min[2] > 22.8 && F.min[2] > 22.8,
+    `雄 ${M.min[2].toFixed(2)} / 雌 ${F.min[2].toFixed(2)}`);
 
   check('朝向：holder.rotation.y = 0（扫描狮脸朝 +z 南）', Math.abs(M.ry) < 0.01 && Math.abs(F.ry) < 0.01,
     `male ${M.ry.toFixed(3)} / female ${F.ry.toFixed(3)}`);
@@ -143,8 +147,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   /* 出图：站到门口正南 4m、眼高 1.6m 看两只狮子 */
   await page.evaluate(() => {
     const g = window.__garden;
-    g.camera.position.set(40, 1.65, 8.2);
-    g.controls.target.set(40, 0.75, 3.3);
+    g.camera.position.set(0, 1.62, 28.6);
+    g.controls.target.set(0, 0.72, 23.6);
     g.controls.update();
   });
   await sleep(500);

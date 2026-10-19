@@ -180,7 +180,7 @@ export const PRELOAD_MANIFEST = [
      GLB 拉不到时按既有回退：heroSrc=proc 一致即可对齐（试水期间程序化档保留）。 */
   { url: 'assets/boulder-hero.glb', bytes: 5462812, stage: '取', label: '太湖石', required: false },
   /* 2026-10-14 石灯笼（DIY L0 首件 · 纯接线）：research/diy-lantern/stone-lantern.glb 原样拷入。
-     186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙；2026-10-18 起路旁 10 盏每盏配真 PointLight）。
+     186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙；2026-10-18 起路旁 8 盏每盏配真 PointLight（2026-10-19 南门口一对撤掉））。
      摆位依据 research/diy-first-target.md §4 主位 (4.0,-3.8) y=0.053（岸距 1.62m、最近物 8.8m）。 */
   { url: 'assets/stone-lantern.glb', bytes: 190864, stage: '取', label: '石灯笼', required: false },
   /* 2026-10-18 石狮一对（**真实照片扫描**，替换掉此前 v5–v9 手工融球稿）。
@@ -200,12 +200,19 @@ export const PRELOAD_MANIFEST = [
      AI 生成（rodin，text_to_3d，绿翅金刚鹦鹉），1.49MB。
      required:false —— 拉不到时页面正常，只是假山上没有鹦鹉。 */
   { url: 'assets/Macaw.glb',       bytes: 1561572, stage: '取', label: '鹦鹉', required: false },
-  /* 马厩真马（2026-10-19 撤掉）：
-     原 Horse.glb 是 Rodin 生成的"无 baseColor 单材质灰模"（只有法线），出场被光烤成同一种
-     棕灰色；程序化替身 makeHorse 又是"箱子拼装涂漆"。两种实现都不活 ——
-     老黄："没有活灵活现的感觉的话还不如不做"。撤掉后 loadStableHorses 也 no-op，
-     马厩改成"两驾停着的车 + 草料堆 + 马夫 + 拴马桩"。需要真马时再上资产。 */
-  // { url: 'assets/Horse.glb',       bytes: 813652,  stage: '取', label: '马',   required: false },
+  /* 马厩的真马：**BlenderKit「Draft horse. Tinker, gypsy vanner breed」**
+     （作者 Irena Aidlin Moonin，Royalty Free；Rigify **454 根骨骼** + 7 个蒙皮网格
+     + 鬃毛/尾巴/眼睛/牙齿独立网格 + 4k baseColor/normal/roughness）。
+     历史：2026-10-10 起用 Rodin 生成的静态灰模 Horse.glb；2026-10-19 老黄
+     "这个可是有真实模型的…换成带毛发的模型吧" ⇒ 换成本件，骨骼动作见 15-stable。
+     旧 Rodin 件移出 assets 作回退：research/diy-horses/horse-rodin-fallback.glb。
+     required:false —— 拉不到时马厩里站的是**程序化替身**（15-stable 的 makeHorse）。
+     ⚠️ 本件已转成**无 Draco**（research/diy-horses/export_web.py，1.96MB，4k WebP）：
+     DRACOLoader 会去 gstatic 拉 wasm，在门禁/离线环境里报 pageerror；项目其余资产也全无 Draco。
+     ⚠️⚠️ 下载必须**在模块求值期**发起（15-stable 的 tinkerBuffer + settleAsset 握手），
+     否则预载段会等一个永远不来的 settled ⇒ 进度条卡死（实测 120s）。
+     `preload-manifest-sync` 的 G6 守这条。 */
+  { url: 'assets/HorseTinker.glb',  bytes: 1959088, stage: '取', label: '马',   required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */

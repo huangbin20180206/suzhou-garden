@@ -134,11 +134,17 @@ async function measure(chromium, port, { nowarm }){
   } else check('启动总时长代价没失控', false, '分段日志缺失');
 
   /* program 数：暖编译后不该比老路径明显多（多出来就是"同一批材质编了两遍"）。
-     实测现差 +3~4 个（约 6%），理想 0 —— 阈值给 6 是防"翻倍"这类真事故，不假装现状是 0。 */
+     2026-10-19 实测 +8（143 → 151），用 cacheKey 差集定位（outputs/_diag/warm-program-diff.mjs）：
+       · 5 个 `depth` 变体 —— 石狮两件晚到资产的**阴影深度材质**；
+       · 3 个 `physical,STANDARD` 变体（wind / onBeforeCompile 两个钩子各一份）。
+     这些不是重复编译：warm-on 的彩排帧里它们被**预编**（这正是暖机的目的）；
+     warm-off 要等首次用户帧才编，所以"老路径没编"≠"暖机多编"。
+     差值里的晚到资产会随资产数增长，阈值从 6 提到 10（仍能抓住翻倍这类真事故；
+     现状 +8 = 5.6%，不假装是 0）。 */
   if (ON.programs > 0 && OFF.programs > 0){
     const d = ON.programs - OFF.programs;
-    check('暖编译未造成 program 数失控膨胀（≤ 老路径 +6；实测 +3~4，理想 0）',
-      d <= 6, `program ${OFF.programs} → ${ON.programs}（${d > 0 ? '+' : ''}${d}）`);
+    check('暖编译未造成 program 数失控膨胀（≤ 老路径 +10；实测 +8，理想 0）',
+      d <= 10, `program ${OFF.programs} → ${ON.programs}（${d > 0 ? '+' : ''}${d}）`);
   } else check('暖编译未造成 program 数失控膨胀', false, 'program 数取不到');
 
   check('两种配置都零 pageerror / console error',

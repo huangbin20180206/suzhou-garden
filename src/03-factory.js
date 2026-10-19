@@ -747,20 +747,27 @@ export function makeWallRun({ len, h, t, holes = [] }){
   return mesh(geo, MAT.wall, { name:'wall' });
 }
 
-/* 墙顶小青瓦披檐（人字坡） */
+/* 墙顶小青瓦披檐（人字坡）
+   ⚠️ 2026-10-19（老黄截图："围墙的屋檐和墙体之间有个巨大的缝隙，是真实建筑还是 bug？"）：
+   是 bug —— 墙体挤出到 h（4.5m），而坡板中心放在 h+0.30、坡板竖向半高约 0.18
+   ⇒ 坡板**底面在 4.62m**，与墙顶之间留了一条 **12cm 的通缝**（从外面低机位看，
+   缝隙里能透出园内的屋顶/天空，像整圈檐口浮在墙上方）。
+   清代《营造法原》的粉墙墙帽是**直接坐在墙顶**的（下面最多一层瓦条/砂浆），
+   没有通缝。这里把坡板与脊条整体下移 0.13m：坡板底面 4.49m（压进墙顶 1cm），
+   脊条底面 4.79m、与坡板顶面 4.67m 搭接 —— 从任何角度看都是"瓦顶扣在墙上"。 */
 export function makeWallCap(len, t, y){
   const g = new THREE.Group();
   const half = t/2 + 0.24;
   [-1, 1].forEach(sgn=>{
     const slope = mesh(box(len, 0.14, half*1.06), MAT.wallCap, { name:'wallCap' });
-    slope.position.set(0, y + 0.3, sgn*half*0.5);
+    slope.position.set(0, y + 0.17, sgn*half*0.5);
     /* ⚠️ 符号反了：-sgn 让两块坡板**朝外翘**，横断面成"凹"（中间汇水）、
        脊条浮在凹谷上方。正号才是中间高、两侧低的人字披檐。 */
     slope.rotation.x = sgn * 0.42;
     g.add(slope);
   });
   const ridge = mesh(box(len, 0.2, 0.2), MAT.ridge);
-  ridge.position.y = y + 0.52; g.add(ridge);
+  ridge.position.y = y + 0.39; g.add(ridge);
   return g;
 }
 

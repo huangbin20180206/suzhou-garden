@@ -54,11 +54,12 @@ import { markCasterBoxDirty } from './09-lights.js';
        再转 GLB（`assets/HorseRodin.glb` → 减面后落到 `assets/Horse.glb`）。
      · 该模型**没有贴图**（单材质纯色）⇒ "绘制几种典型的马的颜色"就是逐匹给材质上色
        （六色表见 01-materials 的 horse* 系列），不需要改贴图。
-   ⚠️ 模型是**静态网格**（无骨骼/动画）⇒ 做不出"低头吃草"的颈部动作，
-      那两匹"休息"的马在画面里就是**站着低头不看草**——用马夫递草料 + 地上干草把story补上。
+   ⚠️ 2026-10-19：本段是 **Rodin 灰模**的历史说明。现行资产已换成 Tinker 骨骼马
+      （见下方 TINKER_GLB 与 applyTinkerPose），"低头吃草"等动作由真实骨骼完成；
+      Rodin 件只作为 horseSrcOnce 的离线回退保留在 research/diy-horses/。
    ⚠️ 失败必须留替身：加载不成（离线/404）就保留下面的**程序化马**（项目既有约定：
       芭蕉/荷花都这么做），否则马厩会变成空厩。 */
-const HORSE_GLB = 'assets/Horse.glb';
+const HORSE_GLB = 'research/diy-horses/horse-rodin-fallback.glb';   // 旧 Rodin 灰模（仅 horseSrcOnce 回退用）
 /* 模型自带的朝向修正：生成模型的"正面"不一定朝 +z（本项目程序化马的头朝 +z）。
    实测（outputs/_diag/horse-view.html 五视图 + 坐标轴参考线：front/back/right/top 四视图
    一致指向"头朝 +z"）⇒ 与程序化马同向，**不用转**。 */
@@ -68,6 +69,125 @@ let HORSE_FACE_YAW = 0;
    归一成 1.5（= 肩高）会让真马比柱子/横轭/马车**小一大圈**。取 1.75 ⇒ 体长 ~1.94m，
    与替身逐项对齐（槽位、横轭 1.60、挽带 0.92、车厢前沿）。 */
 const HORSE_TOTAL_H = 1.75;
+
+/* ══ 真马 · Tinker（2026-10-19）════════════════════════════════════════════════
+   老黄："这个可是有真实模型的，实在不行，你帮我换成带毛发的模型吧" + 六类动作清单：
+   低头吃草 / 撅嘴嚼 / 摇尾巴 / 动前蹄 / 抬头晃脑袋与鬃毛 / 冬天口鼻冒白气。
+
+   资产：**BlenderKit「Draft horse. Tinker, gypsy vanner breed」**（作者 Irena Aidlin Moonin，
+   Royalty Free，免 key）。1.6MB GLB：Rigify **454 根骨骼**、7 个蒙皮网格
+   （Horse_LP 7724 面 / 鬃 80 / 尾 180 / 眼 2×480 / 牙 2×1728）、3 张 1k WebP
+   （baseColor / normal / roughness）。**无预烘动画**，所以动作全部在运行时按骨骼推。
+   ⚠️ 原 Rodin `Horse.glb`（静态灰模）保留在磁盘作回退，不再预载。
+   ⚠️ 本件是 Draco 压缩：解码器走 gstatic（与 06e-assets 同一条路径）；离线拉不到时
+      required:false ⇒ 保留程序化替身，不会空厩。
+
+   ── 骨骼轴（2026-10-19 实测：outputs/_diag/tinker-bones.mjs，六组侧视截图）──
+     · DEF-neck001..004 局部 X **正 = 低头**（四节分配 0.34/0.28/0.22/0.16）
+     · DEF-head 局部 X 点头、局部 Z 左右晃头（Y 是滚转，不用）
+     · DEF-jaw / DEF-jaw001 局部 X 张嘴（嚼）
+     · DEF-tail001..005 局部 Z 甩尾（五节权重 0.45/0.25/0.15/0.10/0.05）
+     · DEF-upper_armL/R 局部 X 正 = 抬前蹄；forearm 反向弯、forefoot 回收
+     · DEF-earL/R 局部 Z 抖耳；DEF-noseL/R 局部 X 扩鼻（白气同步）
+     · DEF-mane_base/top01..06 鬃毛次级摆动
+   ⚠️ three.js 的 GLTFLoader 会把节点名里的 `.` 去掉（DEF-neck.001 → DEF-neck001），
+      骨骼名一律按**去掉点号**的写法取（见 tinker-bones.mjs 的实测名单）。 */
+const TINKER_GLB = 'assets/HorseTinker.glb';
+const TINKER_ANIM_BONES = (() => {
+  const out = ['DEF-neck001','DEF-neck002','DEF-neck003','DEF-neck004','DEF-head','DEF-jaw','DEF-jaw001',
+    'DEF-tail001','DEF-tail002','DEF-tail003','DEF-tail004','DEF-tail005',
+    'DEF-upper_armL','DEF-forearmL','DEF-forefootL','DEF-upper_armR','DEF-forearmR','DEF-forefootR',
+    'DEF-earL','DEF-earR','DEF-noseL','DEF-noseR'];
+  for (let i = 1; i <= 6; i++){ const p = String(i).padStart(2, '0'); out.push('DEF-mane_base' + p, 'DEF-mane_top' + p); }
+  return out;
+})();
+let _tinkerBuf = null, _tinkerLoader = null;
+function tinkerBuffer(){
+  if (!_tinkerBuf){
+    _tinkerBuf = fetch(TINKER_GLB).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); });
+    _tinkerBuf.catch(() => { _tinkerBuf = null; });
+  }
+  return _tinkerBuf;
+}
+function tinkerLoader(){
+  if (!_tinkerLoader) _tinkerLoader = new GLTFLoader();   // 导出件已无 Draco，不挂解码器
+  return _tinkerLoader;
+}
+/* ⚠️⚠️ 预载握手（2026-10-19 · 踩过一次）：13-preload 的 PRELOAD_MANIFEST 会**等每个 GLB
+   回报 settleAsset** 才放行；马匹 GLB 的下载在本模块里由 `tinkerBuffer()` 发起，如果只在
+   延迟批里调用，预载段会一直等一个永远不来的 settled ⇒ 进度条卡在 9.3/10.8MB、
+   页面永远到不了 done（实测 120s 超时）。旧 Rodin 路径的 horseSrcOnce 就是在这里
+   settle 的，换成 Tinker 时这条握手必须一起搬过来。
+   所以：模块求值期就发起 fetch，并在完成/失败时回报 settle + 进度。 */
+tinkerBuffer().then(() => {
+  HOOKS.reportAssetProgress?.(TINKER_GLB, 1616944, 1616944);
+  HOOKS.settleAsset?.(TINKER_GLB, true);
+}).catch((e) => {
+  HOOKS.settleAsset?.(TINKER_GLB, false, e);
+});
+/* 逐匹上色：只乘**身体**材质（名字含 Horse_LP），鬃/尾/眼/牙保留原贴图；
+   纹理的白斑会吃 tint，黑斑保持黑 —— 六匹因此是"同一匹花马的六种毛色"。 */
+function tinkerMaterial(m, tint){
+  const c = m.clone();
+  if (/Horse_LP/i.test(m.name || '')) c.color.copy(tint);
+  else c.color.set(0xFFFFFF);
+  c.metalness = 0.0;
+  c.roughness = Math.max(0.72, c.roughness || 0.9);
+  c.envMapIntensity = 0.26;
+  if (c.clearcoat !== undefined) c.clearcoat = 0.0;
+  c.needsUpdate = true;
+  return c;
+}
+const _tq = new THREE.Quaternion(), _te = new THREE.Euler(), _tid = new THREE.Quaternion();
+const _tv = new THREE.Vector3();
+function tinkerBone(bones, rest, name, x, y, z){
+  const b = bones[name]; if (!b) return;
+  _te.set(x, y, z, 'XYZ'); _tq.setFromEuler(_te);
+  b.quaternion.copy(rest[name] || _tid).multiply(_tq);
+}
+/* 把"概念上的姿态角"翻译成骨骼旋转。headPitch 正 = 低头（与旧伪蒙皮同号）。 */
+function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
+  const B = h.anim.bones, R = h.anim.rest;
+  let hp = headPitch * 1.9;
+  if (h.role === 'graze') hp += 0.64; else if (h.role === 'fed') hp += 0.36;
+  tinkerBone(B, R, 'DEF-neck001', hp * 0.34, 0, 0);
+  tinkerBone(B, R, 'DEF-neck002', hp * 0.28, 0, 0);
+  tinkerBone(B, R, 'DEF-neck003', hp * 0.22, 0, 0);
+  tinkerBone(B, R, 'DEF-neck004', hp * 0.16, 0, 0);
+  tinkerBone(B, R, 'DEF-head', headPitch * 0.55, headYaw * 1.15, 0);
+  const chew = (h.role === 'graze' || h.role === 'fed')
+    ? 0.055 + 0.05 * Math.sin(_stT * 5.4 + h.phase) : 0.008 * Math.sin(_stT * 0.9 + h.phase);
+  tinkerBone(B, R, 'DEF-jaw', chew, 0, 0);
+  tinkerBone(B, R, 'DEF-jaw001', chew * 0.65, 0, 0);
+  const tw = [0.45, 0.25, 0.15, 0.10, 0.05];
+  for (let i = 0; i < 5; i++) tinkerBone(B, R, 'DEF-tail' + String(i + 1).padStart(3, '0'), 0, 0, tailYaw * tw[i]);
+  const lift = Math.max(leg[0], leg[1]);
+  if (lift > 0.01){
+    const L = leg[0] >= leg[1];
+    tinkerBone(B, R, L ? 'DEF-upper_armL' : 'DEF-upper_armR', lift * 1.35, 0, 0);
+    tinkerBone(B, R, L ? 'DEF-forearmL' : 'DEF-forearmR', -lift * 1.05, 0, 0);
+    tinkerBone(B, R, L ? 'DEF-forefootL' : 'DEF-forefootR', lift * 0.55, 0, 0);
+  } else {
+    for (const s of ['L', 'R']){
+      tinkerBone(B, R, 'DEF-upper_arm' + s, 0, 0, 0);
+      tinkerBone(B, R, 'DEF-forearm' + s, 0, 0, 0);
+      tinkerBone(B, R, 'DEF-forefoot' + s, 0, 0, 0);
+    }
+  }
+  const earFlick = h.flickT > 0 ? 0.30 * Math.sin(Math.PI * Math.min(1, 1 - h.flickT / 0.9)) : 0;
+  tinkerBone(B, R, 'DEF-earL', 0, 0, earFlick);
+  tinkerBone(B, R, 'DEF-earR', 0, 0, -earFlick);
+  h.flare = Math.max(0, (h.flare || 0) - dt * 1.3);
+  tinkerBone(B, R, 'DEF-noseL', h.flare, 0, 0);
+  tinkerBone(B, R, 'DEF-noseR', h.flare, 0, 0);
+  for (let i = 1; i <= 6; i++){
+    const p = String(i).padStart(2, '0');
+    const sway = 0.022 * Math.sin(_stT * 1.6 + h.phase + i * 0.7);
+    tinkerBone(B, R, 'DEF-mane_base' + p, 0, 0, sway);
+    tinkerBone(B, R, 'DEF-mane_top' + p, 0, 0, sway * 1.2);
+  }
+  h.lastHP = headPitch; h.lastHY = headYaw; h.lastTY = tailYaw; h.lastLeg = leg.slice();
+}
 /* ── 低头（吃草/就食）：把"颈+头"绕颈根的 X 轴向下转 ────────────────────────
    ⚠️ 真模型是**静态单网格**（无骨骼），所以只能在**几何**上做。参数是
      outputs/_diag/horse-view.html?graze=1 六格侧视对照实测出来的：
@@ -532,11 +652,17 @@ const _sr = mulberry32(20261011);          // 私有流：事件间隔/相位/�
 let _stT = 0;
 export function horseLifeState(){
   return { n: HORSE_LIFE.length, t: +_stT.toFixed(2),
-           horses: HORSE_LIFE.map(h => ({ role: h.role,
-             headPitch: +h.mat.userData.rig.head.x.toFixed(3), headYaw: +h.mat.userData.rig.head.y.toFixed(3),
-             tailYaw: +h.mat.userData.rig.tail.x.toFixed(3),
-             leg: [...h.mat.userData.rig.leg].map(v => +v.toFixed(3)),
-             breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null })) };
+           horses: HORSE_LIFE.map(h => h.anim
+             ? { role: h.role, skeletal: true, bones: Object.keys(h.anim.bones).length,
+                 headPitch: +(h.lastHP || 0).toFixed(3), headYaw: +(h.lastHY || 0).toFixed(3),
+                 tailYaw: +(h.lastTY || 0).toFixed(3),
+                 leg: (h.lastLeg || [0,0,0,0]).map(v => +v.toFixed(3)),
+                 breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null }
+             : { role: h.role,
+                 headPitch: +h.mat.userData.rig.head.x.toFixed(3), headYaw: +h.mat.userData.rig.head.y.toFixed(3),
+                 tailYaw: +h.mat.userData.rig.tail.x.toFixed(3),
+                 leg: [...h.mat.userData.rig.leg].map(v => +v.toFixed(3)),
+                 breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null }) };
 }
 
 /* 冬天口鼻白雾（只给辕里那两匹）：**位置在 CPU 上按同一套枢轴/角度复算** —— 顶点是 GPU 改的、
@@ -544,7 +670,7 @@ export function horseLifeState(){
    ⚠️ 四个纪律：私有流（可复现）、`raycast=()=>{}`（别拦视线判定）、`userData.aoSkip`（不进 GTAO
    法线 pass，否则亮片被当成实体写成一块黑）、**不写任何全局灯光**（与闪电/烟花/流星同一条教训）。 */
 export const horseBreathMesh = (() => {
-  const MAXB = 26;
+  const MAXB = 48;
   const S = 64, cv = document.createElement('canvas'); cv.width = cv.height = S;
   const cx = cv.getContext('2d');
   const grd = cx.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
@@ -572,7 +698,7 @@ export function tickStableLife(dt){
   let puff = 0;
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
   for (const h of HORSE_LIFE){
-    const rig = h.mat.userData.rig, ph = h.phase;
+    const ph = h.phase;
     /* ① 底噪：所有马都有的慢微动。
        ⚠️⚠️ 2026-10-11 **全面加大**（老黄："马蹄和马尾会不规则动，也看不到"）——
        先证伪了"伪蒙皮没生效"：outputs/_diag/horse-rig-pixel.mjs 冻结帧 A/B 实测
@@ -618,23 +744,39 @@ export function tickStableLife(dt){
       headYaw   += 0.12 * Math.sin(t * 0.13 + ph * 2.3);
       headPitch += 0.16 * Math.sin(t * 0.16 + ph * 1.7);
     }
-    rig.head.x = headPitch; rig.head.y = headYaw; rig.tail.x = tailYaw;
-    rig.leg.set(leg[0], leg[1], leg[2], leg[3]);
+    /* ⑤ 写姿态：Tinker 走骨骼；程序化替身走旧伪蒙皮 uniform */
+    if (h.anim){
+      applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt);
+    } else {
+      const rig = h.mat.userData.rig;
+      rig.head.x = headPitch; rig.head.y = headYaw; rig.tail.x = tailYaw;
+      rig.leg.set(leg[0], leg[1], leg[2], leg[3]);
+    }
 
-    /* ⑤ 冬天：口鼻喷白雾（只给辕里那两匹 —— 老黄点名的那两匹）*/
-    if (h.breath && winter && puff < 26){
+    /* ⑥ 冬天：口鼻喷白雾。Tinker 用**鼻骨世界坐标**（真实跟随低头/抬头），
+       替身仍用旧的枢轴公式；六匹 Tinker 都会喷。 */
+    if (h.breath && winter && puff < 42){
       h.breathNext -= dt;
       if (h.breathNext <= 0){
         h.breathNext = 2.4 + _sr() * 2.6;
         const b = h.breath[h.breathCur = (h.breathCur + 1) % h.breath.length];
         b.life = 1.35;
-        /* 鼻端（模型局部）先按**当前头颈角**绕颈枢轴转过去 —— 与顶点着色器同一套公式 */
-        const a = rig.head.x, p = h.piv.neck;
-        let dy = h.nose[1] - p[1], dz = h.nose[2] - p[2];
-        const cs = Math.cos(a), sn = Math.sin(a);
-        b.x = h.nose[0]; b.y = p[1] + dy * cs - dz * sn; b.z = p[2] + dy * sn + dz * cs;
-        if (rig.head.y !== 0){ const c2 = Math.cos(rig.head.y), s2 = Math.sin(rig.head.y);
-          const dx2 = b.x - h.nose[0]; b.x = h.nose[0] + dx2 * c2 + (b.z - h.nose[2]) * s2; }
+        if (h.anim){
+          const nose = h.anim.bones['DEF-noseL'] || h.anim.bones['DEF-head'];
+          if (nose) nose.getWorldPosition(_tv);
+          else _tv.set(0, 1.2, 0);
+          b.x = _tv.x; b.y = _tv.y; b.z = _tv.z; b.world = true;
+          h.flare = 0.42;                              // 喷气时鼻孔同步扩一下
+        } else {
+          const rig = h.mat.userData.rig;
+          const a = rig.head.x, p = h.piv.neck;
+          let dy = h.nose[1] - p[1], dz = h.nose[2] - p[2];
+          const cs = Math.cos(a), sn = Math.sin(a);
+          b.x = h.nose[0]; b.y = p[1] + dy * cs - dz * sn; b.z = p[2] + dy * sn + dz * cs;
+          if (rig.head.y !== 0){ const c2 = Math.cos(rig.head.y), s2 = Math.sin(rig.head.y);
+            const dx2 = b.x - h.nose[0]; b.x = h.nose[0] + dx2 * c2 + (b.z - h.nose[2]) * s2; }
+          b.world = false;
+        }
         b.vx = 0.10 * (_sr() - 0.5); b.vy = 0.30 + 0.12 * _sr(); b.vz = -0.12 - 0.10 * _sr();
         h.alive = true;
       }
@@ -654,8 +796,8 @@ export function tickStableLife(dt){
           const u = 1 - b.life / 1.35;                       // 0→1
           const size = 0.16 + 0.5 * u;
           if (puff < im.instanceMatrix.count){
-            h.group.updateWorldMatrix(true, false);
-            PP.set(b.x, b.y, b.z).applyMatrix4(h.group.matrixWorld);
+            PP.set(b.x, b.y, b.z);
+            if (!b.world){ h.group.updateWorldMatrix(true, false); PP.applyMatrix4(h.group.matrixWorld); }
             Q.copy(camera.quaternion); SC.set(size, size, size);
             M.compose(PP, Q, SC); im.setMatrixAt(puff, M); puff++;
           }
@@ -693,140 +835,81 @@ function horseSrcOnce(){
   _horseSrc.catch(() => {});          // 没人 await 的失败别变成 unhandled rejection（马不在场不该报错）
   return _horseSrc;
 }
-horseSrcOnce();                        // ← 模块求值期就发起：这一行不能删
+/* 2026-10-19：Rodin Horse.glb 已换成 Tinker（见上方 tinkerBuffer 的 settle 握手），
+   下面这份 horseSrcOnce 仅作历史回退保留，不在模块求值期调用（否会 404 拉一次废资源）。 */
 
 export function loadStableHorses(stableGroup){
   const slots = stableGroup && stableGroup.userData && stableGroup.userData.horseSlots;
   if (!slots || !slots.length) return null;
-  horseSrcOnce().then((base) => {
-    /* 下面要改 src 自己的 scale / rotation / position ⇒ 每次调用都从下载结果**克隆一份**，
-       免得同一个 scene 被归一化两次（模型被缩放成 s² 那么大）。 */
-    const src = base.clone(true);
-    /* 归一：按包围盒缩到 HORSE_TOTAL_H 高，脚底落在 y=0，头朝 +z */
-    let bb = new THREE.Box3().setFromObject(src);
-    const size = new THREE.Vector3(); bb.getSize(size);
-    const s = HORSE_TOTAL_H / Math.max(1e-6, size.y);
-    src.scale.setScalar(s);
-    src.rotation.y = HORSE_FACE_YAW;
-    src.updateMatrixWorld(true);
-    bb = new THREE.Box3().setFromObject(src);
-    src.position.y -= bb.min.y;                       // 脚底贴地
-    src.updateMatrixWorld(true);
-    for (const slot of slots){
-      const inst = src.clone(true);
-      const base = slot.color || MAT.horseChestnut;
-      let mat = null, pivLocal = null, noseLocal = null;
-      inst.traverse(o => {
-        if (!o.isMesh) return;
-        /* ⚠️ **一匹一份几何**：① 低头吃草那两匹要在几何上把"颈+头"转下去（真模型没有骨骼，
-           替身的 headG 那套对它无效）；② 每匹都要烘一层**顶点色明暗**（见 bakeHorseShading：
-           单网格无贴图时浅色马会读成"白膜"）。共享几何就没法逐匹改。 */
-        o.geometry = o.geometry.clone();
-        /* ⚠️⚠️ 顺序（2026-10-11 定案，四步都有依赖关系）：
-             ① **先补件**（鬃/尾/眼/鼻孔/嘴并进同一份几何）—— 部位门、明暗、低头、伪蒙皮
-                才会自动照顾到它们（鬃跟着脖子低下去、尾巴跟着尾根甩）；
-             ② 再算部位权重 W（必须**含补件的顶点**）；
-             ③ 再烘色（按"原姿态"量高度/部位门）；
-             ④ 最后才低头（先转头会让头部的 y 落到"腹/腿"那一档，色就错了）。
-           ⚠️ 补件必须在 `bendHeadDown` 之前 ⇒ 鬃毛内的顶点同样落在"头颈门"里、跟着一起低下去。 */
-        const dec = decorateHorseGeometry(o.geometry, slot.decoSeed | 0);
-        o.geometry = dec.geometry;
-        /* 把补件的**实测锚点**挂到网格上：探针要按它投影到屏幕、直接采样那几像素
-           （"眼睛到底看不看得见"这个问题，看图判读来回错了三轮，只有量像素能定案）。
-           与 horseSlots / smallBirdMeshRef 同一条做法：只读的诊断钩子，不参与任何逻辑。 */
-        o.userData.horseAnchor = dec.anchor;
-        o.userData.horseRole = slot.role;
-        const W = horseWeights(o.geometry);
-        bakeHorseShading(o.geometry, W, { base: base.color, mark: slot.mark, anchor: dec.anchor });
-        if (slot.graze > 0.05) bendHeadDown(o.geometry, Math.round(slot.graze * 57.2958 * 0.75));
-        /* 逐匹上色：**颜色已经逐顶点烘进 color 属性**（底色 × 明暗 × 花纹 × 鬃尾蹄眼鼻嘴），
-           所以材质色必须置**白** —— 否则会再乘一次底色、花纹全被压掉。
-           ⚠️ 必须**克隆材质**：共享材质会让六匹马同色（而且 12f 的季节通道按材质同一性认领）。
-           ⚠️ 顶点色现在是**绝对色**（不再是"乘子"）：这是让"白斑/白袜"成立的前提
-              （乘子只能压暗、提不亮）。 */
-        o.material = o.material.clone();
-        o.material.color.set(0xFFFFFF);
-        o.material.vertexColors = true;               // ← 顶点色 = 最终颜色（绝对色）
-        o.material.metalness = 0.0;
-        o.material.roughness = 0.82;
-        o.material.envMapIntensity = 0.05;            // ← 0.30：马背上一整片太阳镜面，读作"湿塑料"
-        /* ⚠️ 模型自带的贴图是没人引用的 normal-bake，丢掉；下面换成我们自己的**毛流图**。 */
-        o.material.map = null;
-        /* ── 表皮质感（2026-10-14 起，2026-10-16 重做 · 老黄："马还是模型的表面，没有毛发遮挡，
-              还会反射太阳光"，"毛还是模型的表面光滑度，没有毛发感"）─────────────────────────
-           三次尝试的结论，按效果排序记在这里，别再往回退：
-             ❌ 只贴噪声粗糙度图 —— 上一版的范围是 0.55~1.0，而 roughnessMap 是**乘子**
-                （有效粗糙度 = roughness × G），最低落到 0.92×0.55 ≈ 0.51
-                ⇒ 背上照样一片紧致镜面高光 = "湿塑料"。而且它只改光泽、不改颜色，
-                低模那一块块硬边多边形依旧裸露。
-             ⚠️ 只加法线图 —— 有效但**不够**：本模型 6245 面、面法线之间是硬边，
-                屏幕空间切线的派生噪声盖不过面法线的台阶。
-             ✅ **漫反射毛流图（本版）** —— 直接把"毛"写进颜色乘子，才真的挡住模型表面。
-                三样一起上：
-                  ① map：顺向条带（竖沟 + 横向鳞片 + 过渡毛边），乘在顶点色上 ⇒ 毛流可见；
-                  ② roughnessMap：同一个高度场转出来的粗糙度，范围收到 0.86~1.00；
-                  ③ normalMap：由同一高度场中心差分求得 ⇒ 光照上也起绒。
-                三张**同一处生成**（必然对得上），且全在材质侧 ⇒ **零新增 draw call**
-                （加真正的毛发壳要多渲 2~3 遍、多 12 个 draw call，马厩已经很密）。
-           ⚠️ 贴图是乘子在**线性空间**做的，回程必须标 sRGB（CanvasTexture 默认线性、
-              sRGB 才是 map 该有的采样色域）——两者对不上就是整体偏暗/偏亮。 */
-        const coat = horseCoatMaps();
-        o.material.map = coat.color;
-        o.material.roughnessMap = coat.rough;
-        o.material.normalMap = coat.normal;
-        o.material.normalScale.set(0.45, 0.45);
-        o.material.roughness = 0.98;                   // 贴图是乘子 ⇒ 有效粗糙度落在 0.84~0.98
-        o.material.needsUpdate = true;
-        o.castShadow = true;
-        o.userData.noMerge = true;                    // 异步进来、错过 mergeStatics，显式标一下
-        /* ── 动作装置（2026-10-11）：六块区域 ⇒ 顶点属性 + 绕枢轴旋转的 uniform ──
-           只装在第一块网格上（真马本来就是单网格；万一多网格，其余不动也不会错）。 */
-        if (!mat){
-          pivLocal = horsePivots(o.geometry, W);
-          installHorseRig(o.material, o.geometry, W, pivLocal);
-          mat = o.material;
-          /* 鼻端（模型局部）= 口鼻那一簇顶点的质心 —— 给"冬天口鼻白雾"用。
-             ⚠️ 只对**没有预烘低头**的马准（预烘过的几何已经转过，按原姿态推的鼻端对不上）；
-                白雾本来就只给辕里那两匹（见 tickStableLife），它们 graze=0、没有预烘 ✓。 */
-          let sx = 0, sy = 0, sz = 0, n = 0;
-          const pp = o.geometry.attributes.position;
-          for (let i = 0; i < pp.count; i++)
-            if (W.muzzle[i] > 0.5){ sx += pp.getX(i); sy += pp.getY(i); sz += pp.getZ(i); n++; }
-          noseLocal = n ? [sx / n, sy / n, sz / n] : [0, 0.16, 0.47];
-        }
-      });
-      /* 登记"这匹马的生活"（tickStableLife 每帧推姿态/喷白雾）。相位错开，别六匹同步。 */
-      if (mat){
-        const entry = { mat, group: slot.group, role: slot.role, piv: pivLocal, nose: noseLocal,
+  /* ══ Tinker 照片级马（2026-10-19）══════════════════════════════════════════
+     与旧 Rodin 路径的差别：**每匹单独 parse 一份 glb.scene**。
+     不能 `base.clone(true)` —— 克隆不会重绑 Skeleton，蒙皮网格会塌到原点/不显示
+     （2026-10-19 实测：loadAssetOnce 的 clone 只出包围盒、画面里没马）。
+     6 次 parse 共用同一个 ArrayBuffer 与同一个 Draco 解码器；浏览器只下载一次。 */
+  tinkerBuffer().then((buf) => {
+    const loader = tinkerLoader();
+    (async () => {
+      /* 6 匹**并行解析**再逐匹挂载：串行 parse 实测要 8~10s（454 骨骼 × 6），
+         并行后 ~2~3s；挂载仍是顺序的（改场景图别并发）。 */
+      const parsed = await Promise.all(slots.map(() => new Promise((res) => {
+        try { loader.parse(buf.slice(0), '', (gltf) => res(gltf), (e) => { console.warn('[马·Tinker] 解析失败：', e); res(null); }); }
+        catch (e) { console.warn('[马·Tinker] 解析异常：', e); res(null); }
+      })));
+      for (let si = 0; si < slots.length; si++){
+        const slot = slots[si];
+        const gltf = parsed[si];
+        if (!gltf) continue;
+        const root = gltf.scene;
+        /* 归一：按包围盒高缩到 HORSE_TOTAL_H，水平居中，脚底 y=0。模型脸朝 +z。 */
+        let bb = new THREE.Box3().setFromObject(root);
+        const sz = bb.getSize(new THREE.Vector3());
+        const sc = HORSE_TOTAL_H / Math.max(1e-6, sz.y);
+        root.scale.setScalar(sc);
+        root.updateMatrixWorld(true);
+        bb = new THREE.Box3().setFromObject(root);
+        root.position.set(-(bb.min.x + bb.max.x) / 2, -bb.min.y, -(bb.min.z + bb.max.z) / 2);
+        root.updateMatrixWorld(true);
+        const baseMat = slot.color || MAT.horseChestnut;
+        root.traverse(o => {
+          if (!o.isMesh) return;
+          o.castShadow = true; o.receiveShadow = true;
+          o.userData.noMerge = true;
+          /* ⚠️ 蒙皮网格的包围球是"绑定姿态"算的，骨骼一动就会误剔除 ⇒ 关掉视锥剔除。
+             只有 7 个网格 × 6 匹 = 42 个，代价可忽略。 */
+          if (o.isSkinnedMesh) o.frustumCulled = false;
+          o.material = tinkerMaterial(o.material, baseMat.color);
+        });
+        const bones = {};
+        root.traverse(o => { if (o.isBone) bones[o.name] = o; });
+        const rest = {};
+        for (const n of TINKER_ANIM_BONES) if (bones[n]) rest[n] = bones[n].quaternion.clone();
+        const missing = TINKER_ANIM_BONES.filter(n => !bones[n]);
+        if (missing.length) console.warn('[马·Tinker] 缺骨骼：' + missing.join(','));
+        /* 换装：摘掉程序化替身，挂上真马（与旧路径同一套 holder 语义） */
+        slot.holders.forEach(h => { slot.group.remove(h); });
+        root.userData.horse = true;
+        slot.group.add(root);
+        slot.holders = [root];
+        HORSE_LIFE.push({
+          anim: { bones, rest, root }, group: slot.group, role: slot.role,
           phase: HORSE_LIFE.length * 1.7 + _sr() * 6.28,
           flick: 1.5 + _sr() * 5, flickT: 0,
           headNext: 3 + _sr() * 12, headT: 0, headSide: _sr() < 0.5 ? -1 : 1,
-          hoofNext: 5 + _sr() * 10, hoofT: 0, hoofLeg: 0 };
-        if (slot.role === 'harnessed'){
-          entry.breath = Array.from({ length: 7 }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }));
-          entry.breathNext = 1.2 + _sr() * 2.4; entry.breathCur = 0;
-          if (!horseBreathMesh.parent) scene.add(horseBreathMesh);   // 白雾只给辕里那两匹
-        }
-        HORSE_LIFE.push(entry);
+          hoofNext: 5 + _sr() * 10, hoofT: 0, hoofLeg: 0, flare: 0,
+          /* 白气：六匹都给（老黄："冬天鼻孔和嘴巴会冒白色热气"），每匹 5 团 */
+          breath: Array.from({ length: 5 }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, world: true })),
+          breathNext: 1.2 + _sr() * 2.6, breathCur: 0,
+        });
+        if (!horseBreathMesh.parent) scene.add(horseBreathMesh);
       }
-      /* 替身换成真模型：把程序化马摘掉（连同它的 userData.horse 标记），加真马。
-         ⚠️ userData.horse 要跟着走 —— 装配自检/探针按它数马（本文件与 08 都用）。 */
-      slot.holders.forEach(h => { slot.group.remove(h); });
-      inst.userData.horse = true;
-      slot.group.add(inst);
-      slot.holders = [inst];
-    }
-    /* ⚠️⚠️ 换完马**必须让阴影图重渲一次**（2026-10-10 补）：
-       `renderer.shadowMap.autoUpdate` 是 **false**（09-lights 的既定取舍：静态阴影只渲一次，
-       省每帧一整张 2048²/6144² 的深度图）。本回调是**异步**的 —— 它在启动期的阴影图快照
-       **之后**才把真马放进场，若不置脏：
-         · 地板/草地上的马腿影子仍是**程序化替身那批**（真马已经换掉了 ⇒ 影子与马对不上，
-           远看就是"地板上几道说不清来路的暗条"）；
-         · 真马自己**完全投不出影子**，站在石板上像贴图。
-       两件事都不是"画错"，是**阴影快照过期**，只能靠重渲修。 */
-    markCasterBoxDirty();                            // 投射物集合变了（程序化马→真马，包围盒也变）
-    renderer.shadowMap.needsUpdate = true;           // 补渲一次整张阴影图
-  }, () => { /* 加载失败：保留程序化替身，不抛错（settleAsset(false) 已在 horseSrcOnce 里回报过） */ });
+      /* 阴影图快照过期：换马后必须重渲一次（否则地上还是替身的腿影） */
+      markCasterBoxDirty();
+      renderer.shadowMap.needsUpdate = true;
+      console.log('[马·Tinker] ' + slots.length + ' 匹已装配（骨骼 ' + (HORSE_LIFE[0] ? Object.keys(HORSE_LIFE[0].anim.bones).length : 0) + ' 根/匹）');
+    })();
+  }).catch((e) => {
+    console.warn('[马·Tinker] 资产失败，保留程序化替身：', e);
+  });
   return slots;
 }
 
@@ -1309,6 +1392,7 @@ export function makeStableRoad(){
     g.add(mesh(geo, mat, { name: 'stableRoadBed', cast: false, receive: true }));
   }
 
+  let roadPavingMat = null;   // ④c 月洞门前补铺复用同一材质（见下）
   /* ② 石板：**四个角落在曲线的 t 网格上**（不是"切向矩形"）——
      切向矩形在弯道上会互相撞：每块都按自己那点的切线摆，弯内侧两块必然叠压/穿插
      （第一版就是这样，近景判读"弯段错位、角部相互压叠"）。改成"两条弧上的点 + 侧向偏移"
@@ -1360,6 +1444,7 @@ export function makeStableRoad(){
     const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0xFFFFFF,
       vertexColors: true, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
     registerWeatherRoles(mat, { snow: 1, wet: 1 });
+    roadPavingMat = mat;
     /* ⚠️ **石板要投影**（cast:true）：阴影图的唯一一次渲染发生在延迟批之后的首帧，
        而本函数就在延迟批里跑 ⇒ 影子会正确落进那张图。不投影时近景判读是"纸片浮贴在地面上"，
        投影是"石块落在地上"最便宜的一步（近景图判读反复点到"缺接触阴影"）。 */
@@ -1550,14 +1635,21 @@ export function makeStableRoad(){
      首站从 6m 起、末站离路尾 3m：别怼在院门口（那儿留给石狮）与南门口。
      座石：每盏下垫一块方座（0.92×0.30×0.92，顶面比草皮高 0.04、其余埋进土里）——
      草坡有 ±0.1m 起伏，不垫的话 0.55m 宽的底座必然有一角悬空。
-     ⚠️ 10 盏按**材质合并成 2 个网格**（石身 + 火袋，座石并进石身那个桶），不是 10 棵节点树。
-     火袋 emissive 模型自带；真光源见下面 ④b（2026-10-18 起每盏一盏 PointLight）。 */
+     ⚠️ 8 盏按**材质合并成 2 个网格**（石身 + 火袋，座石并进石身那个桶），不是 10 棵节点树。
+     火袋 emissive 模型自带；真光源见下面 ④b（2026-10-18 起每盏一盏 PointLight；2026-10-19 南门口一对撤掉，10→8）。 */
   {
-    const N = 5, LR = curve.getLength();
+    /* ⚠️ 2026-10-19：N=5 → 4（老黄："如果摆放位置有石头灯挡住了，就把这一组石头灯去掉"）。
+       去掉的是**最后、最靠南门口那一对**（原 (3.6,23.7)/(2.6,26.7)）——
+       石狮改摆到南门口之后，那一对正好挤在东侧幼狮与门槛之间的落位上。
+       其余 4 对（8 盏）保持原间距与朝向，巡回第 2 对锚点不受影响。 */
+    const N = 4, LR = curve.getLength();
     const OFF = 1.55;
     const spots = [];
     for (let i = 0; i < N; i++){
-      const d = 6.0 + (LR - 9.0) * (i / (N - 1));
+      /* ⚠️ 2026-10-19：末站从 LR−3 收到 **LR−9**。只把 N 从 5 改 4 是不够的 ——
+         等分公式会把 4 对重新铺满整条路，最后一对仍然落在南门口（约 z=25.5），
+         正好继续挡着石狮。收到 LR−9 ⇒ 最后一对停在 z≈25 以北 6m，门口留空。 */
+      const d = 6.0 + (LR - 15.0) * (i / (N - 1));
       const { p, tan, side } = frameAt(Math.min(0.999, d / LR));
       for (const s of [1, -1]){
         const q = p.clone().addScaledVector(side, s * OFF);
@@ -1611,21 +1703,21 @@ export function makeStableRoad(){
       }
       console.log('[路旁石灯笼] ' + spots.length + ' 盏（含座石）· 合并成 ' + buckets.size + ' 个网格');
     });
-    /* 10 盏真光源与上面的模型一一同位（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）。
+    /* 8 盏真光源与上面的模型一一同位（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）。
        每盏一个 PointLight，暖橙 0xFFB45A（与火袋 emissive 同色），灯位 = 火袋中心（地面 +0.68m）。
-       · castShadow 全 false：点光阴影是 6 面立方体贴图，10 盏全开等于每帧多渲 60 张深度图。
+       · castShadow 全 false：点光阴影是 6 面立方体贴图，8 盏全开等于每帧多渲 48 张深度图。
        · distance=7 + decay=2：光只落在灯下路面一圈，不把整片草坡染成橘色。
        · 灯数启动时定死、运行期只改 intensity（与廊灯同一条铁律，不触发材质重编译）。
        · 时段开关：推进 worldLights（12-env :303 按 lamp 通道发强度，白天全灭、夜里全亮）。
        · 摇曳：userData.flick 由 11-loop 逐帧写（烛火式 ±10%，每盏相位用布点序号派生、确定性）。
 
        ⚠️ 性能档（low）**一盏都不建**（2026-10-18 · 补 P1「10 盏常驻真光源没有低画质验收」）。
-       实测（outputs/_diag/lowfps.mjs，1600×900 · ?tier=low · 夜间 · 同一帧位）：
+       实测（outputs/_diag/lowfps.mjs，1600×900 · ?tier=low · 夜间 · 同一帧位；当时是 10 盏，现在 8 盏）:
            正午（10 盏 intensity=0，但仍参与着色） 13.3 fps
            夜间 开 10 盏                            14.7 fps
            夜间 关 10 盏（visible=false）           22.7 fps
-       即"10 盏 PointLight 常驻"在性能档吃掉约 **8~11 fps（约 35~50%）** —— 白天强度为 0
-       也照付 shader 前向光照循环的钱。所以性能档直接不建这 10 盏，只保留模型自带的
+       即"10 盏 PointLight 常驻（现 8 盏）"在性能档吃掉约 **8~11 fps（约 35~50%）** —— 白天强度为 0
+       也照付 shader 前向光照循环的钱。所以性能档直接不建这 8 盏，只保留模型自带的
        火袋 emissive（灯仍然"亮着"，只是不往地面投光）。
        灯数仍在启动时定死（只有初次画质档决定），运行期不增删 ⇒ 不会触发材质重编译。
        注：QOS 运行期把 mid/high 降到 low 时，已经建好的灯不会消失（改灯数会当场重编译，
@@ -1646,12 +1738,49 @@ export function makeStableRoad(){
     }
     console.log('[路旁石灯笼] 真光源 ' + LAMP_LIGHT_BUDGET + ' 盏' +
       (LAMP_LIGHT_BUDGET ? '（PointLight，无阴影，lamp 通道 + 摇曳）'
-                         : '（性能档：只留火袋 emissive，省 10 盏前向光照）'));
+                         : '（性能档：只留火袋 emissive，省 8 盏前向光照）'));
   }
-  /* ── ⑤ 院门口石狮一对（2026-10-18 · 老黄："门口应该放一对石狮子，注意一公一母"）───
+  /* ── ④c 月洞门前补铺（2026-10-19 · 老黄截图 1："石板路铺到（满）门口"）──────────
+     现象：路面曲线终点在 (0.6, 23.6)，而园墙月洞门的门槛石在 z∈[21.9,23.3]、x∈[−2,2]；
+     曲线最后 0.3m 又不铺（`while (d < L−0.30)`）⇒ 门槛石与最后一块石板之间留了一块
+     **三角形的秃草**（用户红圈处）。
+     补法：门槛石南侧加一片**与路面同材质、同色调抖动、同厚度**的石板铺装（3 排 × 6 列，
+     逐角采样地形高，顶面 +0.057 —— 比路面 0.060 低 3mm，重叠处由路石板压住，不打架）。
+     宽度 x∈[−1.05, 2.25]：西侧盖住门槛石缺口，东侧止于石狮落脚点之前。 */
+  {
+    const X0 = -1.05, X1 = 2.25, Z0 = 23.12, Z1 = 24.38;
+    const cols = 6, rows = 3;
+    const pos = [], col = [], idx = [];
+    const cw = (X1 - X0) / cols, cd = (Z1 - Z0) / rows;
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++){
+      const x0 = X0 + i * cw + 0.02, x1 = X0 + (i + 1) * cw - 0.02;
+      const z0 = Z0 + j * cd + 0.02, z1 = Z0 + (j + 1) * cd - 0.02;
+      const tone = jit(0.58, 1.0);
+      const base = pos.length / 3;
+      for (const [x, z] of [[x0, z0], [x0, z1], [x1, z1], [x1, z0]]){
+        const gy2 = groundHeight(x, z);
+        pos.push(x, gy2 + 0.057, z);
+        pos.push(x, gy2 + 0.004, z);
+        col.push(tone, tone * 0.985, tone * 0.955, tone * 0.88, tone * 0.87, tone * 0.85);
+      }
+      idx.push(base + 0, base + 2, base + 4, base + 0, base + 4, base + 6);
+      for (let k = 0; k < 4; k++){
+        const a = base + k * 2, b = base + ((k + 1) % 4) * 2;
+        idx.push(a, b, b + 1, a, b + 1, a + 1);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    g.add(mesh(geo, roadPavingMat, { name: 'gateLanding', cast: true, receive: true }));
+  }
+
+  /* ── ⑤ 园墙南月洞门口石狮一对（2026-10-18 建 · 2026-10-19 改址）──────────────
      规矩（维基"石狮子"条）："从大门里出来时雄在左、雌在右"；雄右前爪踩绣球、雌左前爪抚幼狮。
-     院门朝南（世界 +z，门线 z=2.7、开口 x 38.2~41.8），出来时左手边是 +x ⇒ 雄狮放东 (+x)、雌狮放西。
-     桩位：门外两侧 x=40±2.45、z=3.4（门线外 0.7m、路头 4.2m 以北，不挡喇叭口），面朝南 (+z)。
+     **2026-10-19 老黄："这对石狮子放到院子的门口啊"** —— 从马厩院门移到**园墙南月洞门**：
+     洞门圆心 (0,22.5)、洞口半径 1.62、墙外皮 z=22.8；狮子站门外两侧 x=±2.55、z=23.9，
+     面朝 +z（来客方向）。内缘到洞口净距 0.65m，整体在墙外（min.z≈23.48）。
 
      模型（2026-10-18 换真实照片扫描，见 13-preload 与 research/diy-lions/photoscan）：
      · 公 711648B / 母 643576B，主体高 1.076m，loadAssetOnce 归一化到 1.08m；
@@ -1663,9 +1792,13 @@ export function makeStableRoad(){
      · 母狮是同一扫描体的 X 镜像 + 胸前伏一只 0.20m 的幼狮（同一网格，见 build_lions.py）。
      · 拉不到时 required:false ⇒ 门口空着；probe/lion-guard 会报红（不许静默消失）。 */
   {
+    /* 2026-10-19 改址：从马厩院门 → **园墙南月洞门**（老黄："这对石狮子放到院子的门口"）。
+       洞门圆心 (0, 22.5)、洞口半径 1.62；狮子站门外两侧 x=±2.55、z=23.9，
+       面朝 +z（来客方向）。内缘到洞口边净距 2.55−0.28−1.62 = **0.65m**；
+       与原马厩门桩位无关（那处已空出，改放拴马桩/上马石，见 makeStable ④）。 */
     const spots = [
-      { url: 'assets/stone-lion-male.glb', x: 42.45, z: 3.4, name: 'stoneLionMale' },
-      { url: 'assets/stone-lion-female.glb', x: 37.55, z: 3.4, name: 'stoneLionFemale' },
+      { url: 'assets/stone-lion-male.glb', x: 2.55, z: 23.9, name: 'stoneLionMale' },
+      { url: 'assets/stone-lion-female.glb', x: -2.55, z: 23.9, name: 'stoneLionFemale' },
     ];
     for (const st of spots){
       loadAssetOnce(st.url, 1.08, (src)=>{
@@ -1877,8 +2010,7 @@ export function makeStable(cx, cz, opts = {}){
   for (const [sx0, col, mk, sd] of [
     [(stallX[0] + stallX[1]) / 2, MAT.horseChestnut, { blaze: 1.0, socks: 0.9 }, 1],
     [(stallX[2] + stallX[3]) / 2, MAT.horseWhite,    { dapple: 0.9 }, 2]]){
-    const _stallSlot = addHorseSlot(sx0, BZ1 - 1.5, P0, Math.PI, col, { mark: mk, decoSeed: sd });
-    if (_stallSlot && _stallSlot.group) _stallSlot.group.visible = false;
+    addHorseSlot(sx0, BZ1 - 1.5, P0, Math.PI, col, { mark: mk, decoSeed: sd });
   }
   for (const i of [1, 3]){                                                    // 空位：散一堆干草
     const cxm = (stallX[i] + stallX[i + 1]) / 2;
@@ -1945,9 +2077,6 @@ export function makeStable(cx, cz, opts = {}){
     collar.position.set(0, 1.42, -0.42);
     collar.rotation.x = 0.42; collar.scale.set(1, 1.12, 1);
     slot.group.add(collar); slot.holders.push(collar);
-    /* 2026-10-19：撤马（理由见厩内那两条注释）。slot.group 含替身 + 挽具，hide 后挽带
-       也不在原位画了，carA 看起来就是"两驾停着的车"，比"一架挂着挽具但没马"自然。 */
-    slot.group.visible = false;
   }
   /* ③c 卸下来的两匹：一匹**低头吃草**、一匹由马夫**递草料**（都在 B 车那一侧）
      ⚠️ fed 马要放在**栅栏以内**（栅栏在 z=−4.7），且把马头那侧留给马夫站 ——
@@ -1957,14 +2086,10 @@ export function makeStable(cx, cz, opts = {}){
      退到 (4.6,−3.9) 完全分开。 */
   /* ⚠️ 2026-10-11（老黄："也看不到马低头吃草的动作"）：把头低的角度加足 ——
      graze 0.82→0.95（= 40.8°）、fed 0.52→0.80（= 34.4°）。上限仍守 bendHeadDown 的 45° 规矩。 */
-  /* 2026-10-19：撤马（graze/fed 两匹）。直接拿住 addHorseSlot 的返回值再 hide，避开对
-     userData 命名的依赖 —— addHorseSlot 的 userData 字段名历史上换过。 */
-  const _grazeSlot = addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey,
+  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey,
     { graze: 0.95, role: 'graze', decoSeed: 5, mark: { dapple: 1.0, blaze: 0.7 } });
-  if (_grazeSlot && _grazeSlot.group) _grazeSlot.group.visible = false;
-  const _fedSlot = addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay,
+  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay,
     { graze: 0.80, role: 'fed', decoSeed: 6, mark: { blaze: 1.0, socks: 0.8 } });
-  if (_fedSlot && _fedSlot.group) _fedSlot.group.visible = false;
 
   /* ③d 院用杂物：石水槽、草料堆、两根拴马桩、草料篮
      ⚠️ 2026-10-11 老黄："为什么这个草料一定要这样放，不能全部放在围栏内吗？" ——
@@ -2001,6 +2126,49 @@ export function makeStable(cx, cz, opts = {}){
   basket.position.set(2.6, yardY(2.6, -2.6) + 0.17, -2.6); basket.material.side = THREE.DoubleSide; g.add(basket);
   const basketHay = mesh(new THREE.SphereGeometry(0.24, 7, 5), MAT.straw, { name: 'feedBasketHay' });
   basketHay.position.set(2.6, yardY(2.6, -2.6) + 0.30, -2.6); basketHay.scale.set(1, 0.55, 1); g.add(basketHay);
+
+  /* ③e 拴马桩 + 上马石（2026-10-19 · 老黄："马厩门口放拴马石和（上）下马石，
+     造型和位置你来定，但是要放的合理和复合古代建筑基本布局"）
+     ── 布局依据（北方/江南院门前的常见做法）──
+     · **上马石**贴门洞两侧、紧挨栅栏外沿：一块两级踏步的整石，低步朝外（来客来向）、
+       高步朝门；骑马人先踏低步、再上高步、借高步翻身上马。所以它必须**离门最近**。
+     · **拴马桩**在上马石外侧、沿栅栏一字排开：石桩比人高半头，桩头有孔/环，
+       缰绳系在环上；桩距按"一匹马横占 0.8~1.0m"留 1.1m 净距，不拴成糖葫芦。
+     · 两件都落在**栅栏以外**（门洞 ±1.8 之外），不挡 3.6m 车门与马车进出。
+     ── 局部坐标 ──
+     · 上马石：lx = ±2.45（门洞边外 0.65m）、lz = −5.05（栅栏线 −4.7 外 0.35m）；
+       低步 0.95×0.24×0.62、高步 0.62×0.30×0.44，顶面 0.54m（真实上马石 0.5~0.6m）。
+     · 拴马桩：lx = ±3.55、lz = −5.15；方桩 0.16×1.30，底座 0.44×0.16、桩帽 + 球顶，
+       总高约 1.62m；铁环（MAT.harness）朝门洞一侧，挂高 1.08m（缰绳高度）。
+     · 全部逐点取 `gy()` 落地 —— 草坡有起伏，不采地形会有一角悬空。 */
+  {
+    const mkHitch = (lx, lz) => {
+      const y0 = gy(lx, lz);
+      const base = mesh(box(0.44, 0.16, 0.44), MAT.stoneDark, { name: 'hitchBase', cast: true, receive: true });
+      base.position.set(lx, y0 + 0.08, lz); g.add(base);
+      const shaft = mesh(box(0.16, 1.30, 0.16), MAT.stoneDark, { name: 'hitchShaft', cast: true, receive: true });
+      shaft.position.set(lx, y0 + 0.81, lz); g.add(shaft);
+      const cap = mesh(box(0.28, 0.10, 0.28), MAT.stoneDark, { name: 'hitchCap', cast: true });
+      cap.position.set(lx, y0 + 1.51, lz); g.add(cap);
+      const knob = mesh(new THREE.SphereGeometry(0.11, 8, 6), MAT.stoneDark, { name: 'hitchKnob', cast: true });
+      knob.position.set(lx, y0 + 1.62, lz); knob.scale.set(1, 0.8, 1); g.add(knob);
+      const ring = mesh(new THREE.TorusGeometry(0.075, 0.018, 4, 10), MAT.harness, { name: 'hitchRing' });
+      ring.position.set(lx + (lx > 0 ? -0.10 : 0.10), y0 + 1.08, lz);
+      ring.rotation.y = Math.PI / 2; g.add(ring);
+    };
+    mkHitch(-3.55, -5.15); mkHitch(3.55, -5.15);
+    const mkMount = (lx, lz) => {
+      const y0 = gy(lx, lz);
+      const low = mesh(box(0.95, 0.24, 0.62), MAT.stoneDark, { name: 'mountLow', cast: true, receive: true });
+      low.position.set(lx, y0 + 0.12, lz - 0.10); g.add(low);
+      const high = mesh(box(0.62, 0.30, 0.44), MAT.stoneDark, { name: 'mountHigh', cast: true, receive: true });
+      high.position.set(lx, y0 + 0.39, lz + 0.14); g.add(high);
+      /* 顶面被踩得发亮的薄石板：只比高步宽出 0.02，给"上马落脚处"一个可读的亮面 */
+      const top = mesh(box(0.56, 0.035, 0.38), MAT.stone, { name: 'mountTop', cast: true, receive: true });
+      top.position.set(lx, y0 + 0.557, lz + 0.14); g.add(top);
+    };
+    mkMount(-2.45, -5.05); mkMount(2.45, -5.05);
+  }
 
   /* ④ 矮木栅围院：正面留 3.6m 车门（对准套车那驾）、两侧 + 后侧沿厩身 */
   const FW = BX + 0.9, FD = 4.7, postH = 1.2;
