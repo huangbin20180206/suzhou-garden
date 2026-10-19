@@ -1,0 +1,834 @@
+{
+ "Diffuse": {
+  "8k": {
+   "jpg": {
+    "size": 26906504,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_diff_8k.jpg",
+    "md5": "860ba5e195ff485e1f31ae26da12f5b6"
+   },
+   "png": {
+    "size": 195977995,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/sand_rocks_small_01/sand_rocks_small_01_diff_8k.png",
+    "md5": "9af47da495616e4ebf80c54dc93d8b1a"
+   },
+   "exr": {
+    "size": 45255180,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_diff_8k.exr",
+    "md5": "afe889ebed8e1c502961dfea39c174fa"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 8924059,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_diff_4k.jpg",
+    "md5": "1974fd7bf1cefd09b14b0dc222976368"
+   },
+   "png": {
+    "size": 72197994,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/sand_rocks_small_01/sand_rocks_small_01_diff_4k.png",
+    "md5": "ee38d89d3f9da2ae893a95f3870d07c6"
+   },
+   "exr": {
+    "size": 14735267,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_diff_4k.exr",
+    "md5": "358608d79b745fd307081a159739aad4"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 2785116,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_diff_2k.jpg",
+    "md5": "e66b8a2f4d6c0837be5a7c570fbc92ef"
+   },
+   "png": {
+    "size": 20434329,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/sand_rocks_small_01/sand_rocks_small_01_diff_2k.png",
+    "md5": "0fcc0eebfeb7c6bfbea3b9f175e065b9"
+   },
+   "exr": {
+    "size": 4762813,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_diff_2k.exr",
+    "md5": "2ee5f36aa28ddccc241a337ca305fbf2"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 788042,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_diff_1k.jpg",
+    "md5": "d819c51a8f18f0a496b0fcf8d672824a"
+   },
+   "png": {
+    "size": 5436717,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/sand_rocks_small_01/sand_rocks_small_01_diff_1k.png",
+    "md5": "21c2c8b43629c16a67df483c4448b252"
+   },
+   "exr": {
+    "size": 1410341,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_diff_1k.exr",
+    "md5": "462fbb4b35e3287fac2a7320218165f0"
+   }
+  }
+ },
+ "nor_dx": {
+  "8k": {
+   "jpg": {
+    "size": 59226245,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_8k.jpg",
+    "md5": "b26499c9cca416d10b1c5b597f90dc2a"
+   },
+   "png": {
+    "size": 281953935,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_8k.png",
+    "md5": "d2c6e2cd295878d15341a0a612c58803"
+   },
+   "exr": {
+    "size": 118738527,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_8k.exr",
+    "md5": "c45021f99dbc22a2ac0ba2eb02a4e191"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 16506134,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_4k.jpg",
+    "md5": "7297be2adf2e14f45b606af3f7c9b5a0"
+   },
+   "png": {
+    "size": 78740389,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_4k.png",
+    "md5": "ec99f64ff18cf7550be3bef5529f9458"
+   },
+   "exr": {
+    "size": 33587640,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_4k.exr",
+    "md5": "aa1256e693cff6127329ec2c60089910"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 4265896,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_2k.jpg",
+    "md5": "1fd7d4d32a35999c9d97a05291867c7d"
+   },
+   "png": {
+    "size": 21498276,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_2k.png",
+    "md5": "78d6a3a66bfd2f28391678241497fd88"
+   },
+   "exr": {
+    "size": 8881662,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_2k.exr",
+    "md5": "64643670c8aefef0b4509fcc34bbc23c"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 1013915,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_1k.jpg",
+    "md5": "a3319d3fae4a6a4ee141994b33543709"
+   },
+   "png": {
+    "size": 5610388,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_1k.png",
+    "md5": "4a2da1223a8e2f6d17a17a90f617b107"
+   },
+   "exr": {
+    "size": 2198833,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_nor_dx_1k.exr",
+    "md5": "35619f6f41da0b83f8173733ef149ff4"
+   }
+  }
+ },
+ "nor_gl": {
+  "8k": {
+   "jpg": {
+    "size": 56899677,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_8k.jpg",
+    "md5": "4e9d7d7e025fd07e5849c7c0e4e450e0"
+   },
+   "png": {
+    "size": 281958987,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_8k.png",
+    "md5": "7fae13be3df47db44d692b8d52391b50"
+   },
+   "exr": {
+    "size": 118379635,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_8k.exr",
+    "md5": "7bb0a4459d7e488d7430a65591ff5231"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 16250780,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_4k.jpg",
+    "md5": "07fd06ce93954ef52364198d4dc659d8"
+   },
+   "png": {
+    "size": 78752921,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_4k.png",
+    "md5": "6ba10722aad90a32868f8e939396abe9"
+   },
+   "exr": {
+    "size": 33542666,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_4k.exr",
+    "md5": "33b367f196e8e640e7947da7db559754"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 4231854,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_2k.jpg",
+    "md5": "f91fef4b39ecb45884bcf9f3e25f26a5"
+   },
+   "png": {
+    "size": 21495902,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_2k.png",
+    "md5": "49e7154bfa9c5aed868ff8c5b20031d5"
+   },
+   "exr": {
+    "size": 8879920,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_2k.exr",
+    "md5": "4c8addad20504ca5bb0ec8af8545244a"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 1008354,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_1k.jpg",
+    "md5": "c1d26206377745357b0e03d71c7c9412"
+   },
+   "png": {
+    "size": 5610913,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_1k.png",
+    "md5": "1804a3060420c760990bd21b39e767fb"
+   },
+   "exr": {
+    "size": 2198463,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_1k.exr",
+    "md5": "da267947fe084a96a5d18054b3ef8d79"
+   }
+  }
+ },
+ "gltf": {
+  "8k": {
+   "gltf": {
+    "include": {
+     "sand_rocks_small_01.bin": {
+      "size": 21253052,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/sand_rocks_small_01/sand_rocks_small_01.bin",
+      "md5": "327c5e2efdde87ecf9d89bbe90ed923e"
+     },
+     "textures/sand_rocks_small_01_diff_8k.jpg": {
+      "size": 26906504,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_diff_8k.jpg",
+      "md5": "860ba5e195ff485e1f31ae26da12f5b6"
+     },
+     "textures/sand_rocks_small_01_nor_gl_8k.jpg": {
+      "size": 56899677,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_8k.jpg",
+      "md5": "4e9d7d7e025fd07e5849c7c0e4e450e0"
+     },
+     "textures/sand_rocks_small_01_arm_8k.jpg": {
+      "size": 34909998,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_arm_8k.jpg",
+      "md5": "78c9f9c4d31a02464657cbd1617a85d4"
+     }
+    },
+    "size": 2887,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/sand_rocks_small_01/sand_rocks_small_01_8k.gltf",
+    "md5": "f065251aa8069e802a97e20d31d3c571"
+   }
+  },
+  "4k": {
+   "gltf": {
+    "include": {
+     "sand_rocks_small_01.bin": {
+      "size": 21253052,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/sand_rocks_small_01/sand_rocks_small_01.bin",
+      "md5": "327c5e2efdde87ecf9d89bbe90ed923e"
+     },
+     "textures/sand_rocks_small_01_nor_gl_4k.jpg": {
+      "size": 16250780,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_4k.jpg",
+      "md5": "07fd06ce93954ef52364198d4dc659d8"
+     },
+     "textures/sand_rocks_small_01_diff_4k.jpg": {
+      "size": 8924059,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_diff_4k.jpg",
+      "md5": "1974fd7bf1cefd09b14b0dc222976368"
+     },
+     "textures/sand_rocks_small_01_arm_4k.jpg": {
+      "size": 9389934,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_arm_4k.jpg",
+      "md5": "9b147fc0d9310fe59ed0b1904e4bb819"
+     }
+    },
+    "size": 2887,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/4k/sand_rocks_small_01/sand_rocks_small_01_4k.gltf",
+    "md5": "007bb6b88b19297e8a80a47bccb6e0ce"
+   }
+  },
+  "2k": {
+   "gltf": {
+    "include": {
+     "sand_rocks_small_01.bin": {
+      "size": 21253052,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/sand_rocks_small_01/sand_rocks_small_01.bin",
+      "md5": "327c5e2efdde87ecf9d89bbe90ed923e"
+     },
+     "textures/sand_rocks_small_01_diff_2k.jpg": {
+      "size": 2785116,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_diff_2k.jpg",
+      "md5": "e66b8a2f4d6c0837be5a7c570fbc92ef"
+     },
+     "textures/sand_rocks_small_01_nor_gl_2k.jpg": {
+      "size": 4231854,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_2k.jpg",
+      "md5": "f91fef4b39ecb45884bcf9f3e25f26a5"
+     },
+     "textures/sand_rocks_small_01_arm_2k.jpg": {
+      "size": 2683303,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_arm_2k.jpg",
+      "md5": "ed5e5ff4d4e45754491400b2093eb50b"
+     }
+    },
+    "size": 2887,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/sand_rocks_small_01/sand_rocks_small_01_2k.gltf",
+    "md5": "0274616a70df07024eafdea5c5ccbb15"
+   }
+  },
+  "1k": {
+   "gltf": {
+    "include": {
+     "textures/sand_rocks_small_01_nor_gl_1k.jpg": {
+      "size": 1008354,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_1k.jpg",
+      "md5": "c1d26206377745357b0e03d71c7c9412"
+     },
+     "textures/sand_rocks_small_01_diff_1k.jpg": {
+      "size": 788042,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_diff_1k.jpg",
+      "md5": "d819c51a8f18f0a496b0fcf8d672824a"
+     },
+     "sand_rocks_small_01.bin": {
+      "size": 21253052,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/sand_rocks_small_01/sand_rocks_small_01.bin",
+      "md5": "327c5e2efdde87ecf9d89bbe90ed923e"
+     },
+     "textures/sand_rocks_small_01_arm_1k.jpg": {
+      "size": 758948,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_arm_1k.jpg",
+      "md5": "7c8f7fb524059726d323f60df943807c"
+     }
+    },
+    "size": 2887,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/sand_rocks_small_01/sand_rocks_small_01_1k.gltf",
+    "md5": "b6c774681b156d8e969c81e263f6c7ff"
+   }
+  }
+ },
+ "usd": {
+  "8k": {
+   "usd": {
+    "include": {
+     "textures/sand_rocks_small_01_nor_gl_8k.exr": {
+      "size": 118379635,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_8k.exr",
+      "md5": "7bb0a4459d7e488d7430a65591ff5231"
+     },
+     "textures/sand_rocks_small_01_diff_8k.jpg": {
+      "size": 26906504,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_diff_8k.jpg",
+      "md5": "860ba5e195ff485e1f31ae26da12f5b6"
+     },
+     "textures/sand_rocks_small_01_rough_8k.exr": {
+      "size": 24073394,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_rough_8k.exr",
+      "md5": "f912659ac6a524cf53dc11471f3b7fe3"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/8k/sand_rocks_small_01/sand_rocks_small_01_8k.usdc",
+    "size": 51671493,
+    "md5": "3941ec58cb96da1a5316b84103fbe66d"
+   }
+  },
+  "4k": {
+   "usd": {
+    "include": {
+     "textures/sand_rocks_small_01_nor_gl_4k.exr": {
+      "size": 33542666,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_4k.exr",
+      "md5": "33b367f196e8e640e7947da7db559754"
+     },
+     "textures/sand_rocks_small_01_diff_4k.jpg": {
+      "size": 8924059,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_diff_4k.jpg",
+      "md5": "1974fd7bf1cefd09b14b0dc222976368"
+     },
+     "textures/sand_rocks_small_01_rough_4k.exr": {
+      "size": 10931700,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_rough_4k.exr",
+      "md5": "a5b32e8626c0b1892e25d2d353cc14ec"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/4k/sand_rocks_small_01/sand_rocks_small_01_4k.usdc",
+    "size": 51671493,
+    "md5": "c1b6b617371aa62dd05cceab0dda6dd0"
+   }
+  },
+  "2k": {
+   "usd": {
+    "include": {
+     "textures/sand_rocks_small_01_rough_2k.exr": {
+      "size": 3483929,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_rough_2k.exr",
+      "md5": "bd764309a8a349268e68010e5972aab4"
+     },
+     "textures/sand_rocks_small_01_nor_gl_2k.exr": {
+      "size": 8879920,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_2k.exr",
+      "md5": "4c8addad20504ca5bb0ec8af8545244a"
+     },
+     "textures/sand_rocks_small_01_diff_2k.jpg": {
+      "size": 2785116,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_diff_2k.jpg",
+      "md5": "e66b8a2f4d6c0837be5a7c570fbc92ef"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/2k/sand_rocks_small_01/sand_rocks_small_01_2k.usdc",
+    "size": 51671493,
+    "md5": "187f7950ccab0180377a1b920cba1d4e"
+   }
+  },
+  "1k": {
+   "usd": {
+    "include": {
+     "textures/sand_rocks_small_01_diff_1k.jpg": {
+      "size": 788042,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_diff_1k.jpg",
+      "md5": "d819c51a8f18f0a496b0fcf8d672824a"
+     },
+     "textures/sand_rocks_small_01_rough_1k.exr": {
+      "size": 941714,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_rough_1k.exr",
+      "md5": "06d56f0a4b84a74d1ec99536e0920c3a"
+     },
+     "textures/sand_rocks_small_01_nor_gl_1k.exr": {
+      "size": 2198463,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_1k.exr",
+      "md5": "da267947fe084a96a5d18054b3ef8d79"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/1k/sand_rocks_small_01/sand_rocks_small_01_1k.usdc",
+    "size": 51671493,
+    "md5": "a4efaf79ef27695a3a7184005dcf8128"
+   }
+  }
+ },
+ "arm": {
+  "8k": {
+   "jpg": {
+    "size": 34909998,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_arm_8k.jpg",
+    "md5": "78c9f9c4d31a02464657cbd1617a85d4"
+   },
+   "png": {
+    "size": 78142447,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/sand_rocks_small_01/sand_rocks_small_01_arm_8k.png",
+    "md5": "8f829387eb9520b9bbc3526789cf7df5"
+   },
+   "exr": {
+    "size": 64752459,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_arm_8k.exr",
+    "md5": "fb82f61037ddcc0fc70f66d9194cea17"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 9389934,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_arm_4k.jpg",
+    "md5": "9b147fc0d9310fe59ed0b1904e4bb819"
+   },
+   "png": {
+    "size": 42671533,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/sand_rocks_small_01/sand_rocks_small_01_arm_4k.png",
+    "md5": "7d076b6d05cba9ed30e39121768c34a5"
+   },
+   "exr": {
+    "size": 17200950,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_arm_4k.exr",
+    "md5": "5fd7de72b1368ce4be153f21146a9919"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 2683303,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_arm_2k.jpg",
+    "md5": "ed5e5ff4d4e45754491400b2093eb50b"
+   },
+   "png": {
+    "size": 14666717,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/sand_rocks_small_01/sand_rocks_small_01_arm_2k.png",
+    "md5": "cbd946b190295dcb563efc89087efc55"
+   },
+   "exr": {
+    "size": 5164712,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_arm_2k.exr",
+    "md5": "ff70c71051bc9d7d565ee24f65ab7b62"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 758948,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_arm_1k.jpg",
+    "md5": "7c8f7fb524059726d323f60df943807c"
+   },
+   "png": {
+    "size": 4127186,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/sand_rocks_small_01/sand_rocks_small_01_arm_1k.png",
+    "md5": "3f7841c6010244a3d750443b3f8ee559"
+   },
+   "exr": {
+    "size": 1503328,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_arm_1k.exr",
+    "md5": "fbb9926c24adbc99bcd2342af5d6168f"
+   }
+  }
+ },
+ "fbx": {
+  "8k": {
+   "fbx": {
+    "include": {
+     "textures/sand_rocks_small_01_nor_gl_8k.exr": {
+      "size": 118379635,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_8k.exr",
+      "md5": "7bb0a4459d7e488d7430a65591ff5231"
+     },
+     "textures/sand_rocks_small_01_diff_8k.jpg": {
+      "size": 26906504,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_diff_8k.jpg",
+      "md5": "860ba5e195ff485e1f31ae26da12f5b6"
+     },
+     "textures/sand_rocks_small_01_rough_8k.exr": {
+      "size": 24073394,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_rough_8k.exr",
+      "md5": "f912659ac6a524cf53dc11471f3b7fe3"
+     }
+    },
+    "size": 59271964,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/8k/sand_rocks_small_01/sand_rocks_small_01_8k.fbx",
+    "md5": "c3aab199951cec84862b968ac1aa973b"
+   }
+  },
+  "4k": {
+   "fbx": {
+    "include": {
+     "textures/sand_rocks_small_01_nor_gl_4k.exr": {
+      "size": 33542666,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_4k.exr",
+      "md5": "33b367f196e8e640e7947da7db559754"
+     },
+     "textures/sand_rocks_small_01_diff_4k.jpg": {
+      "size": 8924059,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_diff_4k.jpg",
+      "md5": "1974fd7bf1cefd09b14b0dc222976368"
+     },
+     "textures/sand_rocks_small_01_rough_4k.exr": {
+      "size": 10931700,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_rough_4k.exr",
+      "md5": "a5b32e8626c0b1892e25d2d353cc14ec"
+     }
+    },
+    "size": 59271964,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/4k/sand_rocks_small_01/sand_rocks_small_01_4k.fbx",
+    "md5": "d1af10ff1e2eb42c475197d7453e1caa"
+   }
+  },
+  "2k": {
+   "fbx": {
+    "include": {
+     "textures/sand_rocks_small_01_rough_2k.exr": {
+      "size": 3483929,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_rough_2k.exr",
+      "md5": "bd764309a8a349268e68010e5972aab4"
+     },
+     "textures/sand_rocks_small_01_nor_gl_2k.exr": {
+      "size": 8879920,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_2k.exr",
+      "md5": "4c8addad20504ca5bb0ec8af8545244a"
+     },
+     "textures/sand_rocks_small_01_diff_2k.jpg": {
+      "size": 2785116,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_diff_2k.jpg",
+      "md5": "e66b8a2f4d6c0837be5a7c570fbc92ef"
+     }
+    },
+    "size": 59271964,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/2k/sand_rocks_small_01/sand_rocks_small_01_2k.fbx",
+    "md5": "8111499c767b56d520b1b665cbc6a471"
+   }
+  },
+  "1k": {
+   "fbx": {
+    "include": {
+     "textures/sand_rocks_small_01_diff_1k.jpg": {
+      "size": 788042,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_diff_1k.jpg",
+      "md5": "d819c51a8f18f0a496b0fcf8d672824a"
+     },
+     "textures/sand_rocks_small_01_rough_1k.exr": {
+      "size": 941714,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_rough_1k.exr",
+      "md5": "06d56f0a4b84a74d1ec99536e0920c3a"
+     },
+     "textures/sand_rocks_small_01_nor_gl_1k.exr": {
+      "size": 2198463,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_1k.exr",
+      "md5": "da267947fe084a96a5d18054b3ef8d79"
+     }
+    },
+    "size": 59271964,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/sand_rocks_small_01/sand_rocks_small_01_1k.fbx",
+    "md5": "513c74be855c35896819838d6dc77d0e"
+   }
+  }
+ },
+ "AO": {
+  "8k": {
+   "jpg": {
+    "size": 36901356,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_ao_8k.jpg",
+    "md5": "b23c912146174f0939bdfeae5583b005"
+   },
+   "png": {
+    "size": 47858319,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/sand_rocks_small_01/sand_rocks_small_01_ao_8k.png",
+    "md5": "d801f7ba6c46a2c97ddc61eb16d9e4ea"
+   },
+   "exr": {
+    "size": 52377143,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_ao_8k.exr",
+    "md5": "5e321530165d493d5987349bb132300e"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 9425489,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_ao_4k.jpg",
+    "md5": "63bc876a25d46d353559db713ae531e9"
+   },
+   "png": {
+    "size": 22280937,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/sand_rocks_small_01/sand_rocks_small_01_ao_4k.png",
+    "md5": "e80473e084bcd206284d060d96a21846"
+   },
+   "exr": {
+    "size": 16728845,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_ao_4k.exr",
+    "md5": "cdcc21022782ee710c22c6f16ea9d6c6"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 2605851,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_ao_2k.jpg",
+    "md5": "9c5a27d25f0bd6cfab37dbc77eba165c"
+   },
+   "png": {
+    "size": 6962716,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/sand_rocks_small_01/sand_rocks_small_01_ao_2k.png",
+    "md5": "bd9729ce0aaa8b842b66979ef0bfa894"
+   },
+   "exr": {
+    "size": 4856281,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_ao_2k.exr",
+    "md5": "af8f77e91ab58088afef5af0033c2ee2"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 728680,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_ao_1k.jpg",
+    "md5": "291d322abaaf21d9265ff7ace3621cbc"
+   },
+   "png": {
+    "size": 1859140,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/sand_rocks_small_01/sand_rocks_small_01_ao_1k.png",
+    "md5": "bfd2f3fcbe4c98c82a5d2e0ad020a9d6"
+   },
+   "exr": {
+    "size": 1289856,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_ao_1k.exr",
+    "md5": "c60f20b0af8aab5697d59c95ed4e3e68"
+   }
+  }
+ },
+ "Rough": {
+  "8k": {
+   "jpg": {
+    "size": 16040195,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_rough_8k.jpg",
+    "md5": "ee2ba28c6758f4f4386ded3a71abf9d2"
+   },
+   "png": {
+    "size": 21295802,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/sand_rocks_small_01/sand_rocks_small_01_rough_8k.png",
+    "md5": "1b7d630cf85e0f715db6ce43e59bea06"
+   },
+   "exr": {
+    "size": 24073394,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_rough_8k.exr",
+    "md5": "f912659ac6a524cf53dc11471f3b7fe3"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 5052414,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_rough_4k.jpg",
+    "md5": "9eb9ebd0411c74cbe04b93dde5f845b6"
+   },
+   "png": {
+    "size": 14447804,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/sand_rocks_small_01/sand_rocks_small_01_rough_4k.png",
+    "md5": "0270ad028f20700831c5890de3d38e7d"
+   },
+   "exr": {
+    "size": 10931700,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_rough_4k.exr",
+    "md5": "a5b32e8626c0b1892e25d2d353cc14ec"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 1597923,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_rough_2k.jpg",
+    "md5": "72acb0ab8a39c1ed39fcea23bdf41a58"
+   },
+   "png": {
+    "size": 5809903,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/sand_rocks_small_01/sand_rocks_small_01_rough_2k.png",
+    "md5": "ab3478be3dc877efc10e1461519e8262"
+   },
+   "exr": {
+    "size": 3483929,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_rough_2k.exr",
+    "md5": "bd764309a8a349268e68010e5972aab4"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 451956,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_rough_1k.jpg",
+    "md5": "e7f61c819da07fa0d18da0109294c394"
+   },
+   "png": {
+    "size": 1692377,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/sand_rocks_small_01/sand_rocks_small_01_rough_1k.png",
+    "md5": "5c55222ea6d989cf08665430a902a84f"
+   },
+   "exr": {
+    "size": 941714,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_rough_1k.exr",
+    "md5": "06d56f0a4b84a74d1ec99536e0920c3a"
+   }
+  }
+ },
+ "blend": {
+  "8k": {
+   "blend": {
+    "include": {
+     "textures/sand_rocks_small_01_nor_gl_8k.exr": {
+      "size": 118379635,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_8k.exr",
+      "md5": "7bb0a4459d7e488d7430a65591ff5231"
+     },
+     "textures/sand_rocks_small_01_diff_8k.jpg": {
+      "size": 26906504,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/sand_rocks_small_01/sand_rocks_small_01_diff_8k.jpg",
+      "md5": "860ba5e195ff485e1f31ae26da12f5b6"
+     },
+     "textures/sand_rocks_small_01_rough_8k.exr": {
+      "size": 24073394,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/sand_rocks_small_01/sand_rocks_small_01_rough_8k.exr",
+      "md5": "f912659ac6a524cf53dc11471f3b7fe3"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/8k/sand_rocks_small_01/sand_rocks_small_01_8k.blend",
+    "size": 49804885,
+    "md5": "e6dfaaaab50eab8600553a01863f4b22"
+   }
+  },
+  "4k": {
+   "blend": {
+    "include": {
+     "textures/sand_rocks_small_01_nor_gl_4k.exr": {
+      "size": 33542666,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_4k.exr",
+      "md5": "33b367f196e8e640e7947da7db559754"
+     },
+     "textures/sand_rocks_small_01_diff_4k.jpg": {
+      "size": 8924059,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/sand_rocks_small_01/sand_rocks_small_01_diff_4k.jpg",
+      "md5": "1974fd7bf1cefd09b14b0dc222976368"
+     },
+     "textures/sand_rocks_small_01_rough_4k.exr": {
+      "size": 10931700,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/sand_rocks_small_01/sand_rocks_small_01_rough_4k.exr",
+      "md5": "a5b32e8626c0b1892e25d2d353cc14ec"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/4k/sand_rocks_small_01/sand_rocks_small_01_4k.blend",
+    "size": 49804781,
+    "md5": "ad0585ffdd15c3b1dd1107eb5ea54aae"
+   }
+  },
+  "2k": {
+   "blend": {
+    "include": {
+     "textures/sand_rocks_small_01_rough_2k.exr": {
+      "size": 3483929,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_rough_2k.exr",
+      "md5": "bd764309a8a349268e68010e5972aab4"
+     },
+     "textures/sand_rocks_small_01_nor_gl_2k.exr": {
+      "size": 8879920,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_2k.exr",
+      "md5": "4c8addad20504ca5bb0ec8af8545244a"
+     },
+     "textures/sand_rocks_small_01_diff_2k.jpg": {
+      "size": 2785116,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/sand_rocks_small_01/sand_rocks_small_01_diff_2k.jpg",
+      "md5": "e66b8a2f4d6c0837be5a7c570fbc92ef"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/2k/sand_rocks_small_01/sand_rocks_small_01_2k.blend",
+    "size": 49804786,
+    "md5": "3e7a8473472b9857a75f1a0337102d71"
+   }
+  },
+  "1k": {
+   "blend": {
+    "include": {
+     "textures/sand_rocks_small_01_diff_1k.jpg": {
+      "size": 788042,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/sand_rocks_small_01/sand_rocks_small_01_diff_1k.jpg",
+      "md5": "d819c51a8f18f0a496b0fcf8d672824a"
+     },
+     "textures/sand_rocks_small_01_rough_1k.exr": {
+      "size": 941714,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_rough_1k.exr",
+      "md5": "06d56f0a4b84a74d1ec99536e0920c3a"
+     },
+     "textures/sand_rocks_small_01_nor_gl_1k.exr": {
+      "size": 2198463,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/sand_rocks_small_01/sand_rocks_small_01_nor_gl_1k.exr",
+      "md5": "da267947fe084a96a5d18054b3ef8d79"
+     }
+    },
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/1k/sand_rocks_small_01/sand_rocks_small_01_1k.blend",
+    "size": 49804767,
+    "md5": "4f0504ee006aad09112b1c6a858050f7"
+   }
+  }
+ }
+}

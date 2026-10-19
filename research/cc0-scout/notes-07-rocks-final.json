@@ -1,0 +1,92 @@
+[
+ {
+  "id": "boulder_01",
+  "bytesMB": 5.5,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 67042,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/boulder_01.png?width=630&quality=95&v=b3b100e5",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/boulder_01"
+ },
+ {
+  "id": "rock_07",
+  "bytesMB": 2.08,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 7914,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/rock_07.png?width=630&quality=95&v=15fefa77",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/rock_07"
+ },
+ {
+  "id": "rock_09",
+  "bytesMB": 1.87,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 6628,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/rock_09.png?width=630&quality=95&v=57031fbf",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/rock_09"
+ },
+ {
+  "id": "stone_01",
+  "bytesMB": 3.55,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 27888,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/stone_01.png?width=630&quality=95&v=347a4b6f",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/stone_01"
+ },
+ {
+  "id": "rock_moss_set_01",
+  "bytesMB": 1.85,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 33988,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/rock_moss_set_01.png?width=630&quality=95&v=e99703c4",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/rock_moss_set_01"
+ },
+ {
+  "id": "rock_moss_set_02",
+  "bytesMB": 1.85,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 30334,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/rock_moss_set_02.png?width=630&quality=95&v=2acc6bcd",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/rock_moss_set_02"
+ },
+ {
+  "id": "sand_rocks_small_01",
+  "bytesMB": 22.71,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 386857,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/sand_rocks_small_01.png?width=630&quality=95&v=c2fbdf35",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/sand_rocks_small_01"
+ },
+ {
+  "id": "namaqualand_boulders_01",
+  "bytesMB": 3.47,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 21332,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/namaqualand_boulders_01.png?width=630&quality=95&v=d06bcb19",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/namaqualand_boulders_01"
+ },
+ {
+  "id": "namaqualand_stones_01",
+  "bytesMB": 3.96,
+  "uris": 4,
+  "missing": 0,
+  "vertices": 36830,
+  "og": "https://cdn.polyhaven.com/asset_img/thumbs/namaqualand_stones_01.png?width=630&quality=95&v=89ae1982",
+  "licSnap": "license\",\"copyrightNotice\":\"CC0 1.0 Universal - public domain dedication, no att",
+  "url": "https://polyhaven.com/a/namaqualand_stones_01"
+ }
+]
