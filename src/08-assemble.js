@@ -272,12 +272,12 @@ buildFigures();
    ⚠️ 不写成 `export { ... } from`：probe/import-audit.mjs 认"先 import 进作用域、再 export 出去"
    （12-env.js 里写着同一条理由；`export ... from` 既不进作用域又会被判成一次使用 ⇒ 假红）。 */
 import { buildAquatic, GLB_LOTUS_STEM_H, GOOSE, PERCH_LIFT,
-         dragonflies, geese, koiGroup, macawState,
+         dragonflies, geese, koiGroup, macawState, macawSpots,
          macawWantPerch, perchShowOK, perchingDragonflies, setPerchShowOK,
          smallBirdMeshRef, smallBirds, swimDucks, swimTurtles,
          updateGooseFlock, updateMacaws, updatePerchingDragonflies, updateSmallBirds } from './08c-aquatic.js';
 export { GLB_LOTUS_STEM_H, GOOSE, PERCH_LIFT, dragonflies,
-         geese, koiGroup, macawState, macawWantPerch,
+         geese, koiGroup, macawState, macawSpots, macawWantPerch,
          perchShowOK, perchingDragonflies, setPerchShowOK, smallBirdMeshRef,
          smallBirds, swimDucks, swimTurtles, updateGooseFlock,
          updateMacaws, updatePerchingDragonflies, updateSmallBirds };

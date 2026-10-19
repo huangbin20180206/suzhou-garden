@@ -16,7 +16,7 @@ import { spawnRipple, updateRipples, ripplesActive, lastRippleAge, rippleCapacit
 import { KOI_ORBITS, dropBait, updateBaits, nearestBait, baitsActive, BAITS, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06g-koi.js';
 /* 2026-10-05 拆分：氛围特效（雾团 / 香炉白烟 / 萤火虫 / 镜头天气层）已统一搬进 06b-atmos.js。 */
 import { FOG_BANKS, CENSER_SMOKE, makeFireflies, makeLensWeather } from './06b-atmos.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, tourPlan, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, tourPlan, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawSpots, macawWantPerch } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
 import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksState, setFireworksForce, fireworksFinaleNow, tickMeteors, meteorState, setMeteorsForce } from './12-env.js';
@@ -1926,7 +1926,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   meteorState, setMeteorsForce,
                   /* 金刚鹦鹉作息 + 动作（2026-10-05）：门禁要断言"夜里/雨雪天不在、
                      白天在、且栖停时有动作"，靠 traverse 猜不可判 ⇒ 显式暴露状态。 */
-                  macawState, macawWantPerch,
+                  macawState, macawSpots, macawWantPerch,
                   /* 竹帘升降（2026-10-05）：门禁要断言"按钮按下后帘条真的变短、卷捆跟着走"。 */
                   blindState: () => ({ rolled: blindsRolled(), r: blindsRoll() }),
                   setBlindsRoll,

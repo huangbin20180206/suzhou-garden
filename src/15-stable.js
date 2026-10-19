@@ -206,9 +206,11 @@ function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
   }
   /* ② 头：点/摇（ORG-head：X 正 = 低头、Z = 摇） */
   tinkerBone(B, R, 'ORG-head', headPitch * 0.55, 0, headYaw * 1.15);
-  /* ③ 下颌：静息合嘴 + 吃草时轻嚼。'jaw' 带嘴皮，'DEF-jaw' 带下齿网格。 */
+  /* ③ 下颌：静息合嘴 + 吃草时轻嚼。'jaw' 带嘴皮，'DEF-jaw' 带下齿网格。
+     ⚠️ 幅度 0.055+0.05 ⇒ 只摆 0.1rad（≈6°），近景读作"嘴没动" ⇒ 加到 0.085+0.065
+     （≈9°，门禁 horse-motion-guard 的"下颌角摆动 ≥0.05rad"也随之更稳）。 */
   const chew = (h.role === 'graze' || h.role === 'fed')
-    ? 0.055 + 0.05 * Math.sin(_stT * 5.4 + h.phase) : 0.008 * Math.sin(_stT * 0.9 + h.phase);
+    ? 0.085 + 0.065 * Math.sin(_stT * 5.4 + h.phase) : 0.008 * Math.sin(_stT * 0.9 + h.phase);
   tinkerBone(B, R, 'jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
   tinkerBone(B, R, 'DEF-jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
   /* ④ 尾：尾网格主骨是纯名 tail001..005，体上尾根是 DEF-tail001..005 —— 两条都转。 */
@@ -251,10 +253,13 @@ function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
   tinkerBone(B, R, 'noseR', h.flare, 0, 0);
   tinkerBone(B, R, 'DEF-noseL', h.flare, 0, 0);
   tinkerBone(B, R, 'DEF-noseR', h.flare, 0, 0);
-  /* ⑧ 鬃毛：次级摆动。纯名 mane_base/mane_top 是真骨，DEF 版只管 63 个顶点的小面片。 */
+  /* ⑧ 鬃毛：次级摆动。⚠️ 这匹马的鬃是**独立网格**（BSurfaceMesh001，63 顶点），
+     其中 33 个顶点挂在 **DEF-neck001..004** 上（⇒ 抬头/低头时鬃自然跟着甩），
+     只有 9 个顶点挂纯名 mane_base02..06 ⇒ 靠它做"次级摆动"能动的肉很少。
+     ⇒ 幅度给到 0.05rad（原来 0.022 几乎看不出），相位逐节错开，读作"鬃毛一颤一颤"。 */
   for (let i = 1; i <= 6; i++){
     const p = String(i).padStart(2, '0');
-    const sway = 0.022 * Math.sin(_stT * 1.6 + h.phase + i * 0.7);
+    const sway = 0.05 * Math.sin(_stT * 1.6 + h.phase + i * 0.7);
     tinkerBone(B, R, 'mane_base' + p, 0, 0, sway);
     tinkerBone(B, R, 'mane_top' + p, 0, 0, sway * 1.2);
     tinkerBone(B, R, 'DEF-mane_base' + p, 0, 0, sway);
@@ -763,12 +768,12 @@ export const horseBreathMesh = (() => {
   const S = 64, cv = document.createElement('canvas'); cv.width = cv.height = S;
   const cx = cv.getContext('2d');
   const grd = cx.createRadialGradient(S/2, S/2, 0, S/2, S/2, S/2);
-  grd.addColorStop(0.00, 'rgba(255,255,255,0.70)');
-  grd.addColorStop(0.45, 'rgba(255,255,255,0.28)');
+  grd.addColorStop(0.00, 'rgba(255,255,255,0.52)');
+  grd.addColorStop(0.45, 'rgba(255,255,255,0.20)');
   grd.addColorStop(1.00, 'rgba(255,255,255,0)');
   cx.fillStyle = grd; cx.fillRect(0, 0, S, S);
   const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.NoColorSpace;
-  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.6 });
+  const mat = new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthWrite: false, opacity: 0.45 });
   const im = new THREE.InstancedMesh(new THREE.PlaneGeometry(1, 1), mat, MAXB);
   im.name = 'horseBreath';
   im.frustumCulled = false;
@@ -883,7 +888,9 @@ export function tickStableLife(dt){
           if (b.life <= 0) continue;
           b.life -= dt; b.x += b.vx * dt; b.y += b.vy * dt; b.z += b.vz * dt;
           const u = 1 - b.life / 1.35;                       // 0→1
-          const size = 0.16 + 0.5 * u;
+          /* ⚠️ 白雾尺寸 0.16→0.66m：实测在近景里是一团**糊住整张脸**的白饼（老黄会读成
+             "马嘴里塞了棉花"）。真马呵气是一小团 ⇒ 收到 0.09→0.30m。 */
+          const size = 0.09 + 0.21 * u;
           if (puff < im.instanceMatrix.count){
             PP.set(b.x, b.y, b.z);
             if (!b.world){ h.group.updateWorldMatrix(true, false); PP.applyMatrix4(h.group.matrixWorld); }
@@ -1463,8 +1470,13 @@ function makeTrough(w, d, h, mat = MAT.stoneDark, fillMat = null, fillY = 0.10){
    起伏处差几厘米 ⇒ 抬 5cm 以下会有局部"路面被草吃进去"。 */
 export function makeStableRoad(){
   const g = new THREE.Group();
+  /* ⚠️ 2026-10-20：末点 (0.6,23.6) → **(0.35,23.25)**。
+     月洞门门槛石（4.0×1.4）占 z∈[21.9,23.3]；旧末点停在 z=23.6 ⇒ 路与门槛之间
+     留 0.3m **秃草**（老黄红圈处），而当年是用一块 3×6 的方格补丁去盖 ——
+     补丁既不对称、又接不上路的走向 ⇒ 近景读作"一堆乱石板"。
+     现在路**直接铺到门槛南沿**，补丁撤掉。 */
   const CP = [[40.0, 4.2], [39.2, 10.5], [37.4, 16.5], [34.4, 21.8], [30.0, 26.2],
-              [22.0, 27.2], [10.0, 26.4], [2.6, 25.0], [0.6, 23.6]];
+              [22.0, 27.2], [10.0, 26.4], [2.6, 25.0], [0.35, 23.25]];
   const curve = new THREE.CatmullRomCurve3(CP.map(p => new THREE.Vector3(p[0], 0, p[1])));
   const HW = 0.86;                                 // 半宽 ⇒ 路宽 1.72m（单车道，够马车）
   const r2 = mulberry32(20261012);                 // 私有流
@@ -1496,7 +1508,9 @@ export function makeStableRoad(){
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
     geo.setIndex(idx); geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0x6E675D,
+    /* ⚠️ 2026-10-20：垫层 0x6E675D → 0x8B8578（灰浆色）。原色太深，
+       石板缝一露出来就读作"一条没填平的黑沟把路劈成两半"（近景判读原话）。 */
+    const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0x9B958A,
                                                  roughness: 0.98, metalness: 0.0 });
     registerWeatherRoles(mat, { snow: 1, wet: 1 });
     g.add(mesh(geo, mat, { name: 'stableRoadBed', cast: false, receive: true }));
@@ -1523,9 +1537,10 @@ export function makeStableRoad(){
       const base = pos.length / 3;
       for (const q of corners){
         const gy = groundHeight(q.x, q.z);
-        pos.push(q.x, gy + 0.060, q.z);              // 顶（偶数索引）
-        pos.push(q.x, gy + 0.004, q.z);              // 底（奇数索引）——几乎贴到草面，消除"浮着"的台阶
-        col.push(tone, tone * 0.985, tone * 0.955, tone * 0.88, tone * 0.87, tone * 0.85);
+        pos.push(q.x, gy + 0.075, q.z);              // 顶（偶数索引）
+        pos.push(q.x, gy + 0.008, q.z);              // 底（奇数索引）——几乎贴到草面，消除"浮着"的台阶
+        /* 侧壁比顶面暗一档（0.78）：石板有厚度、有侧影 ⇒ 读作"石块"而不是"贴纸" */
+        col.push(tone, tone * 0.985, tone * 0.955, tone * 0.78, tone * 0.77, tone * 0.75);
       }
       idx.push(base + 0, base + 2, base + 4, base + 0, base + 4, base + 6);   // 顶面
       for (let k = 0; k < 4; k++){
@@ -1533,25 +1548,41 @@ export function makeStableRoad(){
         idx.push(a, b, b + 1, a, b + 1, a + 1);       // 四个侧面
       }
     };
-    /* 两条（左/右）各自相位、各自步长 ⇒ 错缝。
-       ⚠️ 内缘**固定**在 ±0.025（中缝恒 ~5cm），抖动只吃**外缘** —— 第一版内缘也吃抖动
-       ⇒ 中缝最宽能到 0.24m，垫层露出来读成"一条没填平的黑沟、把路劈成两半"（近景判读原话）。
-       外缘内收是"乱石"的来源（不规则边），内缘整齐才像"一条路"。 */
-    for (const [sOut, sIn] of [[-HW + 0.02, -0.025], [0.025, HW - 0.02]]){
-      let d = jit(0.10, 0.60);
+    /* ⚠️⚠️ 2026-10-20 重做铺法：两条 0.83m 宽的大板 → **三条错缝的小板**。
+       旧版每块 0.83m×0.55m，远看就是"几张白纸板铺在草上"（老黄："石板铺得太敷衍"）。
+       现在：① **三列**（每列 ~0.57m），列内石板长 0.30~0.46m；② 相邻行**错半块**（砖缝错缝）；
+       ③ 缝宽收到 1.5~3.2cm（旧的 3~7cm 露出的深色垫层读作"黑沟"）；
+       ④ 材质基色 0xFFFFFF → 0xC9C3B4（石材灰；顶点色 0.58~1.0 再乘上去）——
+          纯白 + 顶面高光 = "泡沫板"，石材灰才是石头。
+       ⑤ 石板厚度 0.056 → 0.075m、侧壁更暗（0.88 → 0.78）⇒ 有份量，不是"贴纸"。
+       ⚠️ 纵缝：两条列边固定在 ±0.02/±0.59/±1.16 附近，只有**最外沿**吃抖动
+          （外沿内收 = "乱石"的不规则边；内侧整齐才像"一条路"）。 */
+    const LANES = 3;
+    const laneEdge = (k) => -HW + 0.02 + (2 * HW - 0.04) * (k / LANES);   // k=0..LANES
+    for (let k = 0; k < LANES; k++){
+      const inner = laneEdge(k) + (k > 0 ? 0.018 : 0);
+      const outer = laneEdge(k + 1) - (k < LANES - 1 ? 0.018 : 0);
+      const outerIsEdge = (k === 0 || k === LANES - 1);
+      let d = jit(0.02, 0.26) + k * 0.13;            // 各列相位不同 ⇒ 横向接缝不齐（别在路头留空档）
+      let row = 0;
       while (d < L - 0.30){
-        const len = jit(0.44, 0.66);
+        const len = jit(0.30, 0.46);
         const t0 = d / L, t1 = Math.min(1, (d + len) / L);
-        const a = sOut + jit(0.0, 0.075);              // 只动外缘
-        pushSlab(t0, t1, Math.min(a, sIn - 0.06), sIn + jit(-0.008, 0.008), jit(0.58, 1.0));
-        d += len + jit(0.030, 0.070);                 // 缝宽 3~7cm
+        const jitter = outerIsEdge ? jit(0.0, 0.055) : jit(-0.012, 0.012);
+        const a = (k === LANES - 1) ? outer + jitter : outer;   // 只有最外列的外沿吃抖动
+        const b = (k === 0) ? inner - jitter : inner;
+        const sA = Math.min(a, b), sB = Math.max(a, b);
+        if (sB - sA > 0.16) pushSlab(t0, t1, sA + 0.008, sB - 0.008, jit(0.62, 1.0));
+        d += len + jit(0.015, 0.032);                // 缝宽 1.5~3.2cm
+        row++;
       }
     }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geo.setIndex(idx); geo.computeVertexNormals();
-    const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0xFFFFFF,
+    /* ⚠️ 2026-10-20：基色 0xFFFFFF → 0xC9C3B4（石材灰）。纯白 + 顶点色高光 = "泡沫板"。 */
+    const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0xAFA99C,
       vertexColors: true, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
     registerWeatherRoles(mat, { snow: 1, wet: 1 });
     roadPavingMat = mat;
@@ -1603,32 +1634,26 @@ export function makeStableRoad(){
     g.add(mesh(geo, mat, { name: 'stableRoadPebble', cast: false, receive: true }));
   }
 
-  /* ── ②b 院门口扇形补铺（2026-10-17 · 老黄："马厩到院子的石板路在入院的地方有缺失，
-     要填充满，不能留一个扇形的缺口"）────────────────────────────────────────────
-     ── 缺口是怎么来的 ──
-     石板路半宽 HW=0.86（路宽 1.72m），而正面栅栏的车门开口是 1.8×2 = **3.6m**
-     （见下面 runFence：正面两段各留到 ±1.8）。路头 CP[0] 在 (40, 4.2)、院门线在
-     (40, 2.7) ⇒ 这 1.5m 里宽度要从 1.72m 扩到 3.6m，而原来那一段**没有任何铺装**
-     ⇒ 出图判读就是两侧各一块楔形秃地拼成的扇形缺口。
-     ── 补法 ──
-     补一块"喇叭口"：北端与车门同宽（±1.80）、南端收到与路面同宽（±0.86）；
-     北端还往门里伸 0.4m 当**门槛石**（否则门线处会留一条横缝）。逐点采样地形高、
-     同一套四角棱柱石板与色调抖动 ⇒ 与路面同质，缝里露出的同样是垫层深色。
-     宽度函数：z ≤ 2.95 恒 1.80（门洞区），2.95 → 4.20 用 smoothstep 收到 0.86。
-     ⚠️ 本块刻意**复用 ② 的角点写法**而不是把它抽成公共函数：② 的错缝与绕向是被近景
-        判读反复修过的（顶面朝下 ⇒ 从上看全黑那次），抽函数等于动那段已验证的代码。
-     ⚠️ 侧向量取 (-1,0,0)：与路面同一条口径（side × tan = +y 才保证顶面朝上）。 */
+  /* ── ②b 院门口铺装（2026-10-20 重做）──────────────────────────────────────────
+     现象（老黄："连接马厩和院子的那条石板路的两端……石板铺的太敷衍了"）：
+     旧版这里是"一块块 1.8m×0.5m 的大板"扇形排开 —— 一块板比一张桌子还大，
+     板与板之间留 3~7cm 的缝、底下是深色垫层 ⇒ 远看像**几张白纸板摊在草地上**。
+     本轮改成**正��的"横排错缝"铺装**（苏州"乱石路"的常规做法）：
+       · 沿 z 从门槛线 Z0=2.30 一路铺到路头 Z1=4.20，共 5 横排；
+       · 每排按该处宽度（门口 3.6m → 路宽 1.72m）切成 1~3 块，板长 ~0.6m；
+       · 相邻排**错半块**（砖缝错缝）⇒ 不会有贯通的直缝；
+       · 缝宽 2cm，垫层是灰浆色 ⇒ 缝里露出的不再是"黑沟"；
+       · 门口加一条**门槛石**（横贯门洞 3.5m），两侧加**路牙石**与卵石镶边接上。
+     ⚠️ 顶面 +0.072（比主路石板 0.075 低 3mm）：与主路首尾重叠处由主路压住，不打架。 */
   {
-    const Z0 = 2.30, ZT = 2.95, Z1 = 4.20;        // 门槛内 / 开始收口 / 接到路头
-    const W0 = 1.80, W1 = HW;                     // 车门半开口 → 路半宽
+    const Z0 = 2.30, Z1 = 4.45;        // 门槛内缘 → 压过路头（与主路首排重叠，不露垫层）
+    const W0 = 1.80, W1 = HW;          // 门洞半开口 → 路半宽
     const apronW = (z) => {
-      if (z <= ZT) return W0;
-      const u = Math.min(1, (z - ZT) / (Z1 - ZT));
+      if (z <= 2.95) return W0;
+      const u = Math.min(1, (z - 2.95) / (Z1 - 2.95));
       return W0 + (W1 - W0) * (u * u * (3 - 2 * u));   // smoothstep：口部收得柔，不像被切了角
     };
-    const apronFrame = (z) => ({ p: new THREE.Vector3(40.0, 0, z), tan: new THREE.Vector3(0, 0, 1),
-                                 side: new THREE.Vector3(-1, 0, 0) });
-    /* 垫层（与 ① 同色、同厚）：跟着宽度变化的一条窄带 */
+    /* 垫层（与 ① 同色同厚）：跟着宽度变化的一条窄带 */
     {
       const N = 26, pos = [], uv = [], idx = [];
       let acc = 0, prev = null;
@@ -1648,27 +1673,21 @@ export function makeStableRoad(){
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
       geo.setIndex(idx); geo.computeVertexNormals();
-      const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0x6E675D,
+      const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0x9B958A,
                                                    roughness: 0.98, metalness: 0.0 });
       registerWeatherRoles(mat, { snow: 1, wet: 1 });
       g.add(mesh(geo, mat, { name: 'stableGateBed', cast: false, receive: true }));
     }
-    /* 石板：与 ② 同款四角棱柱（顶面 +0.060 / 底面 +0.004），左右两条各自相位与步长 */
+    /* 石板：横排 + 错半块。角序按"side × tan = +y"（side = −x ⇒ 角从大 x 排到小 x） */
     {
       const pos = [], col = [], idx = [];
-      const addSlab = (A2, B2, sA, sB, tone) => {
-        const corners = [
-          A2.p.clone().addScaledVector(A2.side, sA),
-          A2.p.clone().addScaledVector(A2.side, sB),
-          B2.p.clone().addScaledVector(B2.side, sB),
-          B2.p.clone().addScaledVector(B2.side, sA),
-        ];
+      const pushQuad = (x0, x1, z0, z1, tone) => {   // x1 > x0
         const base = pos.length / 3;
-        for (const q of corners){
-          const gy = groundHeight(q.x, q.z);
-          pos.push(q.x, gy + 0.060, q.z);
-          pos.push(q.x, gy + 0.004, q.z);
-          col.push(tone, tone * 0.985, tone * 0.955, tone * 0.88, tone * 0.87, tone * 0.85);
+        for (const [x, z] of [[x1, z0], [x0, z0], [x0, z1], [x1, z1]]){
+          const gy = groundHeight(x, z);
+          pos.push(x, gy + 0.072, z);
+          pos.push(x, gy + 0.008, z);
+          col.push(tone, tone * 0.985, tone * 0.955, tone * 0.78, tone * 0.77, tone * 0.75);
         }
         idx.push(base + 0, base + 2, base + 4, base + 0, base + 4, base + 6);
         for (let k = 0; k < 4; k++){
@@ -1676,28 +1695,49 @@ export function makeStableRoad(){
           idx.push(a, b, b + 1, a, b + 1, a + 1);
         }
       };
-      for (const sgn of [1, -1]){
-        let z = Z0 + jit(0.05, 0.35);
-        while (z < Z1 - 0.20){
-          const len = jit(0.42, 0.62);
-          const zA = z, zB = Math.min(Z1, z + len);
-          const FS = apronFrame(zA), FE = apronFrame(zB);
-          /* 外缘按该段最窄处内收（保证任何一块都不越界），内缘固定 ±0.025 ⇒ 中缝整齐 */
-          const wOut = Math.min(apronW(zA), apronW(zB)) - 0.02 - jit(0.0, 0.075);
-          const sOut = sgn * wOut, sIn = sgn * (0.025 + jit(-0.008, 0.008));
-          const a2 = Math.min(sOut, sIn - 0.06), b2 = Math.max(sOut, sIn);
-          addSlab(FS, FE, Math.min(a2, b2), Math.max(a2, b2), jit(0.58, 1.0));
-          z += len + jit(0.030, 0.070);
+      const ROWS = 5, ZGAP = 0.022;
+      for (let r = 0; r < ROWS; r++){
+        const z0 = Z0 + (Z1 - Z0) * (r / ROWS);
+        const z1 = Z0 + (Z1 - Z0) * ((r + 1) / ROWS) - ZGAP;
+        const w = Math.min(apronW(z0), apronW(z1)) - 0.015;
+        const n = Math.max(1, Math.round(w / 0.62));
+        const cw = w / n;
+        const off = (r % 2) * cw * 0.5;              // 错半块
+        for (let k = -1; k <= n; k++){
+          const a = -w + k * cw + off, b = a + cw;
+          if (b <= -w || a >= w) continue;
+          const sA = Math.max(a, -w), sB = Math.min(b, w);
+          if (sB - sA < 0.16) continue;
+          pushQuad(40.0 + sA + 0.010, 40.0 + sB - 0.010, z0, z1, jit(0.62, 1.0));
         }
       }
       const geo = new THREE.BufferGeometry();
       geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
       geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
       geo.setIndex(idx); geo.computeVertexNormals();
-      const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0xFFFFFF,
+      const mat = new THREE.MeshStandardMaterial({ normalMap: nrmTex(), color: 0xAFA99C,
         vertexColors: true, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
       registerWeatherRoles(mat, { snow: 1, wet: 1 });
       g.add(mesh(geo, mat, { name: 'stableGateSlab', cast: true, receive: true }));
+    }
+    /* 门槛石：横贯门洞的一条长石 —— 把"门线"说清楚，也是下马处该有的东西 */
+    {
+      const sill = mesh(box(3.44, 0.17, 0.46), MAT.stoneDark, { name: 'stableGateSill', cast: true, receive: true });
+      sill.position.set(40.0, groundHeight(40.0, 2.44) + 0.075, 2.44);
+      g.add(sill);
+    }
+    /* 路牙石：两侧各三块，与卵石镶边接上（"这条路是砌出来的"，不是"草地上贴了块板"） */
+    {
+      for (const s of [1, -1]){
+        for (let i = 0; i < 3; i++){
+          const z = 3.05 + i * 0.46;
+          const w = apronW(z);
+          const k = mesh(box(0.20, 0.20, 0.42), MAT.stoneDark, { name: 'stableGateKerb', cast: true, receive: true });
+          k.position.set(40.0 + s * (w + 0.10), groundHeight(40.0 + s * (w + 0.10), z) + 0.05, z);
+          k.rotation.y = jit(-0.03, 0.03);
+          g.add(k);
+        }
+      }
     }
     /* 卵石镶边：只沿**收口段**两侧（门洞区两侧是栅栏立柱，铺到那儿反而怪） */
     {
@@ -1705,7 +1745,7 @@ export function makeStableRoad(){
       const parts = [];
       const step = 0.19;
       const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
-      for (let z = ZT; z < Z1; z += step){
+      for (let z = Z0 + 0.5; z < Z1; z += step){
         const w = apronW(z);
         for (const s of [1, -1]){
           for (const row of [0.095, 0.225]){
@@ -1715,7 +1755,7 @@ export function makeStableRoad(){
             const cAttr = new Float32Array(gg.attributes.position.count * 3);
             for (let i = 0; i < cAttr.length; i += 3){
               const j2 = jit(-0.06, 0.06);
-              cAttr[i] = tone + j2; cAttr[i+1] = (tone + j2) * 0.99; cAttr[i+2] = (tone + j2) * 0.95;
+              cAttr[i] = tone + j2; cAttr[i + 1] = (tone + j2) * 0.99; cAttr[i + 2] = (tone + j2) * 0.95;
             }
             gg.setAttribute('color', new THREE.Float32BufferAttribute(cAttr, 3));
             PP.set(qx, groundHeight(qx, qz) + rr2 * 0.34, qz);
@@ -1850,33 +1890,49 @@ export function makeStableRoad(){
       (LAMP_LIGHT_BUDGET ? '（PointLight，无阴影，lamp 通道 + 摇曳）'
                          : '（性能档：只留火袋 emissive，省 8 盏前向光照）'));
   }
-  /* ── ④c 月洞门前补铺（2026-10-19 · 老黄截图 1："石板路铺到（满）门口"）──────────
-     现象：路面曲线终点在 (0.6, 23.6)，而园墙月洞门的门槛石在 z∈[21.9,23.3]、x∈[−2,2]；
-     曲线最后 0.3m 又不铺（`while (d < L−0.30)`）⇒ 门槛石与最后一块石板之间留了一块
-     **三角形的秃草**（用户红圈处）。
-     补法：门槛石南侧加一片**与路面同材质、同色调抖动、同厚度**的石板铺装（3 排 × 6 列，
-     逐角采样地形高，顶面 +0.057 —— 比路面 0.060 低 3mm，重叠处由路石板压住，不打架）。
-     宽度 x∈[−1.05, 2.25]：西侧盖住门槛石缺口，东侧止于石狮落脚点之前。 */
+  /* ── ④c 月洞门前铺装（2026-10-20 重做）────────────────────────────────────────
+     旧版是一片 3 排 × 6 列的**方格**补丁（x∈[−1.05,2.25]）—— 不对称、接不上路的
+     走向、也不接门槛 ⇒ 近景判读"一堆乱石板"。本轮：曲线末点已改到 (0.35,23.25)
+     （**直接压在门槛石南沿**），方格补丁撤掉；门前改成**顺着路收口的三排**，
+     排面与路垂直 ⇒ 从路看过去是一路铺到门口，不是"路边贴了块补丁"。 */
   {
-    const X0 = -1.05, X1 = 2.25, Z0 = 23.12, Z1 = 24.38;
-    const cols = 6, rows = 3;
+    const Z0 = 23.10, Z1 = 24.10;          // 门槛南沿 → 往南第一排
+    const CX0 = 0.35, CX1 = 0.55;          // 门口中心（路头 x）→ 稍往东收
+    const HW0 = 0.86, HW1 = 1.18;          // 路半宽 → 门前略放宽（喇叭口）
+    const CX = (z) => { const u = Math.min(1, (z - Z0) / (Z1 - Z0));
+      return CX0 + (CX1 - CX0) * (u * u * (3 - 2 * u)); };
+    const halfW = (z) => { const u = Math.min(1, (z - Z0) / (Z1 - Z0));
+      return HW0 + (HW1 - HW0) * (u * u * (3 - 2 * u)); };
     const pos = [], col = [], idx = [];
-    const cw = (X1 - X0) / cols, cd = (Z1 - Z0) / rows;
-    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++){
-      const x0 = X0 + i * cw + 0.02, x1 = X0 + (i + 1) * cw - 0.02;
-      const z0 = Z0 + j * cd + 0.02, z1 = Z0 + (j + 1) * cd - 0.02;
-      const tone = jit(0.58, 1.0);
+    const pushQuad = (x0, x1, z0, z1, tone) => {
       const base = pos.length / 3;
-      for (const [x, z] of [[x0, z0], [x0, z1], [x1, z1], [x1, z0]]){
+      for (const [x, z] of [[x1, z0], [x0, z0], [x0, z1], [x1, z1]]){
         const gy2 = groundHeight(x, z);
-        pos.push(x, gy2 + 0.057, z);
-        pos.push(x, gy2 + 0.004, z);
-        col.push(tone, tone * 0.985, tone * 0.955, tone * 0.88, tone * 0.87, tone * 0.85);
+        pos.push(x, gy2 + 0.072, z);
+        pos.push(x, gy2 + 0.008, z);
+        col.push(tone, tone * 0.985, tone * 0.955, tone * 0.78, tone * 0.77, tone * 0.75);
       }
       idx.push(base + 0, base + 2, base + 4, base + 0, base + 4, base + 6);
       for (let k = 0; k < 4; k++){
         const a = base + k * 2, b = base + ((k + 1) % 4) * 2;
         idx.push(a, b, b + 1, a, b + 1, a + 1);
+      }
+    };
+    const ROWS = 3, ZGAP = 0.022;
+    for (let r = 0; r < ROWS; r++){
+      const z0 = Z0 + (Z1 - Z0) * (r / ROWS);
+      const z1 = Z0 + (Z1 - Z0) * ((r + 1) / ROWS) - ZGAP;
+      const w = Math.min(halfW(z0), halfW(z1)) - 0.015;
+      const cx = (CX(z0) + CX(z1)) * 0.5;
+      const n = Math.max(1, Math.round(w * 2 / 0.58));
+      const cw = (w * 2) / n;
+      const off = (r % 2) * cw * 0.5;
+      for (let k = -1; k <= n; k++){
+        const a = -w + k * cw + off, b = a + cw;
+        if (b <= -w || a >= w) continue;
+        const sA = Math.max(a, -w), sB = Math.min(b, w);
+        if (sB - sA < 0.16) continue;
+        pushQuad(cx + sA + 0.010, cx + sB - 0.010, z0, z1, jit(0.62, 1.0));
       }
     }
     const geo = new THREE.BufferGeometry();
@@ -1884,6 +1940,17 @@ export function makeStableRoad(){
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geo.setIndex(idx); geo.computeVertexNormals();
     g.add(mesh(geo, roadPavingMat, { name: 'gateLanding', cast: true, receive: true }));
+    /* 门口两侧的**路牙石**：与月洞门门槛石接上，门口不再是"草地上摆了几块板" */
+    for (const s of [1, -1]){
+      for (let i = 0; i < 2; i++){
+        const z = 23.30 + i * 0.46;
+        const kx = s * (halfW(z) + 0.11);          // 贴着铺装外缘，别压在石板上
+        const k = mesh(box(0.20, 0.20, 0.42), MAT.stoneDark, { name: 'gateKerb', cast: true, receive: true });
+        k.position.set(kx, groundHeight(kx, z) + 0.05, z);
+        k.rotation.y = jit(-0.03, 0.03);
+        g.add(k);
+      }
+    }
   }
 
   /* ── ⑤ 园墙南月洞门口石狮一对（2026-10-18 建 · 2026-10-19 改址）──────────────

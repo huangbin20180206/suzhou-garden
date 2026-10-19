@@ -146,6 +146,48 @@ const check = (name, ok, detail = '') => {
     sched.noon === true && sched.night === false && sched.storm === false,
     `noon=${sched.noon} night=${sched.night} storm=${sched.storm}`);
 
+  /* ── ⑤ 不重叠（2026-10-20 新增）：老黄"两座假山的顶上都会重叠成一只" ──
+     两个真因，都要钉住：
+       a) 落点之间**屏幕间距**太小（世界里沿视线方向的一段，投到画面上等于 0）
+          ⇒ 投影到默认机位，量任意两落点的像素距；
+       b) 换峰飞行**落到别人已经占着的点** ⇒ 采样窗口内任何时刻，
+          不允许两只的落点相同。 */
+  const sep = await page.evaluate(() => {
+    const G = window.__garden, THREE = G.THREE;
+    const spots = G.macawSpots();
+    const W = window.innerWidth, H = window.innerHeight;
+    const proj = (s) => { const v = new THREE.Vector3(s[0], s[1], s[2]).project(G.camera);
+      return [(v.x * 0.5 + 0.5) * W, (-v.y * 0.5 + 0.5) * H]; };
+    const px = spots.map(proj);
+    let minPx = 1e9, minPair = null, minWorld = 1e9, minWPair = null;
+    for (let i = 0; i < spots.length; i++) for (let j = i + 1; j < spots.length; j++){
+      const d = Math.hypot(px[i][0] - px[j][0], px[i][1] - px[j][1]);
+      const w = Math.hypot(spots[i][0] - spots[j][0], spots[i][2] - spots[j][2]);
+      if (d < minPx){ minPx = d; minPair = [i, j]; }
+      if (w < minWorld){ minWorld = w; minWPair = [i, j]; }
+    }
+    /* 阈值按画幅宽度折算：设计稿是 1400×800 下 60px（鹦鹉体长 1.1m 在默认机位约 46px 宽） */
+    return { n: spots.length, minPx: Math.round(minPx), minPair, minWorld: +minWorld.toFixed(2), minWPair,
+      need: Math.round(60 * W / 1400), W, H,
+      px: px.map(p => p.map(v => Math.round(v))) };
+  });
+  check(`⑤a 落点两两不糊：默认机位屏幕间距 ≥${sep.need}px（修前 ①② 只差 27px ⇒ 糊成"双头鹦鹉"）`,
+    sep.minPx >= sep.need, `最小 ${sep.minPx}px（第 ${sep.minPair} 对）· 落点 ${sep.n} 个 屏幕 ${JSON.stringify(sep.px)}`);
+  check('⑤b 落点两两世界距离 ≥1.2m（鸟 1.1m 体长，挤在一起就是叠着）',
+    sep.minWorld >= 1.2, `最小 ${sep.minWorld}m（第 ${sep.minWPair} 对）`);
+  check('⑤c 落点比鸟多（换峰飞行永远有空位可去；3 点 3 鸟时飞行=换座=必然叠上）',
+    sep.n >= 4, `落点 ${sep.n} 个 / 鸟 3 只`);
+
+  /* 采样窗口内不允许两只落在同一点 */
+  let samePerch = 0;
+  for (const r of rows){
+    const at = r.s.map(m => m.at.join(','));
+    const set = new Set(at);
+    if (set.size !== at.length) samePerch++;
+  }
+  check('⑤d 采样窗口内没有两只落在同一落点（飞行不落进已占位置）',
+    samePerch === 0, `重叠帧 ${samePerch}/${rows.length}`);
+
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));
   await browser.close(); server.close();
   const fails = results.filter(r => !r.ok).length;
