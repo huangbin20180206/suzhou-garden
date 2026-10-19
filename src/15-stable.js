@@ -93,15 +93,56 @@ const HORSE_TOTAL_H = 1.75;
    ⚠️ three.js 的 GLTFLoader 会把节点名里的 `.` 去掉（DEF-neck.001 → DEF-neck001），
       骨骼名一律按**去掉点号**的写法取（见 tinker-bones.mjs 的实测名单）。 */
 const TINKER_GLB = 'assets/HorseTinker.glb';
-const TINKER_ANIM_BONES = (() => {
-  const out = ['DEF-neck001','DEF-neck002','DEF-neck003','DEF-neck004','DEF-head','DEF-jaw','DEF-jaw001',
-    'DEF-tail001','DEF-tail002','DEF-tail003','DEF-tail004','DEF-tail005',
-    'DEF-upper_armL','DEF-forearmL','DEF-forefootL','DEF-upper_armR','DEF-forearmR','DEF-forefootR',
-    'DEF-earL','DEF-earR','DEF-noseL','DEF-noseR'];
-  for (let i = 1; i <= 6; i++){ const p = String(i).padStart(2, '0'); out.push('DEF-mane_base' + p, 'DEF-mane_top' + p); }
+/* ══ 驱动骨**真值表**（2026-10-19 · probe/_tmp-horse-diag6/diag8.mjs 逐骨实测）═════
+   ⚠️⚠️ 上一版是按"DEF-* 命名"猜的，结果**六项动作里只有摇尾/抬蹄真的动了**，
+   其余四项（低头吃草/撅嘴嚼/抬头晃头/抖鬃毛）打的是**另一条链** ⇒ 完全空转，
+   马就一直是"站桩"（老黄说的"僵尸马"）。
+   根因：这套 Rigify 导出件里有**两条平行的骨链**，而**皮肤分开挂在两条链上**：
+     · ORG 链：torso→spine_fk→ORG-spine→ORG-neck001..004→ORG-head→{ORG-skull, jaw, ear*, nose*}
+     · DEF 链：root→DEF-spine001..006→DEF-neck001..004→DEF-head
+   实测皮肤归属（Horse_LP 4432 顶点）：头骨 547→DEF-skull；下颌 219→jaw；
+   脖皮 141→DEF-neck001/002；前蹄 112→f_hoofL；上臂/前臂/蹄趾→DEF-upper_arm/DEF-forearm/DEF-f_toe。
+   ⇒ **低头必须转 ORG-neck**（转 DEF-neck 只有 141 个脖皮顶点跟着动，头不动）；
+     DEF-neck 与 ORG-neck 是同角度的两条副本 ⇒ **同号同权重**驱动，否则脖皮会与头撕开。
+   方向（实测，probe/_tmp-horse-diag8.mjs）：
+     · ORG-neck X **正 = 低头**（+0.64rad ⇒ 口鼻降 0.37m）；ORG-head X 正 = 点低头、Z 正 = 摇
+     · jaw X 正 = 张嘴、负 = 合嘴；DEF-jaw X 正 = 下齿张得更开
+     · tail001..005 / DEF-tail001..005 Z 正 = 甩尾
+     · ORG-upper_arm/forearm/forefoot/f_toe + f_hoof 带动整条前腿（DEF 链只带得上臂/前臂） */
+const TINKER_BONE_GROUPS = {
+  neckORG: ['ORG-neck001','ORG-neck002','ORG-neck003','ORG-neck004'],
+  neckDEF: ['DEF-neck001','DEF-neck002','DEF-neck003','DEF-neck004'],
+  head:    ['ORG-head'],
+  jaw:     ['jaw'],
+  jawTeeth:['DEF-jaw'],
+  earL:    ['earL'], earR: ['earR'],
+  earLDEF: ['DEF-earL'], earRDEF: ['DEF-earR'],
+  nose:    ['noseL','noseR','DEF-noseL','DEF-noseR'],
+  tail:    ['tail001','tail002','tail003','tail004','tail005'],
+  tailDEF: ['DEF-tail001','DEF-tail002','DEF-tail003','DEF-tail004','DEF-tail005'],
+};
+const TINKER_MANE_BONES = (() => {
+  const out = [];
+  for (let i = 1; i <= 6; i++){
+    const p = String(i).padStart(2, '0');
+    out.push('mane_base' + p, 'mane_top' + p, 'DEF-mane_base' + p, 'DEF-mane_top' + p);
+  }
   return out;
 })();
-let _tinkerBuf = null, _tinkerLoader = null;
+const TINKER_LEG_BONES = (s) => ([
+  'DEF-upper_arm' + s, 'DEF-upper_arm' + s + '001', 'DEF-forearm' + s, 'DEF-forearm' + s + '001',
+  'DEF-forefoot' + s, 'DEF-forefoot' + s + '001', 'DEF-f_toe' + s,
+  'ORG-upper_arm' + s, 'ORG-forearm' + s, 'ORG-forefoot' + s, 'ORG-f_toe' + s, 'f_hoof' + s,
+]);
+const TINKER_ANIM_BONES = (() => {
+  const out = [];
+  const g = TINKER_BONE_GROUPS;
+  for (const k of Object.keys(g)) out.push(...g[k]);
+  out.push(...TINKER_MANE_BONES);
+  out.push(...TINKER_LEG_BONES('L'), ...TINKER_LEG_BONES('R'));
+  return out;
+})();
+let _tinkerBuf = null, _tinkerLoader = null, _tinkerWarned = false;
 function tinkerBuffer(){
   if (!_tinkerBuf){
     _tinkerBuf = fetch(TINKER_GLB).then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); });
@@ -126,10 +167,12 @@ tinkerBuffer().then(() => {
   HOOKS.settleAsset?.(TINKER_GLB, false, e);
 });
 /* 逐匹上色：只乘**身体**材质（名字含 Horse_LP），鬃/尾/眼/牙保留原贴图；
-   纹理的白斑会吃 tint，黑斑保持黑 —— 六匹因此是"同一匹花马的六种毛色"。 */
-function tinkerMaterial(m, tint){
+   纹理的白斑会吃 tint，黑斑保持黑 —— 六匹因此是"同一匹花马的六种毛色"。
+   ⚠️ 2026-10-19：眼材质**压暗**（原贴图是纯白眼白 + 黑瞳，近看读作"僵尸瞪眼"）。 */
+function tinkerMaterial(m, tint, meshName){
   const c = m.clone();
   if (/Horse_LP/i.test(m.name || '')) c.color.copy(tint);
+  else if (/eye/i.test(meshName || '')) c.color.set(0x4a3a2a);
   else c.color.set(0xFFFFFF);
   c.metalness = 0.0;
   c.roughness = Math.max(0.72, c.roughness || 0.9);
@@ -145,44 +188,75 @@ function tinkerBone(bones, rest, name, x, y, z){
   _te.set(x, y, z, 'XYZ'); _tq.setFromEuler(_te);
   b.quaternion.copy(rest[name] || _tid).multiply(_tq);
 }
-/* 把"概念上的姿态角"翻译成骨骼旋转。headPitch 正 = 低头（与旧伪蒙皮同号）。 */
+/* 把"概念上的姿态角"翻译成骨骼旋转。headPitch 正 = 低头（与旧伪蒙皮同号）。
+   ⚠️ 骨名按上面的**真值表**取（ORG 链带动头/下颌/耳/鼻，DEF 链带动脖皮/上臂），
+   方向也按实测：ORG-neck X 正 = 低头、ORG-head X 正 = 低头 Z 正 = 摇、jaw X 正 = 张嘴。 */
+const TINKER_JAW_CLOSE = 0.46;   // 静息合嘴：模型出厂是"微张"，露上下齿 → 读作龇牙僵尸脸
 function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
   const B = h.anim.bones, R = h.anim.rest;
+  /* ① 颈：低头量（rad）。ORG 链带头，DEF 链带脖皮 —— 两条同号同权重。 */
   let hp = headPitch * 1.9;
-  if (h.role === 'graze') hp += 0.64; else if (h.role === 'fed') hp += 0.36;
-  tinkerBone(B, R, 'DEF-neck001', hp * 0.34, 0, 0);
-  tinkerBone(B, R, 'DEF-neck002', hp * 0.28, 0, 0);
-  tinkerBone(B, R, 'DEF-neck003', hp * 0.22, 0, 0);
-  tinkerBone(B, R, 'DEF-neck004', hp * 0.16, 0, 0);
-  tinkerBone(B, R, 'DEF-head', headPitch * 0.55, headYaw * 1.15, 0);
+  if (h.role === 'graze') hp += 0.95; else if (h.role === 'fed') hp += 0.66;
+  /* 颈的分配：越靠上（靠头）弯得越多 ⇒ 脖子是"弧"不是"折"（下段权重小、末两节大）。 */
+  const nw = [0.20, 0.24, 0.28, 0.28];
+  for (let i = 0; i < 4; i++){
+    const a = hp * nw[i];
+    tinkerBone(B, R, 'ORG-neck00' + (i + 1), a, 0, 0);
+    tinkerBone(B, R, 'DEF-neck00' + (i + 1), a, 0, 0);
+  }
+  /* ② 头：点/摇（ORG-head：X 正 = 低头、Z = 摇） */
+  tinkerBone(B, R, 'ORG-head', headPitch * 0.55, 0, headYaw * 1.15);
+  /* ③ 下颌：静息合嘴 + 吃草时轻嚼。'jaw' 带嘴皮，'DEF-jaw' 带下齿网格。 */
   const chew = (h.role === 'graze' || h.role === 'fed')
     ? 0.055 + 0.05 * Math.sin(_stT * 5.4 + h.phase) : 0.008 * Math.sin(_stT * 0.9 + h.phase);
-  tinkerBone(B, R, 'DEF-jaw', chew, 0, 0);
-  tinkerBone(B, R, 'DEF-jaw001', chew * 0.65, 0, 0);
+  tinkerBone(B, R, 'jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
+  tinkerBone(B, R, 'DEF-jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
+  /* ④ 尾：尾网格主骨是纯名 tail001..005，体上尾根是 DEF-tail001..005 —— 两条都转。 */
   const tw = [0.45, 0.25, 0.15, 0.10, 0.05];
-  for (let i = 0; i < 5; i++) tinkerBone(B, R, 'DEF-tail' + String(i + 1).padStart(3, '0'), 0, 0, tailYaw * tw[i]);
-  const lift = Math.max(leg[0], leg[1]);
-  if (lift > 0.01){
-    const L = leg[0] >= leg[1];
-    tinkerBone(B, R, L ? 'DEF-upper_armL' : 'DEF-upper_armR', lift * 1.35, 0, 0);
-    tinkerBone(B, R, L ? 'DEF-forearmL' : 'DEF-forearmR', -lift * 1.05, 0, 0);
-    tinkerBone(B, R, L ? 'DEF-forefootL' : 'DEF-forefootR', lift * 0.55, 0, 0);
-  } else {
-    for (const s of ['L', 'R']){
-      tinkerBone(B, R, 'DEF-upper_arm' + s, 0, 0, 0);
-      tinkerBone(B, R, 'DEF-forearm' + s, 0, 0, 0);
-      tinkerBone(B, R, 'DEF-forefoot' + s, 0, 0, 0);
-    }
+  for (let i = 1; i <= 5; i++){
+    const a = tailYaw * tw[i - 1], p = String(i).padStart(3, '0');
+    tinkerBone(B, R, 'tail' + p, 0, 0, a);
+    tinkerBone(B, R, 'DEF-tail' + p, 0, 0, a);
   }
+  /* ⑤ 前蹄：DEF 链带上臂/前臂，ORG 链带蹄（蹄皮 112 个顶点挂 f_hoofL）—— 都要转，
+     否则抬蹄时蹄会留在原地、腿从膝上撕开。 */
+  const lift = Math.max(leg[0], leg[1]);
+  for (const s of ['L', 'R']){
+    const on = (s === 'L') ? (leg[0] >= leg[1] && leg[0] > 0.01) : (leg[1] > 0.01);
+    const L = s === 'L';
+    const aU = on ? lift * 1.35 : 0, aF = on ? -lift * 1.05 : 0, aT = on ? lift * 0.55 : 0;
+    tinkerBone(B, R, 'DEF-upper_arm' + s, aU, 0, 0);
+    tinkerBone(B, R, 'DEF-upper_arm' + s + '001', aU * 0.5, 0, 0);
+    tinkerBone(B, R, 'DEF-forearm' + s, aF, 0, 0);
+    tinkerBone(B, R, 'DEF-forearm' + s + '001', aF * 0.5, 0, 0);
+    tinkerBone(B, R, 'DEF-forefoot' + s, aT, 0, 0);
+    tinkerBone(B, R, 'DEF-forefoot' + s + '001', aT * 0.5, 0, 0);
+    tinkerBone(B, R, 'DEF-f_toe' + s, aT, 0, 0);
+    tinkerBone(B, R, 'ORG-upper_arm' + s, aU, 0, 0);
+    tinkerBone(B, R, 'ORG-forearm' + s, aF, 0, 0);
+    tinkerBone(B, R, 'ORG-forefoot' + s, aT, 0, 0);
+    tinkerBone(B, R, 'ORG-f_toe' + s, aT, 0, 0);
+    tinkerBone(B, R, 'f_hoof' + s, aT, 0, 0);
+    void L;
+  }
+  /* ⑥ 耳朵：耳皮挂纯名 earL/earR（耳尖是它的子骨 earL001）⇒ 转父骨即可。 */
   const earFlick = h.flickT > 0 ? 0.30 * Math.sin(Math.PI * Math.min(1, 1 - h.flickT / 0.9)) : 0;
-  tinkerBone(B, R, 'DEF-earL', 0, 0, earFlick);
-  tinkerBone(B, R, 'DEF-earR', 0, 0, -earFlick);
+  tinkerBone(B, R, 'earL', 0, 0, earFlick);
+  tinkerBone(B, R, 'earR', 0, 0, -earFlick);
+  tinkerBone(B, R, 'DEF-earL', 0, 0, earFlick * 0.6);
+  tinkerBone(B, R, 'DEF-earR', 0, 0, -earFlick * 0.6);
+  /* ⑦ 鼻孔：鼻皮挂纯名 noseL/noseR，DEF-noseL/R 也带着一点。 */
   h.flare = Math.max(0, (h.flare || 0) - dt * 1.3);
+  tinkerBone(B, R, 'noseL', h.flare, 0, 0);
+  tinkerBone(B, R, 'noseR', h.flare, 0, 0);
   tinkerBone(B, R, 'DEF-noseL', h.flare, 0, 0);
   tinkerBone(B, R, 'DEF-noseR', h.flare, 0, 0);
+  /* ⑧ 鬃毛：次级摆动。纯名 mane_base/mane_top 是真骨，DEF 版只管 63 个顶点的小面片。 */
   for (let i = 1; i <= 6; i++){
     const p = String(i).padStart(2, '0');
     const sway = 0.022 * Math.sin(_stT * 1.6 + h.phase + i * 0.7);
+    tinkerBone(B, R, 'mane_base' + p, 0, 0, sway);
+    tinkerBone(B, R, 'mane_top' + p, 0, 0, sway * 1.2);
     tinkerBone(B, R, 'DEF-mane_base' + p, 0, 0, sway);
     tinkerBone(B, R, 'DEF-mane_top' + p, 0, 0, sway * 1.2);
   }
@@ -664,6 +738,21 @@ export function horseLifeState(){
                  leg: [...h.mat.userData.rig.leg].map(v => +v.toFixed(3)),
                  breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null }) };
 }
+/* ── 调试钩子（2026-10-19 · 骨链诊断用）：当前姿态 vs 绑定姿态的骨骼四元数 ──
+   probe/_tmp-horse-diag9.mjs 用它比对"哪根骨被拧了多少"，定位头/脖撕开的问题。 */
+export function tinkerPoseDebug(){
+  const e = (q) => { const t = new THREE.Euler().setFromQuaternion(q, 'XYZ');
+    return [+t.x.toFixed(3), +t.y.toFixed(3), +t.z.toFixed(3)]; };
+  return HORSE_LIFE.map(h => {
+    const B = h.anim.bones, R = h.anim.rest, out = {};
+    for (const n of Object.keys(R)){
+      if (!B[n]) { out[n] = null; continue; }
+      out[n] = { now: e(B[n].quaternion), rest: e(R[n]) };
+    }
+    return { role: h.role, hp: +(h.lastHP || 0).toFixed(3), hy: +(h.lastHY || 0).toFixed(3),
+             ty: +(h.lastTY || 0).toFixed(3), bones: out };
+  });
+}
 
 /* 冬天口鼻白雾（只给辕里那两匹）：**位置在 CPU 上按同一套枢轴/角度复算** —— 顶点是 GPU 改的、
    CPU 不知道，所以这里照抄同一套旋转公式算出**鼻端**，再乘槽位组的世界矩阵。
@@ -762,7 +851,7 @@ export function tickStableLife(dt){
         const b = h.breath[h.breathCur = (h.breathCur + 1) % h.breath.length];
         b.life = 1.35;
         if (h.anim){
-          const nose = h.anim.bones['DEF-noseL'] || h.anim.bones['DEF-head'];
+          const nose = h.anim.bones['noseL'] || h.anim.bones['DEF-noseL'] || h.anim.bones['ORG-head'];
           if (nose) nose.getWorldPosition(_tv);
           else _tv.set(0, 1.2, 0);
           b.x = _tv.x; b.y = _tv.y; b.z = _tv.z; b.world = true;
@@ -874,19 +963,40 @@ export function loadStableHorses(stableGroup){
           if (!o.isMesh) return;
           o.castShadow = true; o.receiveShadow = true;
           o.userData.noMerge = true;
+          /* ⚠️ 2026-10-19：**把牙齿网格藏掉** —— 这个模型出厂是"微张嘴"，
+             上下齿是**独立网格**（Teeth_UP 挂头骨、Teeth_down 挂下颌），
+             近看就是一排白牙 + 粉牙龈 ⇒ 读作"龇牙僵尸脸"（老黄的"僵尸马"）。
+             合上嘴（jaw 静态 -0.46rad）+ 藏牙 ⇒ 嘴只剩贴图上的唇线。 */
+          if (/teeth/i.test(o.name || '')) { o.visible = false; o.castShadow = false; }
           /* ⚠️ 蒙皮网格的包围球是"绑定姿态"算的，骨骼一动就会误剔除 ⇒ 关掉视锥剔除。
              只有 7 个网格 × 6 匹 = 42 个，代价可忽略。 */
           if (o.isSkinnedMesh) o.frustumCulled = false;
-          o.material = tinkerMaterial(o.material, baseMat.color);
+          o.material = tinkerMaterial(o.material, baseMat.color, o.name);
         });
         const bones = {};
         root.traverse(o => { if (o.isBone) bones[o.name] = o; });
         const rest = {};
         for (const n of TINKER_ANIM_BONES) if (bones[n]) rest[n] = bones[n].quaternion.clone();
         const missing = TINKER_ANIM_BONES.filter(n => !bones[n]);
-        if (missing.length) console.warn('[马·Tinker] 缺骨骼：' + missing.join(','));
-        /* 换装：摘掉程序化替身，挂上真马（与旧路径同一套 holder 语义） */
-        slot.holders.forEach(h => { slot.group.remove(h); });
+        if (missing.length && !_tinkerWarned){ _tinkerWarned = true; console.warn('[马·Tinker] 缺骨骼：' + missing.join(',')); }
+        /* 换装：摘掉程序化替身，挂上真马（与旧路径同一套 holder 语义）
+           ⚠️ 2026-10-19：摘掉之后**必须把替身的几何/材质从显卡里退掉** ——
+           `remove()` 只是从场景图断开，geometry/material 仍被 renderer 的资源表持有、
+           直到 dispose 才释放。实测（outputs/_diag/_tmp-geos-growth.mjs，同一 boot 稳态）：
+             · 场景内唯一几何 803，而 renderer.memory.geometries = 968 ⇒ **165 个是游离残留**；
+             · 对照组（bd69f63 无真马，不换装）geometries = 707 且与场景内数量一致。
+           6 匹替身各 ~28 个零件 ⇒ 正好对上 165。这 165 个一直占显存、也让
+           smoke 的「几何数量健康」判据从 803 抬高到 968（上限 950 ⇒ 红）。
+           注意只 dispose 替身：真马刚 parse 出来的几何还要用，别碰。 */
+        const disposedGeo = new Set(), disposedMat = new Set();
+        slot.holders.forEach(h => {
+          slot.group.remove(h);
+          h.traverse(o => {
+            if (o.geometry && !disposedGeo.has(o.geometry)){ disposedGeo.add(o.geometry); o.geometry.dispose(); }
+            const ms = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+            for (const m of ms){ if (!disposedMat.has(m)){ disposedMat.add(m); m.dispose(); } }
+          });
+        });
         root.userData.horse = true;
         slot.group.add(root);
         slot.holders = [root];

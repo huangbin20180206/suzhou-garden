@@ -171,6 +171,12 @@ const SUITES = [
      全套门禁仍可能全绿。这条守：两件都挂上、落位 x=40±2.45、尺寸 1.08m、
      底部落地、到门洞净空 ≥10cm（旧桩位只剩 5cm）、贴图在、无 404。 */
   ['院门口石狮 lion-guard',  'probe/lion-guard.mjs'],
+  /* 马的动作 horse-motion-guard（2026-10-20 建，~40s）：补 P1「马的六项动作其实是空转」。
+     换 Tinker 骨骼马后，动画层按"DEF-* 命名"猜骨，而这套 Rigify 导出件**皮肤分挂在两条链上**
+     （ORG 链带头/下颌/耳/鼻，DEF 链带脖皮/上臂）⇒ 低头吃草/撅嘴嚼/抬头晃头/抖鬃毛全部打空，
+     马一直站桩（老黄："僵尸马"）。画面上不报错 ⇒ 只能靠量：口鼻相对鬐甲的高度、
+     下颌/头骨/蹄骨的角度摆幅、尾尖横摆、冬天白气。 */
+  ['马的动作 horse-motion-guard', 'probe/horse-motion-guard.mjs'],
   /* 控制台噪声 gl-warning-guard（2026-10-18 建，~20s）：补 P3「启动 256 条 WebGL 错误」。
      修前：暖机前 12 桶 needsUpdate=false ⇒ sun.shadow.map 为 null，而 STANDARD 材质的
      shadowMap 是 sampler2DShadow ⇒ 空 uniform 绑 RGBA 默认纹理，3713 笔 draw 报

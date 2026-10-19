@@ -18,6 +18,9 @@ _attic/
 # 临时探针脚本：一次性诊断用，不入库
 probe/_tmp-*
 
+# 本机临时 worktree（切旧提交对比用）
+_wt_*/
+
 # CC0 原始下载模型库：体积大（~47MB）且可按 SHORTLIST.md 重新下载，不入库
 research/cc0-scout/models/
 
