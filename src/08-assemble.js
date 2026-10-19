@@ -360,10 +360,11 @@ deferBootFirst('马厩', () => {
   /* 院外石板路（上下马处 → 园子南门）：跟着地形走的带子，起点接院门、终点接月洞门
      外侧的门槛石（见 15-stable 的 makeStableRoad 注释）。 */
   deferRoot.add(makeStableRoad());
-  /* 真马模型（异步）：加载成功就把 6 个槽位里的**程序化替身**换成真马并逐匹上色；
-     失败/离线时什么都不做 —— 替身照常站在那儿（马厩不会空）。
-     ⚠️ 放在马厩建好之后调用：它按 `userData.horseSlots` 找槽位。 */
-  loadStableHorses(st);
+  /* 真马模型（异步）：2026-10-19 撤马后停用。6 个槽位的 holder 已在 makeStable 里
+     set visible=false，挽带也跟着收进 holder；这里再调 loadStableHorses 只会
+     把真模型盖到隐形替身上，浪费 790KB 下载 + 一次阴影重渲 + 一次 drawcall 提交。
+     直接 no-op。马厩改成"两驾停着的车 + 草料堆 + 马夫 + 拴马桩 + 草料篮"的厩房场景。 */
+  // loadStableHorses(st);
 });
 
 // 青竹丛（沿墙根密植，四角加倍）—— P1-4 延迟装配（竹竿几何 + 叶实例，量最大）
@@ -729,11 +730,11 @@ deferBootFirst('立峰·云根', function heroStones(){
 import { VIEWPOINTS, buildViewpoints, CAM_FLY, flyTo, cancelCamFly, updateCamFly, INTRO,
          introActive, introStart, introCancel, updateIntro, introMaybeAuto,
          gotoViewpoint, TOUR, captionEl, showCaption, showSeasonCaption, hideCaption,
-         tourStop, tourStart, updateTour, tourUserTakeover } from './08d-tour.js';
+         tourPlan, tourStop, tourStart, updateTour, tourUserTakeover } from './08d-tour.js';
 export { CAM_FLY, flyTo, cancelCamFly, updateCamFly, INTRO, introActive, introStart,
          introCancel, updateIntro, introMaybeAuto, VIEWPOINTS,
          gotoViewpoint, TOUR, captionEl, showCaption, showSeasonCaption, hideCaption,
-         tourStop, tourStart, updateTour, tourUserTakeover };
+         tourPlan, tourStop, tourStart, updateTour, tourUserTakeover };
 buildViewpoints(HERO_POS);
 
 /* ── 以下两块来自 09-lights.js 的模块顶层（本轮拆模块时移回这里）──

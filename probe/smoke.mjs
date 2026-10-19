@@ -184,7 +184,12 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   let info = null;
 
   // ── 1. 启动 ──
-  const response = await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 60000 });
+  /* ⚠️ 2026-10-19 · 钉 `?tier=low`（与 layout-fingerprint.mjs:40 同一理由）：
+     本机双显卡，无头 ANGLE 会随机落到 NVIDIA=high 档 ⇒ pixelRatio=1.25、阴影/反射
+     联动开启，同一份代码读数差一倍（实测 2026-10-19：Intel 轮 400/1.93M 绿；
+     RTX 轮 796~804/4.32M 红三连）。判据数字不动，钉档保证跨机跨次可比。
+     高档口径的渲染量防线由已钉 ?tier=high 的门（lamp-guard 等）守。 */
+  const response = await page.goto(`http://127.0.0.1:${port}/index.html?tier=low&intro=0`, { waitUntil: 'load', timeout: 60000 });
   console.log('[source] HTTP=' + response.status() + ' matchesDisk=' + (await response.body()).equals(fs.readFileSync(path.join(ROOT, 'index.html'))));
   const booted = await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),

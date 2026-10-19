@@ -156,6 +156,28 @@ const SUITES = [
   ['playwright 实参个数 playwright-args-guard','probe/playwright-args-guard.mjs'],
   ['阴影视体覆盖 shadow-cover','probe/shadow-cover.mjs'],
   ['无头回归 smoke',         'probe/smoke.mjs'],
+  /* 巡游端到端 tour-guard（2026-10-18 建，~75s）：补 P1「新增两站没有门禁」。
+     走真实巡游节奏（10 站 × dwell 6s），守三件 smoke 看不见的事：
+       ① 10 站逐站落位（水平 Δ<5cm、注视点 Δ<30cm；y 允许被 polar 钳制抬高）；
+       ② 字幕与 tourPlan 逐站对应（顺序漂移 / 字幕配错都会红）；
+       ③ 全程逐帧采样相机位置，墙厚带内低于墙顶 = 穿墙（lantern 在院外、plaque 在园内，
+          旧版直线飞行会在 y≈1.8m 处穿过 4.5m 高的东墙）。
+     ⚠️ 这条会暴露既有的 polar 相机约定：hero / heroPeak 的机位把相机放在注视点之下，
+       落定后会被 controls.update() 抬高 ~0.6m —— 判据只允许"抬高"，不允许横向漂移。 */
+  ['巡游端到端 tour-guard',  'probe/tour-guard.mjs'],
+  /* 院门口石狮 lion-guard（2026-10-18 建，~25s）：补 P1「石狮 404 会静默消失」。
+     13-preload 把两件石狮登记为 required:false（拉不到页面照开、门口空着），
+     而 smoke / preload-manifest-sync 都不查"实际挂载" ⇒ 文件被误删/改名/缓存失效时
+     全套门禁仍可能全绿。这条守：两件都挂上、落位 x=40±2.45、尺寸 1.08m、
+     底部落地、到门洞净空 ≥10cm（旧桩位只剩 5cm）、贴图在、无 404。 */
+  ['院门口石狮 lion-guard',  'probe/lion-guard.mjs'],
+  /* 控制台噪声 gl-warning-guard（2026-10-18 建，~20s）：补 P3「启动 256 条 WebGL 错误」。
+     修前：暖机前 12 桶 needsUpdate=false ⇒ sun.shadow.map 为 null，而 STANDARD 材质的
+     shadowMap 是 sampler2DShadow ⇒ 空 uniform 绑 RGBA 默认纹理，3713 笔 draw 报
+     "Mismatch between texture format and sampler type"（控制台截到 256 条）。
+     修法：第 1 桶开一次 shadowMap.needsUpdate（见 11-loop warmBoot 注释）。
+     本门禁守：启动期与稳态 GL 错误必须为 0；console warning 只许白名单（着色器精度提示）。 */
+  ['控制台噪声 gl-warning-guard', 'probe/gl-warning-guard.mjs'],
   /* 手机/平板控制面板（2026-10-07 建，~40s）：进场收起 / 点方印才出 / 触控命中区 /
      窄窗口不溢出 / 引导在触控档不代开面板（配桌面口径的负例对照）。
      与 smoke 的 320px 那条**不重复**：smoke 只看"收进视口 + 按钮 ≥44px"，

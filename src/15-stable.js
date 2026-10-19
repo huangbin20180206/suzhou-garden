@@ -33,7 +33,7 @@ import { loadAssetOnce } from './06e-assets.js';
 /* 路灯真光源要进 lamp 通道（12-env :303 按 worldLights 逐盏发强度）。
    方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环（与上面 ENV 那条同理）。 */
 import { worldLights } from './12d-lantern.js';
-import { renderer, scene, camera } from './02-scene.js';
+import { renderer, scene, camera, ACTIVE_QUALITY } from './02-scene.js';
 /* 季节门控（冬天才有口鼻白雾）走 ENV —— 方向单纯（12-env 不 import 本模块，见它的 import 表），
    所以直接 import，不必像 12b/12c 那样开注入槽。 */
 import { ENV } from './12-env.js';
@@ -1168,7 +1168,7 @@ const FEED_BALE = (() => {
     const a = (i / 56) * Math.PI * 2 + pr(-0.11, 0.11);
     /* ⚠️ 束口半径与顶端外扩倍数一起定"稠密还是稀疏"：第一版 34 根、外扩 3.4 倍
        ⇒ 出图判读"还是几根黄签子"，因为 34 根摊在 0.42m 直径上、彼此离得开。
-       现在 44 根、外扩只给 2.4 倍（0.24m 直径）—— **密到重叠**才读得出"一把草"。 */
+       现在 56 根、外扩只给 2.4 倍（0.24m 直径）—— **密到重叠**才读得出"一把草"。 */
     const r = 0.008 + pr(0, 0.026) + (i % 4) * 0.005;
     const zTip = 0.100 + pr(0, 0.070);           // 茎长不齐，束口才毛糙
     const zMid = zTip * 0.46;
@@ -1180,7 +1180,7 @@ const FEED_BALE = (() => {
 })();
 export function makeFeedBale(){
   const g = new THREE.Group();
-  /* ⚠️ 34 根草茎**必须并成一个几何**：一根一个 mesh 就是 34 个 draw call，
+  /* ⚠️ 56 根草茎**必须并成一个几何**：一根一个 mesh 就是 56 个 draw call，
      mergeStatics 又碰不到它们（整个捆挂着 noMerge，跟着马夫的手臂动）——
      一个小道具吃掉 36 个 draw call 是不该付的代价。并完只剩 2 个（草 + 束带）。 */
   const strands = [];
@@ -1617,8 +1617,21 @@ export function makeStableRoad(){
        · distance=7 + decay=2：光只落在灯下路面一圈，不把整片草坡染成橘色。
        · 灯数启动时定死、运行期只改 intensity（与廊灯同一条铁律，不触发材质重编译）。
        · 时段开关：推进 worldLights（12-env :303 按 lamp 通道发强度，白天全灭、夜里全亮）。
-       · 摇曳：userData.flick 由 11-loop 逐帧写（烛火式 ±10%，每盏相位用布点序号派生、确定性）。 */
-    for (let i = 0; i < spots.length; i++){
+       · 摇曳：userData.flick 由 11-loop 逐帧写（烛火式 ±10%，每盏相位用布点序号派生、确定性）。
+
+       ⚠️ 性能档（low）**一盏都不建**（2026-10-18 · 补 P1「10 盏常驻真光源没有低画质验收」）。
+       实测（outputs/_diag/lowfps.mjs，1600×900 · ?tier=low · 夜间 · 同一帧位）：
+           正午（10 盏 intensity=0，但仍参与着色） 13.3 fps
+           夜间 开 10 盏                            14.7 fps
+           夜间 关 10 盏（visible=false）           22.7 fps
+       即"10 盏 PointLight 常驻"在性能档吃掉约 **8~11 fps（约 35~50%）** —— 白天强度为 0
+       也照付 shader 前向光照循环的钱。所以性能档直接不建这 10 盏，只保留模型自带的
+       火袋 emissive（灯仍然"亮着"，只是不往地面投光）。
+       灯数仍在启动时定死（只有初次画质档决定），运行期不增删 ⇒ 不会触发材质重编译。
+       注：QOS 运行期把 mid/high 降到 low 时，已经建好的灯不会消失（改灯数会当场重编译，
+       换来一次卡顿）；这是有意的取舍，见 11-loop QOS 段的口径。 */
+    const LAMP_LIGHT_BUDGET = ACTIVE_QUALITY.key === 'low' ? 0 : spots.length;
+    for (let i = 0; i < LAMP_LIGHT_BUDGET; i++){
       const st = spots[i];
       const L = new THREE.PointLight(0xFFB45A, 0, 7, 2.0);
       L.position.set(st.x, groundHeight(st.x, st.z) + 0.68, st.z);
@@ -1631,26 +1644,35 @@ export function makeStableRoad(){
       g.add(L);
       worldLights.push(L);
     }
-    console.log('[路旁石灯笼] 真光源 10 盏（PointLight，无阴影，lamp 通道 + 摇曳）');
+    console.log('[路旁石灯笼] 真光源 ' + LAMP_LIGHT_BUDGET + ' 盏' +
+      (LAMP_LIGHT_BUDGET ? '（PointLight，无阴影，lamp 通道 + 摇曳）'
+                         : '（性能档：只留火袋 emissive，省 10 盏前向光照）'));
   }
   /* ── ⑤ 院门口石狮一对（2026-10-18 · 老黄："门口应该放一对石狮子，注意一公一母"）───
      规矩（维基"石狮子"条）："从大门里出来时雄在左、雌在右"；雄右前爪踩绣球、雌左前爪抚幼狮。
      院门朝南（世界 +z，门线 z=2.7、开口 x 38.2~41.8），出来时左手边是 +x ⇒ 雄狮放东 (+x)、雌狮放西。
-     桩位：门外两侧 x=40±2.3、z=3.4（门线外 0.7m、路头 4.2m 以北，不挡喇叭口），面朝南 (+z)。
-     模型：research/diy-lions 自制，公 312KB / 母 323KB，高 1.08m（与 3.6m 门洞比例协调）。
-     朝向：模型在 Blender 里脸朝 +y，glTF yup 导出后脸朝 −z ⇒ rotation.y=PI 转成 +z（南）迎客。
-     拿数字实证过（暗部网格世界 z=3.64 > 桩位 3.4，脸在南侧）：PI 对，0 是后脑勺。 */
+     桩位：门外两侧 x=40±2.45、z=3.4（门线外 0.7m、路头 4.2m 以北，不挡喇叭口），面朝南 (+z)。
+
+     模型（2026-10-18 换真实照片扫描，见 13-preload 与 research/diy-lions/photoscan）：
+     · 公 711648B / 母 643576B，主体高 1.076m，loadAssetOnce 归一化到 1.08m；
+     · 朝向：Blender 里脸朝 −Y，glTF yup 导出后脸朝 **+z** ⇒ holder.rotation.y = 0
+       （⚠️ 与旧 v7 手工模型相反 —— 旧资产脸朝 −z、rotation.y=π；换资产时必须一起改，
+       否则两只狮子背对游客。实拍核对见 probe/lion-guard 的出图）。
+     · 净空：包围盒半宽 0.30m（实测 0.557/2），狮身内缘到门洞边（±1.8m）留 0.15m；
+       旧桩位 ±2.3 只剩 0.05m，视觉上像贴着门柱（2026-10-18 评审 P2）。
+     · 母狮是同一扫描体的 X 镜像 + 胸前伏一只 0.20m 的幼狮（同一网格，见 build_lions.py）。
+     · 拉不到时 required:false ⇒ 门口空着；probe/lion-guard 会报红（不许静默消失）。 */
   {
     const spots = [
-      { url: 'assets/stone-lion-male.glb', x: 42.3, z: 3.4, name: 'stoneLionMale' },
-      { url: 'assets/stone-lion-female.glb', x: 37.7, z: 3.4, name: 'stoneLionFemale' },
+      { url: 'assets/stone-lion-male.glb', x: 42.45, z: 3.4, name: 'stoneLionMale' },
+      { url: 'assets/stone-lion-female.glb', x: 37.55, z: 3.4, name: 'stoneLionFemale' },
     ];
     for (const st of spots){
       loadAssetOnce(st.url, 1.08, (src)=>{
         const h = new THREE.Group();
         h.name = st.name;
         h.position.set(st.x, groundHeight(st.x, st.z) - 0.01, st.z);
-        h.rotation.y = Math.PI;
+        h.rotation.y = 0;                       // 扫描狮脸朝 +z（南）迎客，见上方注释
         h.add(src.clone(true));
         g.add(h);
         console.log('[门口石狮] ' + st.name + ' 落位 (' + st.x.toFixed(1) + ',' + st.z.toFixed(1) + ')');
@@ -1845,12 +1867,18 @@ export function makeStable(cx, cz, opts = {}){
     }
   }
   /* **厩内 2 匹**（占第 1、3 栏；第 2、4 栏空着）—— 空槽位里放地上的干草，读作"空闲马位"
-     ⚠️ 六匹的花纹刻意各不相同（老黄："所有的马都是单一颜色"）：骝马白斑+白袜、白马带斑纹、
-     黑马纯黑（真实存在的"黑得发亮"）、枣红白袜、青灰斑纹+小流星、兔褐白斑白袜。 */
+     ⚠️ 2026-10-19 撤掉：6 匹全数从场景中隐去。
+        · 程序化 6 匹（makeHorse 的箱子拼装）出图读作"木雕涂漆"；
+        · 场院那 4 匹（Tripo 扫描 Horse.glb）只有法线贴图、缺 baseColor 贴图，
+          全部是同一种"灰色被光烤成棕"的样子，没有活感。
+        老黄："没有活灵活现的感觉的话还不如不做"——这里整个 horse 子系统留下
+        留着以备以后换好资产再用，本轮先把 `slot.group.visible = false` 撤下视觉。
+        真模型那一份改在 loadStableHorses 调用前后不挂 holder 来彻底停掉 GPU/drawcall 占用。 */
   for (const [sx0, col, mk, sd] of [
     [(stallX[0] + stallX[1]) / 2, MAT.horseChestnut, { blaze: 1.0, socks: 0.9 }, 1],
     [(stallX[2] + stallX[3]) / 2, MAT.horseWhite,    { dapple: 0.9 }, 2]]){
-    addHorseSlot(sx0, BZ1 - 1.5, P0, Math.PI, col, { mark: mk, decoSeed: sd });
+    const _stallSlot = addHorseSlot(sx0, BZ1 - 1.5, P0, Math.PI, col, { mark: mk, decoSeed: sd });
+    if (_stallSlot && _stallSlot.group) _stallSlot.group.visible = false;
   }
   for (const i of [1, 3]){                                                    // 空位：散一堆干草
     const cxm = (stallX[i] + stallX[i + 1]) / 2;
@@ -1917,6 +1945,9 @@ export function makeStable(cx, cz, opts = {}){
     collar.position.set(0, 1.42, -0.42);
     collar.rotation.x = 0.42; collar.scale.set(1, 1.12, 1);
     slot.group.add(collar); slot.holders.push(collar);
+    /* 2026-10-19：撤马（理由见厩内那两条注释）。slot.group 含替身 + 挽具，hide 后挽带
+       也不在原位画了，carA 看起来就是"两驾停着的车"，比"一架挂着挽具但没马"自然。 */
+    slot.group.visible = false;
   }
   /* ③c 卸下来的两匹：一匹**低头吃草**、一匹由马夫**递草料**（都在 B 车那一侧）
      ⚠️ fed 马要放在**栅栏以内**（栅栏在 z=−4.7），且把马头那侧留给马夫站 ——
@@ -1926,10 +1957,14 @@ export function makeStable(cx, cz, opts = {}){
      退到 (4.6,−3.9) 完全分开。 */
   /* ⚠️ 2026-10-11（老黄："也看不到马低头吃草的动作"）：把头低的角度加足 ——
      graze 0.82→0.95（= 40.8°）、fed 0.52→0.80（= 34.4°）。上限仍守 bendHeadDown 的 45° 规矩。 */
-  addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey,
+  /* 2026-10-19：撤马（graze/fed 两匹）。直接拿住 addHorseSlot 的返回值再 hide，避开对
+     userData 命名的依赖 —— addHorseSlot 的 userData 字段名历史上换过。 */
+  const _grazeSlot = addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey,
     { graze: 0.95, role: 'graze', decoSeed: 5, mark: { dapple: 1.0, blaze: 0.7 } });
-  addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay,
+  if (_grazeSlot && _grazeSlot.group) _grazeSlot.group.visible = false;
+  const _fedSlot = addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay,
     { graze: 0.80, role: 'fed', decoSeed: 6, mark: { blaze: 1.0, socks: 0.8 } });
+  if (_fedSlot && _fedSlot.group) _fedSlot.group.visible = false;
 
   /* ③d 院用杂物：石水槽、草料堆、两根拴马桩、草料篮
      ⚠️ 2026-10-11 老黄："为什么这个草料一定要这样放，不能全部放在围栏内吗？" ——

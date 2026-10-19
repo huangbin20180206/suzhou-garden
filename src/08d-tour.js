@@ -2,6 +2,7 @@
 // 逻辑一字不动；两处顶层 IIFE（WALK_PATH / VIEWPOINTS）因依赖求值时序，转成 build 函数，
 // 由 08-assemble 在原行号位置调用 —— 搬家前后求值顺序逐字一致。
 import { THREE } from '../vendor.js';
+import { CFG } from './00-config.js';
 import { world, camera, controls, renderer, CAM_MIN_DIST, CAM_HOME, PROBE_DRIVEN } from './02-scene.js';
 import { groundHeight } from './05-water.js';
 import { envEl } from './12-env.js';
@@ -180,8 +181,42 @@ export const WALK_STRIDE = 0.42;
 export const WALK_BOB = 0.028;
 export const WALK_SWAY = 0.035;
 
-export const CAM_FLY = { on: false, t: 0, dur: 1.4, from: null, to: null, minDist: null,
+export const CAM_FLY = { on: false, t: 0, dur: 1.4, from: null, to: null, via: null, minDist: null,
                          owner: '', restoreMinDist: CAM_MIN_DIST };
+/* ── 越墙中间点（2026-10-18 · P1 · 巡游穿墙）────────────────────────────────
+   现状：巡游第 4 站 lantern 在**院外**石板路 (35.6, 18.6)，第 5 站 plaque 又回到园内；
+   而 flyTo 是 A→B 直线插值 ⇒ 这两段飞行会在 y≈1.8m 处**直接穿过东墙**（墙高 4.5m）。
+   stableNear 同理。直线路径上看不出来（0.6m 厚的墙一闪而过），但确实是穿模。
+
+   做法：只在"起点与终点分处园墙内外"且直线穿越点低于墙顶 +1.6m 时，插入一个中间点
+   M =（墙面上穿越点，y = 墙顶 +1.6m）。飞行路径变成 A→M→B 折线 —— 相机先抬过墙、
+   再落到目标，**水平方向仍走原直线**（M 的 x/z 就是直线与墙面的交点）。
+
+   · 南墙月洞门（x≈0、门洞半径 1.62m）范围内且穿越高度在门洞里 ⇒ 不抬，直接穿门；
+   · 同侧飞行、或本来就从墙顶上飞过（如 stable 机位 y=9）⇒ via=null，路径与旧版逐字一致
+     （避免影响既有门禁的落位/时长判据）。 */
+function wallArcPoint(a, b){
+  const HW = CFG.garden.w / 2, HD = CFG.garden.d / 2, H = CFG.wall.h;
+  const inside = p => Math.abs(p.x) < HW && Math.abs(p.z) < HD;
+  if (inside(a) === inside(b)) return null;
+  const cand = [];
+  const add = (axis, bound) => {
+    const da = a[axis] - bound, db = b[axis] - bound;
+    if (da * db < 0) cand.push({ t: da / (da - db), axis, bound });
+  };
+  add('x', HW); add('x', -HW); add('z', HD); add('z', -HD);
+  if (!cand.length) return null;
+  cand.sort((u, v) => u.t - v.t);
+  const c = cand[0];
+  const px = a.x + (b.x - a.x) * c.t;
+  const py = a.y + (b.y - a.y) * c.t;
+  const pz = a.z + (b.z - a.z) * c.t;
+  /* 南墙月洞门：|x| ≤ 1.25、y 在 0.6~3.3 之间 ⇒ 从门洞里过，不用抬 */
+  if (c.axis === 'z' && Math.abs(c.bound - HD) < 1e-6 && Math.abs(px) < 1.25 && py > 0.6 && py < 3.3) return null;
+  const need = H + 1.6;
+  if (py >= need) return null;
+  return new THREE.Vector3(px, need, pz);
+}
 /* minDist：落位后要恢复的 OrbitControls 最小半径（机位自带则用它，否则回默认 9）。
    飞行途中把下限整体放开 —— 否则从远处飞向"近观"机位时，controls.update() 会在半途
    把相机半径夹回 9m，路径被扯成"先到 9m 再贴上去"的折线。 */
@@ -189,6 +224,7 @@ export function flyTo(pos, target, dur = 1.4, minDist = null, owner = 'manual'){
   CAM_FLY.restoreMinDist = CAM_FLY.on ? CAM_FLY.restoreMinDist : controls.minDistance;
   CAM_FLY.from = { p: camera.position.clone(), t: controls.target.clone() };
   CAM_FLY.to   = { p: pos.clone(), t: target.clone() };
+  CAM_FLY.via  = wallArcPoint(camera.position, pos);
   CAM_FLY.minDist = minDist;
   CAM_FLY.owner = owner;
   CAM_FLY.t = 0; CAM_FLY.dur = dur || 1.4; CAM_FLY.on = true;
@@ -206,11 +242,22 @@ export function updateCamFly(dt){
   if (!CAM_FLY.on) return;
   CAM_FLY.t = Math.min(1, CAM_FLY.t + dt / CAM_FLY.dur);
   const e = CAM_FLY.t < 0.5 ? 2 * CAM_FLY.t * CAM_FLY.t : 1 - Math.pow(-2 * CAM_FLY.t + 2, 2) / 2;
-  camera.position.lerpVectors(CAM_FLY.from.p, CAM_FLY.to.p, e);
+  if (CAM_FLY.via){
+    /* A→M→B：按弧长分配，速度连续；M 点正好落在墙面上方（见 wallArcPoint）。
+       水平方向不走样 —— M.x/z 是 A→B 直线与墙面的交点。 */
+    const A = CAM_FLY.from.p, M = CAM_FLY.via, B = CAM_FLY.to.p;
+    const d1 = A.distanceTo(M), d2 = M.distanceTo(B);
+    const s = e * (d1 + d2);
+    if (s <= d1) camera.position.lerpVectors(A, M, d1 > 1e-6 ? s / d1 : 1);
+    else         camera.position.lerpVectors(M, B, d2 > 1e-6 ? (s - d1) / d2 : 1);
+  } else {
+    camera.position.lerpVectors(CAM_FLY.from.p, CAM_FLY.to.p, e);
+  }
   controls.target.lerpVectors(CAM_FLY.from.t, CAM_FLY.to.t, e);
   if (CAM_FLY.t >= 1){
     CAM_FLY.on = false;
     CAM_FLY.owner = '';
+    CAM_FLY.via = null;
     controls.minDistance = CAM_FLY.minDist != null ? CAM_FLY.minDist : CAM_MIN_DIST;
   }
 }
@@ -427,12 +474,18 @@ export function buildViewpoints(heroPos){
       target: new THREE.Vector3(0.0, 0.15, 3.0),
       minDist: 2.0 },
     /* 「匾联」：远香堂匾额 04-buildings.js:374-378（plaque 4.6x1.35，落在堂前檐梁上）、
-       前檐金柱对联同文件 :381-384。堂位 (0,0,-12.8)（本文件 :153），
-       机位在草坪 (0, 2.2, -5.7) 朝 (0, 3.9, -7.5)；避开先生晨课的站位（同文件 :1008）。
-       minDist 3.0。 */
+       前檐金柱对联同文件 :381-384。堂位 (0,0,-12.8)（本文件 :153）。
+
+       ⚠️ 2026-10-18 改站（tour-guard 抓到）：旧站位 (0,2.2,-5.7) → (0,3.9,-7.5)
+       是**仰视**，而本项目的 OrbitControls 夹住 polar ≤ 88.6° ⇒ 相机只能在注视点之上或等高，
+       根本抬不起头。旧位姿飞行"落定"后会被 controls.update() 沿视线抬到 y≈3.83，
+       匾额上沿（y=6.52）落到 31°，超出 23° 的半视角 ⇒ **匾被切掉上半截**（实测出图）。
+       新站位把相机抬到匾下、注视点放在匾心略低处：相机在注视点之上 0.4m（polar≈86°，
+       不再触发钳制），匾与两侧对联、堂内陈设同框；实测匾额完整、字口清楚。
+       minDist 3.0 保持不变。 */
     { id:'plaque', label:'匾联',
-      pos: new THREE.Vector3(0.0, 2.2, -5.7),
-      target: new THREE.Vector3(0.0, 3.9, -7.5),
+      pos: new THREE.Vector3(0.0, 5.4, -3.0),
+      target: new THREE.Vector3(0.0, 5.0, -8.9),
       minDist: 3.0 },
     /* 「曲桥」：石拱桥本文件 :183-187（04-buildings makeArchBridge）落位 (8.4,0,4.6)、
        rotation.y=pi/2。机位在东北下游侧、不上桥（与 :267-272 的步行约定一致），
@@ -505,7 +558,9 @@ const TOUR_CAPTIONS = {
      ⚠️ 这个站位刻意**不上桥**：巡游观鱼者的步行路径（实走到 z≥9.7 的南端引桥，见 :267-272 注释）
      用的就是"不上桥"这条约定，机位口径一致。minDist 2.0（桥心近水）。 */
   bridge:   { title: '曲桥', text: '池东南石拱桥跨水，桥南接着一排汀步。拱顶起在水线上，绕桥走一圈，两侧水面各有一番景。' },
-  /* 「石灯笼」站（2026-10-17）：anchor = stoneLantern（08c-aquatic 落位 (4.0,·,−3.8) 北岸）。
+  /* 「石灯笼」站（2026-10-17 建、2026-10-18 改锚点）：anchor = 院外石板路第 2/3 对之间
+     (35.6,·,18.6)（15-stable makeStableRoad ④ 的 10 盏布点）。旧文案里的池北岸
+     (4.0,·,−3.8) 是搬迁前的锚点，已作废。
      文案贴既有设定：火袋四面开窗、火袋材质 lantern_glow 的 emissive 由模型自带
      （12d 灯火体系之外第一件自带发光的实体）⇒「入夜不必点烛」是事实，不是修辞。 */
   lantern:  { title: '石灯笼', text: '院外石板路两侧一路石灯，隔七八米一对，笠下火袋四面开窗。入夜不必点烛 —— 火袋里那膛暖光自己亮着，照着进出马厩的夜路。' },
@@ -529,13 +584,28 @@ const SEASON_CAPTIONS = {
      梅/马厩是**位置**机位（在园内的隐角，巡查幕上能看懂），但彩虹/流星雨/烟花是**场景**机位
      （要 雨后初晴 / 夜 / 夜 才有东西看）—— noon/summer/clear 的巡游里它们就是空景。 */
 /* 2026-10-17 再补两站 ⇒ 10 站。顺序依据（地理顺水，不跳池）：
-   hero(池南立峰) → stele(峰侧卧石) → koi(池腰 0,3) → lantern(北岸 4,−3.8)
-   → plaque(堂前草坪 0,−5.7) → bridge(东南 8.4,4.6) → heroPeak(从桥上回望立峰近景)
+   hero(池南立峰) → stele(峰侧卧石) → koi(池腰 0,3) → lantern(院外石板路 35.6,18.6)
+   → plaque(堂前 0,−5.7) → bridge(东南 8.4,4.6) → heroPeak(从桥上回望立峰近景)
    → hall → pavilion → overview。
-   lantern 卡在 koi 与 plaque 之间：从池腰的水面抬到岸上，再折回堂前，是一条连续的带看线；
+   lantern 卡在 koi 与 plaque 之间：先出院门看一眼石灯，再折回堂前；
+   ⚠️ 这两段飞行会**跨园墙**（墙高 4.5m），flyTo 的 wallArcPoint 会抬到墙顶 +1.6m，
+      tour-guard 逐帧采样守"不穿墙"（2026-10-18 P1）。
    heroPeak 放在 bridge 之后、hall 之前：把"池南一峰"作为压轴大件收近景，再进远香堂。
    既有八站的相对顺序**一字未动**。 */
 const TOUR_ORDER = ['hero', 'stele', 'koi', 'lantern', 'plaque', 'bridge', 'heroPeak', 'hall', 'pavilion', 'overview'];
+/* 门禁用：把"巡游顺序 + 每站的字幕 + 对应机位"一次性交出去。
+   tour-guard 需要逐站核对落位与字幕，而字幕标题与机位 label 并不总是同名
+   （如 stele 的字幕叫「题名石 · 云根」、机位叫「云根近观」），所以由本模块给出映射，
+   不让探针猜。 */
+export function tourPlan(){
+  return TOUR_ORDER.map(id => {
+    const v = (VIEWPOINTS || []).find(x => x.id === id) || {};
+    const c = TOUR_CAPTIONS[id] || {};
+    return { id, label: v.label || '', title: c.title || '',
+             pos: v.pos ? [v.pos.x, v.pos.y, v.pos.z] : null,
+             target: v.target ? [v.target.x, v.target.y, v.target.z] : null };
+  });
+}
 export const TOUR = { on: false, idx: 0, dwell: 6.0, wait: 0 };
 let captionOwner = '';
 export const captionEl = () => document.getElementById('caption');

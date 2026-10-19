@@ -183,13 +183,15 @@ export const PRELOAD_MANIFEST = [
      186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙；2026-10-18 起路旁 10 盏每盏配真 PointLight）。
      摆位依据 research/diy-first-target.md §4 主位 (4.0,-3.8) y=0.053（岸距 1.62m、最近物 8.8m）。 */
   { url: 'assets/stone-lantern.glb', bytes: 190864, stage: '取', label: '石灯笼', required: false },
-  /* 2026-10-18 石狮一对（DIY：research/diy-lions/build_lions_pair.py v5 融球躯干+螺髻，
-     公踩绣球 / 母抚幼狮，左雄右雌按"从门里出来左为雄"摆）。
-     v6：五官深色石（眼/鼻/口独立网格+深色材质）+ 腮鬃 + 石斑真正导出。
-     v7（融合版）：tabbit 身子（坐姿体块+六层须弥座）+ 威猛脸（眉压目斜/张口獠牙/满鬃）。
-     公 321908B / 母 330916B，高 1.01m。required:false —— 拉不到时门口位置空着。 */
-  { url: 'assets/stone-lion-male.glb', bytes: 321908, stage: '取', label: '石狮雄', required: false },
-  { url: 'assets/stone-lion-female.glb', bytes: 330916, stage: '取', label: '石狮雌', required: false },
+  /* 2026-10-18 石狮一对（**真实照片扫描**，替换掉此前 v5–v9 手工融球稿）。
+     来源：BlenderKit「Weathered Stone Lion Statue - Photoscan」（作者 Dennis Scheucher，
+     授权 Royalty Free，资产页 blenderkit:b80862b4-...；112k 面原始扫描，
+     项目里减到 15k/12k 面 + 1024² WebP 贴图，法线/ORM 原样保留）。
+     公 711648B / 母 643576B，高 1.076m（loadAssetOnce 归一化到 1.08m）。
+     母狮：X 镜像 + 胸前伏一只同扫描体缩出的幼狮（0.20m）。
+     required:false —— 拉不到时门口位置空着（由 probe/lion-guard 守"必须挂上"）。 */
+  { url: 'assets/stone-lion-male.glb', bytes: 711648, stage: '取', label: '石狮雄', required: false },
+  { url: 'assets/stone-lion-female.glb', bytes: 643576, stage: '取', label: '石狮雌', required: false },
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
   { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
@@ -198,15 +200,12 @@ export const PRELOAD_MANIFEST = [
      AI 生成（rodin，text_to_3d，绿翅金刚鹦鹉），1.49MB。
      required:false —— 拉不到时页面正常，只是假山上没有鹦鹉。 */
   { url: 'assets/Macaw.glb',       bytes: 1561572, stage: '取', label: '鹦鹉', required: false },
-  /* 马厩的真马（2026-10-10，老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行"）：
-     AI 生成（Rodin Gen-2.5-Medium，站立姿态）+ 减面到 4 千面，**无贴图单材质**（逐匹上色）。
-     与 sw.js 的 GLBS 同步（preload-manifest-sync 的 G3 会反向扫磁盘）;
-     required:false —— 拉不到时马厩里站的是**程序化替身**（15-stable 的 makeHorse）。
-     ⚠️⚠️ 2026-10-11：这一件**必须**在**模块求值期**发起请求，否则预载段会死等到超时 ——
-     它的加载原来是写在**延迟批**（loadStableHorses，开园之后才跑）里的，
-     而预载段在前面等它 ⇒ 互相等 ⇒ 每次进项目白等 180s（见 15-stable 的 horseSrcOnce 注释）。
-     `preload-manifest-sync` 的 G6 守这条。 */
-  { url: 'assets/Horse.glb',       bytes: 813652,  stage: '取', label: '马',   required: false },
+  /* 马厩真马（2026-10-19 撤掉）：
+     原 Horse.glb 是 Rodin 生成的"无 baseColor 单材质灰模"（只有法线），出场被光烤成同一种
+     棕灰色；程序化替身 makeHorse 又是"箱子拼装涂漆"。两种实现都不活 ——
+     老黄："没有活灵活现的感觉的话还不如不做"。撤掉后 loadStableHorses 也 no-op，
+     马厩改成"两驾停着的车 + 草料堆 + 马夫 + 拴马桩"。需要真马时再上资产。 */
+  // { url: 'assets/Horse.glb',       bytes: 813652,  stage: '取', label: '马',   required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */

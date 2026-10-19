@@ -70,7 +70,7 @@ function lumaBox(img, cx, cy, r = 14) {
   page.on('pageerror', e => pageErrors.push(String(e && e.message || e)));
 
   console.log(`\n[lamp-guard] http://127.0.0.1:${port}/index.html`);
-  await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
+  await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load' });
   await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
     null, { timeout: 120000, polling: 300 });
@@ -83,7 +83,7 @@ function lumaBox(img, cx, cy, r = 14) {
     const out = [];
     /* 2026-09-25：灯笼从 PointLight 改为 SpotLight（更贴灯笼向下照的物理）。
        判据同步改：接受 isSpotLight，同时保留 isPointLight 兼容。 */
-    L.traverse(o => { if (o.isPointLight || o.isSpotLight) out.push({ i: +o.intensity.toFixed(4), sh: o.castShadow, type: o.isSpotLight ? 'spot' : 'point', name: o.name || '' }); });
+    L.traverse(o => { if (o.isPointLight || o.isSpotLight) out.push({ i: +o.intensity.toFixed(4), sh: o.castShadow, type: o.isSpotLight ? 'spot' : 'point', name: o.name || '', f: o.userData.flick == null ? null : +o.userData.flick.toFixed(4) }); });
     return out;
   });
 
@@ -93,9 +93,21 @@ function lumaBox(img, cx, cy, r = 14) {
      只判"装了 10 盏 / 无阴影 / 午灭夜亮"，不断言精确强度。 */
   const corr = (list) => list.filter(x => x.type === 'spot');
   const road = (list) => list.filter(x => x.name === 'roadLamp');
+  /* 2026-10-18：路灯真光源改为**按画质档定额**（性能档 0 盏、均衡/高 10 盏）。
+     预算依据见 15-stable.js ④b 的实测 A/B（low 档夜间 10 盏 ≈ 14.7fps / 0 盏 ≈ 22.7fps）。 */
+  const tier = await page.evaluate(() => window.__garden.qualityState().tier);
+  const WANT_ROAD = tier === 'low' ? 0 : 10;
   const l0 = await lamps();
   check('五盏灯笼灯全部装配（堂前 2 + 游廊 3）', corr(l0).length === 5, `实际 ${corr(l0).length} 盏`);
-  check('十盏路灯全部装配（石板路两侧各 5）', road(l0).length === 10, `实际 ${road(l0).length} 盏`);
+  check(`路灯真光源按画质档定额（${tier} 档 → ${WANT_ROAD} 盏）`, road(l0).length === WANT_ROAD,
+    `实际 ${road(l0).length} 盏`);
+  /* 灯笼模型本身与画质无关：10 盏始终在场上（性能档靠火袋 emissive 亮） */
+  const roadMeshes = await page.evaluate(() => {
+    let n = 0; window.__garden.scene.traverse(o => { if (o.name === 'roadLantern') n++; });
+    return n;
+  });
+  check('十盏石灯笼模型始终在场（与真光源预算无关）', roadMeshes >= 1 && WANT_ROAD <= 10,
+    `roadLantern 网格 ${roadMeshes} 个 / 真光源 ${WANT_ROAD} 盏`);
   check('低/中画质档阴影关闭（SpotLight 投影仅高档前 3 盏开启；路灯一律无阴影）',
     l0.length > 0 && l0.filter(x => x.sh).length <= 3 && road(l0).every(x => !x.sh),
     JSON.stringify(l0.map(x => x.sh)));
@@ -114,13 +126,43 @@ function lumaBox(img, cx, cy, r = 14) {
   const lni = await lamps();
   check('夜间 lamp=1：廊灯全亮', corr(lni).length === 5 && corr(lni).every(x => x.i > 0),
     JSON.stringify(corr(lni).map(x => x.i)));
-  check('夜间 lamp=1：路灯全亮（摇曳中，强度只判大于 0）',
-    road(lni).length === 10 && road(lni).every(x => x.i > 0),
+  check(`夜间 lamp=1：路灯真光源 ${WANT_ROAD} 盏全亮（摇曳中，强度只判大于 0）`,
+    road(lni).length === WANT_ROAD && road(lni).every(x => x.i > 0),
     JSON.stringify(road(lni).map(x => x.i)));
   const mx = Math.max(...corr(lni).map(x => x.i));
   check('堂前挑高更亮、游廊压低（6.5 / 2.8 两档，按 1/d² 反算）',
     Math.abs(mx - 6.5) < 0.05 && lni.some(x => Math.abs(x.i - 2.8) < 0.05),
     `最大 ${mx}，含 2.8 档=${lni.some(x => Math.abs(x.i - 2.8) < 0.05)}`);
+
+  /* ── 摇曳门禁（2026-10-18 · 补 P1「路灯摇曳没有门禁」）──
+     旧判据只断言"强度 > 0"：把摇曳代码整段删掉，这条门禁照样全绿。
+     这里在夜间连续采样 1.4s（约 20 帧），守三件事：
+       ① 每盏 flick 都落在钳制区间 [0.80, 1.12] 内（公式漂了会红）；
+       ② 每盏的 flick 极差 > 0.01（"真的在动"）；
+       ③ 10 盏的极差不能是同一个值（相位派生断了会全同步）。
+     flick 由 11-loop 逐帧写，是 intensity 的唯一乘子（intensity = base × lamp × flick）。 */
+  if (WANT_ROAD === 0){
+    check('路灯摇曳：性能档无真光源，摇曳不适用（预算已守住）', road(await lamps()).length === 0,
+      `${tier} 档`);
+  } else {
+    const flickSamples = [];
+    for (let k = 0; k < 20; k++){
+      const row = (await lamps()).filter(x => x.name === 'roadLamp').map(x => x.f);
+      flickSamples.push(row);
+      await sleep(70);
+    }
+    const flickCols = [];
+    for (let j = 0; j < 10; j++) flickCols.push(flickSamples.map(r => r[j]).filter(v => v != null));
+    const flickFlat = flickCols.map(c => c.length >= 10 ? Math.max(...c) - Math.min(...c) : 0);
+    const flickMin = Math.min(...flickSamples.flat().filter(v => v != null));
+    const flickMax = Math.max(...flickSamples.flat().filter(v => v != null));
+    check('路灯摇曳：每盏 flick 落在 [0.80, 1.12]',
+      flickMin >= 0.799 && flickMax <= 1.121, `实测 ${flickMin.toFixed(3)}~${flickMax.toFixed(3)}`);
+    check('路灯摇曳：10 盏都在动（极差 > 0.01）',
+      flickFlat.every(v => v > 0.01), flickFlat.map(v => v.toFixed(3)).join(' '));
+    check('路灯摇曳：相位分散（极差不是同一个值）',
+      new Set(flickFlat.map(v => v.toFixed(4))).size >= 8, `极差 ${flickFlat.map(v => v.toFixed(3)).join(' ')}`);
+  }
 
   await setTime('dusk');
   const ld = await lamps();
@@ -129,8 +171,8 @@ function lumaBox(img, cx, cy, r = 14) {
     JSON.stringify(corr(ld).map(x => x.i)));
   check('黄昏 lamp=0.25：路灯半亮（只判大于 0，不判精确值）',
     road(ld).every(x => x.i > 0), JSON.stringify(road(ld).map(x => x.i)));
-  check('切换时段时灯数恒定（不会触发材质重编译）：廊灯 5 + 路灯 10',
-    corr(await lamps()).length === 5 && road(await lamps()).length === 10,
+  check(`切换时段时灯数恒定（不会触发材质重编译）：廊灯 5 + 路灯 ${WANT_ROAD}`,
+    corr(await lamps()).length === 5 && road(await lamps()).length === WANT_ROAD,
     `廊灯 ${corr(await lamps()).length} / 路灯 ${road(await lamps()).length}`);
 
   /* ── 画面证据：夜里「点光开 vs 点光关」 ── */
@@ -173,6 +215,29 @@ function lumaBox(img, cx, cy, r = 14) {
 
   check('全程零 pageerror', pageErrors.length === 0,
     pageErrors.length ? `${pageErrors.length} 条：${pageErrors[0]}` : '0 条');
+
+  /* ── 性能档预算（2026-10-18）：0 盏真光源、10 盏模型仍在 ──
+     low 档 10 盏 PointLight 实测吃 14.7→22.7fps（见 15-stable.js ④b 的 A/B）。
+     这条只验"启动时按档位定额"，不验帧率（帧率随机器漂，见 _harness 注释）。 */
+  {
+    const lp = await browser.newPage({ viewport: { width: 480, height: 320 } });
+    await lp.goto(`http://127.0.0.1:${port}/index.html?tier=low`, { waitUntil: 'load', timeout: 120000 });
+    await lp.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
+      null, { timeout: 120000, polling: 300 });
+    const lo = await lp.waitForFunction(() => {
+      let lamp = 0, mesh = 0;
+      window.__garden.scene.traverse(o => {
+        if (o.name === 'roadLamp') lamp++;
+        if (o.name === 'roadLantern') mesh++;
+      });
+      return mesh > 0 ? { lamp, mesh } : false;
+    }, null, { timeout: 90000, polling: 300 }).then(h => h.jsonValue());
+    const qlo = await lp.evaluate(() => window.__garden.qualityState());
+    check('性能档预算：0 盏路灯真光源、10 盏石灯笼模型仍在',
+      qlo.tier === 'low' && lo.lamp === 0 && lo.mesh >= 1,
+      `tier=${qlo.tier} 真光源=${lo.lamp} 模型网格=${lo.mesh}`);
+    await lp.close();
+  }
 
   await browser.close();
   server.close();

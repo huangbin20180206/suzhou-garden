@@ -16,7 +16,7 @@ import { spawnRipple, updateRipples, ripplesActive, lastRippleAge, rippleCapacit
 import { KOI_ORBITS, dropBait, updateBaits, nearestBait, baitsActive, BAITS, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06g-koi.js';
 /* 2026-10-05 拆分：氛围特效（雾团 / 香炉白烟 / 萤火虫 / 镜头天气层）已统一搬进 06b-atmos.js。 */
 import { FOG_BANKS, CENSER_SMOKE, makeFireflies, makeLensWeather } from './06b-atmos.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, tourPlan, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
 import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksState, setFireworksForce, fireworksFinaleNow, tickMeteors, meteorState, setMeteorsForce } from './12-env.js';
@@ -1674,6 +1674,22 @@ async function warmBoot(){
     renderer.shadowMap.needsUpdate = false;
     if (waterSurface) waterSurface.onBeforeRender = _warmNoop;
     bloom.enabled = false;
+    /* ⚠️ 2026-10-18 · P3：**第 1 桶必须让 shadow map 建出来**。
+       分桶期 needsUpdate=false 是为了省掉 12 次整场景阴影 pass（注释见上方），
+       但代价是：此刻 `sun.shadow.map` 还是 **null**，而 WebGL2 的材质着色器里
+       shadowMap 声明成 `sampler2DShadow`；渲染器给空的 shadow uniform 绑的是默认
+       RGBA 纹理 ⇒ 每一笔 drawElements 都报
+       `GL_INVALID_OPERATION: Mismatch between texture format and sampler type`。
+       实测（outputs/_diag/gl-warn-baseline/trace/ab/prog）：
+         · 启动期 3713 次绘制报错，浏览器控制台截到 256 条后停止上报；
+         · 报错的 program 全是 STANDARD 材质 + `sampler2DShadow` +
+           `samplerCubeShadow`（gl-warn-prog.mjs 的宏组合）；
+         · 修法只给**第一桶**开一次 needsUpdate：深度纹理一次性建好，多花一次当前可见
+           集的阴影 pass（远小于"12 桶全开"的 +1.4s），GL 错误从 256 → 0。
+       试过"提前分配一张带 DepthTexture 的 RenderTarget"，结果不行：three.js 在
+       WebGL2 shadow 路径上把 `shadow.map.texture`（不是 depthTexture）绑给 uniform，
+       那张 RGBA 颜色纹理与 sampler2DShadow 仍然对不上。开关 needsUpdate 才能
+       走 WebGLShadowMap 的内部 createMap() 把 depthTexture 接好。 */
     for (let i = 0; i < buckets.length; i++){
       for (const o of buckets[i].list) o.visible = true;
       setWarmUI(i, buckets.length);
@@ -1681,7 +1697,9 @@ async function warmBoot(){
       /* 必须走真实 composer 渲染（不能用 renderer.compile 预编）：program key 含
          灯组/阴影/输出色彩空间等渲染期状态，裸 compile 编出的 program 与 RenderPass
          宏组合对不上，彩排帧会整批重编（实测 37→87，比不暖机更慢）。 */
+      if (i === 0) renderer.shadowMap.needsUpdate = true;   // 见上方 P3 注释
       composer.render(0.016);
+      if (i === 0) renderer.shadowMap.needsUpdate = false;
     }
     /* 彩排帧：对象已全部揭示，走完整生产路径——后处理链 + 阴影图 + 水面反射 + 主 pass
        + 折射——剩余 program（bloom/GTAO/depth/反射/折射变体）一次编完，animate 首帧零编译。 */
@@ -1807,7 +1825,8 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                     rough: +m.roughness.toFixed(4), dryRough: m.userData.dryRough,
                     metal: +m.metalness.toFixed(4), dryMetal: m.userData.dryMetal })),
                   wetNow: () => wetApplied,
-                  tourStart, tourStop, tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
+                  tourStart, tourStop, tourPlan,
+                  tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
                   tourCaption: () => { const el = captionEl(); return el ? el.querySelector('b').textContent : ''; },
                   qosState: () => QOS.state(), setQos: (lv) => QOS.apply(lv),
                   qualityState: () => QOS.state(), setQualityMode: (m) => QOS.setMode(m),
