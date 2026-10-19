@@ -208,6 +208,46 @@ fs.mkdirSync(shotsDir, { recursive: true });
      ⚠️ 射线**只打人物自己的子树**（`intersectObject(f, true)`），不打整个 scene：
      首版打 scene，水榭那位品茗者报"首个命中 mergedStatic"——那是**水榭栏杆**挡在身前 1m 处，
      属于"被场景遮挡"（另一码事），与本判据要抓的"道具埋在袍子里"混成了一个。 */
+  /* ── 脸必须是"睁眼"（2026-10-20 新增）────────────────────────────────────
+     老黄："人物……近看跟外星人一样"。根因在脸贴图：旧版五官只用 2~3px 细线勾，
+     眼是"一道上睑线 + 2px 瞳点" ⇒ 近景读作**一条裂缝**（没有眼白、没有虹膜），
+     整张脸没有神。这条门禁直接读**脸贴图像素**：
+       · 眼角（眼裂外端）必须有**眼白**（亮）；
+       · 瞳心必须有**虹膜**（暗）；
+       · 眼带里的亮像素占比不能为 0（旧版就是 0）。
+     ⚠️ 贴图是 canvas（figFaceTexture 画出来的那张），采样坐标按图自身的口径：
+        u=0.25 一列 ⇒ cx=64；成人眼心 y=128、瞳距 ±16。 */
+  const face = await page.evaluate(() => {
+    const G = window.__garden;
+    let head = null;
+    G.scene.traverse(o => { if (!head && o.name === 'scholarHead') head = o; });
+    if (!head) return null;
+    const img = head.material.map && head.material.map.image;
+    if (!img || !img.getContext) return null;
+    const c = img.getContext('2d');
+    const d = c.getImageData(0, 0, img.width, img.height).data;
+    const px = (x, y) => { const i = (y * img.width + x) * 4; return [d[i], d[i + 1], d[i + 2]]; };
+    const eyes = [];
+    for (const e of [-1, 1]){
+      eyes.push({ corner: px(64 + e * 24, 128), iris: px(64 + e * 17, 128) });
+    }
+    let bright = 0, total = 0;
+    for (let y = 120; y <= 136; y += 2) for (let x = 42; x <= 86; x += 2){
+      const p = px(x, y); total++;
+      if (p[0] > 200 && p[1] > 195 && p[2] > 185) bright++;
+    }
+    return { eyes, brightRatio: +(bright / total).toFixed(3), size: [img.width, img.height] };
+  });
+  check('脸贴图存在（人头上那张）', !!face, face ? `${face.size[0]}×${face.size[1]}` : '没取到');
+  if (face){
+    const scleraOK = face.eyes.every(e => e.corner[0] > 200 && e.corner[1] > 195);
+    const irisOK = face.eyes.every(e => e.iris[0] < 120 && e.iris[1] < 100);
+    check('脸是"睁眼"：眼角有眼白（旧版只有一根细线 ⇒ 0 亮像素）', scleraOK && face.brightRatio > 0.05,
+      `眼白亮像素占比 ${(face.brightRatio * 100).toFixed(1)}%（须 >5%），眼角像素 ${JSON.stringify(face.eyes.map(e => e.corner))}`);
+    check('眼睛有虹膜（瞳心是暗的，不是一团白）', irisOK,
+      `瞳心像素 ${JSON.stringify(face.eyes.map(e => e.iris))}`);
+  }
+
   const props = await page.evaluate(() => {
     const g = window.__garden, T = g.THREE;
     return g.figures.map(f => {

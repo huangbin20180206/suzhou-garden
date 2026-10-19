@@ -121,8 +121,21 @@ const figTexCache = new Map();
 /* 脸贴图（成人 / 孩童两版）。球面 UV 口径（THREE.SphereGeometry 默认）：
    u=0.25 的经线朝 **+z**（模型正面，与"模型正面 = +z"的全项目约定一致）、
    v=0 头顶 / v=1 头底。⇒ 脸画在贴图 x≈64（u=0.25）一列，y 就是 v 方向。
-   1px ≈ 2.1mm（头周长 0.54m ÷ 256）—— 眼裂 ~11px、唇线 ~3px 都是写实宽度；
-   粗细按"3m 外可读"画（簪那条教训：画细了等于没画）。 */
+   1px ≈ 2.1mm（头周长 0.54m ÷ 256）。
+
+   ⚠️⚠️ 2026-10-20 重画（老黄："人物造型……近看跟外星人一样"）。
+   旧版是**按"3m 外可读"画的**：五官只用 2~3px 的细线勾（眼是一道上睑线 + 2px 瞳点），
+   眼裂 11px、脸窗是 ±33px 的**窄长椭圆** ⇒ 0.5m 近看时：
+     · 眼睛读作"一条裂缝/闭着的眼"（没有眼白、没有虹膜）⇒ 整张脸没有神；
+     · 脸窗窄长 ⇒ 颧骨以下一路收成"鹅卵形"，额头只剩一条 ⇒ 读作"外星"。
+   本版按**写实比例**重画（以 2.1mm/px 折算真实尺寸）：
+     · 脸窗加宽到 ±36px（≈±48°，露耳脸），上下收到 top 66 / bot 192（不再是长蛋形）；
+     · **睁眼**：眼白杏仁 20×13px（真实眼裂 ~28mm）+ 虹膜 8px + 瞳 3.6px + 上睑压线
+       + 一点高光 —— 有眼白才有"活人"；
+     · 眉加粗、唇分上下、鼻子给两处鼻孔影、颧下加一点暗面；
+     · 孩童版：眼更大、脸更圆、腮红更浓。
+   ⚠️ 画在**球面**上 ⇒ 正脸在 u=0.25 一列；越靠边经度越大、像素越被拉宽，
+     所以五官不能画到脸窗边缘（那里已经是太阳穴了）。 */
 function figFaceTexture(child){
   const key = child ? 'faceChild' : 'faceAdult';
   if (figTexCache.has(key)) return figTexCache.get(key);
@@ -132,72 +145,127 @@ function figFaceTexture(child){
   const HAIR = '#1C2029';                     // 与 FIG_HAIR 同值：发髻/总角是纯色材质，色必须一致
   x.fillStyle = HAIR; x.fillRect(0, 0, S, S); // 球面除脸窗外全是头发（后脑/顶/两侧）
   const cx = 64;                              // u = 0.25 → x = 64
-  const top = child ? 64 : 60, bot = child ? 202 : 198;
-  /* 脸窗：竖椭圆（半宽 33px ≈ ±46°，写实"露耳脸"的角度），窗内画肤色与五官 */
+  const top = child ? 70 : 66, bot = child ? 194 : 192;
+  const HW = child ? 40 : 42;                 // 脸窗半宽（px）—— 加宽到 ≈±56°：
+  /*   太窄 ⇒ 从 3/4 侧看过去，脸颊边上一条宽黑发带压下来，读作"头发盖住半张脸"。 */
+  /* 脸窗：⚠️ 不用竖椭圆 —— 椭圆两侧等宽、下端收成"鹅卵"，是"外星脸"的形状来源。
+     改成**有颧宽、有下颌线**的脸形路径：额→颞→颧→颊→下颌→下巴，左右对称。 */
+  const facePath = () => {
+    x.beginPath();
+    x.moveTo(cx, top - 4);
+    x.bezierCurveTo(cx + HW * 0.80, top - 4, cx + HW, top + 20, cx + HW, top + 44);
+    x.bezierCurveTo(cx + HW, bot - 36, cx + HW * 0.74, bot - 13, cx + HW * 0.36, bot - 3);
+    x.bezierCurveTo(cx + HW * 0.17, bot + 2, cx - HW * 0.17, bot + 2, cx - HW * 0.36, bot - 3);
+    x.bezierCurveTo(cx - HW * 0.74, bot - 13, cx - HW, bot - 36, cx - HW, top + 44);
+    x.bezierCurveTo(cx - HW, top + 20, cx - HW * 0.80, top - 4, cx, top - 4);
+    x.closePath();
+  };
   x.save();
-  x.beginPath();
-  x.ellipse(cx, (top + bot) / 2, 33, (bot - top) / 2, 0, 0, Math.PI * 2);
+  facePath();
   x.clip();
-  x.fillStyle = '#EAC9A6'; x.fillRect(cx - 40, top - 6, 80, bot - top + 12);
+  x.fillStyle = '#EAC9A6'; x.fillRect(cx - 46, top - 8, 92, bot - top + 16);
   /* 皮肤立体感：额颧微亮、颌底微暗（软边带，不描轮廓线——工笔不上线） */
   const g = x.createLinearGradient(0, top, 0, bot);
-  g.addColorStop(0, 'rgba(255,238,214,0.50)');
-  g.addColorStop(0.45, 'rgba(255,238,214,0)');
-  g.addColorStop(0.80, 'rgba(0,0,0,0)');
-  g.addColorStop(1, 'rgba(146,96,64,0.28)');
-  x.fillStyle = g; x.fillRect(cx - 40, top - 6, 80, bot - top + 12);
-  const eyeY = child ? 118 : 126;
-  const eyeDX = child ? 15 : 17;
-  const eyeW = child ? 9 : 11;
+  g.addColorStop(0, 'rgba(255,238,214,0.42)');
+  g.addColorStop(0.42, 'rgba(255,238,214,0)');
+  g.addColorStop(0.78, 'rgba(120,78,52,0.06)');
+  g.addColorStop(1, 'rgba(146,96,64,0.30)');
+  x.fillStyle = g; x.fillRect(cx - 46, top - 8, 92, bot - top + 16);
+  /* 颧下一点暗面：把"平贴的脸"变成有颧骨的脸 */
+  const cheek = x.createRadialGradient(cx, 150, 6, cx, 150, 40);
+  cheek.addColorStop(0, 'rgba(150,96,62,0.16)');
+  cheek.addColorStop(1, 'rgba(150,96,62,0)');
+  x.fillStyle = cheek; x.fillRect(cx - 46, top - 8, 92, bot - top + 16);
+
+  const eyeY = child ? 124 : 128;
+  const eyeDX = child ? 15 : 16;              // 瞳距（真人 ≈60mm ≈ 28px ⇒ ±14px）
+  const eyeW = child ? 11 : 10;               // 眼裂半宽（真实 ~14mm ≈ 6.5px…这里取整杏仁）
+  const eyeH = child ? 8.4 : 7.6;             // 眼裂半高（眼白要露够，否则读作"睡眼"）
   for (const e of [-1, 1]){
     const ex = cx + e * eyeDX;
-    /* 眉：一道斜弧 */
-    x.strokeStyle = 'rgba(52,40,34,0.9)';
-    x.lineWidth = child ? 2.6 : 3.0;
+    /* 眉：一道有粗细变化的斜弧（比旧版粗 1 倍，不然近景只剩一根灰线） */
+    x.strokeStyle = 'rgba(48,36,30,0.92)';
+    x.lineWidth = child ? 2.8 : 2.9;
+    x.lineCap = 'round';
     x.beginPath();
-    x.moveTo(ex - eyeW, eyeY - (child ? 16 : 18));
-    x.quadraticCurveTo(ex, eyeY - (child ? 22 : 25), ex + eyeW, eyeY - (child ? 17 : 20));
+    x.moveTo(ex - eyeW - 2, eyeY - (child ? 15 : 17));
+    x.quadraticCurveTo(ex, eyeY - (child ? 23 : 25), ex + eyeW + 2, eyeY - (child ? 16 : 18));
     x.stroke();
-    /* 眼：上睑深线 + 瞳点（细长眼在球面上才不像贴纸） */
-    x.strokeStyle = 'rgba(40,28,22,0.95)';
-    x.lineWidth = child ? 3.0 : 2.6;
+    /* 眼白：杏仁形（睁眼的关键 —— 没有眼白就没有"活人"） */
+    x.fillStyle = '#F7F2EA';
     x.beginPath();
-    x.moveTo(ex - eyeW, eyeY);
-    x.quadraticCurveTo(ex, eyeY + (child ? 7 : 5), ex + eyeW, eyeY - 1);
-    x.stroke();
-    x.fillStyle = '#2E2118';
-    x.beginPath();
-    x.arc(ex + e * 1.5, eyeY + 2, child ? 2.6 : 2.2, 0, Math.PI * 2);
+    x.ellipse(ex, eyeY, eyeW, eyeH, 0, 0, Math.PI * 2);
     x.fill();
-    /* 腮红（孩子更浓） */
-    x.fillStyle = child ? 'rgba(214,116,92,0.30)' : 'rgba(201,128,102,0.16)';
+    /* 虹膜 + 瞳孔 + 高光 */
+    x.fillStyle = '#4A3320';
+    x.beginPath(); x.arc(ex + e * 0.8, eyeY + 0.3, child ? 4.4 : 4.0, 0, Math.PI * 2); x.fill();
+    x.fillStyle = '#120E12';
+    x.beginPath(); x.arc(ex + e * 0.8, eyeY + 0.3, child ? 2.1 : 1.9, 0, Math.PI * 2); x.fill();
+    x.fillStyle = 'rgba(255,255,255,0.9)';
+    x.beginPath(); x.arc(ex + e * 0.8 - 1.3, eyeY - 1.3, 1.2, 0, Math.PI * 2); x.fill();
+    /* 上睑线：压住眼白上缘（"眯着眼"就靠这一笔） */
+    x.strokeStyle = 'rgba(26,18,14,0.95)';
+    x.lineWidth = child ? 2.2 : 2.0;
     x.beginPath();
-    x.ellipse(ex, eyeY + (child ? 17 : 14), child ? 8 : 7, child ? 5.5 : 4.5, 0, 0, Math.PI * 2);
+    x.moveTo(ex - eyeW, eyeY - 0.4);
+    x.quadraticCurveTo(ex, eyeY - eyeH - 0.2, ex + eyeW, eyeY - 0.8);
+    x.stroke();
+    /* 下睑：一根极淡的线，别画重（画重就是"熊猫眼"） */
+    x.strokeStyle = 'rgba(60,40,32,0.30)';
+    x.lineWidth = 1.1;
+    x.beginPath();
+    x.moveTo(ex - eyeW + 1, eyeY + 1.2);
+    x.quadraticCurveTo(ex, eyeY + eyeH + 0.6, ex + eyeW - 1, eyeY + 1.0);
+    x.stroke();
+    /* 腮红（孩子更浓） */
+    x.fillStyle = child ? 'rgba(214,116,92,0.34)' : 'rgba(201,128,102,0.18)';
+    x.beginPath();
+    x.ellipse(ex, eyeY + (child ? 20 : 17), child ? 9 : 8, child ? 6 : 5, 0, 0, Math.PI * 2);
     x.fill();
   }
-  /* 鼻：一道淡影（竖短线 + 鼻底弧）—— 鼻梁不描线，描了就是哭脸 */
-  x.strokeStyle = 'rgba(176,124,88,0.55)';
-  x.lineWidth = 2.2;
-  x.beginPath(); x.moveTo(cx, eyeY + 5); x.lineTo(cx, eyeY + 13); x.stroke();
-  x.beginPath(); x.moveTo(cx - 3, eyeY + 15); x.quadraticCurveTo(cx, eyeY + 17, cx + 3, eyeY + 15); x.stroke();
-  /* 嘴：唇色一道微弧 */
-  x.strokeStyle = 'rgba(168,93,78,0.95)';
-  x.lineWidth = child ? 3.4 : 3.0;
+  /* 鼻：鼻梁淡影 + 鼻底 + 两个鼻孔点（不描线，描了就是哭脸） */
+  x.strokeStyle = 'rgba(176,124,88,0.42)';
+  x.lineWidth = 2.4; x.lineCap = 'round';
+  x.beginPath(); x.moveTo(cx, eyeY + 8); x.lineTo(cx - 0.5, eyeY + 17); x.stroke();
+  x.strokeStyle = 'rgba(150,96,64,0.40)';
+  x.lineWidth = 1.8;
+  x.beginPath(); x.moveTo(cx - 4.5, eyeY + 20); x.quadraticCurveTo(cx, eyeY + 22.5, cx + 4.5, eyeY + 20); x.stroke();
+  x.fillStyle = 'rgba(120,74,50,0.45)';
+  x.beginPath(); x.ellipse(cx - 3.2, eyeY + 19.6, 1.5, 1.0, 0, 0, Math.PI * 2); x.fill();
+  x.beginPath(); x.ellipse(cx + 3.2, eyeY + 19.6, 1.5, 1.0, 0, 0, Math.PI * 2); x.fill();
+  /* 嘴：上下唇分明的微弧（唇线只 1 遍，但上下唇的明暗要分开） */
+  const my = eyeY + (child ? 30 : 28);
+  x.fillStyle = 'rgba(176,96,82,0.85)';
   x.beginPath();
-  x.moveTo(cx - 7, eyeY + (child ? 28 : 26));
-  x.quadraticCurveTo(cx, eyeY + (child ? 32 : 30), cx + 7, eyeY + (child ? 28 : 26));
+  x.moveTo(cx - 9, my);
+  x.quadraticCurveTo(cx - 4.5, my - 2.6, cx, my - 0.6);
+  x.quadraticCurveTo(cx + 4.5, my - 2.6, cx + 9, my);
+  x.quadraticCurveTo(cx, my + 5.2, cx - 9, my);
+  x.closePath(); x.fill();
+  x.strokeStyle = 'rgba(140,70,62,0.95)';
+  x.lineWidth = child ? 2.0 : 1.8;
+  x.beginPath();
+  x.moveTo(cx - 9, my);
+  x.quadraticCurveTo(cx, my + 3.4, cx + 9, my);
   x.stroke();
+  /* 下巴投影一点，别让下巴糊成一团 */
+  x.fillStyle = 'rgba(150,96,64,0.10)';
+  x.beginPath(); x.ellipse(cx, my + 11, 10, 4, 0, 0, Math.PI * 2); x.fill();
   x.restore();
   /* 发际线：脸窗上缘盖回一条发弧（中额高、两鬓低）+ 两撮鬓角 */
+  /* 发际线：⚠️ 旧版把发际线的**顶点画在脸窗上沿之上**（top−12）⇒ 中间那道发际线
+     根本没落到额头上，额头一路顶到脸窗上沿 ⇒ "高颅顶、长脸"的外星感来源之一。
+     现在顶点压到 top+16（发际线横过额头）、两侧落到 top+40（鬓角高），
+     额高 = brow−hairline ≈ 17px（真人额高 ≈ 1/3 脸高）⇒ 脸的比例对了。 */
   x.fillStyle = HAIR;
   x.beginPath();
-  x.moveTo(cx - 33, top + 26);
-  x.quadraticCurveTo(cx, top - 10, cx + 33, top + 26);
-  x.lineTo(cx + 33, top - 8); x.lineTo(cx - 33, top - 8);
+  x.moveTo(cx - HW, top + 40);
+  x.quadraticCurveTo(cx, top + 16, cx + HW, top + 40);
+  x.lineTo(cx + HW, top - 10); x.lineTo(cx - HW, top - 10);
   x.closePath(); x.fill();
   for (const e of [-1, 1]){
     x.beginPath();
-    x.ellipse(cx + e * 30, top + 34, 5, 15, 0, 0, Math.PI * 2);
+    x.ellipse(cx + e * (HW - 2), top + 34, 5.0, 15, 0, 0, Math.PI * 2);
     x.fill();
   }
   const t = new THREE.CanvasTexture(cv);
@@ -522,9 +590,14 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
      修法：颅顶保持 0.086（脸贴图 UV 按这个半径画的，不能动），下颌加一颗
      素肤色小椭球（前伸 2cm、托住下巴），与颈顶交叠 —— 球和杆之间有了"下巴"，
      侧面剪影从"球插杆"变成"颅+颌+颈"三段。素肤色不用脸贴图（小球上贴整张脸会糊）。 */
-  const jaw = mesh(new THREE.SphereGeometry(0.062, 12, 10), figSkinMat, { name:'scholarJaw' });
-  jaw.scale.set(0.88, 0.78, 0.92);
-  jaw.position.set(0, -0.042, 0.024);
+  /* ⚠️ 2026-10-20：下颌**加大并下沉**（0.062→0.068、y 缩放 0.78→0.86、位置 −0.042→−0.050）。
+     病根：袍子的立领（半径 0.062）与脖子（半径 0.052）**几乎同粗** ⇒ 两者在剪影上
+     连成一根柱 ⇒ 近景读作"长脖子"（外星感的一大来源）。
+     把下巴这块肉补大一点、往下压一点，颈口就只剩 ~2.5cm 的一小截，
+     剪影从"脑袋插在柱子上"变成"颅 + 颌 + 短颈"三段。 */
+  const jaw = mesh(new THREE.SphereGeometry(0.068, 12, 10), figSkinMat, { name:'scholarJaw' });
+  jaw.scale.set(0.90, 0.86, 0.94);
+  jaw.position.set(0, -0.050, 0.026);
   headG.add(jaw);
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'scholarKnot' });
   knot.position.set(0, 0.098, -0.020);
@@ -1021,7 +1094,10 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
        两球产生约 1.2cm 交叠 → 合成"头顶一团发"而不是两侧两只耳；
        同时保证内缘嵌进头球 2cm（不悬空）、离顶只凸出 3.9cm（不变成天线）。 */
     const top = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'childTopKnot' });
-    top.position.set(side * 0.024, 0.080, -0.008);
+    /* 2026-10-20：压扁 0.78 + 沉 8mm + 后移 10mm —— 原来两个**圆球**直立在头顶上，
+       近景读作"米老鼠耳朵"；压扁后是贴在头顶的一团发（与大人的单髻同一读法）。 */
+    top.position.set(side * 0.022, 0.068, -0.016);
+    top.scale.set(1, 0.78, 1);
     headG.add(top);
   }
   root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不参与躯干椭圆缩放
