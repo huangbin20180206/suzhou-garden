@@ -1134,12 +1134,14 @@ export function loadStableHorses(stableGroup){
             tailG.quaternion.copy(bq).invert();
             /* 尾要**向下且略向后**（补正后的组系≈世界系）：身体前方是 -z ⇒ 取 +z 为马体后方。 */
             const DOWN = new THREE.Vector3(0, -1, 0.14).normalize();
-            /* ⚠️ 2026-10-20 验收四修（另一个 AI 的三修判读："散毛近纯黑、与浅灰身毛脱节，
-               侧看像黑细线"）：**长尾用自己的一套材质**（深褐，不挂毛流法线 ⇒ 不读作黑毛毡），
-               并且**几何合并成 1 个网格**（原来 15 个网格/匹 ⇒ 90 个 draw call；
-               现在 1 个/匹），这样才能把散毛从 14 束加到 30 束而不炸 draw call 预算。 */
+            /* ⚠️ 2026-10-20 总控定稿（第 7 版）：**颜色按每匹马的毛色派生**，不再一律灰。
+               真马：鬃尾与体毛同色系、比体毛深一档（青灰马配深灰尾、枣红马配深褐尾、
+               黑马配近黑尾、白马配浅灰尾）⇒ tailCol = 体毛色 × 0.42。
+               之前用固定浅灰 0x6B6259/0x5A5248：在浅灰马身上读作"灰毛团"，
+               在黑马身上读作"灰绳"，两头都不对。 */
+            const tailCol = baseMat.color.clone().multiplyScalar(0.42);
             const tailMat = new THREE.MeshStandardMaterial({
-              color: 0x6B6259, roughness: 0.85, metalness: 0.0, envMapIntensity: 0.28 });
+              color: tailCol, roughness: 0.90, metalness: 0.0, envMapIntensity: 0.26 });
             /* 变径管复用 06i 的 tubeRadiusRamp（自带端盖，别手搓建管 ——
                makeHorse 里的 tube() 是函数内局部量，这里用不到它）。 */
             const tailTube = (pts, r0, r1, seg, rad) => {
@@ -1147,33 +1149,41 @@ export function loadStableHorses(stableGroup){
               return tubeRadiusRamp(new THREE.TubeGeometry(curve, seg, 1, rad, false),
                 curve, seg, rad, t => r0 + (r1 - r0) * t);
             };
-            /* 尾束几何：主干（束心）+ N 束散毛。
-               ⚠️ 形态要点（前五版踩过的坑）：
-                 v1 7 束扇形外撇上翘 ⇒ 扫帚；v2 10 束太细 ⇒ 几根黑细线；
-                 v3 14 束加粗 ⇒ 黑板条束；v4 30 束更细 ⇒ 黑杆束、条间透缝；
-                 v5 16 束 ⇒ 仍被拍成细杆薄片、无体积。
-               现在的解法：**多而密更粗**（24 束 × 半径 0.028→0.004，根部彼此紧贴、逐渐收细；
-               主干 6cm 粗缆绳做束心）⇒ 远看是**一束圆柱体积的毛**，不是几张纸片。 */
+            /* 尾束几何 = **实心束芯 + 下段披散毛**（第 7 版，总控定稿）
+               ⚠️ 前六版（v1~v6）的共同病根：**只有"丝"没有"束"** ⇒ 任何角度都读作几根线
+                 （v1 扇形扫帚 / v2 几根黑细线 / v3 黑板条 / v4 黑杆束 / v5 细杆薄片 / v6 仍是细丝）。
+                 真马尾 = 上段（骶下那一团）**是实的、粗的**，下段才是披散的毛。
+               做法：
+                 ① 束芯 = 一根变径管，半径 5.5cm → 1.0cm，占全长（占住"体积"）；
+                 ② 26 束细丝**只从下 2/3 起始**、贴着束芯表面垂下
+                    （起点半径 = 束芯在该处的半径），下端散开 1.2 倍、长短错落
+                    ⇒ 轮廓是"一束毛"：上段实、下段毛边；
+                 ③ 整束仍**合并成 1 个网格**（6 匹共 6 个 draw call，不是 156 个）。 */
+            const CORE_R0 = 0.042, CORE_R1 = 0.008;
+            const coreR = (s) => CORE_R0 + (CORE_R1 - CORE_R0) * s;   // s: 0 根 → 1 尖
             const tailGeos = [];
             const core = tailTube([
               new THREE.Vector3(0, 0, 0),
-              new THREE.Vector3(0, -0.14, 0.06),
-              DOWN.clone().multiplyScalar(LEN * 0.55),
-              DOWN.clone().multiplyScalar(LEN * 0.97),
-            ], 0.060, 0.025, 12, 6);
+              new THREE.Vector3(0, -0.12, 0.05),
+              DOWN.clone().multiplyScalar(LEN * 0.5),
+              DOWN.clone().multiplyScalar(LEN * 0.99),
+            ], CORE_R0, CORE_R1, 14, 8);
             tailGeos.push(core);
-            const N_HAIR = 24;
+            const N_HAIR = 26;
             for (let i = 0; i < N_HAIR; i++){
-              const a = (i / N_HAIR) * Math.PI * 2 + _sr() * 0.10;   // 绕束心均匀紧密分布
-              const rr = 0.020 + 0.014 * _sr();                        // 根部散布半径 2.0~3.4cm
-              const hx = Math.cos(a) * rr;
-              const hz = Math.sin(a) * rr * 0.6 + 0.010;               // 略偏后
-              const hl = LEN * (0.55 + 0.38 * _sr());                  // 0.47~0.71m 长短错落
-              const sway = (_sr() - 0.5) * 0.07;                       // 末梢轻微飘
-              const p0 = new THREE.Vector3(hx * 0.25, -0.045, hz * 0.25);
-              const p1 = new THREE.Vector3(hx * 0.95, -hl * 0.48, hz * 0.95);
-              const p2 = new THREE.Vector3(hx * 1.05 + sway, -hl, hz * 0.80);
-              tailGeos.push(tailTube([p0, p1, p2], 0.028, 0.004, 9, 7));
+              const a = (i / N_HAIR) * Math.PI * 2 + _sr() * 0.12;      // 绕束芯均布 + 微抖
+              const s0 = 0.30 + 0.22 * _sr();                          // 起点高度 30%~52%
+              const e  = 0.72 + 0.26 * _sr();                          // 末端高度 72%~98%
+              const r0 = coreR(s0) * 0.85;                             // 贴着束芯表面
+              const hx = Math.cos(a) * r0, hz = Math.sin(a) * r0 * 0.62;
+              const sway = (_sr() - 0.5) * 0.05;
+              const p0 = DOWN.clone().multiplyScalar(LEN * s0);
+              p0.x += hx; p0.z += hz;
+              const p1 = DOWN.clone().multiplyScalar(LEN * (s0 + (e - s0) * 0.55));
+              p1.x += hx * 1.06; p1.z += hz * 1.06;
+              const p2 = DOWN.clone().multiplyScalar(LEN * e);
+              p2.x += hx * 1.14 + sway; p2.z += hz * 1.10;
+              tailGeos.push(tailTube([p0, p1, p2], 0.010, 0.0016, 7, 5));
             }
             const tailMerged = mergeGeometries(tailGeos, false);
             if (tailMerged){
