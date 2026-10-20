@@ -178,46 +178,82 @@ tinkerBuffer().then(() => {
    去掉黑花斑贴图，改用 horseCoatMaps() 的均匀各向异性毛流图与法线图，
    还原纯正、干净的中国传统名马毛色（枣红、纯黑、青白、栗色）。
    眼材质保留深褐，鬃毛保持深色自然对比。 */
-/* ── 马身底色贴图**派生**（2026-10-20 验收）────────────────────────────────
-   问题：Tinker 自带的 4096² baseColor 是**强对比的黑白花斑**（直方图双峰：
-   最暗档 ~45% / 最亮档 ~30%），直接乘 tint ⇒ 读作"罗威纳犬斑块"，不像常见的马。
-   处理：**不换贴图、只做调色** —— 把这张图按亮度重映射（0.56 为中点、压 45%），
-        毛发明暗、白斑、白袜都还在，黑白花斑退成"同色系的深浅" ⇒ 颜色交给 tint。
-   ⚠️ 与"用程序噪声图替换"是两回事：这里每一像素都来自模型自己的贴图，
-      **只改亮度曲线，不换细节**（法线图/粗糙度图照旧用模型自带的）。 */
-let _coatSoft = null;
-function softenCoatMap(tex){
-  if (!tex || !tex.image) return null;
-  if (_coatSoft) return _coatSoft;
-  const S = 2048;
-  try {
-    const cv = document.createElement('canvas'); cv.width = cv.height = S;
-    const cx = cv.getContext('2d', { willReadFrequently: true });
-    cx.drawImage(tex.image, 0, 0, S, S);
-    const d = cx.getImageData(0, 0, S, S);
-    const p = d.data;
-    const MID = 0.56, K = 0.45;
-    for (let i = 0; i < p.length; i += 4){
-      for (let k = 0; k < 3; k++){
-        const v = p[i + k] / 255;
-        const o = MID + (v - MID) * K;
-        p[i + k] = (o < 0 ? 0 : o > 1 ? 255 : o * 255) | 0;
-      }
-    }
-    cx.putImageData(d, 0, 0);
-    const t = new THREE.CanvasTexture(cv);
-    t.wrapS = t.wrapT = tex.wrapS || THREE.RepeatWrapping;
-    t.wrapT = tex.wrapT || THREE.RepeatWrapping;
-    if (tex.repeat) t.repeat.copy(tex.repeat);
-    t.colorSpace = THREE.SRGBColorSpace;
-    t.anisotropy = 8;
-    t.needsUpdate = true;
-    _coatSoft = t;
-    return t;
-  } catch (e){
-    console.warn('[马·Tinker] 花斑柔化失败，沿用原贴图', e);
-    return null;
+/* ── 马身毛发：**程序细毛法线 + 顶点色标记**（2026-10-21 材质隔离实验定稿）────────
+   ⚠️⚠️ 老黄四条差评里"毛发像蜡像""配色夸张难看"的**实测根因**（probe/_tmp-mat-iso-2020.mjs
+      同机位五种配置对照）：
+       ① 原样（模型自带 albedo 图集 + 模型自带法线）⇒ 灰马一身**霉斑**、蜡质感；
+       ② **去掉 albedo 图集**（纯 tint）⇒ 立刻干净 ⇒ **霉斑全是那张 UV 图集造成的**
+          （那张图不是毛发照片，是各部件在 UV 空间里各画各的颜色：深灰的腿、浅灰的身、
+            粉的口鼻 —— 一乘 tint 就成了大块深浅不一的斑块）；
+       ③ 再去掉法线 ⇒ 纯色泥塑（干净但没毛）；
+       ④ 换成**程序细毛法线** ⇒ 立刻是"有毛的马"；
+       ⑤ 同上但强度减半 ⇒ 更自然。
+   ⇒ 定稿：**丢掉模型 albedo**（改用顶点色做"黑腿/黑口鼻"这类标记），
+     法线换成程序细毛（高频、低强度），roughness 0.70（非全哑光）。
+   ⚠️ 教训：不是"贴图越真实越好"，而是**这张模型贴图本身不适合直接乘色** ——
+      换成"程序毛流 + 顶点色标记"反而更像真马。 */
+let _furNormal = null;
+function furNormalMap(){
+  if (_furNormal) return _furNormal;
+  const S = 512;
+  const cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const cx = cv.getContext('2d');
+  const img = cx.createImageData(S, S);
+  /* 各向异性细毛：横向密、纵向疏 ⇒ 条纹沿 y（毛流方向） */
+  const gx = 128, gy = 12;
+  const g = new Float32Array(gx * gy);
+  let seed = 20261021;
+  const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff; };
+  for (let i = 0; i < g.length; i++) g[i] = rnd() * 2 - 1;
+  const at = (x, y) => {
+    const fx = (x / S) * gx, ix = Math.floor(fx), tx = fx - ix;
+    const fy = (y / S) * gy, iy = Math.floor(fy), ty = fy - iy;
+    const a = g[(iy % gy) * gx + (ix % gx)], b = g[(iy % gy) * gx + ((ix + 1) % gx)];
+    const c = g[((iy + 1) % gy) * gx + (ix % gx)], d = g[((iy + 1) % gy) * gx + ((ix + 1) % gx)];
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (c * (1 - tx) + d * tx) * ty;
+  };
+  const K = 3.0;                                   // 强度：K3 ≈ 细绒毛，K8 就开始"搓衣板"
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++){
+    const o = (y * S + x) * 4;
+    const nx = -(at(x + 1, y) - at(x - 1, y)) * K;
+    const ny = -(at(x, y + 1) - at(x, y - 1)) * K;
+    const inv = 1 / Math.sqrt(nx * nx + ny * ny + 1);
+    img.data[o] = (nx * inv * 0.5 + 0.5) * 255;
+    img.data[o + 1] = (ny * inv * 0.5 + 0.5) * 255;
+    img.data[o + 2] = (inv * 0.5 + 0.5) * 255;
+    img.data[o + 3] = 255;
   }
+  cx.putImageData(img, 0, 0);
+  const t = new THREE.CanvasTexture(cv);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(14, 14);
+  t.colorSpace = THREE.NoColorSpace;               // 法线是数据贴图，不能标 sRGB
+  t.anisotropy = 8;
+  t.needsUpdate = true;
+  _furNormal = t;
+  return t;
+}
+
+/* 顶点色标记：黑腿（真马"黑点"）+ 暗口鼻。色值 = 乘在材质色上的系数。 */
+function markCoatPoints(mesh){
+  const geo = mesh.geometry;
+  if (geo.getAttribute('color')) return;           // 已有就别覆盖
+  const pos = geo.attributes.position;
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const h = Math.max(1e-4, bb.max.y - bb.min.y);
+  const n = pos.count;
+  const arr = new Float32Array(n * 3);
+  for (let i = 0; i < n; i++){
+    const y = pos.getY(i), z = pos.getZ(i);
+    const t = (y - bb.min.y) / h;                  // 0 蹄 → 1 耳
+    /* 腿：下 34% 压到 0.45，34%~52% 平滑回到 1（腿毛天然更黑） */
+    let f = t < 0.34 ? 0.45 : t < 0.52 ? 0.45 + 0.55 * (t - 0.34) / 0.18 : 1;
+    /* 口鼻：最前 + 最低的一小片再压一档（真马口鼻偏深） */
+    if (z > bb.max.z - h * 0.10 && t < 0.45) f = Math.min(f, 0.62);
+    arr[i * 3] = f; arr[i * 3 + 1] = f; arr[i * 3 + 2] = f;
+  }
+  geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
 }
 
 function tinkerMaterial(m, tint, meshName){
@@ -233,27 +269,30 @@ function tinkerMaterial(m, tint, meshName){
   const isMane  = /mane/i.test(m.name || '') || /BSurface/i.test(meshName || '');
   const isTail  = /tail/i.test(meshName || '') || /tail/i.test(m.name || '');
   if (isCoat){
-    /* ⚠️⚠️ 2026-10-20 验收实测（回退 fa99965 的"程序毛流图"改法）：**保留模型自带的毛发贴图**。
-       那版把自带毛发底色整张换成近白的程序图 + K=18 强法线（repeat 3×3），
-       出图判读：马身读作**稻草/搓衣板/毛毡**（一束束乱草），比原来那版花斑贴图**更不像马**。
-       ⇒ 只叠 tint 上色，贴图/法线一概不碰（法线/粗糙度图本来就是模型自带的）。
-       ⚠️ 教训：**程序化贴图只在"模型没有贴图"时补细节，绝不能替换模型已有贴图** ——
-          替换会同时丢掉毛发细节与色彩层次，净亏。 */
-    const soft = softenCoatMap(m.map);
-    if (soft) c.map = soft;                     // 派生调色版（仍是模型自己的像素）
+    /* ⚠️⚠️ 2026-10-21 定稿（老黄："毛发像蜡像""配色夸张难看"）：
+       ① **丢掉模型自带的 albedo**（那张 UV 图集是霉斑元凶，见 furNormalMap 上方注释）；
+       ② 法线换成**程序细毛**（模型自带法线是"融化蜡块"元凶）；
+       ③ roughness 1.0 → 0.70（全哑光也是蜡像主因）；
+       ④ **顶点色**做黑腿/暗口鼻标记（代替图集里那些画好的部件颜色）；
+       ⑤ 颜色由 tint 决定（干净的单色毛），不再有花斑。 */
+    c.map = null;
+    c.normalMap = furNormalMap();
+    c.normalScale.set(0.34, 0.34);
+    c.roughness = 0.70;
+    c.envMapIntensity = 0.34;
     c.color.copy(tint);
+    c.vertexColors = true;
   }
   else if (/eye/i.test(meshName || '')) c.color.set(0x2a1c14);
   else if (isMane || isTail){
-    /* 鬃/尾：**保留模型自带的毛发贴图**（它的深浅就是鬃色），不抹贴图、不挂强毛流法线
-       （挂了那张法线 ⇒ 鬃尾读作"黑毛毡/黑细线"）。颜色交给贴图自己决定。
-       ⚠️ 程序化长尾束是**新几何**，另用自己的深褐材质（见 loadStableHorses 里 tailMat）。 */
-    c.color.set(0xFFFFFF);
+    /* 鬃/尾：跟体毛同色系、比体毛深一档（真马鬃尾与体毛同源）；
+       材质保留模型自带的毛发贴图（它的深浅就是毛流），只压暗一档。 */
+    c.color.copy(tint).multiplyScalar(0.45);
   }
   else c.color.set(0xFFFFFF);
   c.metalness = 0.0;
-  c.roughness = Math.max(0.72, c.roughness || 0.88);
-  c.envMapIntensity = 0.28;
+  if (!isCoat) c.roughness = Math.max(0.72, c.roughness || 0.88);   // 马身另有 roughness（见上）
+  if (!isCoat) c.envMapIntensity = 0.28;
   if (c.clearcoat !== undefined) c.clearcoat = 0.0;
   c.needsUpdate = true;
   return c;
@@ -876,39 +915,45 @@ export function tickStableLife(dt){
        rig 角度 0 → 0.6rad **确实改了 2393 像素**（自检 0、可逆）⇒ 注入是好的。
        真因是**幅度太小**：上一版底噪 0.014 / 0.022 / 0.11 rad（= 0.8° / 1.3° / 6.3°），
        而「马厩」机位在 15~25m 外 —— 按上面那次实测的比例，0.03 rad 连 20 像素都不到，
-       等于没动。现在按"远看读得出"重给（尾 ±17°、外加每 3.5~12s 一次 ±34° 大甩尾）。
-       ⚠️ 频率仍受"鹦鹉抽搐"那条约束（每帧相位 < 0.8rad）：下面最高的角频率是
-       sin(u*20)/1.8s ≈ 11 rad/s ⇒ 24fps 下 0.46 rad/帧，安全。 */
+       等于没动。
+       ⚠️⚠️ 2026-10-21 **回撤一部分幅度**（老黄："动作抽搐"）：原来为了让远处"看得见"
+       把幅度开很大，但**马的动作是慢的**——一匹马甩尾/抖颈是"缓缓地"，
+       大幅度 + 高频率 = 抽搐/惊跳。⇒ ①底噪幅度降回温和（尾 0.30→0.22rad）；
+       ②脉冲事件**拉长 + 降幅**（甩尾 0.60rad/0.9s → 0.34rad/1.6s；抬蹄 0.52rad/1.6s
+       → 0.30rad/2.2s）；③抖颈里的 `sin(u*20)`（≈11 rad/s，24fps 下 0.46rad/帧 = 26°/帧）
+       降成 `sin(u*5)`（≈2.8 rad/s ⇒ 0.12rad/帧）—— 这条是"抽搐"的主犯。 */
     let headPitch = 0.030 * Math.sin(t * 0.90 + ph);
     let headYaw   = 0.050 * Math.sin(t * 0.37 + ph * 1.7);
-    let tailYaw   = 0.30 * Math.sin(t * 0.95 + ph) + 0.07 * Math.sin(t * 2.30 + ph * 2.1);
+    let tailYaw   = 0.22 * Math.sin(t * 0.95 + ph) + 0.05 * Math.sin(t * 2.30 + ph * 2.1);
     const leg = [0, 0, 0, 0];
     /* 甩尾 + 抬蹄：**所有角色共用** ——"休息的马匹也会不规则动"是明确要求，
        上一版只有吃草那两匹有甩尾、只有辕里那两匹有抬蹄 ⇒ 厩内和马厩旁边那两匹
        是完全静止的（正是老黄说"看不到"的那几匹）。 */
     h.flick -= dt;
-    if (h.flick <= 0){ h.flick = 3.5 + _sr() * 8.5; h.flickT = 0.9; }
-    if (h.flickT > 0){ const u = 1 - h.flickT / 0.9; tailYaw += 0.60 * Math.sin(Math.PI * Math.min(1, u)); h.flickT -= dt; }
+    if (h.flick <= 0){ h.flick = 5.0 + _sr() * 9.0; h.flickT = 1.6; }
+    if (h.flickT > 0){ const u = 1 - h.flickT / 1.6; tailYaw += 0.34 * Math.sin(Math.PI * Math.min(1, u)); h.flickT -= dt; }
     h.hoofNext -= dt;
     if (h.hoofT > 0){
-      const u = 1 - h.hoofT / 1.6;
-      leg[h.hoofLeg] = 0.52 * Math.sin(Math.PI * Math.min(1, u));   // 前腿绕 X 转 ⇒ 蹄往前抬起
+      const u = 1 - h.hoofT / 2.2;
+      leg[h.hoofLeg] = 0.30 * Math.sin(Math.PI * Math.min(1, u));   // 前腿绕 X 转 ⇒ 蹄往前抬起
       h.hoofT -= dt;
-    } else if (h.hoofNext <= 0){ h.hoofT = 1.6; h.hoofNext = 6 + _sr() * 10; h.hoofLeg = h.hoofLeg ? 0 : 1; }
+    } else if (h.hoofNext <= 0){ h.hoofT = 2.2; h.hoofNext = 7 + _sr() * 11; h.hoofLeg = h.hoofLeg ? 0 : 1; }
     if (h.role === 'graze' || h.role === 'fed'){
       /* ② 悠闲吃草：慢速点头（吃一口、抬一下）—— 幅度从 4.9°/3.3° 提到 12.6°/8.6° */
       headPitch += (h.role === 'graze' ? 0.22 : 0.15) * Math.sin(t * 0.30 + ph);
       headYaw   += 0.05 * Math.sin(t * 0.21 + ph * 1.3);
     } else if (h.role === 'harnessed'){
-      /* ③ 辕里待发：平时安静；偶尔"仰天抖颈"（幅度 12.6°→19.5°，间隔 15~33s→8~18s）*/
+      /* ③ 辕里待发：平时安静；偶尔"仰天抖颈"。
+         ⚠️ 2026-10-21：`sin(u*20)`（11 rad/s ⇒ 24fps 下 26°/帧）是"抽搐"主犯 ⇒ 降到 sin(u*5)；
+            幅度也收一点（抬头 0.34→0.26rad、摇头 0.18→0.11rad）—— 马的抖颈是慢的。 */
       h.headNext -= dt;
       if (h.headT > 0){
         const u = 1 - h.headT / 1.8;                      // 0→1 一次事件
         const env = Math.sin(Math.PI * Math.min(1, u));   // 起落包络（连续）
-        headPitch -= 0.34 * env;                          // 负 = 抬头
-        headYaw   += 0.18 * h.headSide * env * Math.sin(u * 20);
+        headPitch -= 0.26 * env;                          // 负 = 抬头
+        headYaw   += 0.11 * h.headSide * env * Math.sin(u * 5);
         h.headT -= dt;
-      } else if (h.headNext <= 0){ h.headT = 1.8; h.headNext = 8 + _sr() * 10; h.headSide = _sr() < 0.5 ? -1 : 1; }
+      } else if (h.headNext <= 0){ h.headT = 1.8; h.headNext = 9 + _sr() * 11; h.headSide = _sr() < 0.5 ? -1 : 1; }
     } else {
       /* ④ 厩内 2 匹：慢慢转头看看 + 低头嗅一下脚下的草 / 抬头 —— 上一版只有 ±3.4° 转头，
          出图判读"厩里两匹完全静止"。 */
@@ -1056,6 +1101,15 @@ export function loadStableHorses(stableGroup){
              只有 7 个网格 × 6 匹 = 42 个，代价可忽略。 */
           if (o.isSkinnedMesh) o.frustumCulled = false;
           o.material = tinkerMaterial(o.material, baseMat.color, o.name);
+          /* 马身网格：烘**顶点色标记**（黑腿/暗口鼻）—— 代替那张 UV 图集里画好的部件颜色 */
+          if (/Horse_LP/i.test(o.name || '')) markCoatPoints(o);
+          /* ⚠️ 2026-10-21（老黄："恐怖片"）：模型给的眼是**整颗 5.6cm 的黑球**全露在脸外
+             ⇒ 近看是虫眼/塑料珠。缩到 0.6（≈3.4cm，球心仍在皮下 ⇒ 只露角膜那一点），
+             材质压成深褐带一点湿光（roughness 0.5）而不是死黑。 */
+          if (/^Eye_/i.test(o.name || '')){
+            o.scale.setScalar(0.6);
+            o.material.roughness = 0.5;
+          }
         });
         const bones = {};
         root.traverse(o => { if (o.isBone) bones[o.name] = o; });
@@ -1120,7 +1174,7 @@ export function loadStableHorses(stableGroup){
           if (tRoot){
             /* 长尾束：在**尾根骨节点**的本地坐标系里建模（骨节点自身在导出件里已带缩放/位移），
                这样它天然跟着骨链走；骨链摆多少它就跟多少。 */
-            const LEN = 0.85;                        // 垂到飞节
+            const LEN = 1.00;                       // 垂到蹄毛（真马尾从尾骨到蹄毛 ≈ 0.9~1.0m）
             const tailG = new THREE.Group();
             tailG.name = 'horseTailLongG';
             tailG.userData.noMerge = true;
@@ -1132,8 +1186,24 @@ export function loadStableHorses(stableGroup){
             const bq = new THREE.Quaternion();
             tRoot.getWorldQuaternion(bq);
             tailG.quaternion.copy(bq).invert();
-            /* 尾要**向下且略向后**（补正后的组系≈世界系）：身体前方是 -z ⇒ 取 +z 为马体后方。 */
-            const DOWN = new THREE.Vector3(0, -1, 0.14).normalize();
+            /* ⚠️⚠️ 2026-10-21（老黄："短狗尾"）：尾根要**往后挪**到臀后。
+               真马尾巴从骶骨（臀后）垂下、在两条后腿**之外**；挂在尾骨节点原位时
+               它垂在两腿之间 ⇒ 侧视几乎全被后腿挡住（实测：尾巴屏幕投影 103×308px，
+               但可见部分只有一小条）⇒ 画面上就是"没有尾巴/短狗尾"。
+               位移方向用"马的前方"在**骨局部系**里求（不写死 ±z —— 六匹马朝向各不相同）。 */
+            {
+              root.updateMatrixWorld(true);
+              const fwdW = new THREE.Vector3(0, 0, 1).transformDirection(root.matrixWorld);
+              const inv = new THREE.Matrix4().copy(tRoot.matrixWorld).invert();
+              const fwdB = fwdW.clone().transformDirection(inv);
+              tailG.position.copy(fwdB).multiplyScalar(-0.32);      // 往臀后 32cm
+            }
+            /* 尾要**向下且略向后**（补正后的组系≈世界系）：身体前方是 -z ⇒ 取 +z 为马体后方。
+               ⚠️ 2026-10-21（老黄："短狗尾"）：真马尾是**长而宽的一束**（从尾骨垂到蹄毛、
+               走路时左右分开），0.85m 的细束在画面里读作"狗尾巴"。
+               ⇒ 长度 0.85→1.00m、束芯加粗（5.5cm→…见下）、散毛末端散开 1.35 倍、
+                 整束略向后倾（0.14→0.20）⇒ 明确挂在后腿之外，不是贴在腿缝里。 */
+            const DOWN = new THREE.Vector3(0, -1, 0.20).normalize();
             /* ⚠️ 2026-10-20 总控定稿（第 7 版）：**颜色按每匹马的毛色派生**，不再一律灰。
                真马：鬃尾与体毛同色系、比体毛深一档（青灰马配深灰尾、枣红马配深褐尾、
                黑马配近黑尾、白马配浅灰尾）⇒ tailCol = 体毛色 × 0.42。
@@ -1159,7 +1229,7 @@ export function loadStableHorses(stableGroup){
                     （起点半径 = 束芯在该处的半径），下端散开 1.2 倍、长短错落
                     ⇒ 轮廓是"一束毛"：上段实、下段毛边；
                  ③ 整束仍**合并成 1 个网格**（6 匹共 6 个 draw call，不是 156 个）。 */
-            const CORE_R0 = 0.042, CORE_R1 = 0.008;
+            const CORE_R0 = 0.055, CORE_R1 = 0.012;
             const coreR = (s) => CORE_R0 + (CORE_R1 - CORE_R0) * s;   // s: 0 根 → 1 尖
             const tailGeos = [];
             const core = tailTube([
@@ -1169,21 +1239,21 @@ export function loadStableHorses(stableGroup){
               DOWN.clone().multiplyScalar(LEN * 0.99),
             ], CORE_R0, CORE_R1, 14, 8);
             tailGeos.push(core);
-            const N_HAIR = 26;
+            const N_HAIR = 30;
             for (let i = 0; i < N_HAIR; i++){
               const a = (i / N_HAIR) * Math.PI * 2 + _sr() * 0.12;      // 绕束芯均布 + 微抖
-              const s0 = 0.30 + 0.22 * _sr();                          // 起点高度 30%~52%
-              const e  = 0.72 + 0.26 * _sr();                          // 末端高度 72%~98%
+              const s0 = 0.28 + 0.24 * _sr();                          // 起点高度 28%~52%
+              const e  = 0.70 + 0.28 * _sr();                          // 末端高度 70%~98%
               const r0 = coreR(s0) * 0.85;                             // 贴着束芯表面
               const hx = Math.cos(a) * r0, hz = Math.sin(a) * r0 * 0.62;
-              const sway = (_sr() - 0.5) * 0.05;
+              const sway = (_sr() - 0.5) * 0.07;
               const p0 = DOWN.clone().multiplyScalar(LEN * s0);
               p0.x += hx; p0.z += hz;
               const p1 = DOWN.clone().multiplyScalar(LEN * (s0 + (e - s0) * 0.55));
-              p1.x += hx * 1.06; p1.z += hz * 1.06;
+              p1.x += hx * 1.15; p1.z += hz * 1.15;
               const p2 = DOWN.clone().multiplyScalar(LEN * e);
-              p2.x += hx * 1.14 + sway; p2.z += hz * 1.10;
-              tailGeos.push(tailTube([p0, p1, p2], 0.010, 0.0016, 7, 5));
+              p2.x += hx * 1.35 + sway; p2.z += hz * 1.30;
+              tailGeos.push(tailTube([p0, p1, p2], 0.011, 0.0016, 7, 5));
             }
             const tailMerged = mergeGeometries(tailGeos, false);
             if (tailMerged){
