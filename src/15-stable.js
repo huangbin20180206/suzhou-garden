@@ -178,6 +178,48 @@ tinkerBuffer().then(() => {
    去掉黑花斑贴图，改用 horseCoatMaps() 的均匀各向异性毛流图与法线图，
    还原纯正、干净的中国传统名马毛色（枣红、纯黑、青白、栗色）。
    眼材质保留深褐，鬃毛保持深色自然对比。 */
+/* ── 马身底色贴图**派生**（2026-10-20 验收）────────────────────────────────
+   问题：Tinker 自带的 4096² baseColor 是**强对比的黑白花斑**（直方图双峰：
+   最暗档 ~45% / 最亮档 ~30%），直接乘 tint ⇒ 读作"罗威纳犬斑块"，不像常见的马。
+   处理：**不换贴图、只做调色** —— 把这张图按亮度重映射（0.56 为中点、压 45%），
+        毛发明暗、白斑、白袜都还在，黑白花斑退成"同色系的深浅" ⇒ 颜色交给 tint。
+   ⚠️ 与"用程序噪声图替换"是两回事：这里每一像素都来自模型自己的贴图，
+      **只改亮度曲线，不换细节**（法线图/粗糙度图照旧用模型自带的）。 */
+let _coatSoft = null;
+function softenCoatMap(tex){
+  if (!tex || !tex.image) return null;
+  if (_coatSoft) return _coatSoft;
+  const S = 2048;
+  try {
+    const cv = document.createElement('canvas'); cv.width = cv.height = S;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    cx.drawImage(tex.image, 0, 0, S, S);
+    const d = cx.getImageData(0, 0, S, S);
+    const p = d.data;
+    const MID = 0.56, K = 0.45;
+    for (let i = 0; i < p.length; i += 4){
+      for (let k = 0; k < 3; k++){
+        const v = p[i + k] / 255;
+        const o = MID + (v - MID) * K;
+        p[i + k] = (o < 0 ? 0 : o > 1 ? 255 : o * 255) | 0;
+      }
+    }
+    cx.putImageData(d, 0, 0);
+    const t = new THREE.CanvasTexture(cv);
+    t.wrapS = t.wrapT = tex.wrapS || THREE.RepeatWrapping;
+    t.wrapT = tex.wrapT || THREE.RepeatWrapping;
+    if (tex.repeat) t.repeat.copy(tex.repeat);
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.anisotropy = 8;
+    t.needsUpdate = true;
+    _coatSoft = t;
+    return t;
+  } catch (e){
+    console.warn('[马·Tinker] 花斑柔化失败，沿用原贴图', e);
+    return null;
+  }
+}
+
 function tinkerMaterial(m, tint, meshName){
   const c = m.clone();
   /* ⚠️⚠️ 2026-10-20 修两处实打实的缺陷（老黄："颜色太深了，跟我们常见的马完全不一样"）：
@@ -194,9 +236,11 @@ function tinkerMaterial(m, tint, meshName){
     /* ⚠️⚠️ 2026-10-20 验收实测（回退 fa99965 的"程序毛流图"改法）：**保留模型自带的毛发贴图**。
        那版把自带毛发底色整张换成近白的程序图 + K=18 强法线（repeat 3×3），
        出图判读：马身读作**稻草/搓衣板/毛毡**（一束束乱草），比原来那版花斑贴图**更不像马**。
-       ⇒ 只叠 tint 上色，贴图/法线一概不碰。
+       ⇒ 只叠 tint 上色，贴图/法线一概不碰（法线/粗糙度图本来就是模型自带的）。
        ⚠️ 教训：**程序化贴图只在"模型没有贴图"时补细节，绝不能替换模型已有贴图** ——
           替换会同时丢掉毛发细节与色彩层次，净亏。 */
+    const soft = softenCoatMap(m.map);
+    if (soft) c.map = soft;                     // 派生调色版（仍是模型自己的像素）
     c.color.copy(tint);
   }
   else if (/eye/i.test(meshName || '')) c.color.set(0x2a1c14);
@@ -1095,7 +1139,7 @@ export function loadStableHorses(stableGroup){
                并且**几何合并成 1 个网格**（原来 15 个网格/匹 ⇒ 90 个 draw call；
                现在 1 个/匹），这样才能把散毛从 14 束加到 30 束而不炸 draw call 预算。 */
             const tailMat = new THREE.MeshStandardMaterial({
-              color: 0x5A5248, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.28 });
+              color: 0x6B6259, roughness: 0.85, metalness: 0.0, envMapIntensity: 0.28 });
             /* 变径管复用 06i 的 tubeRadiusRamp（自带端盖，别手搓建管 ——
                makeHorse 里的 tube() 是函数内局部量，这里用不到它）。 */
             const tailTube = (pts, r0, r1, seg, rad) => {
@@ -1104,12 +1148,12 @@ export function loadStableHorses(stableGroup){
                 curve, seg, rad, t => r0 + (r1 - r0) * t);
             };
             /* 尾束几何：主干（束心）+ N 束散毛。
-               ⚠️ 形态要点（前四版踩过的坑）：
+               ⚠️ 形态要点（前五版踩过的坑）：
                  v1 7 束扇形外撇上翘 ⇒ 扫帚；v2 10 束太细 ⇒ 几根黑细线；
-                 v3 14 束加粗 ⇒ 黑板条束；v4 30 束更细 ⇒ 仍是黑杆束、条间透缝。
-               现在的解法：**少而粗、互相重叠**（主干 6cm 粗缆绳 + 16 束散毛半径 2cm→0.5cm，
-               沿主干错落分布、彼此贴合）⇒ 远看是**一束有体积的毛**，近看是毛流，不是管。
-               颜色 0x5A5248（浅灰褐，比浅灰身毛深、不脱节、不近纯黑）。 */
+                 v3 14 束加粗 ⇒ 黑板条束；v4 30 束更细 ⇒ 黑杆束、条间透缝；
+                 v5 16 束 ⇒ 仍被拍成细杆薄片、无体积。
+               现在的解法：**多而密更粗**（24 束 × 半径 0.028→0.004，根部彼此紧贴、逐渐收细；
+               主干 6cm 粗缆绳做束心）⇒ 远看是**一束圆柱体积的毛**，不是几张纸片。 */
             const tailGeos = [];
             const core = tailTube([
               new THREE.Vector3(0, 0, 0),
@@ -1118,18 +1162,18 @@ export function loadStableHorses(stableGroup){
               DOWN.clone().multiplyScalar(LEN * 0.97),
             ], 0.060, 0.025, 12, 6);
             tailGeos.push(core);
-            const N_HAIR = 16;
+            const N_HAIR = 24;
             for (let i = 0; i < N_HAIR; i++){
-              const a = (i / N_HAIR) * Math.PI * 2 + _sr() * 0.15;   // 绕束心均布 + 微抖
-              const rr = 0.018 + 0.018 * _sr();                        // 根部散布半径 1.8~3.6cm
+              const a = (i / N_HAIR) * Math.PI * 2 + _sr() * 0.10;   // 绕束心均匀紧密分布
+              const rr = 0.020 + 0.014 * _sr();                        // 根部散布半径 2.0~3.4cm
               const hx = Math.cos(a) * rr;
-              const hz = Math.sin(a) * rr * 0.7 + 0.012;               // 略偏后
-              const hl = LEN * (0.50 + 0.40 * _sr());                  // 0.43~0.68m 长短错落
-              const sway = (_sr() - 0.5) * 0.08;                       // 末梢横向飘
-              const p0 = new THREE.Vector3(hx * 0.30, -0.05, hz * 0.30);
-              const p1 = new THREE.Vector3(hx * 1.00, -hl * 0.45, hz * 1.00);
-              const p2 = new THREE.Vector3(hx * 1.10 + sway, -hl, hz * 0.80);
-              tailGeos.push(tailTube([p0, p1, p2], 0.020, 0.005, 8, 6));
+              const hz = Math.sin(a) * rr * 0.6 + 0.010;               // 略偏后
+              const hl = LEN * (0.55 + 0.38 * _sr());                  // 0.47~0.71m 长短错落
+              const sway = (_sr() - 0.5) * 0.07;                       // 末梢轻微飘
+              const p0 = new THREE.Vector3(hx * 0.25, -0.045, hz * 0.25);
+              const p1 = new THREE.Vector3(hx * 0.95, -hl * 0.48, hz * 0.95);
+              const p2 = new THREE.Vector3(hx * 1.05 + sway, -hl, hz * 0.80);
+              tailGeos.push(tailTube([p0, p1, p2], 0.028, 0.004, 9, 7));
             }
             const tailMerged = mergeGeometries(tailGeos, false);
             if (tailMerged){
