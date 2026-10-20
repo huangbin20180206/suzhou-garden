@@ -595,9 +595,14 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
      连成一根柱 ⇒ 近景读作"长脖子"（外星感的一大来源）。
      把下巴这块肉补大一点、往下压一点，颈口就只剩 ~2.5cm 的一小截，
      剪影从"脑袋插在柱子上"变成"颅 + 颌 + 短颈"三段。 */
+  /* ⚠️⚠️ 2026-10-20 午后修（老黄 09:06："人物的面部做得不好"）：下颌椭球**前突糊嘴**。
+     实测：scale z 0.94 ⇒ 半深 0.064，加 z=0.026 前移，椭球前脸到 z≈0.090 —— 比头球
+     脸面（z=0.086）还突出 4mm，且球心高度 y=−0.050 正是脸贴图嘴线区域 ⇒ 嘴被这颗
+     素色球盖住。修法：**下沉 1.2cm + 后收 1.4cm + z 向压扁**（0.94→0.80）⇒ 前脸只到
+     z≈0.066（脸面内 2cm），x/y 尺寸不动（短颈那次的加颌成果保住），嘴区让出来。 */
   const jaw = mesh(new THREE.SphereGeometry(0.068, 12, 10), figSkinMat, { name:'scholarJaw' });
-  jaw.scale.set(0.90, 0.86, 0.94);
-  jaw.position.set(0, -0.050, 0.026);
+  jaw.scale.set(0.90, 0.86, 0.80);
+  jaw.position.set(0, -0.062, 0.012);
   headG.add(jaw);
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'scholarKnot' });
   knot.position.set(0, 0.098, -0.020);
@@ -947,14 +952,26 @@ export function groomFeedState(){
 }
 
 function attachFeedBale(root){
-  let hand = null;
+  /* ⚠️⚠️ 2026-10-20 修手型（老黄 09:06："手里拿的草料手型也不对"）：挂点从深色袖口球
+     （scholarClump）改到**肤色手球（scholarHand）**。旧版捆的握点原点落在袖口黑球心，
+     肤色手球却按袖型再往前探 5.5cm ⇒ 出图读作"黑球上插一把草 + 旁边飘一颗肤色小球"，
+     拳头和草是脱开的两件东西。新版：握点原点落在肤色拳心 ⇒ "袖→腕→拳→草"四段连读，
+     袖口黑球退回它该当的角色（袖口收束）。 */
+  let fist = null, cuff = null;
   root.traverse(o => {
-    if (hand || !o.isMesh || o.name !== 'scholarClump') return;
-    if (o.position.x > 0) hand = o;                 // +x 侧 = 'pointDown' 前伸的那条胳膊
+    if (!o.isMesh) return;
+    if (o.name === 'scholarHand'  && o.position.x > 0) fist = o;   // +x 侧 = 'pointDown' 前伸那条
+    if (o.name === 'scholarClump' && o.position.x > 0) cuff = o;
   });
+  const hand = fist || cuff;               // 兜底：万一某姿态没建手球，仍挂袖口不空手
   if (!hand){
-    console.warn('[马夫] 找不到前伸手的拢手球（scholarClump），草料捆未挂');
+    console.warn('[马夫] 找不到前伸手（scholarHand/scholarClump），草料捆未挂');
     return null;
+  }
+  if (fist){
+    /* 拳头读法：旧手球 0.040 压扁片（1.05/0.72/1.05 ⇒ 4.2×2.9×4.2cm）比捆腰
+       （束带半径 ~0.05）还小一圈，攥不住。抬成 ~5×4.2×5cm 的圆拳裹住捆腰。 */
+    fist.scale.set(1.25, 1.05, 1.25);
   }
   const local = root.worldToLocal(hand.getWorldPosition(new THREE.Vector3()));
   const b = makeFeedBale();

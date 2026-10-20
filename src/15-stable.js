@@ -118,6 +118,12 @@ const TINKER_BONE_GROUPS = {
   earL:    ['earL'], earR: ['earR'],
   earLDEF: ['DEF-earL'], earRDEF: ['DEF-earR'],
   nose:    ['noseL','noseR','DEF-noseL','DEF-noseR'],
+  /* ⚠️⚠️ 2026-10-20 实测定论（接长尾时踩到）：GLB 文件里的骨名**带点**（Blender Rigify
+     风格：'ORG-tail.001'/'DEF-tail.001'，可在 GLB JSON 里直接查到），但 three.js
+     GLTFLoader 挂名时走 PropertyBinding.sanitizeNodeName —— 把 '.' 一律**删掉**
+     （'ORG-tail.001' → 'ORG-tail001'，vendor.js 的 createUniqueName 一段可证）。
+     ⇒ 本表必须用**不带点**的名字；照 GLB JSON 抄带点名会全部查空
+     （实测 console 报 [马·Tinker] 缺骨骼 tail.001,... —— 2026-10-20 当天改错过一次）。 */
   tail:    ['tail001','tail002','tail003','tail004','tail005'],
   tailDEF: ['DEF-tail001','DEF-tail002','DEF-tail003','DEF-tail004','DEF-tail005'],
 };
@@ -166,17 +172,42 @@ tinkerBuffer().then(() => {
 }).catch((e) => {
   HOOKS.settleAsset?.(TINKER_GLB, false, e);
 });
-/* 逐匹上色：只乘**身体**材质（名字含 Horse_LP），鬃/尾/眼/牙保留原贴图；
-   纹理的白斑会吃 tint，黑斑保持黑 —— 六匹因此是"同一匹花马的六种毛色"。
-   ⚠️ 2026-10-19：眼材质**压暗**（原贴图是纯白眼白 + 黑瞳，近看读作"僵尸瞪眼"）。 */
+/* 逐匹上色：
+   2026-10-20 老黄纠偏（"马的整体外形还要再调整，颜色太深了，跟我们常见的马完全不一样"）：
+   根因：原模型自带大块黑白斑块贴图，与 tint 相乘后黑斑死黑、读作烤焦罗威纳犬斑块。
+   去掉黑花斑贴图，改用 horseCoatMaps() 的均匀各向异性毛流图与法线图，
+   还原纯正、干净的中国传统名马毛色（枣红、纯黑、青白、栗色）。
+   眼材质保留深褐，鬃毛保持深色自然对比。 */
 function tinkerMaterial(m, tint, meshName){
   const c = m.clone();
-  if (/Horse_LP/i.test(m.name || '')) c.color.copy(tint);
-  else if (/eye/i.test(meshName || '')) c.color.set(0x4a3a2a);
+  /* ⚠️⚠️ 2026-10-20 修两处实打实的缺陷（老黄："颜色太深了，跟我们常见的马完全不一样"）：
+     ① horseCoatMaps() 返回的键是 **color / rough / normal**（15-stable.js 1142 行），
+        而这里原来写的是 coat.map / coat.normalMap / coat.roughnessMap —— 三个全是 undefined。
+        结果 c.map = undefined ⇒ 马身**一张贴图都没有**，只剩一层纯色 + 法线贴图缺失 ⇒
+        出图判读"又深又平、不像真马"。必须逐字对上。
+     ② 尾巴网格（mesh 名 Tail，材质 horse_body_unique_Tail）**不匹配** Horse_LP/eye/mane 任一条
+        ⇒ 落进 else 被刷成纯白。真马尾应与身体同色系（深一档），否则读作"粘了团白棉花"。 */
+  const isCoat = /Horse_LP/i.test(m.name || '');
+  const isMane  = /mane/i.test(m.name || '') || /BSurface/i.test(meshName || '');
+  const isTail  = /tail/i.test(meshName || '') || /tail/i.test(m.name || '');
+  if (isCoat){
+    const coat = horseCoatMaps();
+    c.map = coat.color;                 // ← 键名必须与 horseCoatMaps 返回值一致
+    c.normalMap = coat.normal;
+    c.roughnessMap = coat.rough;
+    c.color.copy(tint);
+  }
+  else if (/eye/i.test(meshName || '')) c.color.set(0x2a1c14);
+  else if (isMane || isTail){
+    /* 鬃/尾**同色**（真马鬃尾同色系、比体毛深）：贴图撤掉、统一深褐。
+       尾跟鬃走还避免"青白马配黑尾"这类撞色。 */
+    c.map = null;
+    c.color.set(0x221a14);
+  }
   else c.color.set(0xFFFFFF);
   c.metalness = 0.0;
-  c.roughness = Math.max(0.72, c.roughness || 0.9);
-  c.envMapIntensity = 0.26;
+  c.roughness = Math.max(0.72, c.roughness || 0.88);
+  c.envMapIntensity = 0.28;
   if (c.clearcoat !== undefined) c.clearcoat = 0.0;
   c.needsUpdate = true;
   return c;
@@ -1018,6 +1049,85 @@ export function loadStableHorses(stableGroup){
           breathNext: 1.2 + _sr() * 2.6, breathCur: 0,
         });
         if (!horseBreathMesh.parent) scene.add(horseBreathMesh);
+        /* ── 长尾束（2026-10-20 · 老黄："马尾巴不是兔子尾巴或者狗尾巴"）──────────────
+           实测（probe/_tmp-tinker-tailbones.py，Blender 5.2 导入 tinker-raw.glb）：
+             导出件自带 Tail 网格只有 105 顶点、世界尺寸 0.073×0.115×**0.212m**，
+             尾骨链 ORG-tail.001→.005 世界坐标 (0,1.201,1.090)→(0,1.390,0.907)，整链 **0.21m**。
+             真马（本仓 HORSE_TOTAL_H=1.75m）尾长应到飞节（膝下）≈ **0.85m**。
+           ⇒ 做法：把自带那块小尾骨网格**藏掉**，另挂一条程序化长尾束。
+           ⚠️⚠️ 为什么用"挂骨节点"而不是给新几何做蒙皮：
+             新几何要跟着甩尾动画动，最省事且不会出错的做法是**把它挂到既有的尾骨节点下**
+             （作为子节点）——骨一摆，它跟着摆，零额外动画代码，也不会出现
+             "蒙皮索引指错骨骼 ⇒ 尾巴瞬移到别处"那类事故。
+             （本段第一版写成手工 skinIndex 绑定，索引对不上骨骼表 ⇒ 已弃用，别改回去。）
+           形态要点（与程序化替身 horseTail 同源的三条）：
+             ① 尾根**埋进臀内 4cm** 再往外长；② 主干**向下垂**（真马尾近垂直）；
+             ③ 主干粗、散毛贴拢 ⇒ 读作"一束"，不是几根带子。
+           ⚠️ 用私有流 _sr()（与替身尾巴同一套确定性做法），不碰全局 rnd ⇒ 布局指纹不漂。 */
+        const tailMesh = root.getObjectByName('Tail');
+        if (tailMesh) tailMesh.visible = false;      // 藏掉 0.21m 的"兔子尾巴"
+        {
+          /* ⚠️ 骨名必须用「洗名后」拼写：加载器把点删掉（ORG-tail.001 → ORG-tail001，
+             vendor.js createUniqueName 一段可证），写带点的永远找不到——2026-10-20 踩过。
+             挂点首选 tail001：尾网格主链、甩尾动作转的就是它（DEF 是体上副本、ORG 是控制链）。 */
+          const tRoot = bones['tail001'] || bones['DEF-tail001'] || bones['ORG-tail001'];
+          if (tRoot){
+            /* 长尾束：在**尾根骨节点**的本地坐标系里建模（骨节点自身在导出件里已带缩放/位移），
+               这样它天然跟着骨链走；骨链摆多少它就跟多少。 */
+            const LEN = 0.85;                        // 垂到飞节
+            const tailG = new THREE.Group();
+            tailG.name = 'horseTailLong';
+            tailG.userData.noMerge = true;
+            /* ⚠️⚠️ 2026-10-20 二修·已修复（首版出图判读：散毛扇形张开且上翘，像扫帚/鸡爪）：
+               骨节点的局部轴 ≠ 世界轴 —— tail001 的骨轴本就斜向后上，直接在骨本地坐标里
+               画"向下"会画歪。修法：用骨节点**挂载时刻（静止姿态）的世界朝向**把组的
+               坐标系反补正 ⇒ 组里画的"下"就是世界的下；之后骨节随甩尾摆动时组跟着摆，
+               长尾依然跟甩尾联动（组是骨的子节点，继承其一切旋转）。 */
+            const bq = new THREE.Quaternion();
+            tRoot.getWorldQuaternion(bq);
+            tailG.quaternion.copy(bq).invert();
+            /* 尾要**向下且略向后**（补正后的组系≈世界系）：身体前方是 -z ⇒ 取 +z 为马体后方。 */
+            const DOWN = new THREE.Vector3(0, -1, 0.14).normalize();
+            const tailMat = tinkerMaterial(
+              tailMesh ? tailMesh.material : null, baseMat.color, 'Tail');
+            /* 变径管复用 06i 的 tubeRadiusRamp（自带端盖，别手搓建管 ——
+               makeHorse 里的 tube() 是函数内局部量，这里用不到它）。 */
+            const tailTube = (pts, r0, r1, seg, rad) => {
+              const curve = new THREE.CatmullRomCurve3(pts);
+              return tubeRadiusRamp(new THREE.TubeGeometry(curve, seg, 1, rad, false),
+                curve, seg, rad, t => r0 + (r1 - r0) * t);
+            };
+            const pts = [
+              new THREE.Vector3(0, 0, 0),
+              DOWN.clone().multiplyScalar(LEN * 0.35),
+              DOWN.clone().multiplyScalar(LEN * 0.70),
+              DOWN.clone().multiplyScalar(LEN),
+            ];
+            const main = new THREE.Mesh(tailTube(pts, 0.042, 0.016, 7, 6), tailMat);
+            main.name = 'horseTailLongMain';
+            tailG.add(main);
+            /* 散毛二修（同上事故）：10 束更细更密、根部收拢、三段弧线先拢后坠、长短错落。
+               首版 7 束沿 ±27° 张角直线外撇且画在骨本地系里 ⇒ 读作硬扇骨+上翘。
+               二版画在补正后的组系（-y=世界的下）：先贴主干下垂、中段渐张、末端收拢。 */
+            for (let i = 0; i < 10; i++){
+              const a = (i / 9) * Math.PI * 2;                        // 绕主干全周散布
+              const hx = Math.cos(a) * 0.065 * (0.7 + 0.3 * _sr());   // 水平张角 ≤6.5cm
+              const hz = Math.sin(a) * 0.045 + 0.02;                  // 前后薄撒（略偏后方）
+              const hl = LEN * (0.62 + 0.24 * _sr());                // 0.53~0.73m 长短错落
+              const p0 = new THREE.Vector3(hx * 0.25, -0.05, hz * 0.3);
+              const p1 = new THREE.Vector3(hx * 0.85, -hl * 0.52, hz);
+              const p2 = new THREE.Vector3(hx,        -hl,       hz * 0.75);
+              const hair = new THREE.Mesh(tailTube([p0, p1, p2], 0.011, 0.003, 6, 5), tailMat);
+              hair.name = 'horseTailLongHair';
+              tailG.add(hair);
+            }
+            for (const o of tailG.children){ o.castShadow = true; o.receiveShadow = true; o.userData.noMerge = true; }
+            tRoot.add(tailG);
+          } else if (!_tinkerWarned){
+            _tinkerWarned = true;
+            console.warn('[马·Tinker] 找不到尾骨（tail001），未加长尾');
+          }
+        }
       }
       /* 阴影图快照过期：换马后必须重渲一次（否则地上还是替身的腿影） */
       markCasterBoxDirty();
@@ -1242,25 +1352,26 @@ export function makeCarriage(opts = {}){
         —— 其实是**结构用错**，不是位置偏）。 */
   const lift = detached ? 0.42 : 0.0;
   if (opts.pair){
-    /* ⚠️ 辕杆从车轴高度**抬升到两马颈顶之上**（车局部 y≈1.60）。
-       上一版整条杆在 bedY+0.02~0.20 ⇒ 横轭落在马胸口以下、被马身挡住（"看不到辕杆"）；
-       改成抬到颈高 1.32 后，轭木又**横穿马颈**（马颈 y 区间 1.19~1.60，轭在 1.32 正中）。
-       ⇒ 真实**颈轭**是：轭木**搭在两马颈顶之上**、下面挂两道**弓形枷**卡住颈侧。
-       这里 yokeY = bedY + 0.88 ≈ 1.60（颈顶之上），枷从轭垂到 1.16（颈侧下方）。 */
+    /* 2026-10-20 纠偏（老黄："马车套马的位置又不是枷锁，怎么都嵌到马的脑袋里面去了"）：
+       彻底删除穿马头的 4 根垂直木柱（yokePost）。辕木沿马肩高平缓前伸，横轭（yoke）落在两马
+       肩胛前胸鞍部（车局部 z=1.38、y=bedY+0.55≈1.27m，避开马头耳），并挂两具皮套项圈（yokeCollar）
+       贴合马胸，还原真实驾车挽具，告别"马头套木枷上刑"。 */
     const pole = mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3([
       new THREE.Vector3(0, bedY + 0.02, 0.50),
-      new THREE.Vector3(0, bedY + 0.42, 1.30),
-      new THREE.Vector3(0, bedY + 0.86, 2.05),
-    ]), 8, 0.048, 6, false), wood, { name: 'carriagePole', cast: true });
+      new THREE.Vector3(0, bedY + 0.30, 0.95),
+      new THREE.Vector3(0, bedY + 0.55, 1.38),
+    ]), 8, 0.045, 6, false), wood, { name: 'carriagePole', cast: true });
     g.add(pole);
-    const yokeY = bedY + 0.88;
-    const yoke = mesh(box(1.24, 0.11, 0.11), wood, { name: 'carriageYoke', cast: true });
-    yoke.position.set(0, yokeY, 1.98); g.add(yoke);
-    for (const sx of [-1, 1]){                     // 两道颈枷：各自夹在一匹马颈的两侧
-      for (const s2 of [-1, 1]){
-        const post = mesh(box(0.07, 0.46, 0.07), wood, { name: 'yokePost', cast: true });
-        post.position.set(sx * 0.40 + s2 * 0.19, yokeY - 0.24, 1.98); g.add(post);
-      }
+    const yokeY = bedY + 0.55;
+    const yoke = mesh(box(1.16, 0.08, 0.08), wood, { name: 'carriageYoke', cast: true });
+    yoke.position.set(0, yokeY, 1.38); g.add(yoke);
+    for (const sx of [-1, 1]){
+      // 两具皮套挽圈：套在两马胸肩部，贴合自然
+      const collar = mesh(new THREE.TorusGeometry(0.19, 0.028, 6, 16), MAT.harness, { name: 'yokeCollar', cast: true });
+      collar.position.set(sx * 0.40, yokeY - 0.12, 1.38);
+      collar.rotation.x = 0.36;
+      collar.scale.set(1, 1.15, 1);
+      g.add(collar);
     }
     /* ── 口络带（2026-10-14 · 用户报"马嘴和套车器具之间没有连接、悬空，像各自咬了一根木棍"）──
        ⚠️⚠️ 坐标系是这一条的关键（首版画错、出图"带子垂到马胸前"）：
@@ -1470,13 +1581,13 @@ function makeTrough(w, d, h, mat = MAT.stoneDark, fillMat = null, fillY = 0.10){
    起伏处差几厘米 ⇒ 抬 5cm 以下会有局部"路面被草吃进去"。 */
 export function makeStableRoad(){
   const g = new THREE.Group();
-  /* ⚠️ 2026-10-20：末点 (0.6,23.6) → **(0.35,23.25)**。
-     月洞门门槛石（4.0×1.4）占 z∈[21.9,23.3]；旧末点停在 z=23.6 ⇒ 路与门槛之间
-     留 0.3m **秃草**（老黄红圈处），而当年是用一块 3×6 的方格补丁去盖 ——
-     补丁既不对称、又接不上路的走向 ⇒ 近景读作"一堆乱石板"。
-     现在路**直接铺到门槛南沿**，补丁撤掉。 */
+  /* ⚠️⚠️ 2026-10-20 v2（老黄 09:06："到院子这个端口的还是太乱，再修的好看一些"）：
+     上一版末点 (0.35,23.25) 仍**没对准门心**（月洞门圆心 x=0）—— 路歪 35cm 进门，
+     门前的铺装中心又接着往东漂（0.35→0.55），整组构图与门错位 ⇒ 读作"乱"。
+     本轮：路尾收到 **(0,23.25)**（正对门心），门前铺装同步改为**中轴 x=0 的对称平台**
+     （见下方 ④c）。 */
   const CP = [[40.0, 4.2], [39.2, 10.5], [37.4, 16.5], [34.4, 21.8], [30.0, 26.2],
-              [22.0, 27.2], [10.0, 26.4], [2.6, 25.0], [0.35, 23.25]];
+              [22.0, 27.2], [10.0, 26.4], [2.6, 25.0], [0.0, 23.25]];
   const curve = new THREE.CatmullRomCurve3(CP.map(p => new THREE.Vector3(p[0], 0, p[1])));
   const HW = 0.86;                                 // 半宽 ⇒ 路宽 1.72m（单车道，够马车）
   const r2 = mulberry32(20261012);                 // 私有流
@@ -1609,6 +1720,10 @@ export function makeStableRoad(){
           const q = p.clone().addScaledVector(side, s * (HW + row + jit(-0.02, 0.02)))
                             .addScaledVector(tan, jit(-0.055, 0.055));
           const r = jit(0.044, 0.092), tone = jit(0.46, 1.05);
+          /* ⚠️ 2026-10-20（④c v2 门前平台落地后补）：路尾这段的卵石会正好落在平台
+             石板上面 —— 出图读作"石板里嵌卵石"。落在平台矩形（|x|<2.0、z∈[23.10,24.30]）
+             内的卵石直接跳过；jit 已照常消耗 ⇒ 其余卵石的抖动序列不变、位置可复现。 */
+          if (Math.abs(q.x) < 2.10 && q.z > 23.05 && q.z < 24.35) continue;
           const gg = proto.clone();
           const cAttr = new Float32Array(gg.attributes.position.count * 3);
           for (let i = 0; i < cAttr.length; i += 3){
@@ -1890,19 +2005,18 @@ export function makeStableRoad(){
       (LAMP_LIGHT_BUDGET ? '（PointLight，无阴影，lamp 通道 + 摇曳）'
                          : '（性能档：只留火袋 emissive，省 8 盏前向光照）'));
   }
-  /* ── ④c 月洞门前铺装（2026-10-20 重做）────────────────────────────────────────
-     旧版是一片 3 排 × 6 列的**方格**补丁（x∈[−1.05,2.25]）—— 不对称、接不上路的
-     走向、也不接门槛 ⇒ 近景判读"一堆乱石板"。本轮：曲线末点已改到 (0.35,23.25)
-     （**直接压在门槛石南沿**），方格补丁撤掉；门前改成**顺着路收口的三排**，
-     排面与路垂直 ⇒ 从路看过去是一路铺到门口，不是"路边贴了块补丁"。 */
+  /* ── ④c 月洞门前铺装（2026-10-20 重做 v2）───────────────────────────────────────
+     v1（同日早）仍歪：路尾 x=0.35 本身没对准门心（月洞门圆心 x=0），铺装中心又接着
+     往东漂（0.35→0.55）⇒ 整组构图与门错位 35~55cm，加上错缝抖动 ⇒ 读作"乱"（老黄 09:06）。
+     v2 三改：
+       ① 路尾已收到 (0,23.25)（上方 CP 表）—— 正对门心；
+       ② 门前不再"顺着歪路收口"，改成**与门槛石同宽（4.0m）的矩形平台**，
+          中轴 x=0 与月洞门圆心、门槛石严格同轴 ⇒ 从南来先见一方规整平台，再入洞门；
+       ③ 石板**对缝不错缝**：每行 7 块等宽（奇数 ⇒ 正中一块压门心轴），行间接缝
+          上下对齐 —— 最规整的铺法；两侧各压一条**通长条石**收边（替代 v1 的 4 块小路牙）。 */
   {
-    const Z0 = 23.10, Z1 = 24.10;          // 门槛南沿 → 往南第一排
-    const CX0 = 0.35, CX1 = 0.55;          // 门口中心（路头 x）→ 稍往东收
-    const HW0 = 0.86, HW1 = 1.18;          // 路半宽 → 门前略放宽（喇叭口）
-    const CX = (z) => { const u = Math.min(1, (z - Z0) / (Z1 - Z0));
-      return CX0 + (CX1 - CX0) * (u * u * (3 - 2 * u)); };
-    const halfW = (z) => { const u = Math.min(1, (z - Z0) / (Z1 - Z0));
-      return HW0 + (HW1 - HW0) * (u * u * (3 - 2 * u)); };
+    const Z0 = 23.10, Z1 = 24.30;          // 门槛石南沿（z=23.3，首排压其下防秃草）→ 平台南沿
+    const W = 2.0;                         // 半宽 = 门槛石半宽（门槛 4.0×1.4 同宽）
     const pos = [], col = [], idx = [];
     const pushQuad = (x0, x1, z0, z1, tone) => {
       const base = pos.length / 3;
@@ -1918,21 +2032,14 @@ export function makeStableRoad(){
         idx.push(a, b, b + 1, a, b + 1, a + 1);
       }
     };
-    const ROWS = 3, ZGAP = 0.022;
+    const ROWS = 3, ZGAP = 0.024, N = 7;    // 3 行 × 7 块；对缝：所有行同一套接缝位
+    const cw = (W * 2) / N;                 // 每块 0.571m 宽（与园内方砖尺度一致）
     for (let r = 0; r < ROWS; r++){
       const z0 = Z0 + (Z1 - Z0) * (r / ROWS);
       const z1 = Z0 + (Z1 - Z0) * ((r + 1) / ROWS) - ZGAP;
-      const w = Math.min(halfW(z0), halfW(z1)) - 0.015;
-      const cx = (CX(z0) + CX(z1)) * 0.5;
-      const n = Math.max(1, Math.round(w * 2 / 0.58));
-      const cw = (w * 2) / n;
-      const off = (r % 2) * cw * 0.5;
-      for (let k = -1; k <= n; k++){
-        const a = -w + k * cw + off, b = a + cw;
-        if (b <= -w || a >= w) continue;
-        const sA = Math.max(a, -w), sB = Math.min(b, w);
-        if (sB - sA < 0.16) continue;
-        pushQuad(cx + sA + 0.010, cx + sB - 0.010, z0, z1, jit(0.62, 1.0));
+      for (let k = 0; k < N; k++){
+        const a = -W + k * cw;
+        pushQuad(a + 0.012, a + cw - 0.012, z0, z1, jit(0.62, 1.0));
       }
     }
     const geo = new THREE.BufferGeometry();
@@ -1940,20 +2047,18 @@ export function makeStableRoad(){
     geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
     geo.setIndex(idx); geo.computeVertexNormals();
     g.add(mesh(geo, roadPavingMat, { name: 'gateLanding', cast: true, receive: true }));
-    /* 门口两侧的**路牙石**：与月洞门门槛石接上，门口不再是"草地上摆了几块板" */
+    /* 平台东西两沿各压一条**通长条石**（与门槛石同料收边）：
+       中心在 ±(W+0.09)=±2.09、长 = 平台全长 1.2m；狮子（x=±2.55）在条石外 0.37m，互不相犯。 */
     for (const s of [1, -1]){
-      for (let i = 0; i < 2; i++){
-        const z = 23.30 + i * 0.46;
-        const kx = s * (halfW(z) + 0.11);          // 贴着铺装外缘，别压在石板上
-        const k = mesh(box(0.20, 0.20, 0.42), MAT.stoneDark, { name: 'gateKerb', cast: true, receive: true });
-        k.position.set(kx, groundHeight(kx, z) + 0.05, z);
-        k.rotation.y = jit(-0.03, 0.03);
-        g.add(k);
-      }
+      const kx = s * (W + 0.09), kz = (Z0 + Z1) / 2;
+      const k = mesh(box(0.18, 0.16, Z1 - Z0), MAT.stoneDark, { name: 'gateKerb', cast: true, receive: true });
+      k.position.set(kx, groundHeight(kx, kz) + 0.048, kz);
+      g.add(k);
     }
   }
 
-  /* ── ⑤ 园墙南月洞门口石狮一对（2026-10-18 建 · 2026-10-19 改址）──────────────
+  /* ── ⑤ 园墙南月洞门口石狮一对（2026-10-18 建 · 2026-10-19 改址 · 2026-10-20 挪近贴墙）──
+     【当前桩位】x=±2.55、z=23.25（背贴墙，见下方 2026-10-20 注）；下文旧段落里的 z=23.9 是历史桩位。
      规矩（维基"石狮子"条）："从大门里出来时雄在左、雌在右"；雄右前爪踩绣球、雌左前爪抚幼狮。
      **2026-10-19 老黄："这对石狮子放到院子的门口啊"** —— 从马厩院门移到**园墙南月洞门**：
      洞门圆心 (0,22.5)、洞口半径 1.62、墙外皮 z=22.8；狮子站门外两侧 x=±2.55、z=23.9，
@@ -1973,9 +2078,12 @@ export function makeStableRoad(){
        洞门圆心 (0, 22.5)、洞口半径 1.62；狮子站门外两侧 x=±2.55、z=23.9，
        面朝 +z（来客方向）。内缘到洞口边净距 2.55−0.28−1.62 = **0.65m**；
        与原马厩门桩位无关（那处已空出，改放拴马桩/上马石，见 makeStable ④）。 */
+    /* ⚠️⚠️ 2026-10-20 挪位（老黄 09:06："石狮子离开围墙太远了，贴近围墙才对"）：
+       z=23.9 → **23.25**。狮身半深 ~0.42m ⇒ 后沿 min.z≈22.83，距墙外皮（22.8）仅 3cm，
+       读作"背贴墙站"；前脸（z≈23.67）正压在门前平台（④c v2）前缘 ⇒ 迎客姿势。 */
     const spots = [
-      { url: 'assets/stone-lion-male.glb', x: 2.55, z: 23.9, name: 'stoneLionMale' },
-      { url: 'assets/stone-lion-female.glb', x: -2.55, z: 23.9, name: 'stoneLionFemale' },
+      { url: 'assets/stone-lion-male.glb', x: 2.55, z: 23.25, name: 'stoneLionMale' },
+      { url: 'assets/stone-lion-female.glb', x: -2.55, z: 23.25, name: 'stoneLionFemale' },
     ];
     for (const st of spots){
       loadAssetOnce(st.url, 1.08, (src)=>{

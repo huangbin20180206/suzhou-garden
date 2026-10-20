@@ -104,9 +104,11 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   });
   const M = data.male, F = data.female;
 
-  check('公狮落位 x=+2.55 / z=23.9（园墙南月洞门，雄在左）', Math.abs(M.pos[0] - 2.55) < 0.02 && Math.abs(M.pos[2] - 23.9) < 0.02,
+  /* 2026-10-20：z=23.9 → 23.25（老黄："石狮子离开围墙太远了，贴近围墙才对"）。
+     狮身半深 ~0.42 ⇒ min.z≈22.83，仍满足下方"整体在墙面之外（>22.8）"。 */
+  check('公狮落位 x=+2.55 / z=23.25（园墙南月洞门，雄在左）', Math.abs(M.pos[0] - 2.55) < 0.02 && Math.abs(M.pos[2] - 23.25) < 0.02,
     `(${M.pos[0].toFixed(2)}, ${M.pos[2].toFixed(2)})`);
-  check('母狮落位 x=−2.55 / z=23.9（园墙南月洞门，雌在右）', Math.abs(F.pos[0] + 2.55) < 0.02 && Math.abs(F.pos[2] - 23.9) < 0.02,
+  check('母狮落位 x=−2.55 / z=23.25（园墙南月洞门，雌在右）', Math.abs(F.pos[0] + 2.55) < 0.02 && Math.abs(F.pos[2] - 23.25) < 0.02,
     `(${F.pos[0].toFixed(2)}, ${F.pos[2].toFixed(2)})`);
   check('公母间距 5.1m', Math.abs((M.pos[0] - F.pos[0]) - 5.1) < 0.05, `${(M.pos[0] - F.pos[0]).toFixed(2)}m`);
 
