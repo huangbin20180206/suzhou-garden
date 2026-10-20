@@ -191,18 +191,20 @@ function tinkerMaterial(m, tint, meshName){
   const isMane  = /mane/i.test(m.name || '') || /BSurface/i.test(meshName || '');
   const isTail  = /tail/i.test(meshName || '') || /tail/i.test(m.name || '');
   if (isCoat){
-    const coat = horseCoatMaps();
-    c.map = coat.color;                 // ← 键名必须与 horseCoatMaps 返回值一致
-    c.normalMap = coat.normal;
-    c.roughnessMap = coat.rough;
+    /* ⚠️⚠️ 2026-10-20 验收实测（回退 fa99965 的"程序毛流图"改法）：**保留模型自带的毛发贴图**。
+       那版把自带毛发底色整张换成近白的程序图 + K=18 强法线（repeat 3×3），
+       出图判读：马身读作**稻草/搓衣板/毛毡**（一束束乱草），比原来那版花斑贴图**更不像马**。
+       ⇒ 只叠 tint 上色，贴图/法线一概不碰。
+       ⚠️ 教训：**程序化贴图只在"模型没有贴图"时补细节，绝不能替换模型已有贴图** ——
+          替换会同时丢掉毛发细节与色彩层次，净亏。 */
     c.color.copy(tint);
   }
   else if (/eye/i.test(meshName || '')) c.color.set(0x2a1c14);
   else if (isMane || isTail){
-    /* 鬃/尾**同色**（真马鬃尾同色系、比体毛深）：贴图撤掉、统一深褐。
-       尾跟鬃走还避免"青白马配黑尾"这类撞色。 */
-    c.map = null;
-    c.color.set(0x221a14);
+    /* 鬃/尾：**保留模型自带的毛发贴图**（它的深浅就是鬃色），不抹贴图、不挂强毛流法线
+       （挂了那张法线 ⇒ 鬃尾读作"黑毛毡/黑细线"）。颜色交给贴图自己决定。
+       ⚠️ 程序化长尾束是**新几何**，另用自己的深褐材质（见 loadStableHorses 里 tailMat）。 */
+    c.color.set(0xFFFFFF);
   }
   else c.color.set(0xFFFFFF);
   c.metalness = 0.0;
@@ -1076,7 +1078,7 @@ export function loadStableHorses(stableGroup){
                这样它天然跟着骨链走；骨链摆多少它就跟多少。 */
             const LEN = 0.85;                        // 垂到飞节
             const tailG = new THREE.Group();
-            tailG.name = 'horseTailLong';
+            tailG.name = 'horseTailLongG';
             tailG.userData.noMerge = true;
             /* ⚠️⚠️ 2026-10-20 二修·已修复（首版出图判读：散毛扇形张开且上翘，像扫帚/鸡爪）：
                骨节点的局部轴 ≠ 世界轴 —— tail001 的骨轴本就斜向后上，直接在骨本地坐标里
@@ -1088,8 +1090,12 @@ export function loadStableHorses(stableGroup){
             tailG.quaternion.copy(bq).invert();
             /* 尾要**向下且略向后**（补正后的组系≈世界系）：身体前方是 -z ⇒ 取 +z 为马体后方。 */
             const DOWN = new THREE.Vector3(0, -1, 0.14).normalize();
-            const tailMat = tinkerMaterial(
-              tailMesh ? tailMesh.material : null, baseMat.color, 'Tail');
+            /* ⚠️ 2026-10-20 验收四修（另一个 AI 的三修判读："散毛近纯黑、与浅灰身毛脱节，
+               侧看像黑细线"）：**长尾用自己的一套材质**（深褐，不挂毛流法线 ⇒ 不读作黑毛毡），
+               并且**几何合并成 1 个网格**（原来 15 个网格/匹 ⇒ 90 个 draw call；
+               现在 1 个/匹），这样才能把散毛从 14 束加到 30 束而不炸 draw call 预算。 */
+            const tailMat = new THREE.MeshStandardMaterial({
+              color: 0x5A5248, roughness: 0.88, metalness: 0.0, envMapIntensity: 0.28 });
             /* 变径管复用 06i 的 tubeRadiusRamp（自带端盖，别手搓建管 ——
                makeHorse 里的 tube() 是函数内局部量，这里用不到它）。 */
             const tailTube = (pts, r0, r1, seg, rad) => {
@@ -1097,29 +1103,49 @@ export function loadStableHorses(stableGroup){
               return tubeRadiusRamp(new THREE.TubeGeometry(curve, seg, 1, rad, false),
                 curve, seg, rad, t => r0 + (r1 - r0) * t);
             };
-            const pts = [
+            /* 尾束几何：主干（束心）+ N 束散毛。
+               ⚠️ 形态要点（前四版踩过的坑）：
+                 v1 7 束扇形外撇上翘 ⇒ 扫帚；v2 10 束太细 ⇒ 几根黑细线；
+                 v3 14 束加粗 ⇒ 黑板条束；v4 30 束更细 ⇒ 仍是黑杆束、条间透缝。
+               现在的解法：**少而粗、互相重叠**（主干 6cm 粗缆绳 + 16 束散毛半径 2cm→0.5cm，
+               沿主干错落分布、彼此贴合）⇒ 远看是**一束有体积的毛**，近看是毛流，不是管。
+               颜色 0x5A5248（浅灰褐，比浅灰身毛深、不脱节、不近纯黑）。 */
+            const tailGeos = [];
+            const core = tailTube([
               new THREE.Vector3(0, 0, 0),
-              DOWN.clone().multiplyScalar(LEN * 0.35),
-              DOWN.clone().multiplyScalar(LEN * 0.70),
-              DOWN.clone().multiplyScalar(LEN),
-            ];
-            const main = new THREE.Mesh(tailTube(pts, 0.042, 0.016, 7, 6), tailMat);
-            main.name = 'horseTailLongMain';
-            tailG.add(main);
-            /* 散毛二修（同上事故）：10 束更细更密、根部收拢、三段弧线先拢后坠、长短错落。
-               首版 7 束沿 ±27° 张角直线外撇且画在骨本地系里 ⇒ 读作硬扇骨+上翘。
-               二版画在补正后的组系（-y=世界的下）：先贴主干下垂、中段渐张、末端收拢。 */
-            for (let i = 0; i < 10; i++){
-              const a = (i / 9) * Math.PI * 2;                        // 绕主干全周散布
-              const hx = Math.cos(a) * 0.065 * (0.7 + 0.3 * _sr());   // 水平张角 ≤6.5cm
-              const hz = Math.sin(a) * 0.045 + 0.02;                  // 前后薄撒（略偏后方）
-              const hl = LEN * (0.62 + 0.24 * _sr());                // 0.53~0.73m 长短错落
-              const p0 = new THREE.Vector3(hx * 0.25, -0.05, hz * 0.3);
-              const p1 = new THREE.Vector3(hx * 0.85, -hl * 0.52, hz);
-              const p2 = new THREE.Vector3(hx,        -hl,       hz * 0.75);
-              const hair = new THREE.Mesh(tailTube([p0, p1, p2], 0.011, 0.003, 6, 5), tailMat);
-              hair.name = 'horseTailLongHair';
-              tailG.add(hair);
+              new THREE.Vector3(0, -0.14, 0.06),
+              DOWN.clone().multiplyScalar(LEN * 0.55),
+              DOWN.clone().multiplyScalar(LEN * 0.97),
+            ], 0.060, 0.025, 12, 6);
+            tailGeos.push(core);
+            const N_HAIR = 16;
+            for (let i = 0; i < N_HAIR; i++){
+              const a = (i / N_HAIR) * Math.PI * 2 + _sr() * 0.15;   // 绕束心均布 + 微抖
+              const rr = 0.018 + 0.018 * _sr();                        // 根部散布半径 1.8~3.6cm
+              const hx = Math.cos(a) * rr;
+              const hz = Math.sin(a) * rr * 0.7 + 0.012;               // 略偏后
+              const hl = LEN * (0.50 + 0.40 * _sr());                  // 0.43~0.68m 长短错落
+              const sway = (_sr() - 0.5) * 0.08;                       // 末梢横向飘
+              const p0 = new THREE.Vector3(hx * 0.30, -0.05, hz * 0.30);
+              const p1 = new THREE.Vector3(hx * 1.00, -hl * 0.45, hz * 1.00);
+              const p2 = new THREE.Vector3(hx * 1.10 + sway, -hl, hz * 0.80);
+              tailGeos.push(tailTube([p0, p1, p2], 0.020, 0.005, 8, 6));
+            }
+            const tailMerged = mergeGeometries(tailGeos, false);
+            if (tailMerged){
+              const tailMeshNew = new THREE.Mesh(tailMerged, tailMat);
+              tailMeshNew.name = 'horseTailLong';
+              tailMeshNew.castShadow = true;
+              tailMeshNew.receiveShadow = true;
+              tailMeshNew.userData.noMerge = true;
+              tailG.add(tailMeshNew);
+            } else {
+              /* 合并不成（属性不齐）就退回单件，绝不丢尾巴 */
+              for (const geo of tailGeos){
+                const m = new THREE.Mesh(geo, tailMat);
+                m.castShadow = true; m.userData.noMerge = true;
+                tailG.add(m);
+              }
             }
             for (const o of tailG.children){ o.castShadow = true; o.receiveShadow = true; o.userData.noMerge = true; }
             tRoot.add(tailG);

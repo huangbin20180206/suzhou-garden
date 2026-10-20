@@ -70,10 +70,18 @@ const data = await page.evaluate(async () => {
   const horses = [];
   for (const slot of stable.userData.horseSlots){
     const root = slot.holders[0];
-    let body = null, tailM = null;
+    let body = null, tailM = null, tailG = null;
     root.traverse(o => { if (o.isSkinnedMesh){
       if (!body && /Horse_LP/i.test(o.name || '')) body = o;
-      if (/^Tail$/i.test(o.name || '')) tailM = o; } });
+      if (/^Tail$/i.test(o.name || '')) tailM = o; }
+      if (o.name === 'horseTailLongG') tailG = o; });
+    /* ⚠️ 2026-10-20 验收发现的**门禁盲区**：Tinker 自带那块 0.21m 短尾网格已经被藏掉
+       （visible=false，长尾是另挂的程序化尾束）⇒ 原判据量的是**看不见的那块**，
+       数字掉到 0.015m 也照样"ALL PASS"。⇒ 改成量**看得见的长尾**（horseTailLongG）。
+       仍然同时量旧尾网格（留作回归对照，但不再作判据）。 */
+    if (!tailM && tailG){
+      tailM = tailG;                                   // 退路：没有旧尾就量新尾组
+    }
     if (!body) { horses.push({ role: slot.role, error: '没找到 Horse_LP 蒙皮网格' }); continue; }
     const bp = body.geometry.attributes.position;
     let iMuzzle = -1, iWithers = -1, zMax = -1e9, yMax = -1e9;
@@ -83,9 +91,22 @@ const data = await page.evaluate(async () => {
       if (y > yMax && z < 0.25){ yMax = y; iWithers = i; }
     }
     let iTailTip = -1;
-    if (tailM){ const p = tailM.geometry.attributes.position; let zm = 1e9;
+    if (tailM && tailM.isSkinnedMesh){ const p = tailM.geometry.attributes.position; let zm = 1e9;
       for (let i=0;i<p.count;i++) if (p.getZ(i) < zm){ zm = p.getZ(i); iTailTip = i; } }
+    /* 看得见的长尾（非蒙皮、挂在尾骨下）：取局部最低点，每帧换算成世界坐标量横摆 */
+    let tailTipLocal = null, tailTipMesh = null;
+    if (tailG) tailG.traverse(o => {
+      if (tailTipMesh || !o.isMesh) return;
+      const p = o.geometry.attributes.position; let my = 1e9, mi = -1;
+      for (let i=0;i<p.count;i++){ const y = p.getY(i); if (y < my){ my = y; mi = i; } }
+      if (mi >= 0){ tailTipLocal = new T.Vector3(p.getX(mi), p.getY(mi), p.getZ(mi)); tailTipMesh = o; }
+    });
     const bones = {}; root.traverse(o => { if (o.isBone) bones[o.name] = o; });
+    /* 甩尾是**沿马的横向**摆（马的 local X）⇒ 判据必须量"横向分量"，
+       不能量世界 X：吃草马 yaw=−90°，它的横向是世界 Z ⇒ 量世界 X 会读成"几乎不动"（假阴性）。 */
+    const rootW = new T.Vector3(); root.getWorldPosition(rootW);
+    const fwd = new T.Vector3(0, 0, 1).transformDirection(root.matrixWorld); fwd.y = 0; fwd.normalize();
+    const rightV = new T.Vector3().crossVectors(fwd, new T.Vector3(0, 1, 0)).normalize();
     const e = new T.Euler();
     const S = { noseY:[], withersY:[], tailX:[], jawX:[], headX:[], hoofX:[] };
     const vM = new T.Vector3(), vW = new T.Vector3(), vT = new T.Vector3();
@@ -93,10 +114,11 @@ const data = await page.evaluate(async () => {
       mod.tickStableLife(1/30);
       root.updateMatrixWorld(true);
       if (step % 3) continue;
-      body.skeleton.update(); if (tailM) tailM.skeleton.update();
+      body.skeleton.update(); if (tailM && tailM.isSkinnedMesh) tailM.skeleton.update();
       skinnedPos(body, iMuzzle, vM); skinnedPos(body, iWithers, vW);
       S.noseY.push(vM.y); S.withersY.push(vW.y);
-      if (tailM && iTailTip >= 0){ skinnedPos(tailM, iTailTip, vT); S.tailX.push(vT.x); }
+      if (tailTipMesh){ vT.copy(tailTipLocal); tailTipMesh.localToWorld(vT); S.tailX.push(vT.clone().sub(rootW).dot(rightV)); }
+      else if (tailM && iTailTip >= 0){ skinnedPos(tailM, iTailTip, vT); S.tailX.push(vT.clone().sub(rootW).dot(rightV)); }
       const jb = bones['jaw']; if (jb){ e.setFromQuaternion(jb.quaternion,'XYZ'); S.jawX.push(e.x); }
       const hb = bones['ORG-head']; if (hb){ e.setFromQuaternion(hb.quaternion,'XYZ'); S.headX.push(e.x); }
       const tb = bones['f_hoofL'] || bones['DEF-f_toeL']; if (tb){ e.setFromQuaternion(tb.quaternion,'XYZ'); S.hoofX.push(e.x); }
@@ -141,6 +163,9 @@ const stall = byRole('stall')[0];
 if (stall) ok(stall.jawSpan <= 0.03, '②c 厩内那匹不嚼（不该动嘴）', stall.jawSpan + 'rad');
 const tails = data.horses.map(h => h.tailSpan);
 ok(Math.max(...tails) >= 0.12, '③ 摇尾巴：尾尖横摆 ≥0.12m', 'max ' + Math.max(...tails) + 'm');
+/* ⚠️ 2026-10-20 验收补的**盲区**：原来只看 max ⇒ 六匹里五匹不动也照样绿。
+   老黄要求"马蹄马尾不规则动"是**对所有马**的 ⇒ 逐匹都要有下限。 */
+ok(Math.min(...tails) >= 0.08, '③b 每匹马都在摇尾（不是只有几匹动）', 'min ' + Math.min(...tails) + 'm');
 const hoofs = data.horses.map(h => h.hoofSpan);
 ok(Math.max(...hoofs) >= 0.15, '④ 动前蹄：蹄骨角摆动 ≥0.15rad', 'max ' + Math.max(...hoofs) + 'rad');
 const heads = data.horses.map(h => h.headSpan);
