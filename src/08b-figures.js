@@ -585,6 +585,11 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
   /* 头球用脸贴图（2026-10-06 半写实）：一颗球 = 发型 + 脸（贴图里发区与 FIG_HAIR 同值，
      与下面的发髻/盘髻无缝衔接）。分段 14×11 → 16×13：脸窗 ±46° 需要 ~16 经段才不糊。 */
   headG.add(mesh(new THREE.SphereGeometry(0.078, 16, 13), figFaceMatA, { name:'scholarHead' }));
+  /* 鼻梁（2026-10-21 绿框：鼻子只画在贴图上、几何是纯球 ⇒ 侧面没有鼻子=面具感）。
+     小小一颗肤色 bump 压在画上去的鼻梁处（眼下脸面上），正面几乎看不见、
+     侧面给出鼻梁剪影。r=16mm、仅凸出脸面 ~6mm（别做成鹰钩鼻）。 */
+  const nose = mesh(new THREE.SphereGeometry(0.016, 10, 8), figSkinMat, { name:'scholarNose' });
+  nose.scale.set(0.72, 1.05, 0.85); nose.position.set(0, -0.012, 0.070); headG.add(nose);
   /* 下颌（2026-10-16 B方案：老黄"脖子和脑袋明显不匹配，只能远看"）。
      病根：头是正球 + 颈是直杆，中间没有任何下巴过渡 ⇒ 棒棒糖。
      修法：颅顶保持 0.086（脸贴图 UV 按这个半径画的，不能动），下颌加一颗
@@ -601,7 +606,7 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
      素色球盖住。修法：**下沉 1.2cm + 后收 1.4cm + z 向压扁**（0.94→0.80）⇒ 前脸只到
      z≈0.066（脸面内 2cm），x/y 尺寸不动（短颈那次的加颌成果保住），嘴区让出来。 */
   const jaw = mesh(new THREE.SphereGeometry(0.068, 12, 10), figSkinMat, { name:'scholarJaw' });
-  jaw.scale.set(0.90, 0.86, 0.80);
+  jaw.scale.set(0.80, 0.86, 0.80);
   jaw.position.set(0, -0.062, 0.012);
   headG.add(jaw);
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'scholarKnot' });
@@ -921,7 +926,7 @@ export function makeGroomArm(root){
         o.position.set(0, 0, 0);
         moved.push(o);
       }
-    } else if ((o.name === 'scholarElbow' || o.name === 'scholarClump' || o.name === 'scholarHand')
+    } else if ((o.name === 'scholarElbow' || o.name === 'scholarClump' || o.name === 'scholarHand' || o.name === 'scholarThumb')
                && o.position.x > 0.02){
       o.position.sub(SH);
       moved.push(o);
@@ -971,9 +976,16 @@ function attachFeedBale(root){
   if (fist){
     /* 拳头读法：旧手球 0.040 压扁片（1.05/0.72/1.05 ⇒ 4.2×2.9×4.2cm）比捆腰
        （束带半径 ~0.05）还小一圈，攥不住。抬成 ~5×4.2×5cm 的圆拳裹住捆腰。 */
-    fist.scale.set(1.25, 1.05, 1.25);
+    fist.scale.set(1.02, 0.88, 1.10);
   }
   const local = root.worldToLocal(hand.getWorldPosition(new THREE.Vector3()));
+    /* 拇指（2026-10-21 黄框：拳头是颗光球 ⇒ "手型不对"。加一颗拇指 belly
+       贴在拳侧 ⇒ 剪影从"球"变成"攥"；随拳头一起进肩枢轴组不掉队）。 */
+    const thumb = mesh(new THREE.SphereGeometry(0.020, 8, 6), figSkinMat, { name:'scholarThumb' });
+    thumb.position.copy(local).add(new THREE.Vector3(0.030, -0.005, 0.028));
+    thumb.scale.set(0.9, 0.9, 1.4);
+    thumb.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
+    root.add(thumb);
   const b = makeFeedBale();
   b.name = 'propFeedBaleHand';
   b.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
@@ -1001,6 +1013,13 @@ function attachWoodBucket(root){
   /* getWorldPosition 会沿父链把 matrixWorld 刷到最新（刚 world.add 完还没渲染过），
      所以下面这次 worldToLocal 用的是**真实**的世界矩阵，不是上一帧的残值。 */
   const local = root.worldToLocal(hand.getWorldPosition(new THREE.Vector3()));
+    /* 拇指（2026-10-21 黄框：拳头是颗光球 ⇒ "手型不对"。加一颗拇指 belly
+       贴在拳侧 ⇒ 剪影从"球"变成"攥"；随拳头一起进肩枢轴组不掉队）。 */
+    const thumb = mesh(new THREE.SphereGeometry(0.020, 8, 6), figSkinMat, { name:'scholarThumb' });
+    thumb.position.copy(local).add(new THREE.Vector3(0.030, -0.005, 0.028));
+    thumb.scale.set(0.9, 0.9, 1.4);
+    thumb.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
+    root.add(thumb);
   const b = makeWoodBucket();
   b.name = 'propWellBucketHand';
   /* 提梁顶 = 桶原点 + BUCKET_HANDLE_H ⇒ 让提梁顶落在手心里就是这一行（桶原点在桶底中心） */
@@ -1099,10 +1118,15 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
      孩子袍口收在 0.96、头下缘 0.945 —— 头和袍本身重叠，没有露颈的缝，不加颈。
      分段 12×10 → 14×12（同站姿的理由：脸窗要够细）。 */
   headG.add(mesh(new THREE.SphereGeometry(0.070, 14, 12), figFaceMatC, { name:'childHead' }));
+  /* 鼻梁（2026-10-21 绿框：鼻子只画在贴图上、几何是纯球 ⇒ 侧面没有鼻子=面具感）。
+     小小一颗肤色 bump 压在画上去的鼻梁处（眼下脸面上），正面几乎看不见、
+     侧面给出鼻梁剪影。r=16mm、仅凸出脸面 ~6mm（别做成鹰钩鼻）。 */
+  const nose = mesh(new THREE.SphereGeometry(0.014, 10, 8), figSkinMat, { name:'childNose' });
+  nose.scale.set(0.72, 1.05, 0.85); nose.position.set(0, -0.011, 0.063); headG.add(nose);
   /* 小孩同补下颌（与大人同一手法，按比例缩小：大人 0.062 → 小孩 0.054），
      否则一家同框，大人有下巴、小孩还是球插杆。 */
   const childJaw = mesh(new THREE.SphereGeometry(0.054, 12, 10), figSkinMat, { name:'childJaw' });
-  childJaw.scale.set(0.88, 0.78, 0.92);
+  childJaw.scale.set(0.80, 0.78, 0.92);
   childJaw.position.set(0, -0.037, 0.021);
   headG.add(childJaw);
   for (const side of [-1, 1]){
@@ -1321,9 +1345,14 @@ export function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go'
   headG.position.set(0, NECK_Y + 0.135, 0.03);
   headG.rotation.x = pose === 'go' ? 0.40 : (pose === 'qin' ? 0.30 : 0.24);
   headG.add(mesh(new THREE.SphereGeometry(0.078, 16, 13), figFaceMatA, { name:'seatHead' }));
+  /* 鼻梁（2026-10-21 绿框：鼻子只画在贴图上、几何是纯球 ⇒ 侧面没有鼻子=面具感）。
+     小小一颗肤色 bump 压在画上去的鼻梁处（眼下脸面上），正面几乎看不见、
+     侧面给出鼻梁剪影。r=16mm、仅凸出脸面 ~6mm（别做成鹰钩鼻）。 */
+  const nose = mesh(new THREE.SphereGeometry(0.016, 10, 8), figSkinMat, { name:'seatNose' });
+  nose.scale.set(0.72, 1.05, 0.85); nose.position.set(0, -0.012, 0.070); headG.add(nose);
   /* 坐姿同补下颌（与站姿同尺寸：两姿势同框必须是一套头，见本文件顶部"逐字对齐"）。 */
   const seatJaw = mesh(new THREE.SphereGeometry(0.062, 12, 10), figSkinMat, { name:'seatJaw' });
-  seatJaw.scale.set(0.88, 0.78, 0.92);
+  seatJaw.scale.set(0.80, 0.78, 0.92);
   seatJaw.position.set(0, -0.042, 0.024);
   headG.add(seatJaw);
   const knot = mesh(new THREE.SphereGeometry(0.030, 8, 7), hair, { name:'seatKnot' });

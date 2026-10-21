@@ -226,7 +226,7 @@ function furNormalMap(){
   cx.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(cv);
   t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.repeat.set(14, 14);
+  t.repeat.set(20, 20);
   t.colorSpace = THREE.NoColorSpace;               // 法线是数据贴图，不能标 sRGB
   t.anisotropy = 8;
   t.needsUpdate = true;
@@ -245,12 +245,19 @@ function markCoatPoints(mesh){
   const n = pos.count;
   const arr = new Float32Array(n * 3);
   for (let i = 0; i < n; i++){
-    const y = pos.getY(i), z = pos.getZ(i);
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     const t = (y - bb.min.y) / h;                  // 0 蹄 → 1 耳
     /* 腿：下 34% 压到 0.45，34%~52% 平滑回到 1（腿毛天然更黑） */
     let f = t < 0.34 ? 0.45 : t < 0.52 ? 0.45 + 0.55 * (t - 0.34) / 0.18 : 1;
     /* 口鼻：最前 + 最低的一小片再压一档（真马口鼻偏深） */
     if (z > bb.max.z - h * 0.10 && t < 0.45) f = Math.min(f, 0.62);
+    /* 鼻孔：口鼻两侧各一团深色（2026-10-21 蓝框：马嘴长而窄、无鼻孔 ⇒ 读作"狗/海豹"）。
+       zmax=0.457（实测）；鼻孔中心 (±0.038, 1.32, zmax-0.037)，椭球半径 (0.028,0.035,0.06)。 */
+    if (y > 1.15 && z > bb.max.z - 0.12){
+      const dx = (Math.abs(x) - 0.038) / 0.028, dy = (y - 1.32) / 0.035, dz = (z - (bb.max.z - 0.037)) / 0.06;
+      const dd = dx * dx + dy * dy + dz * dz;
+      if (dd < 1) f = Math.min(f, 0.38 + 0.62 * dd);
+    }
     arr[i * 3] = f; arr[i * 3 + 1] = f; arr[i * 3 + 2] = f;
   }
   geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
@@ -262,16 +269,20 @@ function markCoatPoints(mesh){
    （门禁①就因此从 -0.473 掉到 -0.239）。正解：**只瘦几何顶点**（X 方向压、
    Y/Z 不动）⇒ 颈变细但长度不变。 */
 function slimNeck(mesh){
+  /* ⚠️ v2（2026-10-21 蓝框：马嘴长而窄、无鼻孔、颈侧面厚 ⇒ "巨型猎犬"）：
+     ① 颈 X 压 0.78（v1 已有）；② 吻端**加宽**回 ~1.0（头 0.90 × 吻 1.12：
+     真马吻端宽钝、有鼻翼，窄长吻 = 狗）；③ Z 不动（颈中心线支点没法定准，
+     对称 X 缩放对支点误差免疫，Z 缩放会平移整个头）。全程 smoothstep 羽化，无硬缝。 */
   const geo = mesh.geometry;
   const pos = geo.attributes.position;
   const n = pos.count;
+  const ss = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
   for (let i = 0; i < n; i++){
-    const y = pos.getY(i);
-    if (y >= 1.0 && y < 1.35){
-      pos.setX(i, pos.getX(i) * 0.78);             // 颈：侧向压细
-    } else if (y >= 1.35){
-      pos.setX(i, pos.getX(i) * 0.90);             // 头：略小
-    }
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    let sx = 1 - 0.22 * ss(0.95, 1.08, y) * (1 - ss(1.30, 1.44, y));   // 颈 0.78
+    sx *= 1 - 0.10 * ss(1.30, 1.46, y);                                // 头 0.90
+    sx *= 1 + 0.12 * ss(0.30, 0.42, z) * ss(1.15, 1.28, y) * (1 - ss(1.40, 1.50, y)); // 吻端钝化
+    pos.setX(i, x * sx);
   }
   pos.needsUpdate = true;
   geo.computeBoundingBox();
@@ -299,7 +310,7 @@ function tinkerMaterial(m, tint, meshName){
        ⑤ 颜色由 tint 决定（干净的单色毛），不再有花斑。 */
     c.map = null;
     c.normalMap = furNormalMap();
-    c.normalScale.set(0.34, 0.34);
+    c.normalScale.set(0.30, 0.30);
     c.roughness = 0.70;
     c.envMapIntensity = 0.34;
     c.color.copy(tint);
@@ -1218,7 +1229,7 @@ export function loadStableHorses(stableGroup){
               const fwdW = new THREE.Vector3(0, 0, 1).transformDirection(root.matrixWorld);
               const inv = new THREE.Matrix4().copy(tRoot.matrixWorld).invert();
               const fwdB = fwdW.clone().transformDirection(inv);
-              tailG.position.copy(fwdB).multiplyScalar(-0.32);      // 往臀后 32cm
+              tailG.position.copy(fwdB).multiplyScalar(-0.14);      // 往臀后 14cm（贴臀不断开，见下）
             }
             /* 尾要**向下且略向后**（补正后的组系≈世界系）：身体前方是 -z ⇒ 取 +z 为马体后方。
                ⚠️ 2026-10-21（老黄："短狗尾"）：真马尾是**长而宽的一束**（从尾骨垂到蹄毛、
@@ -1233,7 +1244,7 @@ export function loadStableHorses(stableGroup){
                在黑马身上读作"灰绳"，两头都不对。 */
             const tailCol = baseMat.color.clone().multiplyScalar(0.42);
             const tailMat = new THREE.MeshStandardMaterial({
-              color: tailCol, roughness: 0.90, metalness: 0.0, envMapIntensity: 0.26 });
+              color: tailCol, roughness: 0.75, metalness: 0.0, envMapIntensity: 0.30 });
             /* 变径管复用 06i 的 tubeRadiusRamp（自带端盖，别手搓建管 ——
                makeHorse 里的 tube() 是函数内局部量，这里用不到它）。 */
             const tailTube = (pts, r0, r1, seg, rad) => {
@@ -1241,41 +1252,37 @@ export function loadStableHorses(stableGroup){
               return tubeRadiusRamp(new THREE.TubeGeometry(curve, seg, 1, rad, false),
                 curve, seg, rad, t => r0 + (r1 - r0) * t);
             };
-            /* 尾束几何 = **实心束芯 + 下段披散毛**（第 7 版，总控定稿）
-               ⚠️ 前六版（v1~v6）的共同病根：**只有"丝"没有"束"** ⇒ 任何角度都读作几根线
-                 （v1 扇形扫帚 / v2 几根黑细线 / v3 黑板条 / v4 黑杆束 / v5 细杆薄片 / v6 仍是细丝）。
-                 真马尾 = 上段（骶下那一团）**是实的、粗的**，下段才是披散的毛。
-               做法：
-                 ① 束芯 = 一根变径管，半径 5.5cm → 1.0cm，占全长（占住"体积"）；
-                 ② 26 束细丝**只从下 2/3 起始**、贴着束芯表面垂下
-                    （起点半径 = 束芯在该处的半径），下端散开 1.2 倍、长短错落
-                    ⇒ 轮廓是"一束毛"：上段实、下段毛边；
-                 ③ 整束仍**合并成 1 个网格**（6 匹共 6 个 draw call，不是 156 个）。 */
-            /* 尾束几何 = **真马尾的"毛帘"**（2026-10-21 重做，老黄："拼接/木材一样的东西"）
-               ⚠️ 之前的"实心束芯 + 下段披散毛"（第 7/8 版）读作**一根木棍 + 几根铁丝**，
-               因为：束芯半径 5.5cm 是木材粗细、细丝半径 1.1cm 是铁丝粗细，合并后就是"木+铁"。
-               真马尾 = **一帘下垂的细毛**（从骶下垂到蹄毛，宽 15~25cm），没有可见的"芯"。
-               做法（照老黄贴的分层建议：鬃毛/尾巴用**毛束/曲线/透明贴片或少量真实毛发**）：
-                 ① **不要芯**；70 根极细的弯曲管（半径 0.002~0.0035m），长短错落、
-                    从束根开始散开（上段密、下段松），每根带一点自然波浪 ⇒ 读作"毛帘"；
-                 ② 全部**合并成 1 个网格**（6 匹共 6 draw call，不是 420 个）；
-                 ③ 整束仍挂在一个骨节点上，**整束一起摆**（真马尾平时就是整束摆，不是每根独立）。 */
+            /* 尾束几何 v9 = **尾 dock + 错根毛帘**（2026-10-21 红框："拼接"、尾巴与屁股断开）。
+               ⚠️ v8 毛帘的两个病根：① 尾根挪出 32cm ⇒ 尾巴**飘在屁股后面**、顶端收成
+               一个点 ⇒ 读作"扫帚柄 + 刷毛"；② 70 根全从同一点发出 ⇒ 顶端一束"柄"。
+               真马尾：骶骨尾 dock（短毛、小、贴着臀）+ 毛发**沿整条 dock 长出来**
+               （上段密贴、下段散开），根部永远连在臀上。
+               做法：① 尾根只后挪 **14cm**（刚出臀面不断开）；② 一段短 dock 管
+               （r 3.0→2.2cm、长 24cm，上端埋进臀里）；③ 70 根细管**沿 dock 全长
+               错开起根**（yStart −0.02~−0.20、根盘半径 2.4cm）⇒ 没有"柄"、没有断缝；
+               ④ 整束仍合并 1 网格、挂一骨、整束一起摆。 */
             const tailGeos = [];
+            const dockPts = [new THREE.Vector3(0, 0.035, -0.008),
+              DOWN.clone().multiplyScalar(0.12), DOWN.clone().multiplyScalar(0.235)];
+            tailGeos.push(tailTube(dockPts, 0.030, 0.022, 6, 7));
             const N_STRANDS = 70;
             for (let i = 0; i < N_STRANDS; i++){
-              const a = (i / N_STRANDS) * Math.PI * 2 + _sr() * 0.15;   // 绕束根均布 + 微抖
+              const a = (i / N_STRANDS) * Math.PI * 2 + _sr() * 0.15;   // 绕 dock 均布 + 微抖
               const splay = 0.35 + 0.65 * _sr();                        // 散开系数：上密下松
-              const len = LEN * (0.82 + 0.18 * _sr());                  // 长短错落
+              const yStart = -0.02 - 0.18 * _sr();                      // 沿 dock 全长错开起根
+              const len = LEN * (0.72 + 0.18 * _sr());                  // 长短错落
               const wave = (_sr() - 0.5) * 0.06;                        // 自然波浪
               const rad = 0.0020 + 0.0015 * _sr();                      // 半径 2.0~3.5mm（真毛粗细）
+              const r00 = 0.024;                                        // 根盘半径：贴着 dock 表面
               const pts = [];
               const NSEG = 10;
               for (let k = 0; k <= NSEG; k++){
                 const u = k / NSEG;                                     // 0 根 → 1 尖
-                const y = -len * u;
-                const spr = (0.012 + 0.14 * u * splay);                // 上密下松
-                const x = Math.cos(a) * spr + wave * Math.sin(u * 3.1);
-                const z = Math.sin(a) * spr * 0.55 + wave * Math.cos(u * 2.7) * 0.4;
+                const y = yStart - len * u;
+                const x = Math.cos(a) * (r00 * (1 - u * 0.5) + 0.15 * u * splay)
+                  + wave * Math.sin(u * 3.1);
+                const z = Math.sin(a) * (r00 * (1 - u * 0.5) + 0.15 * u * splay) * 0.55
+                  + yStart * 0.20 + wave * Math.cos(u * 2.7) * 0.4;
                 pts.push(new THREE.Vector3(x, y, z));
               }
               const curve = new THREE.CatmullRomCurve3(pts);
@@ -1658,11 +1665,11 @@ const FEED_BALE = (() => {
        ⇒ 出图判读"还是几根黄签子"，因为 34 根摊在 0.42m 直径上、彼此离得开。
        现在 56 根、外扩只给 2.4 倍（0.24m 直径）—— **密到重叠**才读得出"一把草"。 */
     const r = 0.008 + pr(0, 0.026) + (i % 4) * 0.005;
-    const zTip = 0.100 + pr(0, 0.070);           // 茎长不齐，束口才毛糙
+    const zTip = 0.085 + pr(0, 0.055);           // 茎长不齐，束口才毛糙（v4 收短：长茎=爪子）
     const zMid = zTip * 0.46;
     out.push({ a, r, rad: 0.011 + pr(0, 0.005), zTip, zMid,
                tilt: pr(-0.16, 0.16),                 // 逐根微偏，别像一把牙签
-               y0: -0.075 - pr(0, 0.030) });          // 握点在上、根茬在下
+               y0: -0.062 - pr(0, 0.025) });          // 握点在上、根茬在下
   }
   return out;
 })();
@@ -1679,12 +1686,28 @@ export function makeFeedBale(){
     const c = new THREE.CatmullRomCurve3([
       P(s.r * 0.95, -0.030, s.y0),
       P(s.r,        0.010, -0.062 + s.tilt * 0.05),
-      P(s.r * 2.10, s.zMid, 0.008 + s.tilt * 0.08),
-      P(s.r * 2.00, s.zTip, 0.030 + s.tilt * 0.12),
+      P(s.r * 1.55, s.zMid, 0.008 + s.tilt * 0.08),
+      P(s.r * 1.50, s.zTip, 0.030 + s.tilt * 0.12),
     ]);
-    strands.push(new THREE.TubeGeometry(c, 6, s.rad, 5, false));
+    const tg = new THREE.TubeGeometry(c, 6, s.rad, 5, false);
+    {
+      /* TubeGeometry uv.x 沿茎长（0 根 → 1 梢）：基部稻草色 → 梢头青草色 */
+      const uvA = tg.attributes.uv, nn = tg.attributes.position.count;
+      const carr = new Float32Array(nn * 3);
+      const cA = new THREE.Color(0xC7B173), cB = new THREE.Color(0x8AA063), t2 = new THREE.Color();
+      for (let vi = 0; vi < nn; vi++){
+        const tt = uvA.getX(vi), k = Math.min(1, Math.max(0, (tt - 0.30) / 0.70));
+        t2.copy(cA).lerp(cB, k * k);
+        carr[vi * 3] = t2.r; carr[vi * 3 + 1] = t2.g; carr[vi * 3 + 2] = t2.b;
+      }
+      tg.setAttribute('color', new THREE.BufferAttribute(carr, 3));
+    }
+    strands.push(tg);
   }
-  g.add(mesh(mergeGeometries(strands, false), MAT.straw, { name: 'feedStrands', cast: false }));
+  /* 手里这捆自带顶点色 ⇒ 不用 MAT.straw（一乘就 double tint 发暗） */
+  const baleMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95,
+    metalness: 0.0, envMapIntensity: 0.30 });
+  g.add(mesh(mergeGeometries(strands, false), baleMat, { name: 'feedStrands', cast: false }));
   /* 束带：麻绳两圈（束腰 + 略上收口），不再是"一个居中的硬箍" */
   const ties = [];
   for (const [y, r, h] of [[-0.038, 0.049, 0.020], [-0.012, 0.055, 0.017]]){
@@ -1761,10 +1784,10 @@ export function makeStableRoad(){
   /* ⚠️⚠️ 2026-10-20 v2（老黄 09:06："到院子这个端口的还是太乱，再修的好看一些"）：
      上一版末点 (0.35,23.25) 仍**没对准门心**（月洞门圆心 x=0）—— 路歪 35cm 进门，
      门前的铺装中心又接着往东漂（0.35→0.55），整组构图与门错位 ⇒ 读作"乱"。
-     本轮：路尾收到 **(0,23.25)**（正对门心），门前铺装同步改为**中轴 x=0 的对称平台**
+     本轮：路尾收到 **(0,24.55)**（与平台南沿齐平、正对门心 —— 末段转正南-北向，不再斜插进平台，见下方 ④c v3），门前铺装同步改为**中轴 x=0 的对称平台**
      （见下方 ④c）。 */
   const CP = [[40.0, 4.2], [39.2, 10.5], [37.4, 16.5], [34.4, 21.8], [30.0, 26.2],
-              [22.0, 27.2], [10.0, 26.4], [2.6, 25.0], [0.0, 23.25]];
+              [22.0, 27.2], [10.0, 26.4], [3.0, 26.0], [0.5, 25.9], [0.0, 24.55]];
   const curve = new THREE.CatmullRomCurve3(CP.map(p => new THREE.Vector3(p[0], 0, p[1])));
   const HW = 0.86;                                 // 半宽 ⇒ 路宽 1.72m（单车道，够马车）
   const r2 = mulberry32(20261012);                 // 私有流
@@ -1898,9 +1921,9 @@ export function makeStableRoad(){
                             .addScaledVector(tan, jit(-0.055, 0.055));
           const r = jit(0.044, 0.092), tone = jit(0.46, 1.05);
           /* ⚠️ 2026-10-20（④c v2 门前平台落地后补）：路尾这段的卵石会正好落在平台
-             石板上面 —— 出图读作"石板里嵌卵石"。落在平台矩形（|x|<2.0、z∈[23.10,24.30]）
+             石板上面 —— 出图读作"石板里嵌卵石"。落在平台矩形（|x|<2.0、z∈[23.10,24.55]，v3 平台南延后同步放大）
              内的卵石直接跳过；jit 已照常消耗 ⇒ 其余卵石的抖动序列不变、位置可复现。 */
-          if (Math.abs(q.x) < 2.10 && q.z > 23.05 && q.z < 24.35) continue;
+          if (Math.abs(q.x) < 2.10 && q.z > 23.05 && q.z < 24.60) continue;
           const gg = proto.clone();
           const cAttr = new Float32Array(gg.attributes.position.count * 3);
           for (let i = 0; i < cAttr.length; i += 3){
@@ -2186,14 +2209,42 @@ export function makeStableRoad(){
      v1（同日早）仍歪：路尾 x=0.35 本身没对准门心（月洞门圆心 x=0），铺装中心又接着
      往东漂（0.35→0.55）⇒ 整组构图与门错位 35~55cm，加上错缝抖动 ⇒ 读作"乱"（老黄 09:06）。
      v2 三改：
-       ① 路尾已收到 (0,23.25)（上方 CP 表）—— 正对门心；
+       ① 路尾收到 (0,24.55)（上方 CP 表）—— 正对门心、与平台南沿齐平、末段转正不再斜插（v3）；
        ② 门前不再"顺着歪路收口"，改成**与门槛石同宽（4.0m）的矩形平台**，
           中轴 x=0 与月洞门圆心、门槛石严格同轴 ⇒ 从南来先见一方规整平台，再入洞门；
        ③ 石板**对缝不错缝**：每行 7 块等宽（奇数 ⇒ 正中一块压门心轴），行间接缝
-          上下对齐 —— 最规整的铺法；两侧各压一条**通长条石**收边（替代 v1 的 4 块小路牙）。 */
+          上下对齐 —— 最规整的铺法；两侧各压一条**通长条石**收边（替代 v1 的 4 块小路牙）。
+      ⚠️⚠️ v3（2026-10-21 老黄红框："改成水平方向平铺的砖"）：v2 平台只有左半是
+      矩形板、右半被斜插进来的路板切成菱形 ⇒ 框里一半方一半菱读作"乱"。
+      本轮：① 路尾退到平台南沿外（上方 CP），斜板不再进框；② 平台改**顺砖丁顺砌**：
+      长边沿 x（水平方向）平铺、丁顺错缝、砖 0.39×0.195、缝 1.2cm（4m 正好 10 块整铺）；
+      ③ 平台南延 25cm（Z1 24.30→24.55）吞掉路-台接缝；④ 垫一块深色勾缝底
+      （缝里露出的是勾缝灰不是草）。东西条石收边保留。 */
   {
-    const Z0 = 23.10, Z1 = 24.30;          // 门槛石南沿（z=23.3，首排压其下防秃草）→ 平台南沿
-    const W = 2.0;                         // 半宽 = 门槛石半宽（门槛 4.0×1.4 同宽）
+    const Z0 = 23.10, Z1 = 24.55, W = 2.0;  // v3 南延 25cm 吞路-台接缝；W=半宽=门槛石半宽
+    /* 勾缝底 v2：深色垫（缝里露灰不露草）。⚠️ v1 是整块平板（+0.055），地形西高东低 ⇒
+       西侧直接盖住砖面。改成**逐顶点跟地形**的网格：内顶 gy+0.050（砖顶 gy+0.072 ⇒
+       缝深 2.2cm），边缘一圈沉到 gy+0.008（不露黑边）。绕向保证法线朝上。 */
+    {
+      const NX = 8, NZ = 4, bp = [], bidx = [];
+      for (let j = 0; j <= NZ; j++) for (let i = 0; i <= NX; i++){
+        const bx = -W - 0.01 + (W * 2 + 0.02) * (i / NX);
+        const bz = Z0 - 0.01 + (Z1 - Z0 + 0.02) * (j / NZ);
+        const edge = (i === 0 || j === 0 || i === NX || j === NZ);
+        bp.push(bx, groundHeight(bx, bz) + (edge ? 0.008 : 0.050), bz);
+      }
+      for (let j = 0; j < NZ; j++) for (let i = 0; i < NX; i++){
+        const a = j * (NX + 1) + i;
+        bidx.push(a, a + NX + 1, a + 1, a + 1, a + NX + 2, a + NX + 1);
+      }
+      const bgeo = new THREE.BufferGeometry();
+      bgeo.setAttribute('position', new THREE.Float32BufferAttribute(bp, 3));
+      bgeo.setIndex(bidx); bgeo.computeVertexNormals();
+      const bed = mesh(bgeo, new THREE.MeshStandardMaterial({ color: 0x6E675D,
+        roughness: 0.98, metalness: 0.0, side: THREE.DoubleSide }), { name: 'gateLandingBed', cast: false, receive: true });
+      registerWeatherRoles(bed.material, { snow: 1, wet: 1 });
+      g.add(bed);
+    }
     const pos = [], col = [], idx = [];
     const pushQuad = (x0, x1, z0, z1, tone) => {
       const base = pos.length / 3;
@@ -2209,14 +2260,17 @@ export function makeStableRoad(){
         idx.push(a, b, b + 1, a, b + 1, a + 1);
       }
     };
-    const ROWS = 3, ZGAP = 0.024, N = 7;    // 3 行 × 7 块；对缝：所有行同一套接缝位
-    const cw = (W * 2) / N;                 // 每块 0.571m 宽（与园内方砖尺度一致）
+    /* 顺砖丁顺砌：砖长边沿 x（水平方向）平铺；奇数行错半砖；两端切砖补齐（≥14cm 才留）。 */
+    const BL = 0.39, BGAP = 0.012;               // 砖长(沿x) × 缝宽（4.0m = 10×0.39 + 9×0.012，正好整铺）；砖深 = 行高 - 缝
+    const ROWS = 7;                              // 1.45m 深 ≈ 7 行
     for (let r = 0; r < ROWS; r++){
       const z0 = Z0 + (Z1 - Z0) * (r / ROWS);
-      const z1 = Z0 + (Z1 - Z0) * ((r + 1) / ROWS) - ZGAP;
-      for (let k = 0; k < N; k++){
-        const a = -W + k * cw;
-        pushQuad(a + 0.012, a + cw - 0.012, z0, z1, jit(0.62, 1.0));
+      const z1 = Z0 + (Z1 - Z0) * ((r + 1) / ROWS) - BGAP;
+      const off = (r % 2) ? -(BL + BGAP) / 2 : 0; // 丁顺错缝（半砖错，两端对称切砖）
+      for (let x = -W + off; x < W - 0.05; x += BL + BGAP){
+        const a = Math.max(x + 0.006, -W + 0.006);
+        const b = Math.min(x + BL - 0.006, W - 0.006);
+        if (b - a >= 0.10) pushQuad(a, b, z0, z1, jit(0.62, 1.0));
       }
     }
     const geo = new THREE.BufferGeometry();
@@ -2225,7 +2279,7 @@ export function makeStableRoad(){
     geo.setIndex(idx); geo.computeVertexNormals();
     g.add(mesh(geo, roadPavingMat, { name: 'gateLanding', cast: true, receive: true }));
     /* 平台东西两沿各压一条**通长条石**（与门槛石同料收边）：
-       中心在 ±(W+0.09)=±2.09、长 = 平台全长 1.2m；狮子（x=±2.55）在条石外 0.37m，互不相犯。 */
+       中心在 ±(W+0.09)=±2.09、长 = 平台全长（Z1−Z0）；狮子（x=±2.55）在条石外 0.37m，互不相犯。 */
     for (const s of [1, -1]){
       const kx = s * (W + 0.09), kz = (Z0 + Z1) / 2;
       const k = mesh(box(0.18, 0.16, Z1 - Z0), MAT.stoneDark, { name: 'gateKerb', cast: true, receive: true });
