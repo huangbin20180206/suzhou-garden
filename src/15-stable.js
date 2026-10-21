@@ -140,12 +140,22 @@ const TINKER_LEG_BONES = (s) => ([
   'DEF-forefoot' + s, 'DEF-forefoot' + s + '001', 'DEF-f_toe' + s,
   'ORG-upper_arm' + s, 'ORG-forearm' + s, 'ORG-forefoot' + s, 'ORG-f_toe' + s, 'f_hoof' + s,
 ]);
+/* 后腿：2026-10-21 接入步态时补。Rigify 的后腿链是
+   thigh → thigh.001 → lower_leg → lower_leg.001 → hind_foot → hind_foot.001 → r_toe → r_hoof，
+   与皮肤分层（DEF 带主体、ORG 带骨骼驱动）同前腿，两条链都要转、同号同权重，否则会撕开。
+   ⚠️ 名字同样不带点（GLTFLoader 会删 '.'）：'DEF-thigh.L' → 'DEF-thighL'。 */
+const TINKER_HIND_LEG_BONES = (s) => ([
+  'DEF-thigh' + s, 'DEF-thigh' + s + '001', 'DEF-lower_leg' + s, 'DEF-lower_leg' + s + '001',
+  'DEF-hind_foot' + s, 'DEF-hind_foot' + s + '001', 'DEF-r_hoof' + s,
+  'ORG-thigh' + s, 'ORG-lower_leg' + s, 'ORG-hind_foot' + s, 'r_hoof' + s,
+]);
 const TINKER_ANIM_BONES = (() => {
   const out = [];
   const g = TINKER_BONE_GROUPS;
   for (const k of Object.keys(g)) out.push(...g[k]);
   out.push(...TINKER_MANE_BONES);
   out.push(...TINKER_LEG_BONES('L'), ...TINKER_LEG_BONES('R'));
+  out.push(...TINKER_HIND_LEG_BONES('L'), ...TINKER_HIND_LEG_BONES('R'));
   return out;
 })();
 let _tinkerBuf = null, _tinkerLoader = null, _tinkerWarned = false;
@@ -343,9 +353,12 @@ function tinkerBone(bones, rest, name, x, y, z){
 const TINKER_JAW_CLOSE = 0.46;   // 静息合嘴：模型出厂是"微张"，露上下齿 → 读作龇牙僵尸脸
 function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
   const B = h.anim.bones, R = h.anim.rest;
-  /* ① 颈：低头量（rad）。ORG 链带头，DEF 链带脖皮 —— 两条同号同权重。 */
+  /* ① 颈：低头量（rad）。ORG 链带头，DEF 链带脖皮 —— 两条同号同权重。
+     ⚠️ 2026-10-21 步态：走/跑时要把"低头吃草"渐隐掉，否则一匹马低着头走路。
+     h.grazeW 由 tickStableLife 逐帧趋近（吃草 1 / 走动 0），这里只按权重乘进去。 */
+  const gw = (h.grazeW == null) ? 1 : h.grazeW;
   let hp = headPitch * 1.9;
-  if (h.role === 'graze') hp += 0.95; else if (h.role === 'fed') hp += 0.66;
+  if (h.role === 'graze') hp += 0.95 * gw; else if (h.role === 'fed') hp += 0.66 * gw;
   /* 颈的分配：越靠上（靠头）弯得越多 ⇒ 脖子是"弧"不是"折"（下段权重小、末两节大）。 */
   const nw = [0.20, 0.24, 0.28, 0.28];
   for (let i = 0; i < 4; i++){
@@ -359,7 +372,9 @@ function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
      ⚠️ 幅度 0.055+0.05 ⇒ 只摆 0.1rad（≈6°），近景读作"嘴没动" ⇒ 加到 0.085+0.065
      （≈9°，门禁 horse-motion-guard 的"下颌角摆动 ≥0.05rad"也随之更稳）。 */
   const chew = (h.role === 'graze' || h.role === 'fed')
-    ? 0.085 + 0.065 * Math.sin(_stT * 5.4 + h.phase) : 0.008 * Math.sin(_stT * 0.9 + h.phase);
+    ? (0.085 + 0.065 * Math.sin(_stT * 5.4 + h.phase)) * gw
+      + 0.008 * Math.sin(_stT * 0.9 + h.phase) * (1 - gw)
+    : 0.008 * Math.sin(_stT * 0.9 + h.phase);
   tinkerBone(B, R, 'jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
   tinkerBone(B, R, 'DEF-jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
   /* ④ 尾：尾网格主骨是纯名 tail001..005，体上尾根是 DEF-tail001..005 —— 两条都转。 */
@@ -369,26 +384,71 @@ function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
     tinkerBone(B, R, 'tail' + p, 0, 0, a);
     tinkerBone(B, R, 'DEF-tail' + p, 0, 0, a);
   }
-  /* ⑤ 前蹄：DEF 链带上臂/前臂，ORG 链带蹄（蹄皮 112 个顶点挂 f_hoofL）—— 都要转，
-     否则抬蹄时蹄会留在原地、腿从膝上撕开。 */
-  const lift = Math.max(leg[0], leg[1]);
-  for (const s of ['L', 'R']){
-    const on = (s === 'L') ? (leg[0] >= leg[1] && leg[0] > 0.01) : (leg[1] > 0.01);
-    const L = s === 'L';
-    const aU = on ? lift * 1.35 : 0, aF = on ? -lift * 1.05 : 0, aT = on ? lift * 0.55 : 0;
-    tinkerBone(B, R, 'DEF-upper_arm' + s, aU, 0, 0);
-    tinkerBone(B, R, 'DEF-upper_arm' + s + '001', aU * 0.5, 0, 0);
-    tinkerBone(B, R, 'DEF-forearm' + s, aF, 0, 0);
-    tinkerBone(B, R, 'DEF-forearm' + s + '001', aF * 0.5, 0, 0);
-    tinkerBone(B, R, 'DEF-forefoot' + s, aT, 0, 0);
-    tinkerBone(B, R, 'DEF-forefoot' + s + '001', aT * 0.5, 0, 0);
-    tinkerBone(B, R, 'DEF-f_toe' + s, aT, 0, 0);
-    tinkerBone(B, R, 'ORG-upper_arm' + s, aU, 0, 0);
-    tinkerBone(B, R, 'ORG-forearm' + s, aF, 0, 0);
-    tinkerBone(B, R, 'ORG-forefoot' + s, aT, 0, 0);
-    tinkerBone(B, R, 'ORG-f_toe' + s, aT, 0, 0);
-    tinkerBone(B, R, 'f_hoof' + s, aT, 0, 0);
-    void L;
+  /* ⑤ 四肢。两套通道：
+     · 旧：leg[0..3] 是"抬蹄量"（原地点一下），前腿只用 0/1；
+     · 新：h.gaitLegs 是 { FL,FR,HL,HR } → [前摆角, 抬腿/折腿量, 蹄角]，由
+       tickStableLife 的步态生成器逐帧算（2026-10-21 接入"会走/会跑"）。
+     两套都走同一组 DEF/ORG 骨；**DEF 与 ORG 同号同权重**，否则皮肤和骨头会撕开。 */
+  const gait = (h.gaitW > 0.001 && h.gaitLegs) ? h.gaitLegs : null;
+  const gW = gait ? h.gaitW : 0;
+  const legVal = (k) => {
+    if (gait) {
+      const a = gait[k] || [0, 0, 0];
+      return [a[0] * gW, a[1] * gW, a[2] * gW];
+    }
+    return null;
+  };
+  if (!gait) {
+    const lift = Math.max(leg[0], leg[1]);
+    for (const s of ['L', 'R']){
+      const on = (s === 'L') ? (leg[0] >= leg[1] && leg[0] > 0.01) : (leg[1] > 0.01);
+      const aU = on ? lift * 1.35 : 0, aF = on ? -lift * 1.05 : 0, aT = on ? lift * 0.55 : 0;
+      tinkerBone(B, R, 'DEF-upper_arm' + s, aU, 0, 0);
+      tinkerBone(B, R, 'DEF-upper_arm' + s + '001', aU * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-forearm' + s, aF, 0, 0);
+      tinkerBone(B, R, 'DEF-forearm' + s + '001', aF * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-forefoot' + s, aT, 0, 0);
+      tinkerBone(B, R, 'DEF-forefoot' + s + '001', aT * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-f_toe' + s, aT, 0, 0);
+      tinkerBone(B, R, 'ORG-upper_arm' + s, aU, 0, 0);
+      tinkerBone(B, R, 'ORG-forearm' + s, aF, 0, 0);
+      tinkerBone(B, R, 'ORG-forefoot' + s, aT, 0, 0);
+      tinkerBone(B, R, 'ORG-f_toe' + s, aT, 0, 0);
+      tinkerBone(B, R, 'f_hoof' + s, aT, 0, 0);
+    }
+  } else {
+    for (const s of ['L', 'R']){
+      /* 前腿：+X = 向前/抬起（2026-10-19 实测）。 */
+      const [u, l, f] = legVal('F' + s);
+      const aU = u * 1.20, aF = -l * 1.00, aT = f * 0.55;
+      tinkerBone(B, R, 'DEF-upper_arm' + s, aU, 0, 0);
+      tinkerBone(B, R, 'DEF-upper_arm' + s + '001', aU * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-forearm' + s, aF, 0, 0);
+      tinkerBone(B, R, 'DEF-forearm' + s + '001', aF * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-forefoot' + s, aT, 0, 0);
+      tinkerBone(B, R, 'DEF-forefoot' + s + '001', aT * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-f_toe' + s, aT, 0, 0);
+      tinkerBone(B, R, 'ORG-upper_arm' + s, aU, 0, 0);
+      tinkerBone(B, R, 'ORG-forearm' + s, aF, 0, 0);
+      tinkerBone(B, R, 'ORG-forefoot' + s, aT, 0, 0);
+      tinkerBone(B, R, 'ORG-f_toe' + s, aT, 0, 0);
+      tinkerBone(B, R, 'f_hoof' + s, aT, 0, 0);
+      /* 后腿：+X = 向后/抬起（2026-10-21 Blender 实测）⇒ 向前要用 -X；
+         折腿/抬蹄用 +X（与"向后"同向，但叠加在负的前摆上仍是抬腿）。 */
+      const [hu, hl, hf] = legVal('H' + s);
+      const bU = -hu * 1.10, bF = hl * 0.90, bT = hf * 0.50;
+      tinkerBone(B, R, 'DEF-thigh' + s, bU, 0, 0);
+      tinkerBone(B, R, 'DEF-thigh' + s + '001', bU * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-lower_leg' + s, bF, 0, 0);
+      tinkerBone(B, R, 'DEF-lower_leg' + s + '001', bF * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-hind_foot' + s, bT, 0, 0);
+      tinkerBone(B, R, 'DEF-hind_foot' + s + '001', bT * 0.5, 0, 0);
+      tinkerBone(B, R, 'DEF-r_hoof' + s, bT, 0, 0);
+      tinkerBone(B, R, 'ORG-thigh' + s, bU, 0, 0);
+      tinkerBone(B, R, 'ORG-lower_leg' + s, bF, 0, 0);
+      tinkerBone(B, R, 'ORG-hind_foot' + s, bT, 0, 0);
+      tinkerBone(B, R, 'r_hoof' + s, bT, 0, 0);
+    }
   }
   /* ⑥ 耳朵：耳皮挂纯名 earL/earR（耳尖是它的子骨 earL001）⇒ 转父骨即可。 */
   const earFlick = h.flickT > 0 ? 0.30 * Math.sin(Math.PI * Math.min(1, 1 - h.flickT / 0.9)) : 0;
@@ -878,6 +938,10 @@ function installHorseRig(mat, geo, W, piv){
 const HORSE_LIFE = [];
 const _sr = mulberry32(20261011);          // 私有流：事件间隔/相位/抖颈方向
 let _stT = 0;
+/* 诊断用：返回 HORSE_LIFE 本体（可变）。仅供探针在"冻结相位"下拍步态，
+   产品逻辑不读它。用法：const h = m.horseLifeDebug().find(x=>x.gait);
+   h.gait.state='move'; h.gait.dist=k; h.gait.phase=p; h.gaitW=1; 再 tick 一次。 */
+export function horseLifeDebug(){ return HORSE_LIFE; }
 export function horseLifeState(){
   return { n: HORSE_LIFE.length, t: +_stT.toFixed(2),
            horses: HORSE_LIFE.map(h => h.anim
@@ -885,6 +949,12 @@ export function horseLifeState(){
                  headPitch: +(h.lastHP || 0).toFixed(3), headYaw: +(h.lastHY || 0).toFixed(3),
                  tailYaw: +(h.lastTY || 0).toFixed(3),
                  leg: (h.lastLeg || [0,0,0,0]).map(v => +v.toFixed(3)),
+                 /* 2026-10-21 步态诊断：状态/相位/前后行程/权重/世界位置 */
+                 gait: h.gait ? { state: h.gait.state, mode: h.gait.mode,
+                   dist: +h.gait.dist.toFixed(3), target: +h.gait.target.toFixed(3),
+                   phase: +h.gait.phase.toFixed(3) } : null,
+                 gaitW: +(h.gaitW || 0).toFixed(3), grazeW: +(h.grazeW || 0).toFixed(3),
+                 pos: [+h.group.position.x.toFixed(3), +h.group.position.y.toFixed(3), +h.group.position.z.toFixed(3)],
                  breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null }
              : { role: h.role,
                  headPitch: +h.mat.userData.rig.head.x.toFixed(3), headYaw: +h.mat.userData.rig.head.y.toFixed(3),
@@ -932,6 +1002,126 @@ export const horseBreathMesh = (() => {
   return im;
 })();
 
+/* ── 马的步态（2026-10-21）──────────────────────────────────────────────────
+   目标：院中那匹灰马不再"站桩"，会自己走几步、偶尔小跑、停下吃草。
+   做法是**程序化四拍步态**，不烘焙动画片段：
+     · 每腿一个相位；着地段 hoof 相对身体向后匀速走，抬腿段折腿前摆；
+     · 身体前进速度 = 步幅 / 周期（stride 与 speed 绑定）⇒ 脚不打滑；
+     · 四个相位错开（走：左后→左前→右后→右前；跑：对角两拍）；
+     · 头/颈/尾仍由 tickStableLife 的原有小动作驱动，不冲突。
+   ⚠️ 前腿 +X = 向前抬；后腿 +X = 向后抬（Blender 实测）⇒ 生成器统一用"向前为正"，
+     到 applyTinkerPose 里后腿取负号。 */
+const HORSE_GAIT = {
+  /* 2026-10-21 首轮实拍：幅度 0.30/0.42 在近景读作"腿叉得很开" ⇒ 收到 0.26/0.34。
+     步幅仍与速度绑定（stride = 2·腿长·sinA / 着地比 ≈ 0.72m）。 */
+  walk: { A: 0.28, lift: 0.52, stance: 0.62, stride: 0.75, speed: 0.78, bob: 0.016 },
+  trot: { A: 0.34, lift: 0.62, stance: 0.47, stride: 1.24, speed: 1.85, bob: 0.024 },
+};
+/* 会走动的马用贴地软阴影（理由见 loadStableHorses 里 castShadow 那段）。
+   64×64 径向渐变、只做一次材质；平面挂槽位组、y≈地面。 */
+let _horseBlobMat = null;
+function attachHorseBlob(slot){
+  if (!_horseBlobMat){
+    /* ⚠️ 用 map 不用 alphaMap：makeSoftAlphaTex 的渐变在**alpha 通道**里，
+       alphaMap 只读绿通道（白底全 1）⇒ 会变成一块实心黑方块/或干脆看不见。
+       map 的 RGB 是白的、乘 color=黑 ⇒ 黑色，透明度走 alpha 通道的径向渐变。 */
+    _horseBlobMat = new THREE.MeshBasicMaterial({
+      map: makeSoftAlphaTex(), color: 0x000000,
+      transparent: true, opacity: 0.30, depthWrite: false,
+    });
+  }
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 2.30), _horseBlobMat);
+  m.name = 'horseBlobShadow';
+  m.rotation.x = -Math.PI / 2;
+  /* 院里的"磨损土斑"贴在 +0.05，软影必须压在它上面，否则整块被土斑盖住（首轮实拍就是没有影）。 */
+  m.position.set(0, 0.09, 0);
+  m.renderOrder = 2;
+  m.raycast = () => {};
+  m.userData.aoSkip = true;
+  m.userData.noMerge = true;      // 别被 mergeStatics 烘进静态大网（它要跟着马走）
+  slot.group.add(m);
+  slot.blob = m;
+}
+const GAIT_OFFSET = {
+  walk: { HL: 0.00, FL: 0.25, HR: 0.50, FR: 0.75 },
+  trot: { FL: 0.00, HR: 0.00, FR: 0.50, HL: 0.50 },
+};
+function gaitPose(mode, phase){
+  const D = HORSE_GAIT[mode] || HORSE_GAIT.walk;
+  const off = GAIT_OFFSET[mode] || GAIT_OFFSET.walk;
+  const out = {};
+  for (const k of ['FL', 'FR', 'HL', 'HR']){
+    let p = (phase + (off[k] || 0)) % 1;
+    if (p < 0) p += 1;
+    let u, lift, toe;
+    if (p < D.stance){
+      /* 着地段：hoof 相对身体从 +A 匀速走到 −A（世界坐标里是踩住的）。 */
+      const q = p / D.stance;
+      u = D.A * (1 - 2 * q);
+      lift = 0.05 * Math.sin(Math.PI * q);
+      toe = 0;
+    } else {
+      /* 抬腿段：折腿 + 前摆，落地前把蹄放平。 */
+      const q = (p - D.stance) / (1 - D.stance);
+      const s = q * q * (3 - 2 * q);
+      u = -D.A + 2 * D.A * s;
+      lift = D.lift * Math.sin(Math.PI * q);
+      toe = lift * 0.55;
+    }
+    out[k] = [u, lift, toe];
+  }
+  return out;
+}
+function updateHorseGait(h, dt){
+  const G = h.gait;
+  if (!G || !h.home || !h.groundY) return;
+  G.timer -= dt;
+  if (G.state === 'graze'){
+    if (G.timer <= 0){
+      G.state = 'move';
+      G.target = G.target > 0.01 ? 0 : G.lane;
+      /* 往前才可能小跑；退回去只能慢步（马不会倒着跑）。 */
+      G.mode = (G.target > 0.01 && _sr() < 0.22) ? 'trot' : 'walk';
+    }
+  } else if (G.state === 'move'){
+    const D = HORSE_GAIT[G.mode];
+    const d = G.target - G.dist;
+    /* 退回去按 0.55 倍速（马倒着走本来就慢），避免读成"快退"。 */
+    const step = D.speed * (d < 0 ? 0.55 : 1) * dt;
+    G.dist += (d > 0 ? 1 : -1) * Math.min(step, Math.abs(d));
+    if (Math.abs(G.target - G.dist) < 0.003){
+      G.state = 'graze';
+      /* 院场窄、单程只有 0.75m ⇒ 别让它"走一步就站着吃十几秒"，
+         缩短吃草停顿，让人更常看到它在走（2026-10-21 调）。 */
+      G.timer = 3.5 + _sr() * 4.5;
+    }
+  }
+  /* 权重：走动时步态 1、吃草时 0；吃草动作反向。两者都做斜坡，避免一帧切。 */
+  const wantG = (G.state === 'move') ? 1 : 0;
+  h.gaitW += (wantG - h.gaitW) * Math.min(1, dt * 3.2);
+  const wantGraze = (G.state === 'move') ? 0 : 1;
+  h.grazeW += (wantGraze - h.grazeW) * Math.min(1, dt * 2.6);
+  /* 相位按"带符号的实际位移"推进 —— 站着不动时相位不空转；
+     后退时 delta<0 ⇒ 相位倒着走，着地腿相对身体向前，读作"倒着迈步"而不是滑行。 */
+  const delta = G.dist - (G.lastDist || 0);
+  G.lastDist = G.dist;
+  const D = HORSE_GAIT[G.mode];
+  if (h.gaitW > 0.001){
+    G.phase = (G.phase + delta / D.stride) % 1;
+    h.gaitLegs = gaitPose(G.mode, G.phase);
+    h.gaitBob = Math.sin(G.phase * Math.PI * 4) * D.bob;
+  } else {
+    h.gaitLegs = null;
+    h.gaitBob = 0;
+  }
+  /* 位移只沿"槽位朝向"前后，不转向 —— 院场窄，转身会扫到栅栏/马车。 */
+  const fx = Math.sin(h.home.yaw), fz = Math.cos(h.home.yaw);
+  const x = h.home.x + fx * G.dist;
+  const z = h.home.z + fz * G.dist;
+  h.group.position.set(x, h.groundY(x, z) + (h.gaitBob || 0), z);
+  h.group.rotation.y = h.home.yaw;
+}
+
 /* 每帧：① 推每匹马的姿态角；② 冬天喷白雾。dt 用主循环的仿真步长（与固定步长累加器同一根时钟）。 */
 export function tickStableLife(dt){
   if (!HORSE_LIFE.length) return;
@@ -942,6 +1132,10 @@ export function tickStableLife(dt){
   const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
   for (const h of HORSE_LIFE){
     const ph = h.phase;
+    /* 2026-10-21：步态（走/小跑/停下吃草）—— 只有配了 gait 的马会动，其余原样。 */
+    if (h.grazeW == null) h.grazeW = (h.role === 'graze' || h.role === 'fed') ? 1 : 0;
+    if (h.gaitW == null) h.gaitW = 0;
+    if (h.gait) updateHorseGait(h, dt);
     /* ① 底噪：所有马都有的慢微动。
        ⚠️⚠️ 2026-10-11 **全面加大**（老黄："马蹄和马尾会不规则动，也看不到"）——
        先证伪了"伪蒙皮没生效"：outputs/_diag/horse-rig-pixel.mjs 冻结帧 A/B 实测
@@ -965,16 +1159,31 @@ export function tickStableLife(dt){
     h.flick -= dt;
     if (h.flick <= 0){ h.flick = 5.0 + _sr() * 9.0; h.flickT = 1.6; }
     if (h.flickT > 0){ const u = 1 - h.flickT / 1.6; tailYaw += 0.34 * Math.sin(Math.PI * Math.min(1, u)); h.flickT -= dt; }
-    h.hoofNext -= dt;
-    if (h.hoofT > 0){
-      const u = 1 - h.hoofT / 2.2;
-      leg[h.hoofLeg] = 0.30 * Math.sin(Math.PI * Math.min(1, u));   // 前腿绕 X 转 ⇒ 蹄往前抬起
-      h.hoofT -= dt;
-    } else if (h.hoofNext <= 0){ h.hoofT = 2.2; h.hoofNext = 7 + _sr() * 11; h.hoofLeg = h.hoofLeg ? 0 : 1; }
+    /* 2026-10-21：偶尔喷一下鼻翼（"噘嘴/打响鼻"里最轻的一档）。
+       flare 由 applyTinkerPose 逐帧衰减，所以这里只负责"点一下"。 */
+    if (h.flareNext == null) h.flareNext = 2.5 + _sr() * 4.0;
+    h.flareNext -= dt;
+    if (h.flareNext <= 0){
+      h.flare = Math.min(0.16, (h.flare || 0) + 0.14);
+      h.flareNext = 4.0 + _sr() * 7.0;
+    }
+    /* 走/跑的时候不叠加"原地点蹄"事件（步态已经给了四条腿），否则停下瞬间会跳一下。 */
+    if (!(h.gaitW > 0.20)){
+      h.hoofNext -= dt;
+      if (h.hoofT > 0){
+        const u = 1 - h.hoofT / 2.2;
+        leg[h.hoofLeg] = 0.30 * Math.sin(Math.PI * Math.min(1, u));   // 前腿绕 X 转 ⇒ 蹄往前抬起
+        h.hoofT -= dt;
+      } else if (h.hoofNext <= 0){ h.hoofT = 2.2; h.hoofNext = 7 + _sr() * 11; h.hoofLeg = h.hoofLeg ? 0 : 1; }
+    }
     if (h.role === 'graze' || h.role === 'fed'){
-      /* ② 悠闲吃草：慢速点头（吃一口、抬一下）—— 幅度从 4.9°/3.3° 提到 12.6°/8.6° */
-      headPitch += (h.role === 'graze' ? 0.22 : 0.15) * Math.sin(t * 0.30 + ph);
-      headYaw   += 0.05 * Math.sin(t * 0.21 + ph * 1.3);
+      /* ② 悠闲吃草：慢速点头（吃一口、抬一下）—— 幅度从 4.9°/3.3° 提到 12.6°/8.6°。
+         走动时按 grazeW 渐隐（否则"低着头走路"）。 */
+      const gw2 = h.grazeW == null ? 1 : h.grazeW;
+      headPitch += (h.role === 'graze' ? 0.22 : 0.15) * Math.sin(t * 0.30 + ph) * gw2;
+      headYaw   += 0.05 * Math.sin(t * 0.21 + ph * 1.3) * gw2;
+      /* 走动时头随躯干轻微上下，读起来不是"头钉在空中"。 */
+      headPitch += 0.030 * Math.sin((h.gait ? h.gait.phase : 0) * Math.PI * 4) * h.gaitW;
     } else if (h.role === 'harnessed'){
       /* ③ 辕里待发：平时安静；偶尔"仰天抖颈"。
          ⚠️ 2026-10-21：`sin(u*20)`（11 rad/s ⇒ 24fps 下 26°/帧）是"抽搐"主犯 ⇒ 降到 sin(u*5)；
@@ -1089,9 +1298,14 @@ function horseSrcOnce(){
 /* 2026-10-19：Rodin Horse.glb 已换成 Tinker（见上方 tinkerBuffer 的 settle 握手），
    下面这份 horseSrcOnce 仅作历史回退保留，不在模块求值期调用（否会 404 拉一次废资源）。 */
 
+let _horseLoadStarted = false;
 export function loadStableHorses(stableGroup){
   const slots = stableGroup && stableGroup.userData && stableGroup.userData.horseSlots;
   if (!slots || !slots.length) return null;
+  /* 防重入：延迟批里如果被别处再调一次，会再解析 6 份 ⇒ 同槽位两套马叠在一起。
+     （2026-10-21 诊断脚本手动调过一次，补齐这道闸。） */
+  if (_horseLoadStarted) return null;
+  _horseLoadStarted = true;
   /* ══ Tinker 照片级马（2026-10-19）══════════════════════════════════════════
      与旧 Rodin 路径的差别：**每匹单独 parse 一份 glb.scene**。
      不能 `base.clone(true)` —— 克隆不会重绑 Skeleton，蒙皮网格会塌到原点/不显示
@@ -1123,7 +1337,11 @@ export function loadStableHorses(stableGroup){
         const baseMat = slot.color || MAT.horseChestnut;
         root.traverse(o => {
           if (!o.isMesh) return;
-          o.castShadow = true; o.receiveShadow = true;
+          /* 会走动的马**不投影**：阴影图是"只渲一次"的静态图（renderer.shadowMap.autoUpdate=false），
+             身体一移，图里的旧影子会留在原地。改用贴地软阴影（attachHorseBlob）跟着走。
+             原地不动的马继续投真实阴影。 */
+          o.castShadow = slot.gait ? false : true;
+          o.receiveShadow = true;
           o.userData.noMerge = true;
           /* ⚠️ 2026-10-19：**把牙齿网格藏掉** —— 这个模型出厂是"微张嘴"，
              上下齿是**独立网格**（Teeth_UP 挂头骨、Teeth_down 挂下颌），
@@ -1171,8 +1389,16 @@ export function loadStableHorses(stableGroup){
         root.userData.horse = true;
         slot.group.add(root);
         slot.holders = [root];
+        if (slot.gait) attachHorseBlob(slot);
         HORSE_LIFE.push({
           anim: { bones, rest, root }, group: slot.group, role: slot.role,
+          /* 2026-10-21 步态：home/groundY 用来算位移与落地高度；gait 为空 = 原地不动。 */
+          home: slot.home, groundY: slot.groundY,
+          gait: slot.gait ? { state: 'graze', timer: 2.5 + _sr() * 3.5,
+            dist: 0, target: 0, lastDist: 0, phase: 0, mode: 'walk', lane: slot.gait.lane || 1.2 } : null,
+          grazeW: (slot.role === 'graze' || slot.role === 'fed') ? 1 : 0,
+          gaitW: 0, gaitLegs: null, gaitBob: 0,
+          blob: slot.blob || null,
           phase: HORSE_LIFE.length * 1.7 + _sr() * 6.28,
           flick: 1.5 + _sr() * 5, flickT: 0,
           headNext: 3 + _sr() * 12, headT: 0, headSide: _sr() < 0.5 ? -1 : 1,
@@ -2477,7 +2703,14 @@ export function makeStable(cx, cz, opts = {}){
        `mark` / `decoSeed`（2026-10-11 补）：每匹的**花纹**（白斑/白袜/斑纹）与**补件种子**
        （鬃尾的确定性差异）—— 老黄："所有的马都是单一颜色的，这个在自然界也很难存在吧"。 */
     const slot = { group: grp, color: colorMat, holders: [ph], graze: opts2.graze || 0,
-                   role: opts2.role || 'stall', mark: opts2.mark || null, decoSeed: opts2.decoSeed || 0 };
+                   role: opts2.role || 'stall', mark: opts2.mark || null, decoSeed: opts2.decoSeed || 0,
+                   /* 2026-10-21 步态：只给"会走动"的马配 lane；其余马保持原地。
+                      home/groundY 是步态位移的唯一真值（组是 makeStable 的子节点 ⇒ 局部坐标）。 */
+                   /* ⚠️ 用 gy 不用 yardY：yardY 在厩内马槽位（本函数之上）调用时还没声明 ⇒ TDZ。
+                      gy 在 makeStable 开头就定义好了（同一个逐点地形高度）。 */
+                   groundY: gy,
+                   home: { x: lx, y, z: lz, yaw },
+                   gait: opts2.gait || null };
     horseSlots.push(slot);
     return slot;
   };
@@ -2602,8 +2835,11 @@ export function makeStable(cx, cz, opts = {}){
      退到 (4.6,−3.9) 完全分开。 */
   /* ⚠️ 2026-10-11（老黄："也看不到马低头吃草的动作"）：把头低的角度加足 ——
      graze 0.82→0.95（= 40.8°）、fed 0.52→0.80（= 34.4°）。上限仍守 bendHeadDown 的 45° 规矩。 */
+  /* 2026-10-21：这匹灰马改成"会自己走几步" —— 朝院心（-x）走 1.25m 再退回来，
+     停下的时段低头吃草、偶尔小跑。lane 是沿槽位朝向的前后行程，避免转身扫栅栏。 */
   addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey,
-    { graze: 0.95, role: 'graze', decoSeed: 5, mark: { dapple: 1.0, blaze: 0.7 } });
+    { graze: 0.95, role: 'graze', decoSeed: 5, mark: { dapple: 1.0, blaze: 0.7 },
+      gait: { lane: 0.75 } });
   addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay,
     { graze: 0.80, role: 'fed', decoSeed: 6, mark: { blaze: 1.0, socks: 0.8 } });
 

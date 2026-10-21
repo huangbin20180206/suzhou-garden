@@ -705,6 +705,79 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
     headG.rotation.x = 0.18;                        // 微俯视盏
     root.rotation.z = 0.02;   // ⚠️ 挂 root：躯干层 g 上还有椭圆缩放，写在 g 上会变成"两层各歪一点"
   }
+  /* ══ 动作层（2026-10-21 · 人物 P0：不换模型，只给现有几何加"能动的地方"）════════
+     现状：袖管/肘球/手是一堆直接 add 进躯干层 g 的网格，**没有肩肘枢轴** —— 想让它们动，
+     只能照 makeGroomArm 的做法：把要动的部件收进一个**以关节为原点**的空组，子件的
+     局部坐标减去关节位置。⚠️ 袖管是 TubeGeometry（顶点写在几何里、mesh.position 是 0），
+     必须先平移**几何**再入组，否则一转身整条袖子绕原点甩出去（马夫那次踩过）。
+     · figSpine：**脚底（y=0）**的枢轴，包住 躯干层 g + 头 + 颈 —— 作揖/前俯都绕它转。
+       ⚠️ 枢轴必须在脚底、不能放髋（0.86）：人物只有裙摆没有腿，袍身是一根落地回转体，
+       绕髋转 17° 会把下摆整个甩到身后 25cm、前缘离地 4cm（读作"人连着裙子一起翻倒"）。
+       绕脚底转才是这个项目的既有口径（11-loop 的 leanX 前俯也是绕 root 原点）。
+       rotation 恒为 0 ⇒ 子件位置逐字不变（枢轴在原点，没有任何位移）。
+     · figArmR/L：肩点枢轴，只给 'read'（先生作揖）/ 'tea'（品茗举盏）建。
+       ⚠️ **不能**给 'draw'（井边仕女）和 'pointDown'（马夫）建：attachWoodBucket /
+       attachFeedBale 是按子件**局部 x 的正负**找手的；一进枢轴 x 就被平移掉了
+       （右手 x=+0.15 → −0.03 变负号），木桶/草料会挂到另一只手上 —— 这种错不报错、只看图。 */
+  const SPINE_H = 0;                            // 见上：站立人物的前俯绕**脚底**转
+  const spine = new THREE.Group();
+  spine.name = 'figSpine';
+  spine.position.set(0, SPINE_H, 0);
+  root.add(spine);
+  g.position.y -= SPINE_H;
+  headG.position.y -= SPINE_H;
+  neck.position.y -= SPINE_H;
+  spine.add(g); spine.add(headG); spine.add(neck);
+  root.userData.spine = spine;
+  root.userData.head = headG;
+  root.userData.headBase = headG.rotation.x;     // 动作只加"偏移"，转头角度仍以姿势给的为准
+  root.userData.arms = null;
+  if (pose === 'read' || pose === 'tea'){
+    const SHX = 0.180, SHY = 1.150, SHZ = 0.030;   // 肩 = 所有袖型的第 0 点（六个姿态同一个值）
+    const CUP = { scholarCup: 1, scholarSaucer: 1, scholarSteam: 1 };
+    const arms = { R: null, L: null };
+    for (const side of [-1, 1]){
+      const pv = new THREE.Group();
+      pv.name = side > 0 ? 'figArmR' : 'figArmL';
+      pv.position.set(side * SHX, SHY, SHZ);
+      g.add(pv);
+      const armPick = [];
+      /* 先收集、后搬：three 的 add() 会把节点从 g.children 摘掉，边遍历边改会漏件 */
+      for (const o of g.children.slice()){
+        if (!o.isMesh) continue;
+        const nm = o.name;
+        let cx;
+        if (nm === 'scholarSleeve'){
+          o.geometry.computeBoundingBox();
+          const bb = o.geometry.boundingBox;
+          cx = (bb.min.x + bb.max.x) * 0.5;          // 袖管顶点在几何里 ⇒ 用包围盒判左右
+        } else if (nm === 'scholarElbow' || nm === 'scholarClump' ||
+                   nm === 'scholarHand' || nm === 'scholarCuff' || CUP[nm]){
+          cx = o.position.x;
+        } else continue;                              // 交领/腰带/后中缝等跨中线的件一律不动
+        if (Math.abs(cx) < 0.02 || Math.sign(cx) !== side) continue;
+        if (nm === 'scholarSleeve'){
+          const g2 = o.geometry.clone();
+          g2.translate(-side * SHX, -SHY, -SHZ);
+          o.geometry = g2;
+          o.position.set(0, 0, 0);
+        } else {
+          o.position.x -= side * SHX;
+          o.position.y -= SHY;
+          o.position.z -= SHZ;
+        }
+        armPick.push(o);
+      }
+      for (const o of armPick) pv.add(o);
+      arms[side > 0 ? 'R' : 'L'] = pv;
+    }
+    root.userData.arms = arms;
+    /* 杯/碟/热气都进了右肩枢轴（位置 x=0.15 ⇒ 判成 +x 侧）⇒ 举盏时它们跟手走。
+       这里只留引用，逐帧给一点倾角 —— "举到嘴边"靠手腕的倾，不靠位移。 */
+    const cupRig = [];
+    for (const o of arms.R.children) if (CUP[o.name]) cupRig.push(o);
+    root.userData.cup = cupRig.length ? cupRig : null;
+  }
   root.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
   figures.push(root);
   return root;
@@ -1142,6 +1215,17 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
     headG.add(top);
   }
   root.add(headG);            // ⚠️ 头挂 root（不挂 g）：不参与躯干椭圆缩放
+  /* 动作层（2026-10-21）：孩童的蹦跳要一层 pivot。⚠️ 必须**新加一层空组**、把 g 与头搬进去，
+     不能直接写 root.position.y —— 11-loop 的人物循环每帧都在写 `f.position.y = baseY`，
+     两处抢同一个量，谁后跑谁赢（改完看不见效果、也不报错，是本项目反复栽的坑）。
+     枢轴放在 y=0（脚底），所以缩放/位移都以地面为基准：落地时压扁而**不是往下沉**。 */
+  const hop = new THREE.Group();
+  hop.name = 'figHop';
+  root.add(hop);
+  hop.add(g); hop.add(headG);               // 两者 position 不变（枢轴就在原点）
+  root.userData.hop = hop;
+  root.userData.head = headG;
+  root.userData.headBase = headG.rotation.x;
   root.userData.breathPhase = jr() * TAU;   // 同先生：必须挂 root（figures 存的是 root）
   root.userData.robe = robe;
   root.traverse(o => { if (o.isMesh) o.userData.noMerge = true; });
@@ -1376,6 +1460,61 @@ export function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go'
   const seatNeck = mesh(new THREE.CylinderGeometry(0.052, 0.060, 0.14, 10), figSkinMat, { name:'seatNeck' });
   seatNeck.position.y = 1.02;
   root.add(seatNeck);
+  /* ══ 动作层（2026-10-21）：坐姿也要能动 ─────────────────────────────────────
+     · figSpine：髋部枢轴（HIP_Y=0.510）。躯干袍 g + 头 + 颈进去；腿层 gl **留在 root**
+       （大腿/小腿不在脊柱上，跟着一起转就变成"人整个往前倒"）。
+     · figArmR/L：肩点枢轴。坐姿的袖是**上臂/前臂两段**（与站姿的单根 tube 不同），
+       两段都是顶点写在几何里的 TubeGeometry ⇒ 各自平移几何再入组。
+     默认 rotation=0 ⇒ 子件世界位置不变（与站姿同一手法：子件 y 减枢轴高、枢轴再补回去）。 */
+  const SPINE_H = HIP_Y;
+  const spine = new THREE.Group();
+  spine.name = 'figSpine';
+  spine.position.set(0, SPINE_H, 0);
+  root.add(spine);
+  g.position.y -= SPINE_H;
+  headG.position.y -= SPINE_H;
+  seatNeck.position.y -= SPINE_H;
+  spine.add(g); spine.add(headG); spine.add(seatNeck);
+  root.userData.spine = spine;
+  root.userData.head = headG;
+  root.userData.headBase = headG.rotation.x;
+  {
+    const SHX = 0.180, SHY = 0.862, SHZ = 0.028;   // 肩 = SLEEVE 点列第 0 点（坐姿）
+    const arms = { R: null, L: null };
+    for (const side of [-1, 1]){
+      const pv = new THREE.Group();
+      pv.name = side > 0 ? 'figArmR' : 'figArmL';
+      pv.position.set(side * SHX, SHY, SHZ);
+      g.add(pv);
+      const armPick = [];
+      for (const o of g.children.slice()){
+        if (!o.isMesh) continue;
+        let cx;
+        if (o.name === 'seatSleeveUpper' || o.name === 'seatForearm'){
+          o.geometry.computeBoundingBox();
+          const bb = o.geometry.boundingBox;
+          cx = (bb.min.x + bb.max.x) * 0.5;
+        } else if (o.name === 'seatElbow' || o.name === 'seatClump' || o.name === 'seatCuff'){
+          cx = o.position.x;
+        } else continue;
+        if (Math.abs(cx) < 0.02 || Math.sign(cx) !== side) continue;
+        if (o.name === 'seatSleeveUpper' || o.name === 'seatForearm'){
+          const g2 = o.geometry.clone();
+          g2.translate(-side * SHX, -SHY, -SHZ);
+          o.geometry = g2;
+          o.position.set(0, 0, 0);
+        } else {
+          o.position.x -= side * SHX;
+          o.position.y -= SHY;
+          o.position.z -= SHZ;
+        }
+        armPick.push(o);
+      }
+      for (const o of armPick) pv.add(o);
+      arms[side > 0 ? 'R' : 'L'] = pv;
+    }
+    root.userData.arms = arms;
+  }
   root.userData.breathPhase = jr() * TAU;
   root.userData.robe = robe;
   /* ⚠️ 坐姿的"接地面"不是脚底（= baseY），而是**坐面**：人物原点在凳心、正下方就是石凳，
@@ -1530,8 +1669,9 @@ export function updateWatchers(dt, t){
     if (d.kind === 'child'){
       /* ── 雀跃：一跳 = 一个周期 ──────────────────────────────────────────────
          uu ∈ [0,1) 是"这一跳"的相位；air = sin(π·uu) 是**离地量**（0 落地 → 1 腾空 → 0 落地）。
-         ① 上下起伏：y = hop·air − 0.035·max(0, cos 2π·uu)。后半项是**落地缓冲**（起跳/落地的
-            那一刻蹲一下）—— 纯 sin 曲线在落地瞬间速度最大，看着像"被弹起来"，加了缓冲才像蹲着蓄力。
+         ① 上下起伏：y = hop·air，起跳/落地那一相用**纵向压扁**做缓冲（2026-10-21 由
+            "整体下移 3.5cm"改过来 —— 下移会把裙摆压到地面以下）。纯 sin 曲线在落地瞬间
+            速度最大，看着像"被弹起来"，压一下才像蹲着蓄力。
             地面高度由 baseY 保证（root 不动），所以"跳起来"不会变成"悬空的人"。
          ② 换脚小跳：每跳换一次重心脚 footUp = 第几跳 % 2（0/1 交替）——
             落地缓冲那一相里，重心偏向踩地的那只脚：身体侧倾 + 横向让开 5cm。
@@ -1547,7 +1687,13 @@ export function updateWatchers(dt, t){
       d.lean = (d.footUp ? 1 : -1) * 0.085 * (1 - air);
       d.latX = (d.footUp ? 1 : -1) * 0.05 * (1 - air);
       d.turn = d.turnAmp * Math.sin(c * d.turnW + d.ph);
-      d.pivot.position.set(d.latX, d.hopH - crouch, 0);
+      /* ⚠️ 2026-10-21：落地缓冲由"整体下移 3.5cm"改成**纵向压扁**。原来
+         `y = hopH − crouch` 在起跳/落地那一相把裙摆压到地面以下（穿地 3.5cm，远处看不出、
+         近景贴着草皮就露）。枢轴原点在脚底 ⇒ 压扁时脚底仍踩地，缓冲的读数不变（蹲一下）。
+         下方 tickFigureAction 的孩童/书童小跳用的是同一手法。 */
+      const sq = 1 - (crouch / 0.035) * 0.07;
+      d.pivot.position.set(d.latX, d.hopH, 0);
+      d.pivot.scale.set(1 + (1 - sq) * 0.6, sq, 1);
       d.pivot.rotation.set(0, d.turn, d.lean);
       /* 头：仰头看天 + 一点跟着转身的回望（头是球，y 向摆动比躯干更安全） */
       if (d.head){
@@ -1565,5 +1711,213 @@ export function updateWatchers(dt, t){
       d.pivot.rotation.set(0, d.turn, d.lean);
       if (d.head) d.head.rotation.x = d.tilt + Math.sin(t * 0.5 + d.ph) * 0.02;
     }
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════════
+   人物动作状态机（2026-10-21 · 人物 P0「不换模型加动作」）
+   ─────────────────────────────────────────────────────────────────────────────
+   每个角色一个 `userData.act = { kind, c, w, ph, period, spine, head, arms, hop }`：
+     · kind  按**身份/姿势**在第一次驱动时定死（poseName），运行期不再改 ——
+       不会出现"这一帧作揖、下一帧抬头"；
+     · c     动作时钟，只吃 dt（帧率无关，与风/水/散步同一口径），且**只在 visible 时累加**：
+       时段/天气把人藏起来再放出来是"接着做"，不会因为积了十分钟而瞬跳；
+     · w     当前动作权重（0 = 完全回到默认姿势）；
+     · ph    每个角色自己的相位偏移。
+   三条纪律（都是这个项目栽过的地方）：
+     ① **只写新加的 pivot**（figSpine / figArmR/L / figHop）。root 的 position.y、
+        rotation.x、rotation.z、visible 仍归 11-loop 的人物循环，两处不重叠；
+     ② 相位/周期用**站位散列**派生（figHash），不吃 jr/WR：那两条流是建场顺序的一部分
+        （08 的补石、延迟批还要接着抽），在求值期多抽一次会让后面所有落点整体前移一格，
+        而且不报错。与 11-loop 路灯"布点序号派生"是同一手法；
+     ③ 起落一律用 figSmooth（两端导数为 0）的包络，ramp 0.6~1.2s；不用高频 sin
+        （每帧相位 >0.8rad 会被读成抽搐 —— 2026-10-21 马"抖颈"那次的教训）。 */
+
+/* 平滑窗：0→1→0，两端导数为 0 */
+function figSmooth(a, b, x){
+  if (b === a) return x >= b ? 1 : 0;
+  let u = (x - a) / (b - a);
+  u = u < 0 ? 0 : u > 1 ? 1 : u;
+  return u * u * (3 - 2 * u);
+}
+/* 0..1 的确定性散列（整数输入 → 相位） */
+function figHash(n){
+  let h = (n | 0) ^ 0x9E3779B9;
+  h = Math.imul(h ^ (h >>> 15), 0x85EBCA6B);
+  h = Math.imul(h ^ (h >>> 13), 0xC2B2AE35);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+/* 窗口：u 落在 [a,b] 内为 1，两端各 ramp 过渡 */
+function figWin(u, a, b, ramp){
+  return figSmooth(a, a + ramp, u) * (1 - figSmooth(b - ramp, b, u));
+}
+
+function figActInit(f){
+  const pn = f.userData.poseName || '';
+  const h = figHash(Math.round(f.position.x * 71) * 131 + Math.round(f.position.z * 89) * 17);
+  const a = {
+    kind: null, c: 0, w: 0, ph: h * TAU, period: 0,
+    spine: f.userData.spine || null,
+    head: f.userData.head || null,
+    headBase: f.userData.headBase || 0,
+    arms: f.userData.arms || null,
+    hop: f.userData.hop || null,
+    cup: f.userData.cup || null,
+  };
+  /* 周期带上散列 ⇒ 同场景多个同类角色不会整齐划一地一起动（"广场舞"感） */
+  if (pn === 'read')       { a.kind = 'salute'; a.period = 12.5 + h * 5.0; }  // 先生作揖
+  else if (pn === 'tea')   { a.kind = 'sip';    a.period = 8.0 + h * 1.8; }   // 品茗举盏
+  else if (pn === 'go')    { a.kind = 'board';  a.period = 5.4 + h * 2.4; }   // 对弈思考
+  else if (pn === 'qin')   { a.kind = 'qin';    a.period = 3.2 + h * 0.6; }   // 抚琴
+  else if (pn === 'child') { a.kind = 'hop';    a.period = 1.55 + h * 0.45; } // 书童小跳
+  else if (pn === 'draw')  { a.kind = 'draw';   a.period = 8.5 + h * 3.0; }   // 仕女汲水
+  /* 'observe'（散步中）/ 'pointDown'（马夫，已有 makeGroomArm 的摆臂）/
+     'watchAdult' / 'watchChild'（看烟花一家已有 updateWatchers）→ 不接第二套动作：
+     他们的动作已经在别处驱动，再接一套就是两处抢同一根 pivot。 */
+  f.userData.act = a;
+  return a;
+}
+
+/* 由 11-loop 的人物循环逐帧调用（每帧每角色一次）。 */
+export function tickFigureAction(f, dt){
+  const a = f.userData.act || figActInit(f);
+  if (!a.kind || !f.visible) return;        // 藏起来时不推进：放出来是接着做
+  a.c += dt;
+  a.t = a.c;                                // 别名：状态里同时留 t（探针/门禁读 act.t 更顺）
+  const sp = a.spine, hd = a.head, arms = a.arms, hop = a.hop;
+  /* 相位偏移按角色散列摊开：同一类角色的动作互相错开，不同步 */
+  const phOff = a.ph / TAU;
+
+  if (a.kind === 'salute'){
+    /* ── 先生作揖 ───────────────────────────────────────────────────────────
+       周期后 55% 处起，2.6s 一个来回：起 0.9s / 停 0.8s / 落 0.9s。
+       躯干 0.30rad（≈17°，再大就读成鞠躬）、双臂内合 0.38rad + 前抬 0.20rad
+       —— 捧卷的双手向胸前收拢，"拱手"才成立（幅度都压在 0.5rad 以内）。 */
+    const P = a.period, dur = 2.6;
+    const u = ((a.c / P) + phOff) % 1;
+    const x = u * P - P * 0.55;
+    const w = (x <= 0 || x >= dur) ? 0
+            : (x < dur * 0.5 ? figSmooth(0, 0.9, x) : figSmooth(0, 0.9, dur - x));
+    a.w = w;
+    if (sp) sp.rotation.x = 0.30 * w;
+    if (hd) hd.rotation.x = a.headBase + 0.12 * w;      // 头再低一点，不与躯干同角（同角=僵）
+    if (arms){
+      for (const s of [-1, 1]){
+        const pv = s > 0 ? arms.R : arms.L;
+        if (!pv) continue;
+        pv.rotation.z = -s * 0.38 * w;                  // 两侧向中线合
+        pv.rotation.x = -0.20 * w;                      // 略前抬
+      }
+    }
+    return;
+  }
+
+  if (a.kind === 'sip'){
+    /* ── 品茗举盏 ───────────────────────────────────────────────────────────
+       周期 8~9.8s：闲 30% → 举（1.5s ramp）→ 停 → 落（1.5s ramp）。
+       臂 0.50rad、腕（杯）再倾 0.34rad、头低 0.34rad、躯干 0.08rad —— 四个量一起凑。
+       ⚠️ 物理上限如实记在这里：'take' 袖型的肩→手只有 0.216m，单靠转肩最多抬起 ~0.10m，
+         杯口到不了嘴唇（脸心 1.445 / 杯口 0.98）。要"真喝到"必须重排 take 的点列或把杯子
+         挂到会动的手骨上 —— 那是改默认姿势，本次不动。现在的读法是"举盏近颌 + 低头就盏"。 */
+    const P = a.period;
+    const u = ((a.c / P) + phOff) % 1;
+    let w = 0;
+    if (u > 0.30 && u < 0.82){
+      const x = (u - 0.30) / 0.52;
+      w = Math.min(figSmooth(0, 0.36, x), figSmooth(0, 0.36, 1 - x));
+    }
+    a.w = w;
+    if (sp) sp.rotation.x = 0.08 * w;
+    if (hd) hd.rotation.x = a.headBase + 0.34 * w;
+    if (arms && arms.R){
+      arms.R.rotation.x = -0.50 * w;
+      arms.R.rotation.y = -0.10 * w;                    // 略向身体中线收，杯对准脸
+    }
+    /* 杯/碟跟着手腕倾（它们与手同在一个肩枢轴里 ⇒ "跟手"这条已满足，倾角只是让"喝"读得出来） */
+    if (a.cup){
+      for (const o of a.cup) o.rotation.x = -0.34 * w;
+    }
+    return;
+  }
+
+  if (a.kind === 'board'){
+    /* ── 对弈：看盘 → 抬头思考 → 点头 → 伸手 ────────────────────────────────
+       一轮 5.4~7.8s（要求 4~8s）。四段用 figWin 平滑拼接，没有硬切。
+       抬头 −0.30rad 是从"看盘 0.40"回到"平视 0.10"，读作"想棋"；伸手只是把右前臂
+       抬离桌沿 ~9cm 再落回 —— 石桌盘心离凳心 1.1m，人够不到（见 SLEEVE.go 的注释），
+       所以不做"落子"，只做"伸手到盘沿"。 */
+    const P = a.period;
+    const u = ((a.c / P) + phOff) % 1;
+    const lean = figWin(u, 0.02, 0.46, 0.10);
+    const up   = figWin(u, 0.50, 0.72, 0.08);
+    const nod  = figWin(u, 0.74, 0.94, 0.08);
+    const reach= figWin(u, 0.62, 0.98, 0.10);
+    a.w = Math.max(lean, up, reach);
+    if (sp) sp.rotation.x = 0.20 * lean - 0.03 * up + 0.05 * nod;
+    if (hd){
+      hd.rotation.x = a.headBase + 0.10 * lean - 0.30 * up + 0.10 * nod;
+      hd.rotation.y = 0.14 * up;                        // 抬头时略偏头（"想"的读法）
+    }
+    if (arms && arms.R){
+      arms.R.rotation.x = -0.18 * reach;
+      arms.R.rotation.y = -0.22 * reach;                // 向身体中线收 = 手移向棋盘
+    }
+    return;
+  }
+
+  if (a.kind === 'qin'){
+    /* ── 抚琴：身体轻摆 + 双手交替拨弦 ──────────────────────────────────────
+       摆身 3.2~3.8s（要求 2~4s）、拨弦 2.4s；两只手相位差 π ⇒ 一上一下交替。
+       拨弦幅度 0.13rad（手抬落 ~6cm，正好在弦上方那一小段），不是"挥胳膊"。
+       头几乎不动（0.035rad）—— 抚琴的人是静的，动的是手。 */
+    const env = Math.min(1, a.c * 0.6);                 // 2s 淡入：首次出现不"猛地开始摆"
+    const w1 = a.c * TAU / a.period;
+    const w2 = a.c * TAU / (a.period * 1.7);
+    const pl = a.c * TAU / 2.4;
+    a.w = env;
+    if (sp){
+      sp.rotation.z = 0.05 * env * Math.sin(w1 + a.ph);          // 左右
+      sp.rotation.x = 0.03 * env * Math.sin(w2 + a.ph * 1.7);    // 前后（更慢，不同频才对）
+    }
+    if (hd) hd.rotation.x = a.headBase + 0.035 * env * Math.sin(pl + a.ph);
+    if (arms){
+      const R = 0.5 - 0.5 * Math.cos(pl + a.ph);
+      const L = 0.5 - 0.5 * Math.cos(pl + a.ph + Math.PI);
+      if (arms.R) arms.R.rotation.x = -0.13 * env * R;
+      if (arms.L) arms.L.rotation.x = -0.13 * env * L;
+    }
+    return;
+  }
+
+  if (a.kind === 'hop'){
+    /* ── 书童小跳（"原地小跳 + 落地缓冲"）──────────────────────────────────
+       一跳 1.55~2.0s；跳高 0.10m（≤0.12 的红线）。
+       ⚠️ 落地缓冲用**压扁**（枢轴原点在脚底）而不是整体下移 —— 下移会让裙摆穿地；
+         压扁时脚底不动，视觉上仍是"蹲一下再起"。 */
+    const P = a.period;
+    const u = ((a.c / P) + phOff) % 1;
+    const air = Math.sin(Math.PI * u);
+    const sq = 1 - 0.07 * Math.max(0, Math.cos(TAU * u));
+    a.w = air;
+    if (hop){
+      hop.position.y = 0.10 * air;
+      hop.scale.set(1 + (1 - sq) * 0.6, sq, 1 + (1 - sq) * 0.4);
+      hop.rotation.z = 0.06 * Math.sin(TAU * u + a.ph);   // 左右一点，别像弹簧
+    }
+    if (hd) hd.rotation.x = a.headBase + 0.06 * air;
+    return;
+  }
+
+  if (a.kind === 'draw'){
+    /* ── 仕女汲水（井边）────────────────────────────────────────────────────
+       周期 8.5~11.5s 的正弦：脊柱再前屈 0.12rad（叠加静态 leanX 0.17 ⇒ 0.29 的"俯身"），
+       头略回收一点（看井绳）。⚠️ 手臂**不转**：她的木桶挂在 root 上（attachWoodBucket
+       用世界坐标反算的局部位置），一转臂手就离开提梁 —— 手在 y≈0.975、枢轴在 0.86，
+       光靠脊柱前屈手只动 1.4cm，桶不用跟也看不出来。 */
+    const w = 0.5 - 0.5 * Math.cos(a.c * TAU / a.period);
+    a.w = w;
+    if (sp) sp.rotation.x = 0.12 * w;
+    if (hd) hd.rotation.x = a.headBase - 0.05 * w;
+    return;
   }
 }

@@ -31,6 +31,11 @@ import { tickStableLife, horseLifeState } from './15-stable.js';
 /* 马夫"递草料"的摆臂（2026-10-11 · 老黄："人喂马"）：肩枢轴组住在 08-assemble（人物几何是
    那边建的），本模块每帧只推一个角度。 */
 import { tickGroomFeed } from './08-assemble.js';
+/* 人物动作层（2026-10-21 · 人物 P0）：作揖 / 抚琴 / 对弈 / 品茗 / 孩童小跳。
+   直接从 08b 取（08-assemble 没有转出它，而本次只允许动 08b 与 11）；
+   08b 不 import 11-loop ⇒ 不成环。逐帧只在下面 figures 循环里调一次，
+   写的是 08b 新加的 pivot（肩/髋/跳），与循环里写 root 的那几行互不重叠。 */
+import { tickFigureAction } from './08b-figures.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
@@ -1393,6 +1398,12 @@ function animate(){
       f.rotation.x = f.userData.leanX || 0;
       f.rotation.z = 0.03;
     }
+    /* 动作层（2026-10-21）：作揖/抚琴/对弈/品茗/孩童小跳。
+       ⚠️ 必须放在上面两段**之后**：它只写 08b 新加的 pivot（figSpine / figArmR,L / figHop），
+       root 的 position.y / rotation.x / rotation.z / visible 仍由上面几行独占 ——
+       两处写同一个量就是"谁后跑谁赢"，改完看不见效果也不报错（本项目的老坑）。
+       角色不可见时函数内部直接 return，不推进相位：切回来是接着做，不瞬跳。 */
+    tickFigureAction(f, dt);
   }
 
   if (SEASON_DEMO.on) advanceSeasonDemo(dt);
