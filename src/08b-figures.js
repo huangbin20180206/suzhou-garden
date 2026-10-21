@@ -584,7 +584,7 @@ function makeScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'observe', skin =
   headG.rotation.x = headDown;
   /* 头球用脸贴图（2026-10-06 半写实）：一颗球 = 发型 + 脸（贴图里发区与 FIG_HAIR 同值，
      与下面的发髻/盘髻无缝衔接）。分段 14×11 → 16×13：脸窗 ±46° 需要 ~16 经段才不糊。 */
-  headG.add(mesh(new THREE.SphereGeometry(0.086, 16, 13), figFaceMatA, { name:'scholarHead' }));
+  headG.add(mesh(new THREE.SphereGeometry(0.078, 16, 13), figFaceMatA, { name:'scholarHead' }));
   /* 下颌（2026-10-16 B方案：老黄"脖子和脑袋明显不匹配，只能远看"）。
      病根：头是正球 + 颈是直杆，中间没有任何下巴过渡 ⇒ 棒棒糖。
      修法：颅顶保持 0.086（脸贴图 UV 按这个半径画的，不能动），下颌加一颗
@@ -1098,7 +1098,7 @@ function makeChildScholar({ x = 0, z = 0, y, yaw = 0, s = 1, skin = 'moss', arms
   /* 头球用孩童脸贴图（2026-10-06 半写实）：眼睛更大更圆、腮红更浓。
      孩子袍口收在 0.96、头下缘 0.945 —— 头和袍本身重叠，没有露颈的缝，不加颈。
      分段 12×10 → 14×12（同站姿的理由：脸窗要够细）。 */
-  headG.add(mesh(new THREE.SphereGeometry(0.075, 14, 12), figFaceMatC, { name:'childHead' }));
+  headG.add(mesh(new THREE.SphereGeometry(0.070, 14, 12), figFaceMatC, { name:'childHead' }));
   /* 小孩同补下颌（与大人同一手法，按比例缩小：大人 0.062 → 小孩 0.054），
      否则一家同框，大人有下巴、小孩还是球插杆。 */
   const childJaw = mesh(new THREE.SphereGeometry(0.054, 12, 10), figSkinMat, { name:'childJaw' });
@@ -1320,7 +1320,7 @@ export function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go'
   const headG = new THREE.Group();
   headG.position.set(0, NECK_Y + 0.135, 0.03);
   headG.rotation.x = pose === 'go' ? 0.40 : (pose === 'qin' ? 0.30 : 0.24);
-  headG.add(mesh(new THREE.SphereGeometry(0.086, 16, 13), figFaceMatA, { name:'seatHead' }));
+  headG.add(mesh(new THREE.SphereGeometry(0.078, 16, 13), figFaceMatA, { name:'seatHead' }));
   /* 坐姿同补下颌（与站姿同尺寸：两姿势同框必须是一套头，见本文件顶部"逐字对齐"）。 */
   const seatJaw = mesh(new THREE.SphereGeometry(0.062, 12, 10), figSkinMat, { name:'seatJaw' });
   seatJaw.scale.set(0.88, 0.78, 0.92);

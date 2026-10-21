@@ -256,6 +256,28 @@ function markCoatPoints(mesh){
   geo.setAttribute('color', new THREE.BufferAttribute(arr, 3));
 }
 
+/* ⚠️ 2026-10-21（老黄："脖子太厚太短，整个马看起来像一条巨型猎犬"）：
+   Tinker 是 Irish Cob 重型马，颈粗短、头大。骏马要颈细长、头小。
+   ⚠️ 不能用"骨缩放"——缩放颈链会把子骨（头）的位置也缩进去，反而把脖子**缩短**
+   （门禁①就因此从 -0.473 掉到 -0.239）。正解：**只瘦几何顶点**（X 方向压、
+   Y/Z 不动）⇒ 颈变细但长度不变。 */
+function slimNeck(mesh){
+  const geo = mesh.geometry;
+  const pos = geo.attributes.position;
+  const n = pos.count;
+  for (let i = 0; i < n; i++){
+    const y = pos.getY(i);
+    if (y >= 1.0 && y < 1.35){
+      pos.setX(i, pos.getX(i) * 0.78);             // 颈：侧向压细
+    } else if (y >= 1.35){
+      pos.setX(i, pos.getX(i) * 0.90);             // 头：略小
+    }
+  }
+  pos.needsUpdate = true;
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+}
+
 function tinkerMaterial(m, tint, meshName){
   const c = m.clone();
   /* ⚠️⚠️ 2026-10-20 修两处实打实的缺陷（老黄："颜色太深了，跟我们常见的马完全不一样"）：
@@ -1102,7 +1124,7 @@ export function loadStableHorses(stableGroup){
           if (o.isSkinnedMesh) o.frustumCulled = false;
           o.material = tinkerMaterial(o.material, baseMat.color, o.name);
           /* 马身网格：烘**顶点色标记**（黑腿/暗口鼻）—— 代替那张 UV 图集里画好的部件颜色 */
-          if (/Horse_LP/i.test(o.name || '')) markCoatPoints(o);
+          if (/Horse_LP/i.test(o.name || '')) { markCoatPoints(o); slimNeck(o); }
           /* ⚠️ 2026-10-21（老黄："恐怖片"）：模型给的眼是**整颗 5.6cm 的黑球**全露在脸外
              ⇒ 近看是虫眼/塑料珠。缩到 0.6（≈3.4cm，球心仍在皮下 ⇒ 只露角膜那一点），
              材质压成深褐带一点湿光（roughness 0.5）而不是死黑。 */
@@ -1229,31 +1251,36 @@ export function loadStableHorses(stableGroup){
                     （起点半径 = 束芯在该处的半径），下端散开 1.2 倍、长短错落
                     ⇒ 轮廓是"一束毛"：上段实、下段毛边；
                  ③ 整束仍**合并成 1 个网格**（6 匹共 6 个 draw call，不是 156 个）。 */
-            const CORE_R0 = 0.055, CORE_R1 = 0.012;
-            const coreR = (s) => CORE_R0 + (CORE_R1 - CORE_R0) * s;   // s: 0 根 → 1 尖
+            /* 尾束几何 = **真马尾的"毛帘"**（2026-10-21 重做，老黄："拼接/木材一样的东西"）
+               ⚠️ 之前的"实心束芯 + 下段披散毛"（第 7/8 版）读作**一根木棍 + 几根铁丝**，
+               因为：束芯半径 5.5cm 是木材粗细、细丝半径 1.1cm 是铁丝粗细，合并后就是"木+铁"。
+               真马尾 = **一帘下垂的细毛**（从骶下垂到蹄毛，宽 15~25cm），没有可见的"芯"。
+               做法（照老黄贴的分层建议：鬃毛/尾巴用**毛束/曲线/透明贴片或少量真实毛发**）：
+                 ① **不要芯**；70 根极细的弯曲管（半径 0.002~0.0035m），长短错落、
+                    从束根开始散开（上段密、下段松），每根带一点自然波浪 ⇒ 读作"毛帘"；
+                 ② 全部**合并成 1 个网格**（6 匹共 6 draw call，不是 420 个）；
+                 ③ 整束仍挂在一个骨节点上，**整束一起摆**（真马尾平时就是整束摆，不是每根独立）。 */
             const tailGeos = [];
-            const core = tailTube([
-              new THREE.Vector3(0, 0, 0),
-              new THREE.Vector3(0, -0.12, 0.05),
-              DOWN.clone().multiplyScalar(LEN * 0.5),
-              DOWN.clone().multiplyScalar(LEN * 0.99),
-            ], CORE_R0, CORE_R1, 14, 8);
-            tailGeos.push(core);
-            const N_HAIR = 30;
-            for (let i = 0; i < N_HAIR; i++){
-              const a = (i / N_HAIR) * Math.PI * 2 + _sr() * 0.12;      // 绕束芯均布 + 微抖
-              const s0 = 0.28 + 0.24 * _sr();                          // 起点高度 28%~52%
-              const e  = 0.70 + 0.28 * _sr();                          // 末端高度 70%~98%
-              const r0 = coreR(s0) * 0.85;                             // 贴着束芯表面
-              const hx = Math.cos(a) * r0, hz = Math.sin(a) * r0 * 0.62;
-              const sway = (_sr() - 0.5) * 0.07;
-              const p0 = DOWN.clone().multiplyScalar(LEN * s0);
-              p0.x += hx; p0.z += hz;
-              const p1 = DOWN.clone().multiplyScalar(LEN * (s0 + (e - s0) * 0.55));
-              p1.x += hx * 1.15; p1.z += hz * 1.15;
-              const p2 = DOWN.clone().multiplyScalar(LEN * e);
-              p2.x += hx * 1.35 + sway; p2.z += hz * 1.30;
-              tailGeos.push(tailTube([p0, p1, p2], 0.011, 0.0016, 7, 5));
+            const N_STRANDS = 70;
+            for (let i = 0; i < N_STRANDS; i++){
+              const a = (i / N_STRANDS) * Math.PI * 2 + _sr() * 0.15;   // 绕束根均布 + 微抖
+              const splay = 0.35 + 0.65 * _sr();                        // 散开系数：上密下松
+              const len = LEN * (0.82 + 0.18 * _sr());                  // 长短错落
+              const wave = (_sr() - 0.5) * 0.06;                        // 自然波浪
+              const rad = 0.0020 + 0.0015 * _sr();                      // 半径 2.0~3.5mm（真毛粗细）
+              const pts = [];
+              const NSEG = 10;
+              for (let k = 0; k <= NSEG; k++){
+                const u = k / NSEG;                                     // 0 根 → 1 尖
+                const y = -len * u;
+                const spr = (0.012 + 0.14 * u * splay);                // 上密下松
+                const x = Math.cos(a) * spr + wave * Math.sin(u * 3.1);
+                const z = Math.sin(a) * spr * 0.55 + wave * Math.cos(u * 2.7) * 0.4;
+                pts.push(new THREE.Vector3(x, y, z));
+              }
+              const curve = new THREE.CatmullRomCurve3(pts);
+              const g = new THREE.TubeGeometry(curve, NSEG, rad, 6, false);
+              tailGeos.push(g);
             }
             const tailMerged = mergeGeometries(tailGeos, false);
             if (tailMerged){
