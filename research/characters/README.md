@@ -1,11 +1,14 @@
 # 人物资产生成 → 接入 落地清单
 
-> **本会话（2026-10-21）没有 TJGenerators 工具**：`generate_3d_model` / `unirig_rig` /
-> `generate_motion` 都不在工具清单里。项目 `.codely-cli/settings.json` 已配置
-> https://ai-generator.tuanjie.cn/mcp 且 OAuth 记录在，但 MCP 没连上（命令行测端点回 401 =
-> 服务器通、没带授权）。**下面第 1~3 步都还没执行过，也一个模型都没有生成。**
-> 工具挂上后从第 1 步开始。
+> **状态（2026-10-22 更新）**：TJGenerators 已挂上并跑通全流程。已落地三件——
+> 文士 `assets/fig-scholar.glb`（1.72m）、仕女 `assets/fig-lady.glb`（1.63m）、
+> 马夫 `assets/fig-laborer.glb`（1.70m），全部 Rodin Gen-2.5-Medium → UniRig →
+> `convert_3d_model`(fbx→glb) → `repair_hands.py` → `optimize_character.py`(1024 + JPEG)。
+> 孩童 `fig-child` 还没做（提示词见 prompts.md §4）。
 >
+> 下面第 1~3 步的"工具没挂上"那段是当时的历史记录，留着说明**为什么**踩过这些坑；
+> 实操顺序以第 4 步之后为准。
+
 > 配套：`docs/characters-asset-spec.md`（规格/预算/骨架）、`research/characters/prompts.md`
 > （可直接粘贴的英文提示词 + UniRig 注意事项）。
 
@@ -199,6 +202,52 @@ GLB 人物的 color 是白色 ⇒ 要么给新角色暴露 `userData.palette`，
 - `node probe/layout-fingerprint.mjs`：**新增会动的网格不影响指纹**（它只哈希
   `InstancedMesh`），但如果你顺手加了实例化装饰，就要重出基线。
 - 提交：逐个列名 `git add <file>`，**不要** `git add -A`（同文件多主题时会裹进别人的改动）。
+
+---
+
+## 11. P2 实测补充（2026-10-22）
+
+### 11.1 裙摆不用裙骨也能走
+
+P1 的顾虑"裙摆权重挂在腿上 ⇒ 一走动就撕"**实测不成立**。办法：`outputs/_diag/actor-stride.mjs`
+把大腿摆到 ±0.38rad、小腿 −0.18rad，前/侧各出一张（`outputs/_diag/actor-stride/`）：
+长袍/长裙是锥面，跟着大腿摆、下摆让鞋面露出来，**没有撕口、没有穿模**。
+所以 `16-actors` 的步态直接用了（振幅 0.27rad ≈ 15.5°，比测试值更保守）。
+真正需要裙骨的是**大幅抬腿/坐/跪**（膝盖过腰那种），那些动作仍然押后。
+
+### 11.2 UniRig 会把"手骨"错分到躯干 —— 必须过一遍 `repair_hands.py`
+
+马夫这只 rig：`LeftThumbDistal` 分到 448 个顶点，包围盒 z=0.51~0.90（**裤腿**）、
+`LeftHand` 分到 224 个（含腰带外缘）。后果实测（`pose_stretch_test.py` 抬臂 0.75rad）：
+袖子没事，但整条**白腰带被拽成一片尖刺**。
+
+修法（几何判据，不看权重名）：手链骨（Hand/Thumb/Index/Middle/Ring/Little）对某顶点有权重，
+而该顶点离这根骨的线段 > **0.09m** ⇒ 转给最近的躯干/腿骨。
+⚠️ 阈值别给 0.14（第一版）：垂手掌根在 z≈0.87、x≈0.28，腰带外缘离它只有 0.13m，会漏。
+修完 1868 条误权重，抬臂/迈步测试干净。
+
+**遗留**：腰带上仍有少量顶点贴着前臂骨（几何上分不开），所以马夫**只做躯干前俯、不转肩**。
+要用他做"递草"的手部动作，得重新绑骨（或给腰带单独分骨）。
+
+### 11.3 贴图预算：PNG 顶不住，走 JPEG q88
+
+生成件 1K 图集是**噪声很大**的 PNG：单张 1.6MB，两张大 ⇒ 单件 3.66MB（预算 1.5MB）。
+`optimize_character.py` 的第 4 个参数换成 `JPEG`：1.76/2.56/3.66MB ⇒ **0.68/0.84/0.74MB**，
+`outputs/_diag/*-jpg` 的 1:1 对比看不出差别（哑光布面，3m 机位）。
+用法：`optimize_character.py -- <in> <out> 1024 JPEG`。
+
+### 11.4 台基/院子面要用射线，不是 groundHeight
+
+马夫站在马厩的 `yardWear` 面（0.10），`groundHeight` 给的是地形（0.05）⇒ 人会陷 5cm。
+`16-actors` 里 `floorRay: true` 的角色会在**开局 4 秒内每 0.25s 打一次向下射线并取最高**，
+之后冻结（马厩是 `deferBootFirst` 建的，人物 GLB 常常先到；"打中就冻结"会冻在错的地形上）。
+只接受 [−0.4, 0.8] 的命中，避免把屋顶（2.9m）当地面。
+
+### 11.5 步幅与推进距离要对账（否则滑步）
+
+`STEP_LEN = 0.42m` 是散步者（08d `WALK_STRIDE`）的口径，而每个人的腿长不同：
+振幅按 `asin(STEP_LEN / (2 × 髋高))` 现算（髋高由 Hips 骨骼世界高度 − 地面得到），
+文士/马夫/仕女各不相同。相位按**走过的距离**推进，所以站下/转身/上坡都不会"脚在原地划"。
 
 ---
 

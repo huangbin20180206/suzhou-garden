@@ -214,9 +214,13 @@ export const PRELOAD_MANIFEST = [
      `preload-manifest-sync` 的 G6 守这条。 */
   { url: 'assets/HorseTinker.glb',  bytes: 1959088, stage: '取', label: '马',   required: false },
   /* 2026-10-21 P1 半写实人物（AI 生成 + UniRig 绑骨；16-actors 在模块求值期发起下载，
-     settleAsset 回报；失败时程序化替身继续站）。 */
-  { url: 'assets/fig-scholar.glb', bytes: 1755696, stage: '取', label: '文士', required: false },
-  { url: 'assets/fig-lady.glb',    bytes: 2564892, stage: '取', label: '仕女', required: false },
+     settleAsset 回报；失败时程序化替身继续站）。
+     2026-10-22：三件贴图全部重导成 JPEG q88（1K）—— PNG 版单件 1.76/2.56MB 越了 1.5MB 预算，
+     JPEG 版 0.68/0.84MB，3m 机位看不出差别（render_views 对比图见 outputs/_diag/*-jpg）。 */
+  { url: 'assets/fig-scholar.glb', bytes: 678400,  stage: '取', label: '文士', required: false },
+  { url: 'assets/fig-lady.glb',    bytes: 840272,  stage: '取', label: '仕女', required: false },
+  /* 马夫（马厩喂马）。他的腰带带误权重 ⇒ 只做躯干前俯，不转肩（见 16-actors 的注释）。 */
+  { url: 'assets/fig-laborer.glb', bytes: 737256,  stage: '取', label: '马夫', required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */
