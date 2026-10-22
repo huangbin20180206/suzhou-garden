@@ -92,6 +92,27 @@ export const SEAT_SPOTS = [];
    与 08 里坐姿人物的 SEAT_H 是**同一个数**：改轮廓必须同步改 SEAT_H。 */
 export const QIN_SEAT = [];
 
+/* ── 低案抚琴（P2 第二件动作：跪坐弹琴）──────────────────────────────────────
+   为什么另起一套而不是把水榭那套琴案压低：水榭那套是**坐凳**用的（桌面 0.72、
+   配 0.452 的鼓凳），而 GLB 人物现在能可靠做出来的坐姿是**跪坐**（research/
+   characters/README.md §12.2）。跪坐的髋高只有 0.46，0.72 的桌面顶在胸口上，
+   手够不到弦。低案的桌面按"跪坐时弦在腰腹高度"配 0.36。
+   ⚠️ 桌面/坐位/抬肘幅度是**一组**数：改一个就要重量"手到弦"的距离（见
+      outputs/_diag/actor-qin.mjs 的量法与实测值），别只改桌子。 */
+const QIN_LOW = {
+  x: 8.0, z: -7.78, y: 1.30, yaw: 0,   // 堂前月台东次间（列柱 z=−9.1 之前、台缘 z=−7.3 之后）
+  top: 0.36,        // 桌面高（相对台面）
+  seatBack: 0.42,   // 坐位中心在桌面中心**身后**多远（局部 −z；反解见 actor-qin.mjs）
+  seatOut: 0.0,     // 坐位的左右偏移（0 = 与琴心对齐；弹琴是两手分开、人不偏）
+};
+/* 跪坐位（供 16-actors 直接用；与桌子同源，不另写一份坐标）。 */
+export const QIN_LOW_SEAT = {
+  x: +(QIN_LOW.x - QIN_LOW.seatBack * Math.sin(QIN_LOW.yaw) + QIN_LOW.seatOut * Math.cos(QIN_LOW.yaw)).toFixed(4),
+  z: +(QIN_LOW.z - QIN_LOW.seatBack * Math.cos(QIN_LOW.yaw) - QIN_LOW.seatOut * Math.sin(QIN_LOW.yaw)).toFixed(4),
+  y: QIN_LOW.y,
+  yaw: +QIN_LOW.yaw.toFixed(4),
+};
+
 /* ── 棋子（棋钵）的**降水门控**（2026-10-06 · 老黄反馈第 3 条前半）───────────────
    老黄："狂风暴雨场景象棋是不是应该收起来而不是放桌上淋雨"。
    口径**与 12-env 里大雁落地那条判据（fowlGrounded）逐字一致**：
@@ -230,6 +251,26 @@ export function makeStoneTableSet(x, z, yaw = 0){
    ⚠️ 落点 y 必须**显式给**（水榭台基顶面），不吃 groundHeight —— 台基是浮在地形上的
    独立网格，走地形公式会陷进去 0.62m（2026-10-04 品茗的人踩过这个坑，见 08 的
    PAV_FLOOR_Y 注释）。所以本函数第二组参数收 y。 */
+/* 古琴本身（桌面以上那部分）：通长 1.22m、额宽 0.20 尾宽 0.14、厚 0.055。
+   做成"尾端收窄"的两截，不是一块方板 —— 收窄是琴最好认的剪影特征（远看就是个束腰长条）。
+   topY = 桌面标高，其余尺寸全部相对它；两处琴案（水榭高案 / 堂前低案）共用这一份。 */
+function addQinModel(g, topY){
+  const body = mesh(box(0.86, 0.055, 0.20), MAT.woodDark, { name:'propQinBody' });
+  body.position.set(-0.18, topY + 0.028, 0); g.add(body);
+  const tail = mesh(box(0.36, 0.052, 0.15), MAT.woodDark, { name:'propQinTail' });
+  tail.position.set(0.43, topY + 0.0265, 0); g.add(tail);
+  /* 岳山/龙龈（两端承弦的木条）+ 七弦。弦在 15m 外不足 1px，但近景特写要能读出"弦"。 */
+  const yue = mesh(box(0.030, 0.020, 0.20), MAT.wood, { name:'propQinYue', cast:false });
+  yue.position.set(-0.575, topY + 0.065, 0); g.add(yue);
+  const yin = mesh(box(0.030, 0.018, 0.15), MAT.wood, { name:'propQinYin', cast:false });
+  yin.position.set(0.588, topY + 0.062, 0); g.add(yin);
+  for (let i = 0; i < 7; i++){
+    const s = mesh(box(1.16, 0.004, 0.004), MAT.porcelain, { name:'propQinString', cast:false });
+    s.position.set(0.006, topY + 0.0705, -0.072 + i * 0.024);
+    g.add(s);
+  }
+}
+
 export function makeQinSet(x, z, y, yaw = 0){
   const g = new THREE.Group();
   g.position.set(x, y, z);
@@ -253,22 +294,8 @@ export function makeQinSet(x, z, y, yaw = 0){
     st.position.set(0, 0.26, sz * 0.16); g.add(st);
   }
 
-  /* 古琴：通长 1.22m、额宽 0.20 尾宽 0.14、厚 0.055。做成"尾端收窄"的两截，
-     不是一块方板 —— 收窄是琴最好认的剪影特征（远看就是一个"束腰的长条"）。 */
-  const body = mesh(box(0.86, 0.055, 0.20), MAT.woodDark, { name:'propQinBody' });
-  body.position.set(-0.18, 0.748, 0); g.add(body);
-  const tail = mesh(box(0.36, 0.052, 0.15), MAT.woodDark, { name:'propQinTail' });
-  tail.position.set(0.43, 0.7465, 0); g.add(tail);
-  /* 岳山/龙龈（两端承弦的木条）+ 七弦。弦在 15m 外不足 1px，但近景特写要能读出"弦"。 */
-  const yue = mesh(box(0.030, 0.020, 0.20), MAT.wood, { name:'propQinYue', cast:false });
-  yue.position.set(-0.575, 0.785, 0); g.add(yue);
-  const yin = mesh(box(0.030, 0.018, 0.15), MAT.wood, { name:'propQinYin', cast:false });
-  yin.position.set(0.588, 0.782, 0); g.add(yin);
-  for (let i = 0; i < 7; i++){
-    const s = mesh(box(1.16, 0.004, 0.004), MAT.porcelain, { name:'propQinString', cast:false });
-    s.position.set(0.006, 0.7905, -0.072 + i * 0.024);
-    g.add(s);
-  }
+  /* 古琴（几何在 addQinModel 里，两处琴案共用；0.72 是这张桌的桌面标高） */
+  addQinModel(g, 0.72);
   /* 琴凳（2026-10-05 补）：抚琴必须**坐**着，而琴桌原来只有桌、没有座。
      用与石桌四张**同一个鼓凳轮廓**做，摆在琴桌的 +z 侧（本组 yaw=π/2 ⇒ 世界 −x 侧），
      即"人朝池面坐、琴在人与池之间"—— 临水抚琴。坐面高仍 0.452，落在水榭台基面 y 上。
@@ -282,6 +309,57 @@ export function makeQinSet(x, z, y, yaw = 0){
     QIN_SEAT.push({ x: +(x + 0.48 * sy).toFixed(4), z: +(z + 0.48 * cy).toFixed(4),
                     y: +y.toFixed(4), yaw: +Math.atan2(fdx, fdz).toFixed(4) });
   }
+  return g;
+}
+
+/* ── 低案抚琴（跪坐）：一张 0.36 高的板足小案 + 同款古琴 + 一张草席 ───────────
+   y 同样**显式给**（堂前月台面 1.30：台基是浮在地形上的独立网格，走 groundHeight
+   会陷进去 1.5m —— 水缸与品茗桌都踩过这个坑）。
+   案腿用**板足**（两端各一块竖板）而不是四条腿：低案的板足是最好认的特征，
+   四条细腿在 0.3m 高度上会读成"小凳子"。草席铺在坐位下方，既压住袍摆与地面的
+   接缝、也是"席地而坐"的道具；案面下的净空留给膝盖（案沿离坐位 0.62−0.22=0.40，
+   跪坐时膝在 0.35~0.45 ⇒ 膝盖正好探到案沿之下，与真实跪坐弹琴一致）。 */
+export function makeLowQinSet(x, z, y, yaw = 0){
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.rotation.y = yaw;
+  const top = QIN_LOW.top;
+
+  /* 案面 + 压边 + 一圈牙板 + 四条腿（马蹄足）。
+     ⚠️ 腿不能做成"两端各一块竖板"（板足）：0.3m 高的板足在侧视里是一整块深色方块，
+        读作"箱子/柜子"而不是案（2026-10-22 出图复核）。低案的识别特征恰恰是
+        **面 + 窄牙板 + 细腿**，腿越细越读得出"这是张桌子"。 */
+  const panel = mesh(box(1.30, 0.055, 0.44), MAT.wood, { name:'propLowQinTop' });
+  panel.position.y = top - 0.0275; g.add(panel);
+  const edge = mesh(box(1.34, 0.020, 0.48), MAT.woodDark, { name:'propLowQinEdge', cast:false });
+  edge.position.y = top - 0.065; g.add(edge);
+  const legH = top - 0.13;
+  for (const sz of [-1, 1]){
+    const ap = mesh(box(1.14, 0.072, 0.024), MAT.wood, { name:'propLowQinApron', cast:false });
+    ap.position.set(0, top - 0.111, sz * 0.196); g.add(ap);
+  }
+  for (const sx of [-1, 1]){
+    const ap = mesh(box(0.024, 0.072, 0.36), MAT.wood, { name:'propLowQinApron', cast:false });
+    ap.position.set(sx * 0.565, top - 0.111, 0); g.add(ap);
+  }
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]){
+    const leg = mesh(box(0.046, legH, 0.046), MAT.woodDark, { name:'propLowQinLeg' });
+    leg.position.set(sx * 0.548, legH / 2, sz * 0.168); g.add(leg);
+    const hoof = mesh(box(0.058, 0.026, 0.058), MAT.woodDark, { name:'propLowQinHoof', cast:false });
+    hoof.position.set(sx * 0.548, 0.013, sz * 0.168); g.add(hoof);
+  }
+  for (const sx of [-1, 1]){
+    const rail = mesh(box(0.034, 0.032, 0.372), MAT.wood, { name:'propLowQinRail', cast:false });
+    rail.position.set(sx * 0.548, 0.095, 0); g.add(rail);
+  }
+
+  addQinModel(g, top);
+
+  /* 草席：只比袍摆宽一点（大了会读成"一块白板垫在地上"），向后多留 0.16 收脚跟 */
+  const mat = mesh(box(0.80, 0.014, 0.72), MAT.straw, { name:'propQinMat', cast:false });
+  mat.position.set(0, 0.007, -QIN_LOW.seatBack - 0.02);
+  g.add(mat);
+
   return g;
 }
 
@@ -952,6 +1030,10 @@ export const PROP_SPOTS = {
   stoneTable: { x: 6.6,  z: -5.4,  yaw: 0.55 },
   /* 水榭台基顶面（实测 (13.4,8.2) 命中 0.62 —— 台基顶面；且不在池域内） */
   qin:        { x: 13.4, z: 8.2,   y: 0.62, yaw: Math.PI * 0.5 },
+  /* 堂前低案抚琴（P2 跪坐）：桌面中心 + 跪坐位，两个点由 QIN_LOW 一处推出。
+     x=8.0 在 6/10 两根檐柱正中、又避开水缸 (3.7,−7.4)；z 让案沿离台缘 (z=−7.3) 还有 0.28。 */
+  qinLow:     { x: QIN_LOW.x, z: QIN_LOW.z, y: QIN_LOW.y, yaw: QIN_LOW.yaw },
+  qinLowSeat: QIN_LOW_SEAT,
   /* 游廊东腿（x=24 那条；实测 (24.6,z) 屋面之下首个实体命中就是地面 ⇒ 廊内净空无栏杆） */
   stands:     [{ x: 24.6, z: 2.0 }, { x: 24.6, z: 6.0 }, { x: 24.6, z: 10.0 }],
   /* 堂前台基（实测 (±3.7,−7.4) 命中 1.30@paving —— 堂前月台面，踏跺两侧）。
@@ -1013,6 +1095,12 @@ export function buildProps(){
   const qn = PROP_SPOTS.qin;
   g.add(makeQinSet(qn.x, qn.z, qn.y, qn.yaw));
   reg('古琴琴桌', qn.x, qn.y, qn.z, 0.85, 0.85);   // top = 桌面 0.72 + 琴厚（2026-10-05 桌面抬高 0.10）
+
+  /* 堂前低案（跪坐抚琴）：桌面 0.36、案长 1.30 ⇒ 占地半径取 0.72、顶高 0.36+琴 0.10。
+     y 用表里的月台面 1.30（不是地形 —— 台基是浮在地形上的独立网格）。 */
+  const ql = PROP_SPOTS.qinLow;
+  g.add(makeLowQinSet(ql.x, ql.z, ql.y, ql.yaw));
+  reg('低案古琴', ql.x, ql.y, ql.z, 0.72, 0.46);
 
   PROP_SPOTS.stands.forEach((s, i) => {
     g.add(makeFlowerStand(s.x, s.z, groundHeight(s.x, s.z), i % 2 ? 0.35 : -0.25, i % 2));

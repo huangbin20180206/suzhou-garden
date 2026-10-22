@@ -20,7 +20,7 @@ import { scene, renderer } from './02-scene.js';
 import { groundHeight } from './05-water.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { figures } from './08b-figures.js';
-import { PROP_SPOTS } from './14-props.js';
+import { PROP_SPOTS, QIN_LOW_SEAT } from './14-props.js';
 import { HOOKS } from './00-config.js';
 
 const ACTORS = [];
@@ -51,6 +51,34 @@ const TURN_GATE = 0.55;   // 朝向偏差超过这个就"站住转身"，不再�
 const KNEEL = {
   drop: 0.46, thigh: 0.06, knee: 1.62, foot: -1.30, footScale: 0.04,
   spine: 0.03, skirtLen: 0.55, skirtRad: 1.45, lift: 1.15, kneeSwap: 0.96,
+};
+
+/* ── 抚琴（跪坐 + 两手下探到弦上）────────────────────────────────────────────
+   这一组数是**反解**出来的，不是照姿势凭感觉填的：outputs/_diag/actor-qin-solve.mjs
+   在页内按 rest×Euler(XYZ) 复算、网格搜索肩三轴 + 固定屈肘 0.65（自由解 4 个自由度
+   会挑"手臂几乎伸直"的边界解，读起来僵，所以屈肘先钉死）。
+   实测腕位（actor-qin-verify.mjs）：左 8.287,1.824,−7.843 / 右 7.649,1.850,−7.859，
+   比弦面 1.7305 高 0.09~0.11 —— 腕在上、**指尖靠 QIN_HAND 压到弦面**。
+   **改案高 / 坐距 / lean 必须重跑**（触达链 腕→肩 ≈ 0.58m，`seatBack` 一拉开就够不到）。
+   ⚠️ 左右两组**各自求解**、不镜像（这套骨架的左右骨骼朝向本来就不对称，
+      照 armDown 那样乘 −1 会让右手肘朝外翻）。 */
+const QIN_ARM = {
+  Left:  { sx: -1.125, sy: 0.125, sz: -0.125, ex: 0.65, pluck: 0.035, rate: 0.9 },
+  Right: { sx: -0.700, sy: -0.675, sz: 0.250, ex: 0.65, pluck: 0.080, rate: 1.9 },
+};
+
+/* 腕骨与手指（同样是**量出来的**，不是照"掌屈"这个名字填的 → actor-qin-hand3.mjs）
+   ① 腕骨必须**三轴一起解**：只压一个轴时右手中指会比食指高 5~12cm（两根手指在同一
+      平面里天生不齐），必须叠一点滚转（y）把指扇摆平；
+   ② 两只手的腕屈符号**相反且与直觉相反**（细扫实测：左手 z+ 往下、右手 z− 往下）；
+   ③ 拇指 **x 负**才是"收向掌心"、正号是往外张 —— 张开的拇指正是"摊手"的一半；
+      三节各 −0.65/−0.585/−0.39 时拇指尖到食指尖 0.152 → 0.067m。
+   实测结果（指尖 = *_Distal_end 相对弦面 1.7305）：左手食指 +0.014 / 中指 +0.010，
+   右手食指 +0.016 / 中指 +0.012，前后位置都在弦带 z∈[−7.852,−7.708] 之内。
+   ⚠️ 改案高 / 坐距 / lean 之后这组数**全部失效**，必须重跑上面那两个探针。 */
+const QIN_HAND = {
+  Left:  { hx: 0.50, hy: -0.50, hz: 0.00, curl: 0.15, mid: 0.13, thumb: -0.65 },
+  Right: { hx: 0.10, hy: 0.80, hz: -0.50, curl: 0.15, mid: 0.13, thumb: -0.65 },
 };
 
 const LADY_SPOT = PROP_SPOTS.ladyWell;
@@ -127,12 +155,35 @@ const DEFS = [
     route: null,
     idle: { breath: 0.016, head: 0.05, sway: 0.008, phase: 4.2, hopEvery: [14, 30], hopH: 0.16 },
   },
+  /* ── 低案抚琴（P2 第一件"坐着的动作"）────────────────────────────────────────
+     同一件文士资产第二次 parse（与两个书童同款做法），坐位坐标由 14-props 的
+     QIN_LOW_SEAT 给 —— 桌与人是**一处真值**推出的两个点，不在这里另写一份。
+     hidePose 留空：他没有替换任何程序化人物（水榭里抚琴那位是另一处陈设，保留）。
+     ⚠️ 站在**堂前月台**上：y 必须走 floorRay（台面 1.30，不是地形），而且默认的
+        接受上限 0.8 会把 1.30 判成"屋顶"丢掉 ⇒ 本条目显式给 floorMax。 */
+  {
+    id: 'qin',
+    url: 'assets/fig-scholar.glb',
+    height: 1.72,
+    hidePose: null,
+    tint: 0xC6BFAE,          // 暖褐（与讲学那位蓝灰长衫分开，同一件资产不成"照镜子"）
+    spot: { x: QIN_LOW_SEAT.x, z: QIN_LOW_SEAT.z, y: QIN_LOW_SEAT.y, yaw: QIN_LOW_SEAT.yaw },
+    floorRay: true,
+    floorMax: 1.70,
+    pose: 'kneel',
+    route: null,
+    idle: { breath: 0.009, head: 0.028, sway: 0.003, phase: 2.3, qin: true, lean: 0.18, headDown: 0.12 },
+  },
 ];
 
 /* 隐藏程序化替身。near 给了就按**最近的那个**挑：
    poseName 不是唯一的（08b 里两个书童都叫 'child'、家里三个孩子都叫 'watchChild'），
    只按 poseName 取第一个会让"两个书童换掉一个、另一个留着"这种半残状态悄悄发生。 */
 function hideProcedural(poseName, near){
+  /* 没有 poseName 就没有替身可换（低案抚琴那位是**新增**的人，不是替换某位程序化人物）。
+     ⚠️ 必须在这里挡：`poseName === undefined` 会匹配上**所有没有 poseName 的人物**，
+        过滤器一放开就会静默藏掉别人。 */
+  if (!poseName) return;
   const all = figures.filter(x => x.userData && x.userData.poseName === poseName);
   if (!all.length) return;
   let f = all[0];
@@ -164,6 +215,7 @@ function tintMaterial(m, tint){
    所以这里显式按 id 分派，别改成通用变量。 */
 function settleActor(def, ok, err){
   if (def.id === 'scholar') HOOKS.settleAsset?.('assets/fig-scholar.glb', ok, err);
+  else if (def.id === 'qin') HOOKS.settleAsset?.('assets/fig-scholar.glb', ok, err);
   else if (def.id === 'lady') HOOKS.settleAsset?.('assets/fig-lady.glb', ok, err);
   else if (def.id === 'laborer') HOOKS.settleAsset?.('assets/fig-laborer.glb', ok, err);
   else if (def.id === 'child1' || def.id === 'child2') HOOKS.settleAsset?.('assets/fig-child.glb', ok, err);
@@ -234,6 +286,16 @@ function loadActor(def){
                        'LeftUpperArm', 'RightUpperArm', 'LeftLowerArm', 'RightLowerArm',
                        'LeftUpperLeg', 'RightUpperLeg', 'LeftLowerLeg', 'RightLowerLeg',
                        'LeftFoot', 'RightFoot',
+                       /* 腕与指（抚琴用）：腕骨三轴 + 指节 + 拇指三节。
+                          ⚠️ 骨骼不在 base 表里 ⇒ set() 会**静默返回**、画面一动不动
+                          （拇指这三节就踩过：探针扫了四档，读数一模一样）。
+                          这套骨架只有 食指/中指/拇指 三根，无名指与小指是刚性网格，
+                          收不拢 ⇒ 只能靠腕骨滚转 + 拇指内收把整只手读成"收拢"。 */
+                       'LeftHand', 'RightHand',
+                       'LeftIndexProximal', 'LeftIndexIntermediate', 'LeftMiddleProximal', 'LeftMiddleIntermediate',
+                       'RightIndexProximal', 'RightIndexIntermediate', 'RightMiddleProximal', 'RightMiddleIntermediate',
+                       'LeftThumbProximal', 'LeftThumbIntermediate', 'LeftThumbDistal',
+                       'RightThumbProximal', 'RightThumbIntermediate', 'RightThumbDistal',
                        'Skirt0', 'Skirt1', 'Skirt2', 'Skirt3', 'Skirt4', 'Skirt5',
                        'Skirt0a', 'Skirt1a', 'Skirt2a', 'Skirt3a', 'Skirt4a', 'Skirt5a',
                        'Skirt0b', 'Skirt1b', 'Skirt2b', 'Skirt3b', 'Skirt4b', 'Skirt5b']){
@@ -271,7 +333,10 @@ function loadActor(def){
         hipsDown.applyQuaternion(qh.invert()).normalize();
       }
       const hipsRest = hipsBone2 ? hipsBone2.position.clone() : null;
-      const gy0 = groundHeight(def.spot.x, def.spot.z);
+      /* 落点高度：能给的就在 spot 里显式给（月台/台基是浮在地形上的独立网格，
+         groundHeight 会让人整个沉进去）；不给才算地形。floorRay 的条目随后还会
+         用射线把它校正到真实命中的面。 */
+      const gy0 = def.spot.y !== undefined ? def.spot.y : groundHeight(def.spot.x, def.spot.z);
       let hipH = def.height * 0.52;
       const hipsBone = bones['Hips'];
       if (hipsBone){
@@ -377,7 +442,8 @@ function advance(dt){
       if (a.sampleT <= 0){
         a.sampleT = 0.25;
         const fy = sampleFloor(a.pos.x, a.pos.z);
-        if (fy !== null && fy > -0.4 && fy < 0.8 && (a.floorY === null || fy > a.floorY + 0.004)) a.floorY = fy;
+        const fyMax = a.def.floorMax !== undefined ? a.def.floorMax : 0.8;
+        if (fy !== null && fy > -0.4 && fy < fyMax && (a.floorY === null || fy > a.floorY + 0.004)) a.floorY = fy;
         if (++a.floorTries >= 16) a.floorDone = true;
       }
     }
@@ -457,6 +523,28 @@ function advance(dt){
       set('LeftUpperArm', 0.03 * b, ad, 0);
       set('RightUpperArm', 0.03 * b, -ad, 0);
     }
+    /* ── 抚琴：两臂前伸下探到弦上（参数 QIN_ARM + QIN_HAND，反解口径见文件头）──────
+       · 只在跪坐权重上来之后才伸手（过渡帧里手不会先去按空气）；
+       · **拨弦叠在指节上、不叠在肘上**：肘一动整条手臂跟着上下摆 1~2cm，而指尖只离弦
+         1.2cm ⇒ 会周期性地穿进弦里。改成食指/中指交替起点，手是稳的、只有指尖在动；
+       · 左右手节奏不同（左手按弦慢、右手拨弦快），两个手不会像机器一样同步。 */
+    if (o.qin && k > 0.2){
+      const tt = _t + a.phase;
+      for (const side of ['Left', 'Right']){
+        const P = QIN_ARM[side], H = QIN_HAND[side];
+        set(side + 'UpperArm', P.sx, P.sy, P.sz);
+        set(side + 'LowerArm', P.ex, 0, 0);
+        set(side + 'Hand', H.hx, H.hy, H.hz);
+        const osc = Math.sin(tt * P.rate * 6.2832);
+        set(side + 'IndexProximal',  H.curl + P.pluck * Math.max(0, osc), 0, 0);
+        set(side + 'MiddleProximal', H.curl + P.pluck * Math.max(0, -osc), 0, 0);
+        set(side + 'IndexIntermediate',  H.mid, 0, 0);
+        set(side + 'MiddleIntermediate', H.mid, 0, 0);
+        set(side + 'ThumbProximal', H.thumb, 0, 0);
+        set(side + 'ThumbIntermediate', H.thumb * 0.9, 0, 0);
+        set(side + 'ThumbDistal', H.thumb * 0.6, 0, 0);
+      }
+    }
     /* lean / headDown：马夫"把草递到马嘴"那种前俯，只动躯干和头（手臂不动）。 */
     const lean = o.lean || 0;
     const hd = o.headDown || 0;
@@ -527,6 +615,14 @@ export function actorStep(seconds, quantum){
 /* 探针用：切站/跪坐（kneel 的权重会平滑过渡，不会瞬移） */
 export function actorPose(id, pose){
   for (const a of ACTORS) if (!id || a.def.id === id) a.kneelTarget = pose === 'kneel' ? 1 : 0;
+}
+
+/* 探针用：某个人物的骨骼表与**绑定姿态**（只在页内用 —— 返回的是 THREE 对象，
+   跨 evaluate 序列化不了）。抚琴的肩/肘角度是"手落到弦上"反解出来的，
+   探针必须在同一个任务里按同一套公式（rest × Euler XYZ）复算，不能只读当前姿势。 */
+export function actorRig(id){
+  const a = ACTORS.find(x => x.def.id === id);
+  return a ? { bones: a.bones, base: a.base, holder: a.holder } : null;
 }
 
 export function actorWalk(id, on){
