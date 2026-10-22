@@ -21,6 +21,7 @@ import { groundHeight } from './05-water.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { figures } from './08b-figures.js';
 import { PROP_SPOTS, QIN_LOW_SEAT, SEAT_SPOTS } from './14-props.js';
+import { MAT } from './01-materials.js';
 import { HOOKS } from './00-config.js';
 
 const ACTORS = [];
@@ -137,6 +138,43 @@ const QIN_HAND = {
 const LADY_SPOT = PROP_SPOTS.ladyWell;
 const LADY_YAW = Math.atan2(PROP_SPOTS.well.x - LADY_SPOT.x, PROP_SPOTS.well.z - LADY_SPOT.z);
 
+/* ── 品茶（P2「喝茶」）────────────────────────────────────────────────────────
+   讲学那位文士右手端一盏，每 8~14s 把盏举到胸前再放下。两组角是反解出来的
+   （outputs/_diag/actor-tea-solve.mjs / actor-tea-lift.mjs，腕到目标 0.003m / 0.061m）。
+   ⚠️ **没有做"就唇"**：这件资产的长袖把整只手包住了（出图里手是袖口里一团），
+      盏贴掌心时连带袖子一起被吞掉、画面上完全看不见；而且嘴边目标离肩只有 0.25m，
+      真解要靠把肘抬到肩上 21cm，读作"端碗往嘴里倒"。所以改成"举到胸前"的端茶姿态，
+      盏摆到**腕前 9cm**（袖口之外）才露得出来 —— 与马厩那捆草料同一条经验：
+      手里的小道具必须露在父几何轮廓之外。
+   ⚠️ 茶盏**不挂在手骨上**：挂上去会被腕子拧歪（这套骨架只有屈伸、没有前臂旋前）。
+      盏是 holder 的子节点，每帧按腕的位置摆一次、姿态恒竖直（盏里的水面才不斜）。 */
+const TEA_ARM = {
+  hold: { sx: -0.42, sy: 1.19, sz: -1.18, ex: 0.60, hx: 0.35 },
+  lift: { sx: -2.20, sy: -0.18, sz: -0.55, ex: 1.10, hx: 0.35 },
+};
+const TEA_CUP_FWD = 0.09;    // 盏心在腕**前**多少（袖口之外才看得见）
+const ease01 = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
+const _cupV = new THREE.Vector3();
+
+/* 茶盏（青白瓷，与石桌上那套同材质）：盏身 + 盏里那汪茶汤。原点在**盏底中心**。
+   茶汤那圈深色只在这盏里用（2cm 的小圆片、永远在盏内），不登记天气角色。 */
+function makeTeaCup(holder){
+  const g = new THREE.Group();
+  g.name = 'actorTeaCup';
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.039, 0.028, 0.046, 16), MAT.porcelain);
+  body.position.y = 0.023;
+  body.castShadow = false;
+  body.receiveShadow = true;
+  g.add(body);
+  const tea = new THREE.Mesh(new THREE.CylinderGeometry(0.032, 0.032, 0.002, 14),
+    new THREE.MeshStandardMaterial({ color: 0x6B4620, roughness: 0.26, metalness: 0.0 }));
+  tea.position.y = 0.040;
+  g.add(tea);
+  g.userData.noMerge = true;
+  holder.add(g);
+  return g;
+}
+
 /* route = 往复踱步线（端点交替）。y 一律现算 groundHeight，不给写死的高度：
    两位人物站的草坪是一片缓坡，写死等于在坡上悬空/陷地。 */
 const DEFS = [
@@ -151,8 +189,10 @@ const DEFS = [
        东侧 0.6m 就是书童，直线段必然擦身而过。他的动作留给"晨读→背手观景"。 */
     route: null,
     /* armDown：生成件是 A 姿势（手臂抬 40°），站桩像展示人偶。
-       实测 LeftUpperArm Y=+0.8 / RightUpperArm Y=-0.8 能把两臂放下来、手掌朝内。 */
-    idle: { breath: 0.016, head: 0.055, sway: 0.007, phase: 0.0, armDown: 0.80 },
+       实测 LeftUpperArm Y=+0.8 / RightUpperArm Y=-0.8 能把两臂放下来、手掌朝内。
+       tea：右手端一盏茶（P2「喝茶」），间歇抬到唇边 —— 见 TEA_ARM 的注释。 */
+    idle: { breath: 0.016, head: 0.055, sway: 0.007, phase: 0.0, armDown: 0.80,
+            tea: true, teaEvery: [8, 14] },
   },
   {
     id: 'lady',
@@ -410,8 +450,12 @@ function loadActor(def){
         kneelW: 0, kneelTarget: def.pose === 'kneel' ? 1 : 0,
         sitW: 0, sitTarget: def.pose === 'sit' ? 1 : 0,
         placeT: 0, placeN: 0, placeWait: 1.5 + det(def.idle.phase) * 4,
+        teaT: 0, teaN: 0, teaWait: 1.5 + det(def.idle.phase) * 6, sipW: 0, cup: null,
         hipsDown, hipsRest,
       });
+      /* 品茶：盏挂在 holder 上（不挂手骨，理由见 TEA_ARM 注释） */
+      const aNew = ACTORS[ACTORS.length - 1];
+      if (def.idle.tea) aNew.cup = makeTeaCup(holder);
       markCasterBoxDirty();
       renderer.shadowMap.needsUpdate = true;   // 静态阴影图补一次，人物有影子
       settleActor(def, true);
@@ -641,6 +685,37 @@ function advance(dt){
       set('LeftUpperArm', 0.03 * b, ad, 0);
       set('RightUpperArm', 0.03 * b, -ad, 0);
     }
+    /* ── 品茶（P2「喝茶」）：端着 → 抬到唇边 → 放下 ────────────────────────────
+       4.2s 一个来回（抬 1.3 / 停 1.6 / 落 1.3），间歇 8~14s。
+       只在**喝茶那只手**上写（右手），左臂继续走 armDown —— 两只手都端起来就成了"捧"。 */
+    if (o.tea){
+      a.teaWait -= dt;
+      if (a.teaWait <= 0 && a.teaT <= 0){
+        a.teaT = 1e-4;
+        a.teaWait = o.teaEvery[0] + (o.teaEvery[1] - o.teaEvery[0]) * det(a.teaN++ + a.phase * 5.1);
+      }
+      let sip = 0;
+      if (a.teaT > 0){
+        a.teaT += dt;
+        const u = Math.min(1, a.teaT / 4.2);
+        sip = u < 0.31 ? ease01(u / 0.31) : (u < 0.69 ? 1 : 1 - ease01((u - 0.69) / 0.31));
+        if (u >= 1) a.teaT = 0;
+      }
+      a.sipW = sip;
+      const A = TEA_ARM.hold, B = TEA_ARM.lift;
+      set('RightUpperArm', A.sx + (B.sx - A.sx) * sip, A.sy + (B.sy - A.sy) * sip, A.sz + (B.sz - A.sz) * sip);
+      set('RightLowerArm', A.ex + (B.ex - A.ex) * sip, 0, 0);
+      set('RightHand', A.hx + (B.hx - A.hx) * sip, 0, 0);
+      /* 指节：虚握盏身（食指/中指弯、拇指内收扣住盏沿） */
+      const cu = 0.80 + 0.10 * sip;
+      set('RightIndexProximal', cu, 0, 0);
+      set('RightMiddleProximal', cu, 0, 0);
+      set('RightIndexIntermediate', 0.55, 0, 0);
+      set('RightMiddleIntermediate', 0.55, 0, 0);
+      set('RightThumbProximal', -0.55, 0, 0);
+      set('RightThumbIntermediate', -0.50, 0, 0);
+      set('RightThumbDistal', -0.33, 0, 0);
+    }
     /* ── 抚琴：两臂前伸下探到弦上（参数 QIN_ARM + QIN_HAND，反解口径见文件头）──────
        · 只在跪坐权重上来之后才伸手（过渡帧里手不会先去按空气）；
        · **拨弦叠在指节上、不叠在肘上**：肘一动整条手臂跟着上下摆 1~2cm，而指尖只离弦
@@ -697,9 +772,10 @@ function advance(dt){
         set(side + 'ThumbDistal', P.thumb * 0.6, 0, 0);
       }
     }
-    /* lean / headDown：马夫"把草递到马嘴"那种前俯，只动躯干和头（手臂不动）。 */
+    /* lean / headDown：马夫"把草递到马嘴"那种前俯，只动躯干和头（手臂不动）。
+       品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。 */
     const lean = o.lean || 0;
-    const hd = o.headDown || 0;
+    const hd = (o.headDown || 0) + (o.tea ? a.sipW * 0.12 : 0);
     set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2, -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
@@ -751,6 +827,23 @@ function advance(dt){
             bb2.scale.set(radE, lenE, radE);
           }
         }
+      }
+    }
+    /* 茶盏跟手：位置 = 腕 + 人物正前方 9cm + 上 2cm（摆到袖口之外，否则被长袖吞掉），
+       姿态恒竖直（盏里的水面不斜）。
+       ⚠️ 必须先 updateMatrixWorld —— 上面刚写完骨骼四元数，矩阵还是上一帧的
+          （不刷就会"盏比手慢一帧"，抬盏那段最明显）。 */
+    if (a.cup){
+      const wr = a.bones.RightHand;
+      if (wr){
+        a.holder.updateMatrixWorld(true);
+        wr.getWorldPosition(_cupV);
+        const yw = a.holder.rotation.y;
+        _cupV.x += Math.sin(yw) * TEA_CUP_FWD;
+        _cupV.z += Math.cos(yw) * TEA_CUP_FWD;
+        _cupV.y += 0.02;
+        a.holder.worldToLocal(_cupV);
+        a.cup.position.copy(_cupV);
       }
     }
   }
@@ -812,6 +905,8 @@ export function actorState(){
       /* 探针用：对弈块到底跑没跑 —— goId 从 idle 取，placeT 只有进了那块才会动 */
       goId: (a.def.idle && a.def.idle.go) || null,
       placeT: +a.placeT.toFixed(2),
+      teaT: +a.teaT.toFixed(2),
+      sipW: +a.sipW.toFixed(3),
       moveW: +a.moveW.toFixed(3),
       floorY: a.floorY === null ? null : +a.floorY.toFixed(3),
       floorTries: a.floorTries,
