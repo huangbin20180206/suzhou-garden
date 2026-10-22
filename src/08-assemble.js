@@ -264,7 +264,7 @@ export { FIG_HAIR, FIG_PALETTE, figures, makeGroomArm, tickGroomFeed, groomFeedS
 buildFigures();
 /* 2026-10-21 P1：AI 半写实人物（文士/仕女）。加载成功才隐藏程序化替身；
    失败/离线时替身照常站着。人物是静态站点角色，动作只在骨骼上做呼吸/转头。 */
-import { buildActors } from './16-actors.js';
+import { buildActors, buildSeatedActors } from './16-actors.js';
 buildActors();
 
 /* ── W3（2026-10-15）：睡莲→鸭（含芭蕉/石灯笼/泳龟/水禽/鹦鹉/大雁/小鸟/蜻蜓/荷花）已搬进 ./08c-aquatic.js ──
@@ -789,6 +789,10 @@ world.add(buildProps());
     fg.userData.poseName = 'go';
     world.add(fg);
   });
+  /* 半写实（GLB）的两位对弈者：**必须在这里**装 —— 座位坐标 SEAT_SPOTS 在
+     world.add(buildProps()) 时才填好，程序化替身也刚刚才进 figures
+     （16-actors 的 hideProcedural 要按 poseName 找它们来换人）。 */
+  buildSeatedActors();
   /* 抚琴人（计划书 §6「人」批 · 与 14-props #2 古琴琴桌配套）：坐在 14-props 新补的琴凳上，
      面朝池面（临水抚琴）。座位同样读 QIN_SEAT —— 不在这里按
      "琴桌 13.4,8.2 加个偏移"重算，理由同上面 SEAT_SPOTS 那段。

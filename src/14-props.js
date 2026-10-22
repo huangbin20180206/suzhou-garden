@@ -57,6 +57,14 @@ MAT.bronze    = registerWeatherRoles(new THREE.MeshStandardMaterial({
    一张贴图既干净又只多一个 draw call。棋盘是户外陈设，照旧登记天气角色。 */
 MAT.goBoardFace = registerWeatherRoles(new THREE.MeshStandardMaterial({
   map: makeGoBoardTex(), roughness: 0.62, metalness: 0.0, envMapIntensity: 0.55 }), { snow: 1, wet: 1 });
+/* 围棋子的两色（2026-10-22 · P2"坐着的动作"补的）：黑子取墨玉感（低粗糙 + 高一点的环境
+   反射，近景才有一星高光）；白子不用纯白 —— 晴日直射下纯白会过曝成一片、和盘面木色糊在一起，
+   给米白（0xE6DFCC）。子径 21mm（真实尺寸），在 0.9m 的近景里约 10px、在默认机位不到 2px，
+   所以**只靠明度差**读出来就够了，不贴图。 */
+MAT.goStoneBlack = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0x24272B, roughness: 0.34, metalness: 0.0, envMapIntensity: 0.75 }), { snow: 1, wet: 1 });
+MAT.goStoneWhite = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0xE6DFCC, roughness: 0.30, metalness: 0.0, envMapIntensity: 0.60 }), { snow: 1, wet: 1 });
 
 /* ── 古井 / 花街铺地的四份专用材质（2026-10-05 ·「③ 景」批）──
    一律**新建**而不是就地改共享材质（理由同上面 MAT.celadonVat 那条注释：改 MAT.stone
@@ -130,8 +138,9 @@ export const QIN_LOW_SEAT = {
       这条链成环（项目在 01/12f 的文件头都记着同一类事故）。
    ⚠️ 必须**每帧**重申而不是切换时设一次：applyPresence 的注释里记着那条教训（别处的
       旁路 pass 会保存/还原 visible），而且雨量本来就是逐帧变的连续量，门就该每帧跟一次。
-   ⚠️ 本组几何里"棋子"就是这两只**棋钵**（钵中盛着棋子）—— 桌上没有单独的棋子网格。
-      所以"收起棋子"= 收这两只钵；**棋盘按老黄"不是棋盘"保留**（桌面还是那张棋局）。
+   ⚠️ 本组几何里"棋子"= 两只**棋钵** + 盘面上**已下的子**（2026-10-22 起：
+      黑/白各一个合并网格，见 makeStoneTableSet 里"一局中盘"那段）。
+      所以"收起棋子"= 收两只钵 + 两批子；**棋盘按老黄"不是棋盘"保留**（桌面还是那张棋局）。
       石桌/石凳一件都不动。 */
 export const GO_PIECE_MESHES = [];
 export function setGoPiecesVisible(on){
@@ -169,7 +178,13 @@ export function makeStoneTableSet(x, z, yaw = 0){
   const nailGeo  = new THREE.SphereGeometry(0.024, 8, 6);
   for (let i = 0; i < 4; i++){
     const a = Math.PI / 4 + i * Math.PI / 2 + jr(0.07);
-    const r = 1.02 + jr(0.04);
+    /* 0 / 2 号是**对弈那两位**的凳子（08-assemble 与 16-actors 都取这一对）：拉到 0.88。
+       原值 1.02 时凳心离桌心 1.02、离盘心 1.09，而人坐着肩→指尖只有 ~0.65m
+       ⇒ 手够不到盘面（actor-go-solve 实测差 0.10m，人只能俯身趴桌）。
+       0.88 时凳外缘 0.65 仍在桌面（半径 0.62）之外 3cm，不会插进桌腿。
+       另两张凳子维持 1.02 —— 那两位不是对弈者，"玩家把凳子拉近桌"本来就该只有两张。
+       ⚠️ jr(0.04) 的**调用次数与顺序一个字都没动**（铁律 1），只是基数改了。 */
+    const r = (i === 0 || i === 2 ? 0.88 : 1.02) + jr(0.04);
     const sx = Math.cos(a) * r, sz = Math.sin(a) * r;
     const st = mesh(stoolGeo, MAT.stone, { name:'propStool' });
     st.position.set(sx, 0, sz); g.add(st);
@@ -222,6 +237,72 @@ export function makeStoneTableSet(x, z, yaw = 0){
     bowl.userData.noMerge = true;
     g.add(bowl);
     GO_PIECE_MESHES.push(bowl);
+  }
+
+  /* ── 棋子：19 路盘面上的一局**中盘**（黑 25 / 白 21），每颗都压在交叉点上 ─────────
+     ⚠️ 落位不能按"盘宽 ÷ 19"估 —— 盘面贴图（01b 的 makeGoBoardTex）边距是**整幅的 1/22**、
+        18 道间隔等分内区；盘面是 box(0.43, 0.006, 0.41)，BoxGeometry 顶面
+        uv.x = (x + w/2)/w、uv.y = 1 − (z + h/2)/h，而纹理默认 flipY ⇒ 画布第 k 道线落在
+        盘面局部 x = ((1/22) + k·(20/22)/18 − 0.5)·0.43、z = 同一系数·0.41。
+        按"板宽/19"算会大 10%，四个盘角偏出近 4cm（≈ 两个子宽），子就骑到线外了。
+     ⚠️ 成团而不是均匀撒：均匀随机撒点读作"一把子洒在盘上"，只有**成团 + 留空**才像在下棋。
+     ⚠️ 抖动走**独立私有流** mulberry32(20261022)：不能借上面的 PR —— 那会把 PR 后面所有抽取
+        （凳子方位、茶具错位…）整体前移，四张凳子一挪，两位对弈者就坐歪了（铁律 1）。
+     ⚠️ noMerge + 进 GO_PIECE_MESHES（与棋钵同理）：`setGoPiecesVisible` 要在暴雨/大雪里
+        把整副棋收掉；并进 mergedStatic 之后连引用都没有了、再也关不掉。代价 2 个 draw call。 */
+  {
+    const BX = -0.14, BZ = 0.02, BYAW = 0.12, BTOP = 0.766;   // 与上面 bd / bdFace 同一组数
+    const line = (k) => (1 / 22 + (k / 18) * (20 / 22) - 0.5); // 第 k 路在盘面上的归一化坐标
+    const gs = mulberry32(20261022);
+    const gu = (a, b) => a + gs() * (b - a);
+    const taken = new Set();
+    const stones = { b: [], w: [] };
+    /* 五处成团 + 两处引征：四角挂角、中腹缠斗。偏置表让每团有厚有薄（不摆成方块）。 */
+    const GROUPS = [
+      ['b', 3, 3, 5], ['w', 5, 4, 4],        // 角部挂角
+      ['b', 15, 4, 4], ['w', 14, 6, 5],      // 另一角定式
+      ['b', 9, 10, 6], ['w', 10, 11, 5],     // 中腹缠斗
+      ['w', 4, 15, 4], ['b', 6, 14, 3],      // 边上一带
+      ['w', 15, 15, 3], ['b', 16, 13, 4],
+      ['w', 8, 6, 3], ['b', 11, 7, 3],       // 两处引征
+    ];
+    const OFF = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+      [2, 0], [-2, 0], [0, 2], [0, -2], [2, 1], [-2, -1], [1, 2], [-1, -2]];
+    for (const [col, ci, cj, n] of GROUPS){
+      let placed = 0;
+      for (let tries = 0; tries < 90 && placed < n; tries++){
+        const o = OFF[Math.min(OFF.length - 1, (gu(0, OFF.length) | 0))];
+        const i = Math.max(0, Math.min(18, ci + o[0]));
+        const j = Math.max(0, Math.min(18, cj + o[1]));
+        const key = i * 19 + j;
+        if (taken.has(key)) continue;
+        taken.add(key); placed++;
+        stones[col].push([i, j]);
+      }
+    }
+    /* 子：真实尺寸（直径 21mm / 厚 5mm）。10 段够圆 —— 再细分在 3m 外看不出，
+       只是白烧顶点。两色各合并成**一个**网格（每个 draw call 一批子）。 */
+    const stoneGeo = new THREE.CylinderGeometry(0.0096, 0.0105, 0.005, 10);
+    const cy = Math.cos(BYAW), sy = Math.sin(BYAW);
+    for (const col of ['b', 'w']){
+      const parts = [];
+      for (const [i, j] of stones[col]){
+        const lx = line(i) * 0.43, lz = line(j) * 0.41;
+        const p = stoneGeo.clone();
+        /* 盘面自身的 yaw 0.12：世界偏移 (x·cos + z·sin, −x·sin + z·cos) —— 与 SEAT_SPOTS 同一套映射 */
+        p.translate(BX + lx * cy + lz * sy, BTOP + 0.0021, BZ - lx * sy + lz * cy);
+        parts.push(p);
+      }
+      if (!parts.length) continue;
+      const m = mesh(mergeGeometries(parts, false),
+        col === 'b' ? MAT.goStoneBlack : MAT.goStoneWhite,
+        { name: col === 'b' ? 'propGoStoneB' : 'propGoStoneW', cast: false });
+      m.userData.noMerge = true;
+      g.add(m);
+      GO_PIECE_MESHES.push(m);
+      for (const p of parts) p.dispose();      // 已经并进新几何，克隆件可以回收
+    }
+    stoneGeo.dispose();
   }
 
   /* 茶具：一壶两盏（青白瓷）。棋盘占 x∈[−0.37,0.09]、z∈[−0.20,0.24]，棋钵占 x≈0.23~0.41；

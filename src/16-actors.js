@@ -20,7 +20,7 @@ import { scene, renderer } from './02-scene.js';
 import { groundHeight } from './05-water.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { figures } from './08b-figures.js';
-import { PROP_SPOTS, QIN_LOW_SEAT } from './14-props.js';
+import { PROP_SPOTS, QIN_LOW_SEAT, SEAT_SPOTS } from './14-props.js';
 import { HOOKS } from './00-config.js';
 
 const ACTORS = [];
@@ -51,6 +51,59 @@ const TURN_GATE = 0.55;   // 朝向偏差超过这个就"站住转身"，不再�
 const KNEEL = {
   drop: 0.46, thigh: 0.06, knee: 1.62, foot: -1.30, footScale: 0.04,
   spine: 0.03, skirtLen: 0.55, skirtRad: 1.45, lift: 1.15, kneeSwap: 0.96,
+};
+
+/* ── 坐凳（P2 第二件坐姿：石桌对弈）──────────────────────────────────────────
+   与跪坐是两套参数，不是"跪坐的半个"：跪坐是小腿折到身下（髋贴地 0.46），
+   坐凳是大腿抬平、小腿垂下来（髋在凳面 0.452 之上）。两者共用同一批裙骨通道。
+   实测基数（actor-go-measure.mjs，scholar 1.72m）：
+     Hips 在原点以上 **0.937**、凳面 0.452 + 骨盆半径 ≈ 0.09 ⇒ drop ≈ 0.395；
+     大腿骨 0.41 / 小腿骨 0.383 —— 髋 0.542（相对地面）抬起平放 ⇒ 膝 0.542、
+     踝 0.159，正好落在凳面上方、脚掌踩地。
+   lean 是**必需的**，不是风格：凳心离盘心 1.09m，而肩→腕只有 0.489m ⇒
+   不往前倾（把肩送到桌沿）手根本够不到盘面（actor-go-measure 的几何账）。
+   ⚠️ 腿的角度与 drop 是一组数：只改 drop 会让脚离地/入地，必须一起看脚尖高度。 */
+const SIT = {
+  /* foot 取 0：大腿 −1.44 与小腿 +1.50 的净转角 ≈ +0.06（几乎与站姿同向），
+     脚掌本来就是平的，再补一个踝角反而会翘脚尖。 */
+  /* lean 0.52 / headDown 0.46：实测（actor-go-solve）lean 0.40 时腕离盘面还差
+     0.27~0.42m —— 凳心到盘心 1.09m，而肩→腕只有 0.489m。所以坐位再往桌心挪
+     0.14（坐凳前沿，仍是坐着）+ 上身倾到 0.52，两手才够得到盘边。 */
+  drop: 0.395, thigh: 1.44, knee: 1.50, foot: 0.0, lean: 0.52, headDown: 0.46,
+  skirtLen: 0.60, skirtRad: 1.35, lift: 1.30, kneeSwap: 1.00,
+};
+
+/* ── 对弈（坐凳 + 一只手落到盘面）────────────────────────────────────────────
+   两边的角度各自反解（outputs/_diag/actor-go-solve.mjs）：这套骨架左右手臂
+   **本来就不对称**，镜像着填会让一只手肘朝外翻（抚琴那轮已经踩过）。
+   目标点：各自这一侧的盘边往内 0.20m、指面略高于盘面 0.03m。
+   ⚠️ 与 SIT 是一组数：改 drop / lean / 坐位就要重跑那个探针。 */
+const GO_ARM = {
+  /* ⚠️⚠️ 键必须是 **Left / Right**（与下面动作块里的 `for (const side of ['Left','Right'])`
+     一致）。第一版这里写成 R / L，动作块取 A[side] 恒为 undefined ⇒ `continue` 什么都不写，
+     但 placeT 照常在走：**症状是"两只手一直垂在腿边、人像在打瞌睡"，而且不报错**。
+     这类"名字对不上就静默不写"的坑与 base[] 白名单同族（见 QIN_HAND 注释）。 */
+  /* 落子手（place:1）实测（actor-go-solve4.log，凳子拉到 0.88 之后）：
+     go1 右手指尖 (6.663, 0.905, −5.280) = 盘心往外 0.175m ⇒ 盘内 4cm；
+     go2 左手指尖 (6.417, 0.869, −5.258) = 盘心 0.075m ⇒ 几乎落子到盘心。 */
+  go1: {
+    Right: { sx: -2.195, sy: 1.250, sz: -0.040, ex: 0.22, hx: 0.10, hy: 0.00, hz: 0.00, curl: 0.45, mid: 0.20, thumb: -0.60, place: 1 },
+    /* 闲着那只手（place:0）实测（actor-go-rest-solve.log，目标 = 自己膝上 5cm、往外让 6cm）：
+       go1 左手 d 0.0835。/ 腕骨三轴由 actor-go-palm.log 反解（目标 = **掌心朝下** 0.94、
+       手指顺着前臂 0.35）。手型用**放松半握**（curl 0.55 / mid 0.45 / thumb −0.45）——
+       落子手要把棋子按在盘面上、所以指尖压得低（0.45/0.20），闲手绷那么紧像握拳。
+       ⚠️ 腕子比腿面高 8cm（腿面 0.557 / 腕 0.64）。试过把它压到 2cm（actor-go-rest3/4）：
+         要么手背**折回前臂 180°**（follow −0.76~−0.99），要么腕三轴全部贴到搜索框边界
+         （hx −2.4 / hz ±2）。原因是这套骨架上臂/前臂只有屈伸、**没有前臂旋前**，
+         掌心朝下只能靠腕子拧出来 —— 压得更低就必然更拧。取舍：宁可"手背悬在腿上方
+         一掌"（在桌面以下、常规机位看不见），也不要一只拧成麻花的手腕。 */
+    Left:  { sx: -1.550, sy: 0.300, sz: 0.100, ex: 0.90, hx: -1.54, hy: -0.48, hz: -1.14, curl: 0.55, mid: 0.45, thumb: -0.45, place: 0 },
+  },
+  go2: {
+    /* go2 右手 d 0.0792（左右各自反解，不镜像 —— 理由同抚琴）；掌心朝下 0.99。 */
+    Right: { sx: -1.550, sy: -0.350, sz: -0.100, ex: 0.90, hx: -2.02, hy: 0.32, hz: 1.24, curl: 0.55, mid: 0.45, thumb: -0.45, place: 0 },
+    Left:  { sx: -1.995, sy: 0.050, sz: 0.205, ex: 0.22, hx: 0.10, hy: 0.00, hz: 0.00, curl: 0.45, mid: 0.20, thumb: -0.60, place: 1 },
+  },
 };
 
 /* ── 抚琴（跪坐 + 两手下探到弦上）────────────────────────────────────────────
@@ -355,6 +408,8 @@ function loadActor(def){
         hopT: 0, hopDur: 0.62, hopN: 0, hopWait: def.idle.hopEvery ? 3 + det(def.idle.phase) * 6 : 0,
         floorY: null, floorTries: 0, sampleT: 0, floorDone: false,   // 只有 floorRay 的才会去点
         kneelW: 0, kneelTarget: def.pose === 'kneel' ? 1 : 0,
+        sitW: 0, sitTarget: def.pose === 'sit' ? 1 : 0,
+        placeT: 0, placeN: 0, placeWait: 1.5 + det(def.idle.phase) * 4,
         hipsDown, hipsRest,
       });
       markCasterBoxDirty();
@@ -370,11 +425,59 @@ function loadActor(def){
     });
 }
 
-/* 只在启动时调一次（08-assemble 在建完人物之后调） */
+/* 石桌对弈的两个人（坐 SEAT_SPOTS 的**对径一对** 0 / 2，与 08-assemble 里
+   "i 与 i+2 夹角 180° 才是对弈"同一条口径）。
+   ⚠️ **不能写进模块级 DEFS**：SEAT_SPOTS 是 14-props 的 makeStoneTableSet 在
+      装配期填的（含 ±7cm 的 jr 抖动），模块求值那一刻还是空数组 ——
+      提前读会得到 undefined、两个人静默不出现。所以在这里现算。
+   hidePose 'go' + near：把该座位上的程序化对弈者按"最近的那个"换掉
+   （同 poseName 有两位，只按名字取第一个会换错人）。 */
+function seatedDefs(){
+  const out = [];
+  [[0, 'go1', 0xBBA9C4], [2, 'go2', 0xA7B7D2]].forEach(([si, id, tint]) => {
+    const st = SEAT_SPOTS[si];
+    if (!st) return;
+    /* 往桌心挪 0.14m：坐在凳子的**前沿**（真人在石凳上下棋也是这样），
+       否则凳心到盘心 1.09m、手臂只有 0.49m，手落不到盘上（actor-go-solve 实测）。 */
+    const tb = PROP_SPOTS.stoneTable;
+    const dx = tb.x - st.x, dz = tb.z - st.z;
+    const dl = Math.hypot(dx, dz) || 1;
+    const push = 0.14;
+    out.push({
+      id,
+      url: 'assets/fig-scholar.glb',
+      height: 1.72,
+      hidePose: 'go',
+      tint,
+      spot: { x: +(st.x + dx / dl * push).toFixed(4), z: +(st.z + dz / dl * push).toFixed(4),
+              y: st.y, yaw: st.yaw },
+      pose: 'sit',
+      fixedY: true,          // 凳面高度是绝对量，不跟地形
+      route: null,
+      /* 坐姿的两只手分别在 GO_ARM 里；这里只留下呼吸、低头看盘与"落子"的节奏 */
+      idle: { breath: 0.008, head: 0.022, sway: 0.002, phase: si === 0 ? 1.1 : 3.9,
+              go: id, headDown: SIT.headDown, placeEvery: [4.5, 9.0] },
+    });
+  });
+  return out;
+}
+
+/* 只在启动时调一次（08-assemble 在建完人物之后调）。
+   ⚠️ 这里**只**装 DEFS 里那批：石桌对弈的两个人要等 14-props 的 buildProps
+      （SEAT_SPOTS 在 makeStoneTableSet 里填）跑完，见 buildSeatedActors。 */
 export function buildActors(){
   if (_built) return;
   _built = true;
   for (const def of DEFS) loadActor(def);
+}
+
+/* 石桌对弈的两个人：必须由 08-assemble 在 buildProps + 程序化对弈者建好**之后**调
+   （① 座位坐标要真实落位；② 换人靠 hideProcedural 找 figures 里那两个 poseName='go'）。 */
+let _seatedBuilt = false;
+export function buildSeatedActors(){
+  if (_seatedBuilt) return;
+  _seatedBuilt = true;
+  for (const def of seatedDefs()) loadActor(def);
 }
 
 /* 每帧：呼吸 + 缓慢转头/重心。只写骨骼，不碰 root 的 position/rotation。 */
@@ -447,7 +550,11 @@ function advance(dt){
         if (++a.floorTries >= 16) a.floorDone = true;
       }
     }
-    const gy = a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z);
+    /* 坐凳的人**坐的是凳子**，不是脚下那块地形：石桌四周是缓坡，跟着地形走会让
+       同一条凳子上的两个人一个高一个低（go2 实测比 go1 低 8cm、沉到凳面以下）。
+       fixedY = 钉在 spot.y（= 凳子所在的地面高，14-props 给的）。 */
+    const gy = a.def.fixedY ? a.def.spot.y
+      : (a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z));
     /* 位置：先落地点，再叠步态起伏。groundHeight 是缓坡，直接跟即可。 */
     a.y += (gy - a.y) * Math.min(1, dt * 8);    // 一阶低通：坡上不会一点点抖
     const o = a.def.idle;
@@ -493,6 +600,9 @@ function advance(dt){
     if (a.kneelTarget > a.kneelW) a.kneelW = Math.min(a.kneelTarget, a.kneelW + dt * 2.2);
     else if (a.kneelTarget < a.kneelW) a.kneelW = Math.max(a.kneelTarget, a.kneelW - dt * 2.2);
     const k = a.kneelW;
+    if (a.sitTarget > a.sitW) a.sitW = Math.min(a.sitTarget, a.sitW + dt * 2.2);
+    else if (a.sitTarget < a.sitW) a.sitW = Math.max(a.sitTarget, a.sitW - dt * 2.2);
+    const st2 = a.sitW;
 
     const b = Math.sin(_t * 1.05 + a.phase);
     const h = Math.sin(_t * 0.31 + a.phase * 1.7);
@@ -507,12 +617,20 @@ function advance(dt){
     /* ── 步态（w→0 时全部回零，站姿与 P1 逐字一致）────────────────────────
        屈膝相位：腿往前送的半程（cos>0）才弯；支撑期直着撑住重量。
        踝：跟落抬趾、趾离压趾，用 ±GAIT.foot 的小幅反向补偿。 */
-    set('LeftUpperLeg',  a.amp * sw * w + hopCrouch * 0.8 - KNEEL.thigh * k, 0, 0);   // 大腿的局部 X 左右镜像（同步态用反号）
-    set('RightUpperLeg', -a.amp * sw * w - hopCrouch * 0.8 + KNEEL.thigh * k, 0, 0);  // 反号 ⇒ 两腿**同向**前屈（蹲/跪）
-    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k, 0, 0);
-    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k, 0, 0);
-    set('LeftFoot',  -GAIT.foot * sw * w + KNEEL.foot * k, 0, 0);
-    set('RightFoot',  GAIT.foot * sw * w + KNEEL.foot * k, 0, 0);
+    /* 坐凳：大腿抬平（1.44rad）、小腿往下折、脚掌踏平。
+       ⚠️⚠️ 这套骨架的**左右大腿局部 X 轴并没有镜像** —— actor-leg-axis.mjs 实测：
+          两条腿都给 +0.3 时膝都往后 0.14m、给 −0.3 时都往前 0.10m。所以：
+            · **步态**必须异号才能交替（Left +amp·sw / Right −amp·sw）；
+            · **对称动作**（蹲 / 跪 / 坐）必须同号。写异号会让一条腿往前、另一条
+              甩到身后：坐凳第一版右膝跑到身后 0.42m、右踝比髋还高 0.28m，
+              裙下露出一大块深色裤腿，读作"背后挂着一块黑布"（v-east 出图）。 */
+    const legSym = hopCrouch * 0.8 - KNEEL.thigh * k - SIT.thigh * st2;   // 两条腿共用的对称分量
+    set('LeftUpperLeg',  a.amp * sw * w + legSym, 0, 0);    // 步态异号（交替）
+    set('RightUpperLeg', -a.amp * sw * w + legSym, 0, 0);   // 对称分量同号（同向前屈）
+    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + SIT.knee * st2, 0, 0);
+    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + SIT.knee * st2, 0, 0);
+    set('LeftFoot',  -GAIT.foot * sw * w + KNEEL.foot * k + SIT.foot * st2, 0, 0);
+    set('RightFoot',  GAIT.foot * sw * w + KNEEL.foot * k + SIT.foot * st2, 0, 0);
     set('Hips',  0.010 * w,
         GAIT.hipYaw * sw * w,
         GAIT.hipRoll * Math.cos(p) * w);
@@ -545,10 +663,44 @@ function advance(dt){
         set(side + 'ThumbDistal', H.thumb * 0.6, 0, 0);
       }
     }
+    /* ── 对弈：一只手落到盘面、每 4.5~9s 落一次子 ─────────────────────────────
+       · 两只手的基准角在 GO_ARM 里**各自反解**（不镜像，理由同抚琴）；
+       · "落子"只动肘/腕/指的一点点（手走 ~5cm），头跟着点一下 ——
+         真人是手腕轻轻放下，不是整条手臂抬起来砸下去。 */
+    if (o.go && st2 > 0.2){
+      const A = GO_ARM[o.go] || GO_ARM.go1;
+      a.placeWait -= dt;
+      if (a.placeWait <= 0 && a.placeT <= 0){
+        a.placeT = 1e-4;
+        a.placeWait = o.placeEvery[0] + (o.placeEvery[1] - o.placeEvery[0]) * det(a.placeN++ + a.phase * 7.3);
+      }
+      let place = 0;
+      if (a.placeT > 0){
+        a.placeT += dt;
+        const u = Math.min(1, a.placeT / 1.4);
+        place = Math.sin(u * Math.PI);          // 0→1→0
+        if (u >= 1) a.placeT = 0;
+      }
+      for (const side of ['Left', 'Right']){
+        const P = A[side];
+        if (!P) continue;
+        const d = P.place ? place : 0;
+        set(side + 'UpperArm', P.sx - 0.05 * d, P.sy, P.sz);
+        set(side + 'LowerArm', P.ex + 0.10 * d, 0, 0);
+        set(side + 'Hand', P.hx - 0.20 * d, P.hy, P.hz);
+        set(side + 'IndexProximal', P.curl - 0.18 * d, 0, 0);
+        set(side + 'MiddleProximal', P.curl - 0.18 * d, 0, 0);
+        set(side + 'IndexIntermediate', P.mid, 0, 0);
+        set(side + 'MiddleIntermediate', P.mid, 0, 0);
+        set(side + 'ThumbProximal', P.thumb, 0, 0);
+        set(side + 'ThumbIntermediate', P.thumb * 0.9, 0, 0);
+        set(side + 'ThumbDistal', P.thumb * 0.6, 0, 0);
+      }
+    }
     /* lean / headDown：马夫"把草递到马嘴"那种前俯，只动躯干和头（手臂不动）。 */
     const lean = o.lean || 0;
     const hd = o.headDown || 0;
-    set('Chest', o.breath * b + 0.02 * w + lean, -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
+    set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2, -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
     set('Neck', 0.008 * Math.sin(_t * 0.5 + a.phase + 0.7) + hd * 0.45, 0.4 * o.head * h, 0);
@@ -560,7 +712,7 @@ function advance(dt){
        ⚠️ 缩放**每帧无条件写**（k=0 时写 1），否则切回站姿时腿还是缩着的。 */
     const hb = a.bones['Hips'];
     if (hb && a.hipsRest){
-      hb.position.copy(a.hipsRest).addScaledVector(a.hipsDown, KNEEL.drop * k);
+      hb.position.copy(a.hipsRest).addScaledVector(a.hipsDown, KNEEL.drop * k + SIT.drop * st2);
     }
     const legS = 1 - (1 - KNEEL.footScale) * k;
     for (const n of ['LeftLowerLeg', 'RightLowerLeg', 'LeftFoot', 'RightFoot', 'LeftToes', 'RightToes']){
@@ -569,25 +721,34 @@ function advance(dt){
     }
     if (a.skirt.length){
       const twoSeg = !!a.skirt[0].b;
-      const lenE = twoSeg ? Math.sqrt(KNEEL.skirtLen) : KNEEL.skirtLen;
+      /* 两种坐姿各自压缩裙长、径向撑开；互斥 ⇒ 两段的系数相乘就等于取其一。
+         跪坐髋到地 0.46（裙长要压到 0.55）、坐凳 0.54（压到 0.60）。 */
+      const sq = (v) => (twoSeg ? Math.sqrt(v) : v);
+      const lenE = (1 + (sq(KNEEL.skirtLen) - 1) * k) * (1 + (sq(SIT.skirtLen) - 1) * st2);
+      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (SIT.skirtRad - 1) * st2);
+      /* 下段的翻转方向：跪坐 0.96（几乎对折回去）、坐凳 1.00（回到竖直、垂在膝前） */
+      const swap = k + st2 > 1e-4 ? (k * KNEEL.kneeSwap + st2 * SIT.kneeSwap) / (k + st2) : 1;
       const sway = w * a.amp * 0.9 * sw;
       for (const sk of a.skirt){
         const front = Math.cos(sk.ang);                       // 0° = 正前 ⇒ 1
-        const th = sway - k * KNEEL.lift * (0.55 + 0.55 * front);
+        /* 跪坐：前襟整片前翻（0.55+0.55·front）。
+           坐凳：前襟要**压在平放的大腿上**（1.0·front），后片只轻带一点（0.18）——
+                 后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。 */
+        const th = sway
+          - k * KNEEL.lift * (0.55 + 0.55 * front)
+          - st2 * SIT.lift * (0.18 + 1.00 * Math.max(0, front));
         const ba = a.bones[sk.a], ra = a.base[sk.a];
         if (ba && ra){
           q.setFromAxisAngle(sk.axis, th);
           ba.quaternion.copy(ra).multiply(q);
-          const L = 1 + (lenE - 1) * k, R = 1 + (KNEEL.skirtRad - 1) * k;
-          ba.scale.set(R, L, R);
+          ba.scale.set(radE, lenE, radE);
         }
         if (sk.b){
           const bb2 = a.bones[sk.b], rb = a.base[sk.b];
           if (bb2 && rb){
-            q.setFromAxisAngle(sk.axis, -th * KNEEL.kneeSwap);
+            q.setFromAxisAngle(sk.axis, -th * swap);
             bb2.quaternion.copy(rb).multiply(q);
-            const L = 1 + (lenE - 1) * k, R = 1 + (KNEEL.skirtRad - 1) * k;
-            bb2.scale.set(R, L, R);
+            bb2.scale.set(radE, lenE, radE);
           }
         }
       }
@@ -612,10 +773,18 @@ export function actorStep(seconds, quantum){
 }
 
 /* 调试/探针用：a=on 走自家 route；b=指定 id 时只让那一个走 */
-/* 探针用：切站/跪坐（kneel 的权重会平滑过渡，不会瞬移） */
+/* 探针用：切站 / 跪坐 / 坐凳（权重会平滑过渡，不会瞬移）。
+   'sit' 与 'kneel' 互斥：切到其中一个就把另一个归零，否则两套腿角会叠加成怪姿势。 */
 export function actorPose(id, pose){
-  for (const a of ACTORS) if (!id || a.def.id === id) a.kneelTarget = pose === 'kneel' ? 1 : 0;
+  for (const a of ACTORS){
+    if (id && a.def.id !== id) continue;
+    a.kneelTarget = pose === 'kneel' ? 1 : 0;
+    a.sitTarget   = pose === 'sit'   ? 1 : 0;
+  }
 }
+
+/* 探针用：坐姿/对弈的参数对象（反解它们时要能改一改再看几何，不用改文件重跑） */
+export function actorTune(){ return { SIT, GO_ARM }; }
 
 /* 探针用：某个人物的骨骼表与**绑定姿态**（只在页内用 —— 返回的是 THREE 对象，
    跨 evaluate 序列化不了）。抚琴的肩/肘角度是"手落到弦上"反解出来的，
@@ -639,6 +808,10 @@ export function actorState(){
       bones: Object.keys(a.bones).length,
       mode: !a.def.route || a.walkOff ? 'stand' : (a.waitT > 0 ? 'wait' : 'walk'),
       kneelW: +a.kneelW.toFixed(3),
+      sitW: +a.sitW.toFixed(3),
+      /* 探针用：对弈块到底跑没跑 —— goId 从 idle 取，placeT 只有进了那块才会动 */
+      goId: (a.def.idle && a.def.idle.go) || null,
+      placeT: +a.placeT.toFixed(2),
       moveW: +a.moveW.toFixed(3),
       floorY: a.floorY === null ? null : +a.floorY.toFixed(3),
       floorTries: a.floorTries,
