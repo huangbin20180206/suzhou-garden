@@ -43,6 +43,16 @@ const GAIT = {
 };
 const TURN_GATE = 0.55;   // 朝向偏差超过这个就"站住转身"，不再平移
 
+/* ── 跪坐（P2 坐姿）参数：与 research/characters/README.md §12.2 的出图一致 ─────────
+   drop  = 髋部骨骼下沉量（**不动 holder**，动 Hips 骨：holder 原点在地面，移它整只人下沉）；
+   knee  = 小腿屈曲（这套架子**正号才是往后折**，负号会往前折成"脚朝天"）；
+   lift  = 前襟绕世界横轴抬起（负号 = 往前翻；实测 Skirt0a 局部 X 负 = 前翻）；
+   skirtLen/Rad = 裙骨沿骨长压缩、径向撑开（下摆铺地）。 */
+const KNEEL = {
+  drop: 0.46, thigh: 0.06, knee: 1.62, foot: -1.30, footScale: 0.04,
+  spine: 0.03, skirtLen: 0.55, skirtRad: 1.45, lift: 1.15, kneeSwap: 0.96,
+};
+
 const LADY_SPOT = PROP_SPOTS.ladyWell;
 const LADY_YAW = Math.atan2(PROP_SPOTS.well.x - LADY_SPOT.x, PROP_SPOTS.well.z - LADY_SPOT.z);
 
@@ -223,7 +233,10 @@ function loadActor(def){
       for (const n of ['Hips', 'Spine', 'Chest', 'UpperChest', 'Neck', 'Head',
                        'LeftUpperArm', 'RightUpperArm', 'LeftLowerArm', 'RightLowerArm',
                        'LeftUpperLeg', 'RightUpperLeg', 'LeftLowerLeg', 'RightLowerLeg',
-                       'LeftFoot', 'RightFoot']){
+                       'LeftFoot', 'RightFoot',
+                       'Skirt0', 'Skirt1', 'Skirt2', 'Skirt3', 'Skirt4', 'Skirt5',
+                       'Skirt0a', 'Skirt1a', 'Skirt2a', 'Skirt3a', 'Skirt4a', 'Skirt5a',
+                       'Skirt0b', 'Skirt1b', 'Skirt2b', 'Skirt3b', 'Skirt4b', 'Skirt5b']){
         if (bones[n]) base[n] = bones[n].quaternion.clone();
       }
 
@@ -234,6 +247,30 @@ function loadActor(def){
          半径取 Hips 到地面的高度（≈ 髋到踝 + 鞋底），由实测骨骼位置算，
          不写死 —— 文士 1.72 与仕女 1.63 的髋高差 6cm，共用一套振幅就会一个滑一个蹭。 */
       holder.updateMatrixWorld(true);
+      /* 裙骨（有空才收集）：把"世界横向轴"换算到每根骨的局部系一次存好。
+         6 根裙骨是绕身体一圈的，直接用局部 X 转会让每片往各自的方向翻；
+         用同一根世界横向轴（人物正面 +Z ⇒ 横向 = X）才是"裙摆随走动前后摆"。 */
+      const skirt = [];
+      for (let i = 0; i < 6; i++){
+        const namA = bones['Skirt' + i + 'a'] ? 'Skirt' + i + 'a' : 'Skirt' + i;
+        const namB = bones['Skirt' + i + 'b'] ? 'Skirt' + i + 'b' : null;
+        const bA = bones[namA];
+        if (!bA) continue;
+        const qw = new THREE.Quaternion();
+        bA.getWorldQuaternion(qw);
+        const axis = new THREE.Vector3(1, 0, 0).applyQuaternion(qw.invert()).normalize();
+        skirt.push({ a: namA, b: namB, axis, ang: (i * Math.PI) / 3 });
+      }
+      if (skirt.length) console.log('[actor] ' + def.id + ' 裙骨 x' + skirt.length);
+      /* 坐姿要把**髋骨**往下移（不是 holder：holder 原点在地面），所以先记下骨局部系的'下' */
+      const hipsBone2 = bones['Hips'];
+      const hipsDown = new THREE.Vector3(0, -1, 0);
+      if (hipsBone2){
+        const qh = new THREE.Quaternion();
+        hipsBone2.getWorldQuaternion(qh);
+        hipsDown.applyQuaternion(qh.invert()).normalize();
+      }
+      const hipsRest = hipsBone2 ? hipsBone2.position.clone() : null;
       const gy0 = groundHeight(def.spot.x, def.spot.z);
       let hipH = def.height * 0.52;
       const hipsBone = bones['Hips'];
@@ -244,7 +281,7 @@ function loadActor(def){
       }
       const amp = Math.min(0.34, Math.max(0.16, Math.asin(Math.min(0.6, STEP_LEN / (2 * hipH)))));
       ACTORS.push({
-        def, holder, bones, base, phase: def.idle.phase, amp,
+        def, holder, bones, base, phase: def.idle.phase, amp, skirt,
         pos: { x: def.spot.x, z: def.spot.z },
         y: gy0,
         yaw: def.spot.yaw,
@@ -252,6 +289,8 @@ function loadActor(def){
         step: 0, moveW: 0, moved: 0, stopN: 0,
         hopT: 0, hopDur: 0.62, hopN: 0, hopWait: def.idle.hopEvery ? 3 + det(def.idle.phase) * 6 : 0,
         floorY: null, floorTries: 0, sampleT: 0, floorDone: false,   // 只有 floorRay 的才会去点
+        kneelW: 0, kneelTarget: def.pose === 'kneel' ? 1 : 0,
+        hipsDown, hipsRest,
       });
       markCasterBoxDirty();
       renderer.shadowMap.needsUpdate = true;   // 静态阴影图补一次，人物有影子
@@ -384,6 +423,11 @@ function advance(dt){
     a.holder.position.set(a.pos.x, a.y + bob + hopY - hopCrouch * 0.16, a.pos.z);
     a.holder.rotation.y = a.yaw;
 
+    /* 跪坐权重 0→1 平滑过渡（换姿势不能"啪"一下跪下） */
+    if (a.kneelTarget > a.kneelW) a.kneelW = Math.min(a.kneelTarget, a.kneelW + dt * 2.2);
+    else if (a.kneelTarget < a.kneelW) a.kneelW = Math.max(a.kneelTarget, a.kneelW - dt * 2.2);
+    const k = a.kneelW;
+
     const b = Math.sin(_t * 1.05 + a.phase);
     const h = Math.sin(_t * 0.31 + a.phase * 1.7);
     const set = (name, x, y, z) => {
@@ -397,12 +441,12 @@ function advance(dt){
     /* ── 步态（w→0 时全部回零，站姿与 P1 逐字一致）────────────────────────
        屈膝相位：腿往前送的半程（cos>0）才弯；支撑期直着撑住重量。
        踝：跟落抬趾、趾离压趾，用 ±GAIT.foot 的小幅反向补偿。 */
-    set('LeftUpperLeg',  a.amp * sw * w + hopCrouch * 0.8, 0, 0);   // 大腿的局部 X 左右镜像（同步态用反号）
-    set('RightUpperLeg', -a.amp * sw * w - hopCrouch * 0.8, 0, 0);  // 反号 ⇒ 两腿**同向**前屈（蹲）
-    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck, 0, 0);
-    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck, 0, 0);
-    set('LeftFoot',  -GAIT.foot * sw * w, 0, 0);
-    set('RightFoot',  GAIT.foot * sw * w, 0, 0);
+    set('LeftUpperLeg',  a.amp * sw * w + hopCrouch * 0.8 - KNEEL.thigh * k, 0, 0);   // 大腿的局部 X 左右镜像（同步态用反号）
+    set('RightUpperLeg', -a.amp * sw * w - hopCrouch * 0.8 + KNEEL.thigh * k, 0, 0);  // 反号 ⇒ 两腿**同向**前屈（蹲/跪）
+    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k, 0, 0);
+    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k, 0, 0);
+    set('LeftFoot',  -GAIT.foot * sw * w + KNEEL.foot * k, 0, 0);
+    set('RightFoot',  GAIT.foot * sw * w + KNEEL.foot * k, 0, 0);
     set('Hips',  0.010 * w,
         GAIT.hipYaw * sw * w,
         GAIT.hipRoll * Math.cos(p) * w);
@@ -420,6 +464,46 @@ function advance(dt){
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
     set('Neck', 0.008 * Math.sin(_t * 0.5 + a.phase + 0.7) + hd * 0.45, 0.4 * o.head * h, 0);
+
+    /* ── 坐姿/裙骨（k=跪坐权重）────────────────────────────────────────────
+       ① 髋骨沿自身"下"轴下沉（不动 holder —— 它原点在地面）；
+       ② 小腿/脚/脚趾骨缩到 0.10：跪坐时鞋与裤脚会从袍摆下伸出来，收进袍里；
+       ③ 裙摆：走路的摆动（世界横向轴）+ 跪坐时前襟前翻，长度压缩、径向撑开。
+       ⚠️ 缩放**每帧无条件写**（k=0 时写 1），否则切回站姿时腿还是缩着的。 */
+    const hb = a.bones['Hips'];
+    if (hb && a.hipsRest){
+      hb.position.copy(a.hipsRest).addScaledVector(a.hipsDown, KNEEL.drop * k);
+    }
+    const legS = 1 - (1 - KNEEL.footScale) * k;
+    for (const n of ['LeftLowerLeg', 'RightLowerLeg', 'LeftFoot', 'RightFoot', 'LeftToes', 'RightToes']){
+      const bb = a.bones[n];
+      if (bb) bb.scale.setScalar(legS);
+    }
+    if (a.skirt.length){
+      const twoSeg = !!a.skirt[0].b;
+      const lenE = twoSeg ? Math.sqrt(KNEEL.skirtLen) : KNEEL.skirtLen;
+      const sway = w * a.amp * 0.9 * sw;
+      for (const sk of a.skirt){
+        const front = Math.cos(sk.ang);                       // 0° = 正前 ⇒ 1
+        const th = sway - k * KNEEL.lift * (0.55 + 0.55 * front);
+        const ba = a.bones[sk.a], ra = a.base[sk.a];
+        if (ba && ra){
+          q.setFromAxisAngle(sk.axis, th);
+          ba.quaternion.copy(ra).multiply(q);
+          const L = 1 + (lenE - 1) * k, R = 1 + (KNEEL.skirtRad - 1) * k;
+          ba.scale.set(R, L, R);
+        }
+        if (sk.b){
+          const bb2 = a.bones[sk.b], rb = a.base[sk.b];
+          if (bb2 && rb){
+            q.setFromAxisAngle(sk.axis, -th * KNEEL.kneeSwap);
+            bb2.quaternion.copy(rb).multiply(q);
+            const L = 1 + (lenE - 1) * k, R = 1 + (KNEEL.skirtRad - 1) * k;
+            bb2.scale.set(R, L, R);
+          }
+        }
+      }
+    }
   }
 }
 
@@ -440,6 +524,11 @@ export function actorStep(seconds, quantum){
 }
 
 /* 调试/探针用：a=on 走自家 route；b=指定 id 时只让那一个走 */
+/* 探针用：切站/跪坐（kneel 的权重会平滑过渡，不会瞬移） */
+export function actorPose(id, pose){
+  for (const a of ACTORS) if (!id || a.def.id === id) a.kneelTarget = pose === 'kneel' ? 1 : 0;
+}
+
 export function actorWalk(id, on){
   for (const a of ACTORS) if (!id || a.def.id === id) a.walkOff = !on;
 }
@@ -453,6 +542,7 @@ export function actorState(){
       yaw: +a.holder.rotation.y.toFixed(3),
       bones: Object.keys(a.bones).length,
       mode: !a.def.route || a.walkOff ? 'stand' : (a.waitT > 0 ? 'wait' : 'walk'),
+      kneelW: +a.kneelW.toFixed(3),
       moveW: +a.moveW.toFixed(3),
       floorY: a.floorY === null ? null : +a.floorY.toFixed(3),
       floorTries: a.floorTries,

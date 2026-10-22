@@ -71,17 +71,18 @@ elif mode == 'kneel':
         pb(s + 'UpperLeg', -0.06, 0, 0.10 if s == 'Left' else -0.10)
         pb(s + 'LowerLeg', 1.62)   # 正号 = 小腿往后折（实测：+1.57 时踝在 y=+0.43 = 身后）
         pb(s + 'Foot', -1.30)      # 脚背贴地、脚尖朝后
-        for fb in (s + 'Foot', s + 'Toes'):
+        for fb in (s + 'LowerLeg', s + 'Foot', s + 'Toes'):
             bb = arm.pose.bones.get(fb)
-            if bb: bb.scale = (0.04, 0.04, 0.04)   # 收进袍内（长袍跪坐时脚本来就被下摆盖住）
+            if bb: bb.scale = (0.10, 0.10, 0.10)   # 收进袍内：小腿以下整段缩掉（长袍跪坐时本来就看不见）
     pb('Spine', 0.03)
     for i in range(6):
-        b = arm.pose.bones.get('Skirt%d' % i)
-        if not b:
-            continue
-        b.rotation_mode = 'XYZ'
-        b.rotation_euler = Euler((spread * (1.0 if i in (0, 1, 5) else 0.55), 0, 0), 'XYZ')
-        b.scale = (RAD, sq, RAD)                 # 径向撑开 = 下摆铺地
+        same = arm.pose.bones.get('Skirt%d' % i)
+        two = [arm.pose.bones.get('Skirt%da' % i), arm.pose.bones.get('Skirt%db' % i)]
+        targets = [same] if same else [b for b in two if b]
+        for b in targets:
+            b.rotation_mode = 'XYZ'
+            b.rotation_euler = Euler((spread * (1.0 if i in (0, 1, 5) else 0.55), 0, 0), 'XYZ')
+            b.scale = (RAD, sq if same else math.sqrt(sq), RAD)   # 两段时每段取平方根（父子连乘）
 elif mode == 'arms':
     pb('LeftUpperArm', -1.15, 0.30, 0); pb('RightUpperArm', -1.15, -0.30, 0)
     pb('LeftLowerArm', -0.45, 0, 0); pb('RightLowerArm', -0.45, 0, 0)

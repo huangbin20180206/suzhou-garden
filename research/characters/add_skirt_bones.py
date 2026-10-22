@@ -96,6 +96,28 @@ def smoothstep(t):
     return t * t * (3 - 2 * t)
 
 panels = [(a_name, b_name, ang) for a_name, b_name, ang, _ in made]
+
+# 每个高度带上的"最大半径"：用来区分**外皮（袍）**与**内含的腿/裤**。
+# 固定 rmin 不通用（文士长袍外皮 0.16~0.25、仕女更细，0.15 会把仕女半条裙子判成"内"），
+# 改用相对判据：r < RF * bandMax ⇒ 内。实测文士 0.62 正好落在袍(≥0.16)与腿(≤0.14)之间。
+RF = float(args.get('rfrac', 0.62))
+BAND = 0.03
+_bands = {}
+for v in mesh.data.vertices:
+    w = M @ v.co
+    if not (HEM <= w.z <= HIP):
+        continue
+    armw = sum(g.weight for g in v.groups
+               if any(k in (gname.get(g.group) or '') for k in ARM_KEYS))
+    if armw > 0.20:
+        continue                       # 袖子/披帛不能参与"外皮半径"的统计
+    r = math.hypot(w.x, w.y)
+    if r > 0.45:
+        continue
+    _bands.setdefault(round(w.z / BAND), []).append(r)
+bandMax = {k: sorted(v)[int(len(v) * 0.90)] for k, v in _bands.items() if v}
+print('[skirt] bands=%d  rfrac=%.2f' % (len(bandMax), RF))
+
 moved = skipped_arm = skipped_far = skipped_inner = 0
 for v in mesh.data.vertices:
     w = M @ v.co
@@ -107,7 +129,7 @@ for v in mesh.data.vertices:
         skipped_arm += 1
         continue
     r = math.hypot(w.x, w.y)
-    if r < RMIN:
+    if r < max(RMIN, RF * bandMax.get(round(w.z / BAND), 0.0)):
         skipped_inner += 1
         continue
     if r > RMAX:

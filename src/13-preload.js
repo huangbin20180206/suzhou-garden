@@ -217,8 +217,8 @@ export const PRELOAD_MANIFEST = [
      settleAsset 回报；失败时程序化替身继续站）。
      2026-10-22：三件贴图全部重导成 JPEG q88（1K）—— PNG 版单件 1.76/2.56MB 越了 1.5MB 预算，
      JPEG 版 0.68/0.84MB，3m 机位看不出差别（render_views 对比图见 outputs/_diag/*-jpg）。 */
-  { url: 'assets/fig-scholar.glb', bytes: 678400,  stage: '取', label: '文士', required: false },
-  { url: 'assets/fig-lady.glb',    bytes: 840272,  stage: '取', label: '仕女', required: false },
+  { url: 'assets/fig-scholar.glb', bytes: 682100,  stage: '取', label: '文士', required: false },
+  { url: 'assets/fig-lady.glb',    bytes: 844192,  stage: '取', label: '仕女', required: false },
   /* 马夫（马厩喂马）。他的腰带带误权重 ⇒ 只做躯干前俯，不转肩（见 16-actors 的注释）。 */
   { url: 'assets/fig-laborer.glb', bytes: 737256,  stage: '取', label: '马夫', required: false },
   /* 书童（一位资产、两处实例：16-actors 的 child1/child2 各 parse 一份）。 */
