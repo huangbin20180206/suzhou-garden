@@ -94,11 +94,45 @@ const DEFS = [
        （见 research/characters/repair_hands.py 注释），转肩会把腰带拽成尖刺。 */
     idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.11, headDown: 0.26 },
   },
+  /* 两个书童（08b 的 'child' 一对，半围在先生两侧）。一件资产、两次 parse：
+     高度/色调/相位各差一点，避免看出是同一个人在照镜子。
+     朝向沿用 08b 原值（0.33×atan2(…)，即"斜着朝先生"而不是正对）。 */
+  {
+    id: 'child1',
+    url: 'assets/fig-child.glb',
+    height: 1.20,
+    hidePose: 'child',
+    tint: 0xEFE4DC,
+    spot: { x: 1.80, z: -5.25, yaw: -2.21 },   // 面向先生（1.2,−5.7）
+    route: null,
+    idle: { breath: 0.018, head: 0.055, sway: 0.009, phase: 0.9 },
+  },
+  {
+    id: 'child2',
+    url: 'assets/fig-child.glb',
+    height: 1.16,
+    hidePose: 'child',
+    tint: 0xDCE0E8,
+    spot: { x: 0.62, z: -5.10, yaw: 2.37 },    // 面向先生（1.2,−5.7）
+    route: null,
+    idle: { breath: 0.016, head: 0.05, sway: 0.008, phase: 4.2 },
+  },
 ];
 
-function hideProcedural(poseName){
-  const f = figures.find(x => x.userData && x.userData.poseName === poseName);
-  if (!f) return;
+/* 隐藏程序化替身。near 给了就按**最近的那个**挑：
+   poseName 不是唯一的（08b 里两个书童都叫 'child'、家里三个孩子都叫 'watchChild'），
+   只按 poseName 取第一个会让"两个书童换掉一个、另一个留着"这种半残状态悄悄发生。 */
+function hideProcedural(poseName, near){
+  const all = figures.filter(x => x.userData && x.userData.poseName === poseName);
+  if (!all.length) return;
+  let f = all[0];
+  if (near){
+    let best = Infinity;
+    for (const c of all){
+      const d = (c.position.x - near.x) ** 2 + (c.position.z - near.z) ** 2;
+      if (d < best){ best = d; f = c; }
+    }
+  }
   /* 11-loop 每帧按 slot 写 visible ⇒ 不能只写 visible=false。
      h0=99 让"时段门"永远不成立，替身就不会再被放出来。 */
   if (f.userData.slot) f.userData.slot.h0 = 99;
@@ -122,6 +156,7 @@ function settleActor(def, ok, err){
   if (def.id === 'scholar') HOOKS.settleAsset?.('assets/fig-scholar.glb', ok, err);
   else if (def.id === 'lady') HOOKS.settleAsset?.('assets/fig-lady.glb', ok, err);
   else if (def.id === 'laborer') HOOKS.settleAsset?.('assets/fig-laborer.glb', ok, err);
+  else if (def.id === 'child1' || def.id === 'child2') HOOKS.settleAsset?.('assets/fig-child.glb', ok, err);
 }
 
 /* 脚下那个面：马厩院子/台基不是地形（groundHeight 给 −0.05，院子面 0.10），
@@ -193,7 +228,7 @@ function loadActor(def){
       }
 
       scene.add(holder);
-      hideProcedural(def.hidePose);
+      hideProcedural(def.hidePose, def.spot);
       const r = def.route;
       /* 步幅 ↔ 步长对账：脚摆过的弧长必须等于推进的距离，否则就是"滑步"。
          半径取 Hips 到地面的高度（≈ 髋到踝 + 鞋底），由实测骨骼位置算，

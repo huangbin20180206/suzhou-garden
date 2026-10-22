@@ -221,6 +221,8 @@ export const PRELOAD_MANIFEST = [
   { url: 'assets/fig-lady.glb',    bytes: 840272,  stage: '取', label: '仕女', required: false },
   /* 马夫（马厩喂马）。他的腰带带误权重 ⇒ 只做躯干前俯，不转肩（见 16-actors 的注释）。 */
   { url: 'assets/fig-laborer.glb', bytes: 737256,  stage: '取', label: '马夫', required: false },
+  /* 书童（一位资产、两处实例：16-actors 的 child1/child2 各 parse 一份）。 */
+  { url: 'assets/fig-child.glb',   bytes: 648316,  stage: '取', label: '书童', required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */

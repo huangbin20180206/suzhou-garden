@@ -117,7 +117,7 @@ const CACHE = 'suzhou-garden-v42';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
-const ASSET_CACHE = 'suzhou-garden-assets-v14';  // 2026-10-22 三个人物 GLB 换 JPEG 贴图 + 新增 fig-laborer.glb（文件都比 sw 新 ⇒ 升桶）
+const ASSET_CACHE = 'suzhou-garden-assets-v15';  // 2026-10-22 三个人物 GLB 换 JPEG 贴图 + 新增 fig-laborer.glb（文件都比 sw 新 ⇒ 升桶）
 const SHELL = [
   './',
   './index.html',
@@ -149,6 +149,7 @@ const GLBS = [
   './assets/fig-scholar.glb',
   './assets/fig-lady.glb',
   './assets/fig-laborer.glb',
+  './assets/fig-child.glb',
 ];
 /* ⚠️ 2026-09-27 · 高精资产批次：上面这份 GLBS 与 src/13-preload.js 的
    PRELOAD_MANIFEST 是**同一批资产的两个投影**，加高精包时**两处都要改**。
