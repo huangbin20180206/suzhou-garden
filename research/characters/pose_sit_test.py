@@ -41,6 +41,25 @@ if mode == 'sit':
         pb('Skirt1', skirt * 0.72); pb('Skirt5', skirt * 0.72)
         pb('Skirt2', skirt * 0.20); pb('Skirt4', skirt * 0.20)
         pb('Skirt3', -skirt * 0.55)          # 背后那片往后垂
+elif mode == 'seatsit':
+    # 坐凳（凳面 0.452）：a 段前翻盖大腿、b 段反向垂回地面（两段裙骨才有 L 形）。
+    #   实测轴：Skirt0a 局部 X **负** = 前面那片往前上翻（X−0.8 ⇒ 末端 y=−0.649 = 身前）。
+    th = float(argv[3]) if len(argv) > 3 else 1.15
+    arm.pose.bones['Hips'].location = (0.0, -0.485, 0.0)
+    for s in ('Left', 'Right'):
+        pb(s + 'UpperLeg', 1.50, 0, 0.06 if s == 'Left' else -0.06)
+        pb(s + 'LowerLeg', -1.50)
+        pb(s + 'Foot', 0.30)
+    pb('Spine', 0.05); pb('Chest', 0.05)
+    prof = {0: 1.0, 1: 0.62, 5: 0.62, 2: 0.20, 4: 0.20, 3: 0.18}
+    for i, k in prof.items():
+        a = arm.pose.bones.get('Skirt%da' % i)
+        b = arm.pose.bones.get('Skirt%db' % i)
+        ang = -th * k if i != 3 else th * k
+        if a:
+            a.rotation_mode = 'XYZ'; a.rotation_euler = Euler((ang, 0, 0), 'XYZ')
+        if b:
+            b.rotation_mode = 'XYZ'; b.rotation_euler = Euler((-ang * 0.96, 0, 0), 'XYZ')
 elif mode == 'kneel':
     # 正坐/跪坐：大腿基本不动，小腿折回身下，髋下沉；长袍自然堆在地上。
     #   argv[3] = 裙骨"沿骨长压缩"的比例（1=不压），argv[4] = 向外撑开的角度
