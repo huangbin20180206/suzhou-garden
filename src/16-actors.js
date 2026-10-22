@@ -175,6 +175,61 @@ function makeTeaCup(holder){
   return g;
 }
 
+/* ── 刷马（P3）──────────────────────────────────────────────────────────────
+   马夫的第二件事：给身边那匹低头吃草的马刷颈肩。
+   ⚠️ **只动肘 + 腕，绝不转肩**：这条 rig 的腰带有一批顶点贴着前臂/拇指骨
+      （research/characters/repair_hands.py 修过一类，但腰带上仍有少数与骨骼几何上
+      分不开），转肩会把腰带拽成尖刺 —— 与"马夫/书童只做躯干动作"同一条约束。
+      肘与腕是否干净由 outputs/_diag/actor-brush-probe.mjs 的"顶点离骨轴距离"实测。
+   ⚠️ 刷子**不挂手骨**（同茶盏）：挂上去会被腕子拧歪。每帧按"腕 + 前臂方向"重摆，
+      朝向 = 前臂方向 ⇒ 刷面正好贴着马身。
+   ⚠️ 尺寸**按像素定**、不按实物：马厩机位在 15~25m 外，15cm 的刷子才读得出来
+      （草料捆那条：8cm 粗在 20m 外只有 1~2px）。
+   ⚠️ 举手高度由**骨架可达范围**定：肩不动时腕最高只到肘上方约 0.25m ⇒ 刷的是
+      马的颈肩（1.1~1.25m），不是背脊。 */
+const BRUSH = {
+  /* 举起角**实测**（actor-brush-probe.mjs 的只动肘扫描，腕心/指尖的世界坐标）：
+     ex −1.6 ⇒ 腕 (38.174,1.219,1.622)、指尖 (38.358,1.234,1.548)；
+     ex −1.2 ⇒ 腕 (38.170,1.132,1.632)、指尖 (38.348,1.071,1.567)。
+     ⇒ 负角是"前臂抬到前方"（正角把手往身后甩），−1.45 时腕在胸前约 0.2m、
+       指尖抬到 1.19m —— 正好是马的颈肩高度。 */
+  elbow: -1.45, wrist: 0.20,         // 举起时：前臂抬到略高于水平、腕稍回勾
+  amp: 0.20, wAmp: 0.16, hz: 0.45,   // 来回刷：肘 ±0.20rad、腕反相 ±0.16rad
+  fwd: 0.10,                         // 刷心在腕前 10cm（指外才看得见）
+  every: [7, 12],                    // 两次刷马之间隔多久（其间前俯看马吃草）
+  dur: 9.2,                          // 一整轮：抬 0.9 / 刷 7.4 / 收 0.9
+  headDown: 0.10,                    // 刷的时候低头看刷子（不是看马嘴）
+};
+const _brV = new THREE.Vector3(), _brE = new THREE.Vector3(), _brQ = new THREE.Quaternion();
+const _brQ2 = new THREE.Quaternion(), _brZ = new THREE.Vector3(0, 0, 1);
+
+/* 马刷：木背 + 鬃毛刷头 + 短柄。原点在**腕心**，局部 +Z = 前臂方向（朝马身）。 */
+function makeBrush(holder){
+  const g = new THREE.Group();
+  g.name = 'actorBrush';
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.10, 8), MAT.wood);
+  handle.rotation.x = Math.PI / 2;       // 圆柱默认沿 Y ⇒ 转成沿 Z
+  handle.position.set(0, 0, 0.012);
+  g.add(handle);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.075, 0.022), MAT.woodDark);
+  back.position.set(0, 0, 0.082);
+  g.add(back);
+  const bristleMat = new THREE.MeshStandardMaterial({ color: 0x8E7A50, roughness: 0.95, metalness: 0.0 });
+  const bristles = new THREE.Mesh(new THREE.BoxGeometry(0.080, 0.070, 0.032), bristleMat);
+  bristles.position.set(0, 0, 0.108);
+  g.add(bristles);
+  g.traverse(o => {
+    if (!o.isMesh) return;
+    o.castShadow = false;                // 15m 外的小件，投影贡献约 0、只会撑大阴影盒
+    o.receiveShadow = true;
+    o.userData.noMerge = true;
+  });
+  g.userData.noMerge = true;
+  g.visible = false;
+  holder.add(g);
+  return g;
+}
+
 /* route = 往复踱步线（端点交替）。y 一律现算 groundHeight，不给写死的高度：
    两位人物站的草坪是一片缓坡，写死等于在坡上悬空/陷地。 */
 const DEFS = [
@@ -212,18 +267,23 @@ const DEFS = [
     height: 1.70,
     hidePose: 'pointDown',   // 马厩那个"递草"替身（08b 的 pose:'pointDown'）
     tint: 0xDFE2D8,          // 冷一点的灰，和院子的黄沙地分开（暖米色会糊在沙里）
-    /* 落点：马厩院里那匹低头就食的枣马（马嘴世界 ≈ (38.5, 0.87, 1.81)）。
-       ⚠️ 第一版放在马嘴正前方 (38.15, 2.05) 面朝马 —— 出图是"人挡在马脸前、背对镜头"，
-          而且 z>2.0 已经出了 yardWear 院子面（落回地形，矮 6cm）。
-       ⇒ 改站马头**西侧** (38.0, 1.40)，侧身朝东（yaw=π/2）：人→马嘴连线顺着画面横轴，
-          两个剪影不重叠，脚也落在院子面（实测 yardWear 0.100~0.103；x<37.8 West 边界外就掉回地形 0.045）。
-       ⚠️ z=2.3 那条线是 stableGateSill（门槛面 0.213），站进去会半埋。 */
-    spot: { x: 38.0, z: 1.40, yaw: Math.PI * 0.5 },
+    /* 落点：马厩院里那匹低头就食的枣马（马身世界 x∈[38.20,38.80]、z∈[−0.15,1.70]，
+       马头在 +z 那头、低头吃草时口鼻约 (38.5,0.87,1.81)）。
+       ⚠️ P3（刷马）实测姿势（outputs/_diag/actor-brush-solve.mjs，26 方向射线取最近面）：
+          x=38.0 时肘 −1.5 ⇒ 刷尖 (38.399,1.208,1.599) 离马身 **7mm**；−1.4 是 11mm、
+          −1.6 是 24mm ⇒ 刷拭行程（肘 −1.25~−1.65）全程贴在马身上。
+          **x 因此不再动**（往 +x 挪会让刷子插进马身），只在 z 上从"马嘴正前方 1.40"
+          退到 **1.30**：手抬起来落在下颌/颈侧，而不是杵在口鼻上（出图判读"像在摸马嘴"）。
+       ⚠️ 站点必须落在院子面（yardWear）以内：x<37.8 或 z>2.0 就掉回地形（矮 6cm），
+          z=2.3 那条线是 stableGateSill（门槛面 0.213），站进去会半埋。 */
+    spot: { x: 38.0, z: 1.30, yaw: Math.PI * 0.5 },
     floorRay: true,          // 台基/院子面不是地形：groundHeight 会让他陷 6cm
     route: null,
-    /* 前俯 + 低头 = "把草料递到马嘴前"。手臂**不动**：这只 rig 的腰带带误权重
-       （见 research/characters/repair_hands.py 注释），转肩会把腰带拽成尖刺。 */
-    idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.11, headDown: 0.26 },
+    /* 前俯 + 低头 = "看着马把草吃完"。手臂**不动**：这只 rig 的腰带带误权重
+       （见 research/characters/repair_hands.py 注释），转肩会把腰带拽成尖刺。
+       brush：每 7~12s 站起来刷一轮马（只动肘/腕，见 BRUSH 的注释）。 */
+    idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.11, headDown: 0.26,
+            brush: true, brushEvery: BRUSH.every },
   },
   /* 两个书童（08b 的 'child' 一对，半围在先生两侧）。一件资产、两次 parse：
      高度/色调/相位各差一点，避免看出是同一个人在照镜子。
@@ -451,11 +511,13 @@ function loadActor(def){
         sitW: 0, sitTarget: def.pose === 'sit' ? 1 : 0,
         placeT: 0, placeN: 0, placeWait: 1.5 + det(def.idle.phase) * 4,
         teaT: 0, teaN: 0, teaWait: 1.5 + det(def.idle.phase) * 6, sipW: 0, cup: null,
+        brushT: 0, brushN: 0, brushWait: 2.5 + det(def.idle.phase + 2.3) * 5, brushW: 0, brush: null,
         hipsDown, hipsRest,
       });
       /* 品茶：盏挂在 holder 上（不挂手骨，理由见 TEA_ARM 注释） */
       const aNew = ACTORS[ACTORS.length - 1];
       if (def.idle.tea) aNew.cup = makeTeaCup(holder);
+      if (def.idle.brush) aNew.brush = makeBrush(holder);
       markCasterBoxDirty();
       renderer.shadowMap.needsUpdate = true;   // 静态阴影图补一次，人物有影子
       settleActor(def, true);
@@ -716,6 +778,41 @@ function advance(dt){
       set('RightThumbIntermediate', -0.50, 0, 0);
       set('RightThumbDistal', -0.33, 0, 0);
     }
+    /* ── 刷马（P3）：站起来、抬前臂、来回刷 —— **只动肘/腕** ──────────────────
+       · 只在站着（w<0.3）时开始，走路自然打断；
+       · 一轮 9.2s：0.9s 抬 / 7.4s 刷 / 0.9s 收，间歇 7~12s（其间继续前俯看马吃草）；
+       · 摆动**叠加在肘上**（腕反相做"手腕带一下"），上臂一动不动 ⇒ 腰带安全
+         （实测：右肘/右腕骨上挂的顶点离骨轴 ≤0.132m、无一个 >0.14m 的越界顶点）；
+       · 刷子每帧按"腕 + 前臂方向 10cm"重摆，朝向 = 前臂方向（刷面正对马身）。 */
+    if (o.brush){
+      const ev = o.brushEvery || BRUSH.every;
+      const nextWait = () => ev[0] + (ev[1] - ev[0]) * det(a.brushN++ + a.phase * 11.3);
+      if (a.brushT <= 0){
+        a.brushWait -= dt;
+        if (a.brushWait <= 0 && w < 0.3) a.brushT = 1e-4;
+      }
+      let bw2 = 0;
+      if (a.brushT > 0){
+        a.brushT += dt;
+        const u = Math.min(1, a.brushT / BRUSH.dur);
+        bw2 = u < 0.10 ? ease01(u / 0.10) : (u < 0.90 ? 1 : 1 - ease01((u - 0.90) / 0.10));
+        if (u >= 1){ a.brushT = 0; a.brushWait = nextWait(); }   // ⚠️ 收完必须重排间歇，否则会一轮接一轮
+      }
+      a.brushW = bw2;
+      if (bw2 > 0.001){
+        const st3 = Math.sin(a.brushT * 6.2832 * BRUSH.hz);
+        set('RightLowerArm', BRUSH.elbow * bw2 - BRUSH.amp * st3 * bw2, 0, 0);
+        set('RightHand', BRUSH.wrist * bw2 + BRUSH.wAmp * st3 * bw2, 0, 0);
+        /* 握住刷柄：食指/中指弯、拇指内收（比端茶扣得更紧 —— 刷子要受力） */
+        set('RightIndexProximal', 0.95 * bw2, 0, 0);
+        set('RightMiddleProximal', 0.95 * bw2, 0, 0);
+        set('RightIndexIntermediate', 0.70 * bw2, 0, 0);
+        set('RightMiddleIntermediate', 0.70 * bw2, 0, 0);
+        set('RightThumbProximal', -0.62 * bw2, 0, 0);
+        set('RightThumbIntermediate', -0.55 * bw2, 0, 0);
+        set('RightThumbDistal', -0.36 * bw2, 0, 0);
+      }
+    }
     /* ── 抚琴：两臂前伸下探到弦上（参数 QIN_ARM + QIN_HAND，反解口径见文件头）──────
        · 只在跪坐权重上来之后才伸手（过渡帧里手不会先去按空气）；
        · **拨弦叠在指节上、不叠在肘上**：肘一动整条手臂跟着上下摆 1~2cm，而指尖只离弦
@@ -772,10 +869,11 @@ function advance(dt){
         set(side + 'ThumbDistal', P.thumb * 0.6, 0, 0);
       }
     }
-    /* lean / headDown：马夫"把草递到马嘴"那种前俯，只动躯干和头（手臂不动）。
-       品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。 */
-    const lean = o.lean || 0;
-    const hd = (o.headDown || 0) + (o.tea ? a.sipW * 0.12 : 0);
+    /* lean / headDown：马夫"看着马吃草"那种前俯，只动躯干和头（手臂不动）。
+       品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。
+       刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。 */
+    const lean = (o.lean || 0) * (1 - a.brushW);
+    const hd = (o.headDown || 0) * (1 - a.brushW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW;
     set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2, -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
@@ -846,6 +944,27 @@ function advance(dt){
         a.cup.position.copy(_cupV);
       }
     }
+    /* 刷子跟手：位置 = 腕 + 前臂方向 10cm；朝向 = 前臂方向（局部 +Z 指出去）
+       ⇒ 刷面正对马身、随肘/腕一起动。同一帧里刷完骨骼才摆，理由同茶盏。 */
+    if (a.brush){
+      const wr = a.bones.RightHand, el = a.bones.RightLowerArm;
+      const show = a.brushW > 0.04 && !!wr && !!el;
+      a.brush.visible = show;
+      if (show){
+        a.holder.updateMatrixWorld(true);
+        wr.getWorldPosition(_brV);
+        el.getWorldPosition(_brE);
+        _brV.sub(_brE);
+        if (_brV.lengthSq() < 1e-8) _brV.set(1, 0, 0);
+        _brV.normalize();                        // 前臂方向（世界）
+        wr.getWorldPosition(_brE).addScaledVector(_brV, BRUSH.fwd);
+        a.holder.worldToLocal(_brE);
+        a.brush.position.copy(_brE);
+        a.holder.getWorldQuaternion(_brQ2).invert();
+        _brQ.setFromUnitVectors(_brZ, _brV).premultiply(_brQ2);
+        a.brush.quaternion.copy(_brQ);
+      }
+    }
   }
 }
 
@@ -907,6 +1026,8 @@ export function actorState(){
       placeT: +a.placeT.toFixed(2),
       teaT: +a.teaT.toFixed(2),
       sipW: +a.sipW.toFixed(3),
+      brushT: +a.brushT.toFixed(2),
+      brushW: +a.brushW.toFixed(3),
       moveW: +a.moveW.toFixed(3),
       floorY: a.floorY === null ? null : +a.floorY.toFixed(3),
       floorTries: a.floorTries,
