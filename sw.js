@@ -112,7 +112,8 @@
 /* 2026-10-11 bump v40→v41：改了 SHELL 成员 index.html —— 触控档面板的间距/内边距
    （手机竖屏 390×844 上面板展开后底部要滚动 38px 才看得见最后一行，实测探针见
    outputs/_diag/panel-fit-scan.mjs；改后留 ~65px 余量）。 */
-const CACHE = 'suzhou-garden-v41';
+/* 2026-10-21 bump v41→v42：GLBS 预载清单加入 fig-scholar.glb / fig-lady.glb。 */
+const CACHE = 'suzhou-garden-v42';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
@@ -144,6 +145,9 @@ const GLBS = [
   /* 2026-10-18 石狮一对（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
   './assets/stone-lion-male.glb',
   './assets/stone-lion-female.glb',
+  /* 2026-10-21 P1：AI 半写实人物（文士/仕女），与 13-preload 的 PRELOAD_MANIFEST 同步。 */
+  './assets/fig-scholar.glb',
+  './assets/fig-lady.glb',
 ];
 /* ⚠️ 2026-09-27 · 高精资产批次：上面这份 GLBS 与 src/13-preload.js 的
    PRELOAD_MANIFEST 是**同一批资产的两个投影**，加高精包时**两处都要改**。

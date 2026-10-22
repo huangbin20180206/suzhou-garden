@@ -213,6 +213,10 @@ export const PRELOAD_MANIFEST = [
      否则预载段会等一个永远不来的 settled ⇒ 进度条卡死（实测 120s）。
      `preload-manifest-sync` 的 G6 守这条。 */
   { url: 'assets/HorseTinker.glb',  bytes: 1959088, stage: '取', label: '马',   required: false },
+  /* 2026-10-21 P1 半写实人物（AI 生成 + UniRig 绑骨；16-actors 在模块求值期发起下载，
+     settleAsset 回报；失败时程序化替身继续站）。 */
+  { url: 'assets/fig-scholar.glb', bytes: 1755696, stage: '取', label: '文士', required: false },
+  { url: 'assets/fig-lady.glb',    bytes: 2564892, stage: '取', label: '仕女', required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */

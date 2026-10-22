@@ -28,6 +28,8 @@ import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } f
    Tinker 走**真实骨骼**（454 根，见 15-stable 的 applyTinkerPose）；离线/失败时的
    程序化替身仍走着色器伪蒙皮，同一套状态机分支。白雾位置也在那边算（鼻骨世界坐标）。 */
 import { tickStableLife, horseLifeState } from './15-stable.js';
+/* P1 半写实人物（2026-10-21）：加载成功后每帧只写骨骼的呼吸/转头。 */
+import { tickActors, actorState } from './16-actors.js';
 /* 马夫"递草料"的摆臂（2026-10-11 · 老黄："人喂马"）：肩枢轴组住在 08-assemble（人物几何是
    那边建的），本模块每帧只推一个角度。 */
 import { tickGroomFeed } from './08-assemble.js';
@@ -993,6 +995,8 @@ function animate(){
      ⚠️ 它只写**自己的**材质 uniform（着色器伪蒙皮）与自己的白雾实例矩阵 —— 不碰 root 的
      visible/position/rotation，也不写任何全局灯光（与闪电/烟花/流星同一条纪律）。 */
   tickStableLife(dt);
+  /* P1 半写实人物：只写骨骼（以绑定姿态为基准），不碰 root / 灯光 / 材质。 */
+  tickActors(dt);
   /* 马夫递草料（2026-10-11）：只转他自己的肩枢轴组 —— 不碰 root、不写灯光。 */
   tickGroomFeed(dt);
   /* 看烟花的一家人（2026-10-05 · 老黄："大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃"）：
@@ -1837,7 +1841,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                     rough: +m.roughness.toFixed(4), dryRough: m.userData.dryRough,
                     metal: +m.metalness.toFixed(4), dryMetal: m.userData.dryMetal })),
                   wetNow: () => wetApplied,
-                  tourStart, tourStop, tourPlan, horseLifeState,
+                  tourStart, tourStop, tourPlan, horseLifeState, actorState,
                   tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
                   tourCaption: () => { const el = captionEl(); return el ? el.querySelector('b').textContent : ''; },
                   qosState: () => QOS.state(), setQos: (lv) => QOS.apply(lv),

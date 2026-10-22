@@ -262,6 +262,10 @@ import { jr, figures, makeSeatedScholar, buildFigures,
          FIG_HAIR, FIG_PALETTE, makeGroomArm, tickGroomFeed, groomFeedState } from './08b-figures.js';
 export { FIG_HAIR, FIG_PALETTE, figures, makeGroomArm, tickGroomFeed, groomFeedState };
 buildFigures();
+/* 2026-10-21 P1：AI 半写实人物（文士/仕女）。加载成功才隐藏程序化替身；
+   失败/离线时替身照常站着。人物是静态站点角色，动作只在骨骼上做呼吸/转头。 */
+import { buildActors } from './16-actors.js';
+buildActors();
 
 /* ── W3（2026-10-15）：睡莲→鸭（含芭蕉/石灯笼/泳龟/水禽/鹦鹉/大雁/小鸟/蜻蜓/荷花）已搬进 ./08c-aquatic.js ──
    buildAquatic() 必须在这个位置调用（W2 人物之后、柳树之前）：段内十余处全局随机流消耗
