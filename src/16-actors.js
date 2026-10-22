@@ -105,7 +105,7 @@ const DEFS = [
     tint: 0xEFE4DC,
     spot: { x: 1.80, z: -5.25, yaw: -2.21 },   // 面向先生（1.2,−5.7）
     route: null,
-    idle: { breath: 0.018, head: 0.055, sway: 0.009, phase: 0.9 },
+    idle: { breath: 0.018, head: 0.055, sway: 0.009, phase: 0.9, hopEvery: [9, 22], hopH: 0.20 },
   },
   {
     id: 'child2',
@@ -115,7 +115,7 @@ const DEFS = [
     tint: 0xDCE0E8,
     spot: { x: 0.62, z: -5.10, yaw: 2.37 },    // 面向先生（1.2,−5.7）
     route: null,
-    idle: { breath: 0.016, head: 0.05, sway: 0.008, phase: 4.2 },
+    idle: { breath: 0.016, head: 0.05, sway: 0.008, phase: 4.2, hopEvery: [14, 30], hopH: 0.16 },
   },
 ];
 
@@ -250,6 +250,7 @@ function loadActor(def){
         yaw: def.spot.yaw,
         target: r ? 1 : 0, waitT: r ? 2.0 : 0,        // 首帧先站 2s 再起步
         step: 0, moveW: 0, moved: 0, stopN: 0,
+        hopT: 0, hopDur: 0.62, hopN: 0, hopWait: def.idle.hopEvery ? 3 + det(def.idle.phase) * 6 : 0,
         floorY: null, floorTries: 0, sampleT: 0, floorDone: false,   // 只有 floorRay 的才会去点
       });
       markCasterBoxDirty();
@@ -349,7 +350,38 @@ function advance(dt){
     const w = a.moveW;
     const sw = Math.sin(p);
     const bob = -GAIT.bob * Math.cos(2 * p) * w;
-    a.holder.position.set(a.pos.x, a.y + bob, a.pos.z);
+
+    /* ── 孩子跳（可选）：站着的角色每隔 hopEvery 秒蹦一下 ───────────────────
+       只做 **腿部 + 整身抛物线**：肩部不动（腰/衣摆被手骨误权重，抬臂会撕）。
+       起跳相位用 hopT 归一化：0~0.32 下蹲蓄力、0.32~0.78 腾空、0.78~1 落地缓冲。 */
+    let hopY = 0, hopCrouch = 0, hopTuck = 0;
+    const he = o.hopEvery;
+    if (he && w < 0.2){
+      a.hopWait -= dt;
+      if (a.hopWait <= 0 && a.hopT <= 0){
+        a.hopT = 1e-4;
+        a.hopDur = he[2] || 0.62;
+        a.hopWait = he[0] + (he[1] - he[0]) * det(a.hopN++ + a.phase * 13.7);
+      }
+      if (a.hopT > 0){
+        a.hopT += dt;
+        const u = Math.min(1, a.hopT / a.hopDur);
+        if (u < 0.32){
+          const q1 = u / 0.32;
+          hopCrouch = 0.30 * Math.sin(q1 * Math.PI * 0.5);      // 下蹲
+        } else if (u < 0.78){
+          const q1 = (u - 0.32) / 0.46;
+          hopY = (o.hopH || 0.20) * Math.sin(q1 * Math.PI);      // 腾空抛物线
+          hopTuck = 0.55 * Math.sin(q1 * Math.PI);               // 收起小腿
+          hopCrouch = -0.10 * Math.sin(q1 * Math.PI);            // 起跳伸直
+        } else {
+          const q1 = (u - 0.78) / 0.22;
+          hopCrouch = 0.22 * Math.sin(q1 * Math.PI);             // 落地缓冲
+        }
+        if (u >= 1) a.hopT = 0;
+      }
+    }
+    a.holder.position.set(a.pos.x, a.y + bob + hopY - hopCrouch * 0.16, a.pos.z);
     a.holder.rotation.y = a.yaw;
 
     const b = Math.sin(_t * 1.05 + a.phase);
@@ -365,10 +397,10 @@ function advance(dt){
     /* ── 步态（w→0 时全部回零，站姿与 P1 逐字一致）────────────────────────
        屈膝相位：腿往前送的半程（cos>0）才弯；支撑期直着撑住重量。
        踝：跟落抬趾、趾离压趾，用 ±GAIT.foot 的小幅反向补偿。 */
-    set('LeftUpperLeg',  a.amp * sw * w, 0, 0);
-    set('RightUpperLeg', -a.amp * sw * w, 0, 0);
-    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w, 0, 0);
-    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w, 0, 0);
+    set('LeftUpperLeg',  a.amp * sw * w + hopCrouch * 0.8, 0, 0);   // 大腿的局部 X 左右镜像（同步态用反号）
+    set('RightUpperLeg', -a.amp * sw * w - hopCrouch * 0.8, 0, 0);  // 反号 ⇒ 两腿**同向**前屈（蹲）
+    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck, 0, 0);
+    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck, 0, 0);
     set('LeftFoot',  -GAIT.foot * sw * w, 0, 0);
     set('RightFoot',  GAIT.foot * sw * w, 0, 0);
     set('Hips',  0.010 * w,
