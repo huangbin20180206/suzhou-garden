@@ -501,6 +501,31 @@ const PAIR = {
   pts: [...HOST_GREET_PTS].reverse(),
 };
 
+/* ── 入座（S4 · 2026-10-23）──────────────────────────────────────────────────
+   两把太师椅实测（outputs/_diag/hall-seat-layers.mjs，按 04-buildings 的
+   makeChair(±1.35, zBack+2.9) + hall.position.z = −12.8 算，再用射线复核座面 1.75）：
+     · 椅心 (±1.35, −13.6)、座面顶 1.75（地面 1.24 + 座厚 0.09/2 + 座高 0.47）；
+     · 椅子朝 +z（面向堂门）⇒ "落座"是人朝 +z、椅子在**身后**，退半步坐下去。
+   堂前 → 椅子的台阶（同一份日志）：
+     草地 −0.2 → 踏跺一级 0.31（z −6.0~−6.4）→ 二级 0.62（z −6.8~−7.2）→
+     月台/堂内地面 1.24（其上还有一层 1.30 的铺地砖）。
+   ⚠️ 最后一级 0.62 超过默认"一步"窗口 0.42 ⇒ 这一段把 stepUp 临时放到 0.70，
+      站到地上立刻收回 0.42（否则椅面 1.75 会被当成台阶、"坐"变成"站到椅子上"）。
+   ⚠️ 月台踏跺只有 4.6m 宽（x ±2.3）、堂门只开中间一开间 ⇒ 进门时收到 x ±0.45
+      再往两边分椅；直接按 ±1.35 走会擦到门框。 */
+const SEAT = {
+  yaw: 0,                       // 椅子朝 +z（面向堂门），坐的人也是 +z
+  host: [-1.35, -13.6],
+  guest: [1.35, -13.6],
+  frontZ: -12.55,               // 站定（还没转身）的位置
+};
+const ENTER_PTS = {
+  host: [[1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -6.95], [-0.45, -7.6],
+         [-0.45, -8.9], [-0.9, -10.3], [-1.35, -11.7], [-1.35, -12.55]],
+  guest: [[1.26, -6.15], [0.45, -6.4], [0.45, -6.95], [0.45, -7.6],
+          [0.45, -8.9], [0.9, -10.3], [1.35, -11.7], [1.35, -12.55]],
+};
+
 const DEFS = [
   {
     id: 'scholar',
@@ -526,6 +551,9 @@ const DEFS = [
        两者是**互斥手位**，由 a.scrollPhase 交接：捧读 → 放下 → 喝茶 → 再捧起来。 */
     idle: { breath: 0.016, head: 0.055, sway: 0.007, phase: 0.0, armDown: 0.80,
             scroll: true, tea: true, teaEvery: [8, 14] },
+    /* 落座（S4）：太师椅是"正式厅堂的坐"，SIT.lean 0.52 是给石桌对弈
+       （手要搭到盘面上）解的 —— 原样搬过来会读成"弓着背"。按 0.40 收成端坐。 */
+    sitLeanK: 0.40,
   },
   {
     id: 'lady',
@@ -630,6 +658,7 @@ const DEFS = [
       mode: 'once',                              // 走一趟就停（不来回踱步）
     },
     idle: { breath: 0.014, head: 0.05, sway: 0.008, phase: 5.4, armDown: 0.80 },
+    sitLeanK: 0.40,          // 同文士：坐太师椅不弓背
   },
 ];
 
@@ -714,11 +743,11 @@ function sampleFloor(x, z){
       "最近"永远选草 ⇒ 整段从廊道底下、桥底下穿过去（实测 floorY 读到 −0.99 = 桥下地面）。
    窗口 [当前−0.60, 当前+0.42]：42cm 是普通台阶上限、60cm 是下台阶上限。
    ⚠️ 别把上界放大到 +0.8：廊下檐口、桥栏杆都在 1.5~1.8m，开大了人会"踩上屋顶"。 */
-function sampleFloorNear(x, z, nearY){
+function sampleFloorNear(x, z, nearY, stepUp){
   _rc.set(_hitP.set(x, 3.6, z), _down);
   _rc.far = 7.0;
   let hi = null, near = null, nd = Infinity;
-  const upLim = nearY + 0.42, loLim = nearY - 0.60;
+  const upLim = nearY + (stepUp || 0.42), loLim = nearY - 0.60;
   for (const h of _rc.intersectObject(scene, true)){
     if (!h.object.isMesh) continue;
     /* 排除人物 GLB（actor_*）、程序化替身（userData.poseName）、真马（horseXxx） */
@@ -1180,7 +1209,60 @@ function tickVisit(dt){
     }
     return;
   }
-  /* hall：到堂前站定，S4（入座奉茶）从这里接。保持末段朝向（都朝着堂），不再互指。 */
+  /* hall：到堂前站定，站一口气再进门（S4）。保持末段朝向（都朝着堂），不再互指。 */
+  if (v.phase === 'hall'){
+    v.t += dt;
+    if (v.t < 2.0) return;
+    v.phase = 'enter'; v.t = 0;
+    /* 上台阶：把"一步"的窗口临时放到 0.70（最后一级 0.62）；floorMax 抬到 2.0
+       （堂内地坪/铺地 1.24~1.30，1.20 的旧上限会把月台当屋顶拒掉）。 */
+    host.def.stepUp = guest.def.stepUp = 0.70;
+    giveRoute(host, ENTER_PTS.host, 0.52, 0.3, 2.0);
+    giveRoute(guest, ENTER_PTS.guest, 0.52, 0.45, 2.0);
+    return;
+  }
+  if (v.phase === 'enter'){
+    if (host.arrived && guest.arrived){ v.phase = 'seat'; v.t = 0; }
+    return;
+  }
+  if (v.phase === 'seat'){
+    let done = 0;
+    for (const [a, sxy] of [[host, SEAT.host], [guest, SEAT.guest]]){
+      /* ① 先转成"背对椅子"（椅子朝 +z ⇒ 人朝 +z、椅子在身后 / −z） */
+      const e = angDiff(SEAT.yaw, a.yaw);
+      if (Math.abs(e) > 0.10){
+        const d = GAIT.turn * dt;
+        a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
+        a.moved = 0;
+        a.step += dt * 0.17;
+        a.moveW = approach(a.moveW, 0.28, dt / 0.3);
+        continue;
+      }
+      const dx = sxy[0] - a.pos.x, dz = sxy[1] - a.pos.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist > 0.02){
+        const k = Math.min(1, (0.55 * dt) / dist);
+        a.pos.x += dx * k; a.pos.z += dz * k;      // 退半步：不迈步，只往后退
+        a.moved = 0;
+        a.moveW = approach(a.moveW, 0, dt / 0.3);
+      }
+      /* ② 离座面 0.22m 以内才开始落座（sitW 自己 2.2/s 缓动 ≈0.45s） */
+      if (Math.hypot(dx, dz) < 0.22) a.sitTarget = 1;
+      if (a.sitW >= 0.98 && Math.hypot(dx, dz) < 0.06) done++;
+    }
+    if (done === 2){ v.phase = 'tea'; v.t = 0; }
+    return;
+  }
+  if (v.phase === 'tea'){
+    /* 主人举盏到胸前（TEA_ARM 的 lift 那一档，见 §3 第 7 条：这套骨架到不了嘴边），
+       客人端坐。举 1.2s 到位、停 4.5s 再放下。 */
+    v.t += dt;
+    const w = v.t < 1.2 ? ease01(v.t / 1.2) : (v.t < 5.7 ? 1 : Math.max(0, 1 - (v.t - 5.7) / 1.0));
+    host.offerW = 0.88 * w;
+    if (v.t > 6.7){ host.offerW = 0; v.phase = 'sit'; v.t = 0; }
+    return;
+  }
+  /* sit：两人端坐（S5 之后从这里接：送客 / 游园 / 马车回马厩）。 */
 }
 
 /* 一次完整更新（时钟由调用方推进）—— tickActors 与探针的 actorStep 共用同一份，
@@ -1203,7 +1285,7 @@ function advance(dt){
       if (a.sampleT <= 0){
         a.sampleT = a.def.followFloor ? 0.10 : 0.25;
         const fy = a.def.followFloor
-          ? sampleFloorNear(a.pos.x, a.pos.z, a.y)
+          ? sampleFloorNear(a.pos.x, a.pos.z, a.y, a.def.stepUp)
           : sampleFloor(a.pos.x, a.pos.z);
         const fyMax = a.def.floorMax !== undefined ? a.def.floorMax : 0.8;
         /* ⚠️ 下限不能再写死 −0.4（2026-10-23 踩到）：园子南门外那一段地面低到 −0.8，
@@ -1228,11 +1310,12 @@ function advance(dt){
        跟随型（走长路的人）收敛快一点，起伏路面上不至于"慢半拍"地悬空。
        ⚠️ 18/s 在**台阶**上留了 8.6cm 的瞬时悬空（S3 实测：拱桥/廊道那段每级 0.2m 的
           台阶，走上去的那 0.2s 里脚底一直比踏面低）⇒ 跟随型改 34/s（时间常数 29ms）。
-       ⚠️ 但**超过 22cm 的高差要直接落上去**：门内那道门槛比园内草地低 0.42m，
-          用平滑跟就会看到人"从地里升上来"（实测瞬时差 0.088 且要 0.1s 才收完）。
-          台阶本来就是"一步踩上去"，不是斜坡。普通角色仍 8/s。 */
+       ⚠️ 但**超过 15cm 的高差要直接落上去**：门内那道门槛比园内草地低 0.42m、
+          门口的 24cm 下槛又比堂内地坪高 0.18m，用平滑跟就会看到人"从地里升上来"
+          （实测瞬时差 0.088 / 0.078 且要 0.1s 才收完）。15cm 以下的起伏仍走平滑
+          （缓坡、砖缝这类小起伏不该一格格跳）。普通角色仍 8/s。 */
     const gapY = gy - a.y;
-    if (a.def.followFloor && Math.abs(gapY) > 0.22) a.y = gy;
+    if (a.def.followFloor && Math.abs(gapY) > 0.15) a.y = gy;
     else a.y += gapY * Math.min(1, dt * (a.def.followFloor ? 34 : 8));
     const o = a.def.idle;
     const p = a.step / STEP_LEN * Math.PI;      // 步态相位（按走过的距离推进）
@@ -1386,13 +1469,20 @@ function advance(dt){
        只在**喝茶那只手**上写（右手），左臂继续走 armDown —— 两只手都端起来就成了"捧"。
        ⚠️ 与"捧卷轴"互斥：文士双手都占着卷轴时不能端盏 ⇒ 只在卷轴放下的那一相
           （a.scrollPhase === 2）才跑这段；其余时候把 sip 归零（否则低头角会冻住）。 */
-    if (o.tea && !visiting && (!o.scroll || a.scrollPhase === 2)){
+    if (o.tea && (!visiting || (a.offerW || 0) > 0.001)){
+      let sip = 0;
+      if (visiting){
+        /* 迎客到访（S4）：举盏的权重由导演层给（1.2s 举到位、停 4.5s、1s 放下），
+           不走"自己口渴喝一口"那套循环 —— 客人还坐着，主人不该自己灌茶。 */
+        sip = a.offerW || 0;
+        a.sipW = sip;
+        a.teaT = 0;
+      } else {
       a.teaWait -= dt;
       if (a.teaWait <= 0 && a.teaT <= 0){
         a.teaT = 1e-4;
         a.teaWait = o.teaEvery[0] + (o.teaEvery[1] - o.teaEvery[0]) * det(a.teaN++ + a.phase * 5.1);
       }
-      let sip = 0;
       if (a.teaT > 0){
         a.teaT += dt;
         const u = Math.min(1, a.teaT / 4.2);
@@ -1400,6 +1490,7 @@ function advance(dt){
         if (u >= 1) a.teaT = 0;
       }
       a.sipW = sip;
+      }
       const A = TEA_ARM.hold, B = TEA_ARM.lift;
       set('RightUpperArm', A.sx + (B.sx - A.sx) * sip, A.sy + (B.sy - A.sy) * sip, A.sz + (B.sz - A.sz) * sip);
       set('RightLowerArm', A.ex + (B.ex - A.ex) * sip, 0, 0);
@@ -1540,7 +1631,7 @@ function advance(dt){
     const lean = (o.lean || 0) * (1 - a.brushW) + BOW.lean * bw;
     const hd = (o.headDown || 0) * (1 - a.brushW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
              + SCROLL.headDown * a.scrollW + BOW.head * bw;
-    set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2, -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
+    set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
     set('Neck', 0.008 * Math.sin(_t * 0.5 + a.phase + 0.7) + hd * 0.45, 0.4 * o.head * h, 0);
@@ -1600,14 +1691,22 @@ function advance(dt){
     if (a.cup){
       const wr = a.bones.RightHand;
       /* 捧卷轴时盏收起来（两种手位互斥；不收起会"两手捧着卷轴、腕上还挂着盏"） */
-      a.cup.visible = !o.scroll || a.scrollPhase === 2;
+      /* 捧卷时盏收起来：手里不能同时有卷轴和茶盏；
+         ⭐ 但**迎客举盏（S4）例外** —— 那时卷轴已经收进袖里（scrollW=0），
+         手里只有盏，必须让它露出来，否则"奉茶"只有手没有盏。 */
+      a.cup.visible = !o.scroll || a.scrollPhase === 2 || (a.offerW || 0) > 0.001;
       if (wr){
         a.holder.updateMatrixWorld(true);
         wr.getWorldPosition(_cupV);
         const yw = a.holder.rotation.y;
-        _cupV.x += Math.sin(yw) * TEA_CUP_FWD;
-        _cupV.z += Math.cos(yw) * TEA_CUP_FWD;
-        _cupV.y += 0.02;
+        /* 自己喝茶时盏贴近腕口（9cm）；**奉茶（offerW）时再往前 +5cm、往上 +5cm** ——
+           否则盏正好落在袖口里，画面上只看到一截白袖子、读不出"端着一盏茶"
+           （实测：world 手腕 (−1.26,1.944,−13.30) 与盏 (−1.27,1.96,−13.21) 只差 9cm）。
+           这套骨架没有前臂旋前，掌心朝不了上，所以只能靠"把盏推离袖口"来让它露出来。 */
+        const ow = a.offerW || 0;
+        _cupV.x += Math.sin(yw) * (TEA_CUP_FWD + 0.05 * ow);
+        _cupV.z += Math.cos(yw) * (TEA_CUP_FWD + 0.05 * ow);
+        _cupV.y += 0.02 + 0.05 * ow;
         a.holder.worldToLocal(_cupV);
         a.cup.position.copy(_cupV);
       }
@@ -1726,7 +1825,8 @@ export function actorTune(){ return { SIT, GO_ARM }; }
    探针必须在同一个任务里按同一套公式（rest × Euler XYZ）复算，不能只读当前姿势。 */
 export function actorRig(id){
   const a = ACTORS.find(x => x.def.id === id);
-  return a ? { bones: a.bones, base: a.base, holder: a.holder } : null;
+  return a ? { bones: a.bones, base: a.base, holder: a.holder,
+               cup: a.cup, scroll: a.scroll } : null;
 }
 
 export function actorWalk(id, on){
@@ -1743,6 +1843,7 @@ export function actorVisit(){
              yaw: +a.yaw.toFixed(3), arrived: !!a.arrived,
              floorY: a.floorY == null ? null : +a.floorY.toFixed(3),
              scrollW: +(a.scrollW || 0).toFixed(3), sipW: +(a.sipW || 0).toFixed(3),
+             sitW: +a.sitW.toFixed(3), offerW: +(a.offerW || 0).toFixed(3),
              moveW: +(a.moveW || 0).toFixed(3) };
   };
   return { phase: VISIT.phase, t: +VISIT.t.toFixed(2), bowW: +VISIT.bowW.toFixed(3),
