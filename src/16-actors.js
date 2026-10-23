@@ -21,7 +21,10 @@ import { groundHeight } from './05-water.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { figures } from './08b-figures.js';
 import { PROP_SPOTS, QIN_LOW_SEAT, SEAT_SPOTS } from './14-props.js';
-import { STABLE_ROAD_PTS } from './15-stable.js';
+import { STABLE_ROAD_PTS, stableTravel, travelCarriagePlace, travelCarriagePark,
+         travelCarriageVisible, travelCarriageTied } from './15-stable.js';
+import { WALK_ROUTE } from './08d-tour.js';
+import { ENV } from './12-env.js';
 import { MAT } from './01-materials.js';
 import { HOOKS } from './00-config.js';
 
@@ -316,9 +319,72 @@ const BOW = {
    ⚠️ 文士的 scroll/tea 是互斥手位状态机，必须在这里退出 —— 否则他会"边走边端着茶盏"。 */
 const VISIT = {
   phase: 'idle', t: 0, bowW: 0,
-  hostId: 'scholar', guestId: 'guest',
+  hostId: 'scholar', guestId: 'guest', coachId: 'laborer',
   greetPt: [0.15, 19.75],      // 门内 1.15m：两人面对面站定的位置（客人停在 0.15,20.9）
   path: null, s: 0,            // 并排段的参数化航点（弧长驱动，见 pathTable）
+  tourS: 0, tourPath: null,
+  guestSent: false, hostSeated: false,
+  /* 2026-10-23：马车版到访是默认；?visit=walk 保留旧的"客人自己走进来 + 走回去"分支。
+     默认要求**白昼 + 不下雨不下雪**（见 visitWeatherOK），不满足时客人不出现。 */
+  mode: (typeof location !== 'undefined' && new URLSearchParams(location.search).get('visit') === 'walk')
+        ? 'walk' : 'carriage',
+};
+
+/* ── 马车版到访（2026-10-23）──────────────────────────────────────────────────
+   老黄："马车版到访（坐车到马厩→下车进园，与现在步行是反向）… 马和马车的动态，
+   马夫驾车，马夫系马，客人下马，然后接客人步行通过石板路入园"。
+   编排（全部由 sim 时钟推进，探针 actorStep 快进走同一条路径）：
+     马夫在车夫位驾车 → 车从石板路驶到马厩院门外停稳 → 马夫跳下车、走到马头前
+     把缰绳拴好（抬手 + 可见的引绳）→ 客人起身下车 → 客人沿石板路走向园门 →
+     （S2~S4：主人出迎、作揖、并排入堂、奉茶、叙话）
+     → 两人起身出堂 → **单列游园一圈**（池南岸→山脊→桥头，复用 WALK_ROUTE 的闭合环线）
+     → 园门内作揖 → 客人回马厩、上车 → 马夫解绳、上车 → 马车倒出、调头、南下离开
+     → 主人回堂落座 → done（冷却后自动重播）。
+   ⚠️ 马车停在院门外、**头朝院里**（马头正好够到院内横杆）。离开时先**倒车 3.4m** 出到
+      空旷处再原地调头 —— 六米长的车马在 3.6m 院门里直接掉头会扫到门柱。
+   ⚠️ 车轮/马腿的相位由**里程**驱动（travelCarriagePlace 的 dist），不是墙钟。 */
+const CARRY = {
+  speed: 1.10, backSpeed: 0.55, turnRate: 1.15,
+  /* 驶入：从石板路南段上来、停在院门外（世界 yaw = π，车头朝院里）
+     ⚠️ 航点取**石板路中线上**（STABLE_ROAD_PTS 的 (37.4,16.5)→(39.2,10.5)→(40,4.2)
+     逐段内插）：路半宽只有 0.86m、轮距 1.24m，偏出半米就有一只轮子踩到草地上。 */
+  arrive: [[37.5, 16.7], [38.3, 13.5], [39.2, 10.5], [39.6, 7.0], [40.0, 4.0]],
+  /* 倒车：沿车头相反方向退到空旷处（车仍朝院里 ⇒ 位置向南走） */
+  backTo: [40.0, 7.4],
+  /* 调头后的离场：沿石板路中线往南走远（同一条路反向）。末点取到路弯 (30,26.2)
+     —— 离院门约 45m，车在那里藏起来不会被看成"凭空消失"。 */
+  depart: [[40.0, 7.4], [39.6, 9.6], [38.9, 11.6], [38.1, 14.2], [37.4, 16.6],
+           [36.2, 19.1], [34.4, 21.8], [32.2, 24.4], [30.0, 26.2]],
+  seat: { x: 0.0, y: 0.615, z: -0.26 },      // 客人坐的位置（车局部；SIT 髋高 0.542 ⇒ 座面 1.15）
+  coach: { x: 0.0, y: 0.785, z: 0.30 },      // 车夫站位
+  side: { x: -1.10, z: -0.10 },              // 下车落脚点（车左侧）
+  coachGround: { x: 1.15, z: 0.55 },         // 马夫从车夫位跳下来的落点
+  coachTie: { x: 0.95, z: 1.95 },            // 系马时站的位置（马头前侧）
+};
+
+/* 游园环线：堂前 → 拱桥 → 桥南 → **池南岸/山脊/桥头一圈**（WALK_ROUTE，已在 08d 逐点
+   射线验过）→ 廊道 → 东南假山 → 门内。单列走（园径最窄处 ~0.9m，并排会互相穿袍摆）。
+   ⚠️ 惰性构建：HOST_GREET_PTS / pathTable 都在本段**之后**才声明（const 有 TDZ），
+      模块求值期读会直接 ReferenceError。 */
+let _tourPath = null;
+function buildTourPath(){
+  if (_tourPath) return _tourPath;
+  const L = WALK_ROUTE.length;
+  const k = 15;                                  // WALK_ROUTE[15] = (8.05, 9.75) 桥南平台
+  const loop = [];
+  for (let i = 1; i <= L; i++) loop.push(WALK_ROUTE[(k + i) % L]);
+  _tourPath = pathTable([...HOST_GREET_PTS.slice(0, 11), [8.05, 9.75], ...loop,
+                         ...HOST_GREET_PTS.slice(11)]);
+  return _tourPath;
+}
+const TOUR = { speed: 0.62, gap: 0.95 };
+
+/* 马车/马夫的子状态机（与 VISIT.phase 并行：主人回堂与客人上车是两件事）。 */
+const VISCAR = {
+  state: 'parked', t: 0, s: 0, path: null, last: null,
+  alighting: false, coachOff: false, tieOn: false,
+  boardStarted: false, guestOn: false, coachOn: false, coachWalk: false,
+  leg: '', legT: 0,
 };
 
 /* 卷轴纸：奶白底 + 八列竖排"墨点" + 一方朱印。
@@ -685,12 +751,11 @@ const DEFS = [
     floorRay: true,
     followFloor: true,
     floorMax: 1.20,
-    route: {
-      pts: [...STABLE_ROAD_PTS, [0.15, 23.55], [0.15, 20.9]],
-      speed: 0.58,
-      pause: [0, 0],
-      mode: 'once',                              // 走一趟就停（不来回踱步）
-    },
+    /* 2026-10-23：路线改由**到访导演层**给（马车停稳、客人下车之后才起步）。
+       旧版写死的"一进页面就沿石板路走"在马车版里会与上下车打架。
+       `hideUntilVisit`：不满足白昼/天气条件时客人不出现（老黄："下雨下雪不出现"）。 */
+    route: null,
+    hideUntilVisit: true,
     idle: { breath: 0.014, head: 0.05, sway: 0.008, phase: 5.4, armDown: 0.80 },
     sitLeanK: 0.40,          // 同文士：坐太师椅不弓背
   },
@@ -861,6 +926,7 @@ function loadActor(def){
       }
 
       scene.add(holder);
+      if (def.hideUntilVisit) holder.visible = false;   // 条件不满足时不出现（到访导演层开演时打开）
       hideProcedural(def.hidePose, def.spot);
       const r = def.route;
       /* 步幅 ↔ 步长对账：脚摆过的弧长必须等于推进的距离，否则就是"滑步"。
@@ -924,6 +990,10 @@ function loadActor(def){
         scrollHold: SCROLL.hold[0] + (SCROLL.hold[1] - SCROLL.hold[0]) * det(def.idle.phase + 4.1),
         hay: null,
         hipsDown, hipsRest,
+        /* 2026-10-23 马车版到访：ride = 现在被"车"载着（每帧由导演层写 pos/y/yaw）；
+           trip = 上车/下车的一段过渡（从 A 平滑到 B，不含物理）；
+           coachW = 车夫握缰权重、tieW = 系马抬手权重（都只动肘/腕，守腰带约束）。 */
+        ride: null, trip: null, coachW: 0, tieW: 0, tieTarget: false,
       });
       /* 品茶：盏挂在 holder 上（不挂手骨，理由见 TEA_ARM 注释） */
       const aNew = ACTORS[ACTORS.length - 1];
@@ -1016,8 +1086,14 @@ const approach = (v, t, d)=> (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
       真实的人转身时脚是原地倒步，边走边转在长袍上会看出膝盖朝侧面。 */
 function tickRoute(a, dt){
   /* 并排段由导演层按弧长直接摆位（见 tickVisit 的 pair 相）——
-     这里必须**整个让开**：tickRoute 是会写 moveW 的，两边都写就会一直打架。 */
+     这里必须**整个让开**：tickRoute 是会写 moveW 的，两边都写就会一直打架。
+     被马车载着 / 上下车过渡中同理：位置由 tickCarriage / trip 通道写。 */
   if (a.pairDrive) return;
+  if (a.ride || a.trip){
+    a.moved = 0;
+    a.moveW = approach(a.moveW, 0, dt / 0.45);
+    return;
+  }
   const r = a.def.route;
   a.moved = 0;
   if (!r || a.walkOff || a.arrived){ a.moveW = approach(a.moveW, 0, dt / 0.45); return; }
@@ -1208,14 +1284,359 @@ function drivePair(v, host, guest, P, latH, latG, dt, onDone){
   }
 }
 
+/* ── 马车到访 · 条件与摆位工具（2026-10-23）──────────────────────────────────
+   条件：白昼（老黄："时辰只是白天（上午、正午和下午）"）+ 不下雨不下雪。
+   ⚠️ 读 `ENV.cur` 的雨雪量而不是只看 `ENV.weather` 字符串：天气切换有 2.8s 过渡，
+      只看字符串会在"刚下起来"的那几秒把人放进场。 */
+function visitWeatherOK(){
+  const h = ENV.hour;
+  if (!(h >= 7.0 && h <= 18.0)) return false;
+  const w = ENV.weather;
+  if (w === 'storm' || w === 'snow' || w === 'thunder') return false;
+  const c = ENV.cur;
+  if (c && ((c.rainAmount || 0) > 0.05 || (c.snowAmount || 0) > 0.05 || (c.snowCover || 0) > 0.05)) return false;
+  return true;
+}
+
+/* 车局部点 → 世界（车的 +z 是车头方向） */
+function carPoint(P, lx, lz){
+  const c = Math.cos(P.yaw), s = Math.sin(P.yaw);
+  return { x: P.x + lx * c + lz * s, z: P.z - lx * s + lz * c };
+}
+function carSeat(P, local){
+  const q = carPoint(P, local.x, local.z);
+  return { x: q.x, y: P.y + (local.y || 0), z: q.z, yaw: P.yaw };
+}
+/* 让人物"坐在车上/站在车夫位"：之后每帧由 tickCarriage 重写 ride（车动人也动）。 */
+function setRide(a, P, local, sit){
+  const q = carSeat(P, local);
+  a.ride = q;
+  a.pos.x = q.x; a.pos.z = q.z; a.y = q.y; a.yaw = q.yaw;
+  a.arrived = false; a.walkOff = true; a.moveW = 0; a.moved = 0;
+  a.sitTarget = sit ? 1 : 0;
+}
+/* 上车/下车的一段过渡（纯插值，不迈步） */
+function startTrip(a, to, dur, onDone){
+  a.ride = null;
+  a.trip = { t: 0, dur, from: { x: a.pos.x, y: a.y, z: a.pos.z, yaw: a.yaw },
+             to: { x: to.x, y: to.y, z: to.z, yaw: to.yaw === undefined ? a.yaw : to.yaw },
+             onDone: onDone || null };
+}
+
+/* 给访客路线（马车版）：
+   下车点在东侧草地 → 绕过停在门口的马车 → 并回石板路 → 门内。
+   ⚠️ 不能直接用 STABLE_ROAD_PTS[0]=(40,4.2)：那一点正好被停着的车占住。 */
+const GUEST_ALIGHT = [[41.20, 4.20], [41.50, 5.40], [40.90, 6.60], [39.80, 8.60],
+                      ...STABLE_ROAD_PTS.slice(1), [0.15, 23.55], [0.15, 20.90]];
+const GUEST_HOME2 = (() => {
+  const road = [...GUEST_HOME_PTS];
+  road.pop();                                  // 去掉 (40,4.2)（被车占住，改走东侧草地）
+  return [...road, [39.80, 8.60], [40.90, 6.60], [41.50, 5.40], [41.20, 4.20]];
+})();
+
+/* ── 马车/马夫的子状态机 ─────────────────────────────────────────────────────
+   与 VISIT.phase 并行：主人回堂与客人上车是两件事，串成一条会互相等。
+   states: parked → drivein → stop → tiewalk → tie → alight → wait
+           → board → driveout → gone */
+function tickCarriage(dt){
+  const V = stableTravel();
+  if (!V) return;
+  const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId);
+  if (!guest || !coach) return;
+  const S = VISCAR;
+
+  if (S.state === 'drivein'){
+    S.s = Math.min(S.path.total, S.s + CARRY.speed * dt);
+    const q = pathAt(S.path, S.s);
+    const P = travelCarriagePlace(q.x, q.z, q.yaw, S.s);
+    S.last = P;
+    if (P){ setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false); }
+    if (S.s >= S.path.total - 1e-6){ S.state = 'stop'; S.t = 0; }
+    return;
+  }
+  if (S.state === 'stop'){
+    S.t += dt;
+    if (S.last) setRide(guest, S.last, CARRY.seat, true);       // 客人仍坐着
+    if (!S.coachOff) setRide(coach, S.last, CARRY.coach, false);
+    if (S.t > 0.8 && !S.coachOff){
+      S.coachOff = true;
+      const g = carPoint(S.last, CARRY.coachGround.x, CARRY.coachGround.z);
+      g.y = groundHeight(g.x, g.z);
+      startTrip(coach, { x: g.x, y: g.y, z: g.z,
+                         yaw: Math.atan2(g.x - S.last.x, g.z - S.last.z) }, 1.0,
+        () => {
+          S.state = 'tiewalk';
+          const t = carPoint(S.last, CARRY.coachTie.x, CARRY.coachTie.z);
+          t.y = groundHeight(t.x, t.z);
+          giveRoute(coach, [[t.x, t.z]], 0.55, 0.15);
+          coach.def.followFloor = true;
+          coach.def.floorMax = 1.2;
+        });
+    }
+    return;
+  }
+  if (S.state === 'tiewalk'){
+    if (coach.arrived){ S.state = 'tie'; S.t = 0; }
+    return;
+  }
+  if (S.state === 'tie'){
+    S.t += dt;
+    /* 面对马头；抬手（tieTarget）—— 抬手权重在演员块里驱动肘/腕 */
+    if (S.last){
+      const hd = carPoint(S.last, -0.40, 2.10);
+      turnToward(coach, Math.atan2(hd.x - coach.pos.x, hd.z - coach.pos.z), dt);
+    }
+    coach.tieTarget = true;
+    if (S.t > 2.4){
+      travelCarriageTied(true);                 // 引绳出现（"系好了"的可读证据）
+      S.tieOn = true;
+      S.state = 'alight'; S.t = 0; S.alighting = false;
+    }
+    return;
+  }
+  if (S.state === 'alight'){
+    S.t += dt;
+    if (!S.alighting && S.last) setRide(guest, S.last, CARRY.seat, true);
+    if (S.t < 0.35){ guest.sitTarget = 0; return; }
+    if (!S.alighting){
+      S.alighting = true;
+      guest.sitTarget = 0;
+      const g = carPoint(S.last, CARRY.side.x, CARRY.side.z);
+      g.y = groundHeight(g.x, g.z);
+      startTrip(guest, { x: g.x, y: g.y, z: g.z,
+                         yaw: Math.atan2(g.x - S.last.x, g.z - S.last.z) }, 1.15, null);
+    }
+    if (!guest.trip){ S.alighting = false; guest.ride = null; S.state = 'alighted'; }
+    return;
+  }
+  if (S.state === 'board'){
+    S.t += dt;
+    /* 解绳：先抬手放下（tieTarget=false），引绳收起 */
+    if (coach.tieTarget){ coach.tieTarget = false; travelCarriageTied(false); S.tieOn = false; }
+    /* 客人从地面跨上车 */
+    if (!S.boardStarted && !guest.trip){
+      S.boardStarted = true;
+      const seat = carSeat(S.last, CARRY.seat);
+      guest.sitTarget = 1;
+      startTrip(guest, { x: seat.x, y: seat.y, z: seat.z, yaw: seat.yaw }, 1.15,
+        () => { S.guestOn = true; });
+    }
+    /* 马夫走到车夫位旁边再跨上去 */
+    if (S.guestOn && !S.coachOn && !coach.trip && !S.coachWalk){
+      S.coachWalk = true;
+      const g = carPoint(S.last, CARRY.coachGround.x, CARRY.coachGround.z);
+      g.y = groundHeight(g.x, g.z);
+      giveRoute(coach, [[g.x, g.z]], 0.55, 0.1);
+    }
+    if (S.coachWalk && coach.arrived && !S.coachOn && !coach.trip){
+      S.coachWalk = false;
+      const box = carSeat(S.last, CARRY.coach);
+      startTrip(coach, { x: box.x, y: box.y, z: box.z, yaw: box.yaw }, 0.9,
+        () => { S.coachOn = true; });
+    }
+    if (S.guestOn && S.coachOn && !guest.trip && !coach.trip){
+      S.state = 'driveout'; S.t = 0; S.leg = 'back'; S.legT = 0; S.s = 0;
+    }
+    return;
+  }
+  if (S.state === 'driveout'){
+    S.t += dt;
+    if (S.leg === 'back'){
+      /* 倒车：车头仍朝院里（yaw π），位置向南退 3.4m。里程取负 ⇒ 车轮/马腿倒着走。 */
+      const k = Math.min(1, S.t / 3.4 * CARRY.backSpeed / 3.4);
+      S.s = Math.min(3.4, S.s + CARRY.backSpeed * dt);
+      S.t = S.s;
+      const x = 40.0, z = 4.0 + S.s;
+      const P = travelCarriagePlace(x, z, Math.PI, -S.s);
+      S.last = P;
+      setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
+      if (S.s >= 3.4 - 1e-6){ S.leg = 'spin'; S.legT = 0; }
+      return;
+    }
+    if (S.leg === 'spin'){
+      /* 原地调头（车马一起转，马跟着踏步）。1.15rad/s ⇒ π 用 2.7s。 */
+      S.legT += dt;
+      const yaw = Math.PI - Math.min(Math.PI, S.legT * CARRY.turnRate);
+      S.s += 0.55 * dt;                        // 原地踏步：让腿不是僵住的
+      const P = travelCarriagePlace(40.0, 7.4, yaw, S.s);
+      S.last = P;
+      setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
+      if (S.legT * CARRY.turnRate >= Math.PI){
+        S.leg = 'out'; S.legT = 0; S.s = 0;
+        S.outPath = pathTable(CARRY.depart);
+        S.dist = S.s;
+      }
+      return;
+    }
+    /* out：沿石板路向南走远，到终点连人带车隐去 */
+    S.legT += dt;
+    S.s = Math.min(S.outPath.total, S.s + CARRY.speed * dt);
+    const q = pathAt(S.outPath, S.s);
+    const P = travelCarriagePlace(q.x, q.z, q.yaw, S.s);
+    S.last = P;
+    setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
+    if (S.s >= S.outPath.total - 1e-6){
+      S.state = 'gone';
+      travelCarriageVisible(false);
+      guest.holder.visible = false;
+      coach.holder.visible = false;
+      guest.ride = null; coach.ride = null;
+    }
+    return;
+  }
+}
+
+/* 游园：单列（主人领路、客人跟 0.95m），同一条弧长驱动，拐弯不会拉成一前一后 */
+function driveTour(dt){
+  const v = VISIT;
+  const host = actorRef(v.hostId), guest = actorRef(v.guestId);
+  if (!host || !guest) return;
+  const P = v.tourPath;
+  v.tourS = Math.min(P.total, v.tourS + TOUR.speed * dt);
+  const qh = pathAt(P, v.tourS);
+  const qg = pathAt(P, Math.max(0, v.tourS - TOUR.gap));
+  for (const [a, q] of [[host, qh], [guest, qg]]){
+    a.pos.x = q.x; a.pos.z = q.z;
+    const e = angDiff(q.yaw, a.yaw);
+    const d = GAIT.turn * dt;
+    a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
+    a.moved = TOUR.speed * dt;
+    a.step += a.moved;
+    a.moveW = approach(a.moveW, 1, dt / 0.40);
+  }
+  if (v.tourS >= P.total - 1e-6){
+    host.arrived = guest.arrived = true;
+    host.moveW = guest.moveW = 0;
+    host.def.stepUp = guest.def.stepUp = 0.42;   // 游园结束：收回上桥的宽窗口
+    v.phase = 'eface'; v.t = 0;
+  }
+}
+
+/* 开演（条件满足时）：马车已在路上，客人在车里，马夫在车夫位。 */
+function startVisit(){
+  const V = stableTravel();
+  const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId), host = actorRef(VISIT.hostId);
+  if (!V || !guest || !coach || !host) return false;
+  const a0 = CARRY.arrive[0], a1 = CARRY.arrive[1];
+  const yaw0 = Math.atan2(a1[0] - a0[0], a1[1] - a0[1]);
+  const P = travelCarriagePlace(a0[0], a0[1], yaw0, 0);
+  if (!P) return false;
+  VISCAR.state = 'drivein'; VISCAR.s = 0; VISCAR.t = 0;
+  VISCAR.path = pathTable(CARRY.arrive); VISCAR.last = P;
+  VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
+  VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
+  VISCAR.leg = ''; VISCAR.outPath = null;
+  travelCarriageVisible(true);
+  travelCarriageTied(false);
+
+  guest.holder.visible = true;
+  guest.def.route = null;
+  guest.def.floorRay = true; guest.def.followFloor = true; guest.def.floorMax = 1.20;
+  guest.def.stepUp = 0.42;
+  guest.walkOff = true; guest.arrived = false; guest.trip = null; guest.tieW = 0;
+  setRide(guest, P, CARRY.seat, true);
+
+  coach.def.route = null; coach.walkOff = true; coach.arrived = false;
+  coach.trip = null; coach.tieTarget = false; coach.tieW = 0; coach.coachW = 0;
+  coach.holder.visible = true;
+  setRide(coach, P, CARRY.coach, false);
+
+  host.walkOff = true; host.arrived = false; host.trip = null;
+  return true;
+}
+
+/* 复位（重播前）：把人、车、马夫都放回原位，客人重新藏起来等下一场。 */
+function resetVisit(){
+  const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId), host = actorRef(VISIT.hostId);
+  travelCarriagePark();
+  travelCarriageVisible(true);
+  travelCarriageTied(false);
+  VISCAR.state = 'parked'; VISCAR.t = 0; VISCAR.s = 0; VISCAR.last = null;
+  VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
+  VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
+  VISCAR.leg = ''; VISCAR.outPath = null;
+  if (guest){
+    guest.ride = null; guest.trip = null;
+    guest.sitTarget = 0; guest.sitW = 0; guest.offerW = 0;
+    guest.def.route = null; guest.walkOff = true; guest.arrived = false; guest.moveW = 0;
+    guest.pos.x = guest.def.spot.x; guest.pos.z = guest.def.spot.z;
+    guest.y = groundHeight(guest.pos.x, guest.pos.z);
+    guest.yaw = guest.def.spot.yaw;
+    guest.floorY = null; guest.floorDone = false; guest.floorTries = 0;
+    guest.holder.visible = false;
+  }
+  if (coach){
+    coach.ride = null; coach.trip = null; coach.tieTarget = false;
+    coach.tieW = 0; coach.coachW = 0;
+    coach.pos.x = coach.def.spot.x; coach.pos.z = coach.def.spot.z;
+    coach.y = coach.def.spot.y !== undefined ? coach.def.spot.y : groundHeight(coach.pos.x, coach.pos.z);
+    coach.yaw = coach.def.spot.yaw;
+    coach.floorY = null; coach.floorDone = false; coach.floorTries = 0;
+    coach.walkOff = true; coach.arrived = false; coach.def.route = null;
+    coach.holder.visible = true;
+  }
+  if (host){
+    host.ride = null; host.trip = null;
+    host.pos.x = 1.2; host.pos.z = -5.7;
+    host.y = groundHeight(host.pos.x, host.pos.z);
+    host.yaw = 0.42;
+    host.sitTarget = 0; host.sitW = 0; host.offerW = 0; host.moveW = 0; host.arrived = false;
+    host.scrollW = 0; host.scrollPhase = 0; host.scrollT = 0; host.teaT = 0; host.sipW = 0;
+    host.def.stepUp = 0.42; host.def.floorMax = 2.45;
+    host.def.route = { pts: HOST_GREET_PTS, speed: 0.86, pause: [0, 0], mode: 'once' };
+    host.target = 1; host.walkOff = true; host.waitT = 0;
+    host.floorY = null; host.floorDone = false; host.floorTries = 0;
+    host.holder.visible = true;
+  }
+  VISIT.phase = 'idle'; VISIT.t = 0; VISIT.bowW = 0;
+  VISIT.tourS = 0; VISIT.guestSent = false; VISIT.hostSeated = false;
+}
+
 function tickVisit(dt){
   const v = VISIT;
   const host = actorRef(v.hostId), guest = actorRef(v.guestId);
   if (!host || !guest) return;
+  tickCarriage(dt);
+
+  /* 客人已走到马车边 → 开始上车（这一步与主人回堂并行，放在所有相位之前） */
+  if (v.guestSent && VISCAR.state === 'wait' && guest.arrived && !guest.trip && !guest.ride){
+    VISCAR.state = 'board'; VISCAR.t = 0;
+    VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false;
+    VISCAR.coachWalk = false;
+    giveRoute(guest, [[guest.pos.x, guest.pos.z]], 0.3, 0);
+  }
+
   if (v.phase === 'idle'){
-    /* 客人走到门内才"出门相迎"。用演员自己的 arrived，不用墙钟。 */
-    if (!guest.arrived) return;
-    v.phase = 'stow'; v.t = 0;
+    /* 等条件：白昼 + 无雨雪 + 车/人都就位。不满足时客人不出现（老黄："下雨下雪不出现"）。 */
+    v.t += dt;
+    if (v.t < 1.2) return;
+    if (!visitWeatherOK()) return;
+    if (!stableTravel()) return;
+    if (v.mode === 'walk'){
+      guest.holder.visible = true;
+      giveRoute(guest, [...STABLE_ROAD_PTS, [0.15, 23.55], [0.15, 20.9]], 0.58, 2.0, 1.20);
+      v.phase = 'gwalk'; v.t = 0;
+      return;
+    }
+    if (!startVisit()) return;
+    v.phase = 'carIn'; v.t = 0;
+    return;
+  }
+  if (v.phase === 'carIn'){
+    /* 车到门口停稳 → 马夫系马 → 客人下车（全部在 VISCAR 里），出到这里才放客人走路 */
+    if (VISCAR.state === 'alighted'){
+      guest.ride = null;
+      /* ⚠️ 必须在这里翻到 wait：送客阶段的"客人走到车边就上车"只在 wait 上触发
+         （tickVisit 顶部那段）。少了这一行，客人下车后状态永远停在 alighted ⇒
+         上车/倒车/离场全都不发生 ⇒ wrap 一直等 VISCAR==='gone'，整场戏卡死。 */
+      VISCAR.state = 'wait'; VISCAR.t = 0;
+      v.phase = 'gwalk'; v.t = 0;
+      giveRoute(guest, GUEST_ALIGHT, 0.58, 0.9, 1.20);
+    }
+    return;
+  }
+  if (v.phase === 'gwalk'){
+    if (guest.arrived){ v.phase = 'stow'; v.t = 0; }
     return;
   }
   if (v.phase === 'stow'){
@@ -1315,16 +1736,14 @@ function tickVisit(dt){
     if (v.t > 6.7){ host.offerW = 0; v.phase = 'sit'; v.t = 0; }
     return;
   }
-  /* ── S5 送客（2026-10-23，见 EXIT_PTS/ESCORT 注释）───────────────────────── */
+  /* ── 叙话 → 起身 → 出堂 → 游园（2026-10-23 改成"先喝茶谈事、再游园、再送客"）── */
   if (v.phase === 'sit'){
-    /* 喝完茶端坐一阵（叙事上的"叙话"），再起身送客 */
     v.t += dt;
     if (v.t > 10){
       v.phase = 'rise'; v.t = 0;
       host.sitTarget = guest.sitTarget = 0;
       /* 出堂一路向下（唯一的上坎是门槛 +0.24，默认窗口 0.42 够），
-         把 S4 进门临时放宽的 stepUp 收回 —— 0.70 的窗口太宽，并排过桥时
-         会把桥栏杆顶也当成"一步之内的面"（S3 全程 0.42 无恙）。 */
+         把 S4 进门临时放宽的 stepUp 收回。 */
       host.def.stepUp = guest.def.stepUp = 0.42;
     }
     return;
@@ -1339,19 +1758,25 @@ function tickVisit(dt){
   }
   if (v.phase === 'exit'){
     if (host.arrived && guest.arrived){
-      v.phase = 'eline'; v.t = 0;
-      v.eptsH = offsetPath(ESCORT.pts, ESCORT.hostLat);
-      v.eptsG = offsetPath(ESCORT.pts, ESCORT.guestLat);
-      v.epath = pathTable(ESCORT.pts);
-      /* 并排回程要**上**桥北踏步（0.69m 一级 > 0.42，同 stow 那条）——
-         0.80 的窗口在桥上安全：两人走中心线 ±0.45，射线打不到两侧栏杆
-         （S3 同一条偏移线已验）；廊檐口在 2.5m 以上、超窗被拒。'eface' 收回。 */
-      host.def.stepUp = guest.def.stepUp = 0.80;
-      giveRoute(host, [v.eptsH[0]], PAIR.speed, 0.25, 2.45);
-      giveRoute(guest, [v.eptsG[0]], PAIR.speed, 0.55, 2.45);
+      if (v.mode === 'walk'){
+        /* 旧版直接并排回门内再送客（保留给 ?visit=walk 的回归用） */
+        v.phase = 'eline'; v.t = 0;
+        v.eptsH = offsetPath(ESCORT.pts, ESCORT.hostLat);
+        v.eptsG = offsetPath(ESCORT.pts, ESCORT.guestLat);
+        v.epath = pathTable(ESCORT.pts);
+        host.def.stepUp = guest.def.stepUp = 0.80;
+        giveRoute(host, [v.eptsH[0]], PAIR.speed, 0.25, 2.45);
+        giveRoute(guest, [v.eptsG[0]], PAIR.speed, 0.55, 2.45);
+      } else {
+        v.phase = 'tourgo'; v.t = 0;
+      }
     }
     return;
   }
+  /* 步行版的并排回门（?visit=walk 专用；马车版走下面的 tourgo/tour 单列游园）。
+     ⚠️ 这两段是 S3 的既有实现，**不能因为加了游园分支就删** —— 删了以后
+     walk 版会在 exit 之后停在 eline 上没有分支接手（2026-10-24 实测：
+     相位链断在 300.7@eline，整场戏不往下走）。 */
   if (v.phase === 'eline'){
     if (host.arrived && guest.arrived){
       v.phase = 'epair'; v.t = 0; v.s = 0;
@@ -1365,8 +1790,21 @@ function tickVisit(dt){
       () => { v.phase = 'eface'; v.t = 0; });
     return;
   }
+  if (v.phase === 'tourgo'){
+    v.tourPath = buildTourPath();
+    v.tourS = TOUR.gap;
+    host.def.stepUp = guest.def.stepUp = 0.80;   // 桥北/桥南各有一级 0.69m
+    host.def.floorMax = guest.def.floorMax = 2.45;
+    host.pairDrive = guest.pairDrive = false;
+    host.arrived = guest.arrived = false;
+    host.walkOff = guest.walkOff = true;
+    host.moveW = guest.moveW = 0;
+    v.phase = 'tour'; v.t = 0;
+    return;
+  }
+  if (v.phase === 'tour'){ driveTour(dt); return; }
   if (v.phase === 'eface'){
-    host.def.stepUp = guest.def.stepUp = 0.42;       // 并排结束，收回上桥的宽窗口
+    host.def.stepUp = guest.def.stepUp = 0.42;       // 游园结束，收回上桥的宽窗口
     v.t += dt;
     const dh = turnToward(host, yawToOther(host, guest), dt);
     const dg = turnToward(guest, yawToOther(guest, host), dt);
@@ -1382,8 +1820,11 @@ function tickVisit(dt){
     else if (v.t < t3) v.bowW = 1 - ease01((v.t - t2) / BOW.out);
     else {
       v.bowW = 0; v.phase = 'watch'; v.t = 0;
-      /* 客人沿石板路回马厩（S1 的反向，同一串点已验过能走）；floorMax 收回 1.20 */
-      giveRoute(guest, GUEST_HOME_PTS, 0.58, 0.45, 1.20);
+      /* 客人沿石板路回马厩：马车版一直走到车边（GUEST_HOME2），再上车离开；
+         walk 版只走回马厩门口（旧口径）。 */
+      v.guestSent = true;
+      giveRoute(guest, v.mode === 'walk' ? GUEST_HOME_PTS : GUEST_HOME2, 0.58, 0.45, 1.20);
+      guest.def.stepUp = 0.42;
     }
     turnToward(host, yawToOther(host, guest), dt);     // 转身没转完也继续对上
     turnToward(guest, yawToOther(guest, host), dt);
@@ -1409,19 +1850,36 @@ function tickVisit(dt){
       giveRoute(host, ENTER_PTS.host, 0.52, 0.3, 2.0);
     }
     return;
-  }  if (v.phase === 'reenter'){
+  }
+  if (v.phase === 'reenter'){
     if (host.arrived){ v.phase = 'reseat'; v.t = 0; }
     return;
   }
   if (v.phase === 'reseat'){
     if (seatOne(host, SEAT.host, dt)){
       host.def.stepUp = 0.42;                       // 坐下了，收回
+      v.hostSeated = true;
+      v.phase = 'wrap'; v.t = 0;
+    }
+    return;
+  }
+  /* wrap：主人坐回椅子、马车已离开（或 walk 版无马车）才收尾 */
+  if (v.phase === 'wrap'){
+    if (v.hostSeated && (v.mode === 'walk' || VISCAR.state === 'gone')){
       v.phase = 'done'; v.t = 0;
     }
     return;
   }
-  /* done：终态。主人端坐堂内、客人已沿石板路回到马厩。
-     刻意不回 'idle'（理由见 ESCORT 注释）。 */
+  /* done：这一场结束。冷却 45s 后复位重播（老黄："可重播"）。
+     ⚠️ 刻意的"终态停留"没有了：复位由 resetVisit 做，条件不满足时下一场会停在 idle
+        （客人不出现），满足时自动再演一遍。
+     ⚠️ 冷却 8s 太短：整场戏约 9 分半，客人刚送走 8 秒又拉来一位，读起来像"卡带循环"，
+        而且整场的收尾画面（主人坐回椅子、客人上车走远）只留 8 秒就复位。45s 是"一场结束
+        歇一会儿"的量级，也给验收探针留出取终态的时间。 */
+  if (v.phase === 'done'){
+    v.t += dt;
+    if (v.t > 45) resetVisit();
+  }
 }
 
 /* 一次完整更新（时钟由调用方推进）—— tickActors 与探针的 actorStep 共用同一份，
@@ -1432,11 +1890,32 @@ function advance(dt){
   const e = new THREE.Euler();
   for (const a of ACTORS){
     tickRoute(a, dt);
+    /* 上车/下车：一段纯插值的短程（1~1.3s），不走步态、不取踏面 ——
+       走路时脚要踩地，而上下车是"跨上去/跳下来"，本来就是一气呵成。 */
+    if (a.trip){
+      a.trip.t += dt;
+      const u = Math.min(1, a.trip.t / a.trip.dur);
+      const ee = ease01(u);
+      const F = a.trip.from, T = a.trip.to;
+      a.pos.x = F.x + (T.x - F.x) * ee;
+      a.pos.z = F.z + (T.z - F.z) * ee;
+      a.y = F.y + (T.y - F.y) * ee;
+      a.yaw = F.yaw + angDiff(T.yaw, F.yaw) * ee;
+      a.moved = 0; a.moveW = 0;
+      if (u >= 1){
+        const cb = a.trip.onDone;
+        a.trip = null;
+        if (cb) cb();
+      }
+    }
+    /* 马夫握缰 / 系马抬手的权重（只驱动肘腕，见下面的姿态块） */
+    a.coachW = approach(a.coachW, a.ride && a.def.id === VISIT.coachId ? 1 : 0, dt / 0.5);
+    a.tieW = approach(a.tieW, a.tieTarget ? 1 : 0, dt / 0.6);
     /* 院子/台基面：马厩是 deferBootFirst 建的，人物 GLB 可能先到 ⇒ 头几次射线只打得到地形。
        所以头 4 秒（16 次 ×0.25s）**持续采样取最高**，之后冻结：院子面一建出来就被采用。
        只接受 [−0.4, 0.8] 的命中，免得把马厩屋顶（2.9m）当成地面。
        （第一版"打中即冻结"踩过：第一个采样点打到的正是地形 0.052 ⇒ 人整体矮 5cm。） */
-    if (a.def.floorRay && (!a.floorDone || a.def.followFloor)){
+    if (a.def.floorRay && !a.ride && !a.trip && (!a.floorDone || a.def.followFloor)){
       /* followFloor（走长路的人，2026-10-23 客人）：**边走边采样**，并把间隔从 0.25s 收到
          0.10s —— 0.25s 在 0.58m/s 下已经是 15cm 一格，起伏路面会看出"悬空/下陷"。
          站着不动（或已到站）时只在必要时补采一次，避免每帧打射线。 */
@@ -1462,20 +1941,24 @@ function advance(dt){
     }
     /* 坐凳的人**坐的是凳子**，不是脚下那块地形：石桌四周是缓坡，跟着地形走会让
        同一条凳子上的两个人一个高一个低（go2 实测比 go1 低 8cm、沉到凳面以下）。
-       fixedY = 钉在 spot.y（= 凳子所在的地面高，14-props 给的）。 */
-    const gy = a.def.fixedY ? a.def.spot.y
-      : (a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z));
-    /* 位置：先落地点，再叠步态起伏。groundHeight 是缓坡，直接跟即可。
-       跟随型（走长路的人）收敛快一点，起伏路面上不至于"慢半拍"地悬空。
-       ⚠️ 18/s 在**台阶**上留了 8.6cm 的瞬时悬空（S3 实测：拱桥/廊道那段每级 0.2m 的
-          台阶，走上去的那 0.2s 里脚底一直比踏面低）⇒ 跟随型改 34/s（时间常数 29ms）。
-       ⚠️ 但**超过 15cm 的高差要直接落上去**：门内那道门槛比园内草地低 0.42m、
-          门口的 24cm 下槛又比堂内地坪高 0.18m，用平滑跟就会看到人"从地里升上来"
-          （实测瞬时差 0.088 / 0.078 且要 0.1s 才收完）。15cm 以下的起伏仍走平滑
-          （缓坡、砖缝这类小起伏不该一格格跳）。普通角色仍 8/s。 */
-    const gapY = gy - a.y;
-    if (a.def.followFloor && Math.abs(gapY) > 0.15) a.y = gy;
-    else a.y += gapY * Math.min(1, dt * (a.def.followFloor ? 34 : 8));
+       fixedY = 钉在 spot.y（= 凳子所在的地面高，14-props 给的）。
+       被马车载着 / 上下车过渡中：高度由 ride/trip 直接给，不取踏面（否则会被拉回地面）。 */
+    const gy = (a.ride || a.trip) ? a.y
+      : (a.def.fixedY ? a.def.spot.y
+      : (a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z)));
+    if (!a.ride && !a.trip){
+      /* 位置：先落地点，再叠步态起伏。groundHeight 是缓坡，直接跟即可。
+         跟随型（走长路的人）收敛快一点，起伏路面上不至于"慢半拍"地悬空。
+         ⚠️ 18/s 在**台阶**上留了 8.6cm 的瞬时悬空（S3 实测：拱桥/廊道那段每级 0.2m 的
+            台阶，走上去的那 0.2s 里脚底一直比踏面低）⇒ 跟随型改 34/s（时间常数 29ms）。
+         ⚠️ 但**超过 15cm 的高差要直接落上去**：门内那道门槛比园内草地低 0.42m、
+            门口的 24cm 下槛又比堂内地坪高 0.18m，用平滑跟就会看到人"从地里升上来"
+            （实测瞬时差 0.088 / 0.078 且要 0.1s 才收完）。15cm 以下的起伏仍走平滑
+            （缓坡、砖缝这类小起伏不该一格格跳）。普通角色仍 8/s。 */
+      const gapY = gy - a.y;
+      if (a.def.followFloor && Math.abs(gapY) > 0.15) a.y = gy;
+      else a.y += gapY * Math.min(1, dt * (a.def.followFloor ? 34 : 8));
+    }
     const o = a.def.idle;
     const p = a.step / STEP_LEN * Math.PI;      // 步态相位（按走过的距离推进）
     const w = a.moveW;
@@ -1612,8 +2095,9 @@ function advance(dt){
       a.scrollW = Math.max(0, a.scrollW - dt / 0.55);
       if (a.scrollW <= 1e-3){ a.scrollPhase = 0; a.scrollT = 0; }
     }
-    /* 手持草料：只动**左肘**（肩保持垂手），手指松松地扣着草把 —— 见 HAY_ARM。 */
-    if (o.hay){
+    /* 手持草料：只动**左肘**（肩保持垂手），手指松松地扣着草把 —— 见 HAY_ARM。
+       马车版到访时马夫在驾车/系马，草把收起（否则一手草一手缰）。 */
+    if (o.hay && a.coachW < 0.05 && a.tieW < 0.05){
       set('LeftLowerArm', HAY_ARM.ex, 0, 0);
       set('LeftIndexProximal', 0.70, 0, 0);
       set('LeftMiddleProximal', 0.70, 0, 0);
@@ -1623,6 +2107,29 @@ function advance(dt){
       set('LeftThumbIntermediate', -0.38, 0, 0);
       set('LeftThumbDistal', -0.24, 0, 0);
     }
+    /* ── 车夫握缰 / 系马（2026-10-23）─────────────────────────────────────────
+       这只 rig 的**肩不能转**（腰带有一批顶点贴着前臂骨，见 BRUSH 的注释），所以
+       驾车与系马都只动**肘 + 腕 + 指**：两条前臂抬到略高于水平、手扣住缰绳。
+       视觉距离 15~25m ⇒ 读的是"两条胳膊往前伸、在胸前抓着东西"，够。
+       ⚠️ 权重取 max(coachW, tieW)：两种状态互斥，但过渡帧会有短暂重叠。 */
+    const rein = Math.max(a.coachW || 0, a.tieW || 0);
+    if (rein > 0.001){
+      const cw = rein;
+      set('LeftLowerArm', -1.22 * cw, 0, 0);
+      set('RightLowerArm', -1.10 * cw, 0, 0);
+      set('LeftHand', 0.34 * cw, 0, 0);
+      set('RightHand', 0.34 * cw, 0, 0);
+      for (const sd of ['Left', 'Right']){
+        set(sd + 'IndexProximal', 0.95 * cw, 0, 0);
+        set(sd + 'MiddleProximal', 0.95 * cw, 0, 0);
+        set(sd + 'IndexIntermediate', 0.70 * cw, 0, 0);
+        set(sd + 'MiddleIntermediate', 0.70 * cw, 0, 0);
+        set(sd + 'ThumbProximal', -0.60 * cw, 0, 0);
+        set(sd + 'ThumbIntermediate', -0.52 * cw, 0, 0);
+        set(sd + 'ThumbDistal', -0.34 * cw, 0, 0);
+      }
+    }
+
     /* ── 品茶（P2「喝茶」）：端着 → 抬到唇边 → 放下 ────────────────────────────
        4.2s 一个来回（抬 1.3 / 停 1.6 / 落 1.3），间歇 8~14s。
        只在**喝茶那只手**上写（右手），左臂继续走 armDown —— 两只手都端起来就成了"捧"。
@@ -1677,7 +2184,8 @@ function advance(dt){
       const nextWait = () => ev[0] + (ev[1] - ev[0]) * det(a.brushN++ + a.phase * 11.3);
       if (a.brushT <= 0){
         a.brushWait -= dt;
-        if (a.brushWait <= 0 && w < 0.3) a.brushT = 1e-4;
+        /* 被马车载着 / 在驾车 / 系马时不开始新一轮刷马（否则马夫一边拉缰一边刷空气） */
+        if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05) a.brushT = 1e-4;
       }
       let bw2 = 0;
       if (a.brushT > 0){
@@ -1787,8 +2295,8 @@ function advance(dt){
        品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。
        刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。
        作揖再叠一层前俯（BOW.lean）：这是"礼"的主体，手臂只是配合。 */
-    const lean = (o.lean || 0) * (1 - a.brushW) + BOW.lean * bw;
-    const hd = (o.headDown || 0) * (1 - a.brushW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
+    const lean = (o.lean || 0) * (1 - a.brushW) * (1 - a.coachW) + BOW.lean * bw;
+    const hd = (o.headDown || 0) * (1 - a.brushW) * (1 - a.coachW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
              + SCROLL.headDown * a.scrollW + BOW.head * bw;
     set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
@@ -2003,10 +2511,19 @@ export function actorVisit(){
              floorY: a.floorY == null ? null : +a.floorY.toFixed(3),
              scrollW: +(a.scrollW || 0).toFixed(3), sipW: +(a.sipW || 0).toFixed(3),
              sitW: +a.sitW.toFixed(3), offerW: +(a.offerW || 0).toFixed(3),
-             moveW: +(a.moveW || 0).toFixed(3) };
+             moveW: +(a.moveW || 0).toFixed(3),
+             ride: !!a.ride, trip: !!a.trip,
+             coachW: +(a.coachW || 0).toFixed(3), tieW: +(a.tieW || 0).toFixed(3),
+             visible: !!a.holder.visible };
   };
+  const V = stableTravel();
   return { phase: VISIT.phase, t: +VISIT.t.toFixed(2), bowW: +VISIT.bowW.toFixed(3),
-           host: one(VISIT.hostId), guest: one(VISIT.guestId) };
+           mode: VISIT.mode,
+           car: { state: VISCAR.state, s: +VISCAR.s.toFixed(2), leg: VISCAR.leg,
+                  tieOn: !!VISCAR.tieOn, guestOn: !!VISCAR.guestOn, coachOn: !!VISCAR.coachOn,
+                  ready: !!V,
+                  pos: V && V.car ? V.car.getWorldPosition(new THREE.Vector3()).toArray().map(n => +n.toFixed(3)) : null },
+           host: one(VISIT.hostId), guest: one(VISIT.guestId), coach: one(VISIT.coachId) };
 }
 
 export function actorState(){

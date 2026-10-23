@@ -27,7 +27,8 @@ import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } f
    老黄："低头吃草、撅嘴、摇尾巴、动前蹄、抬头晃脑袋和马鬃、冬天口鼻白气"。
    Tinker 走**真实骨骼**（454 根，见 15-stable 的 applyTinkerPose）；离线/失败时的
    程序化替身仍走着色器伪蒙皮，同一套状态机分支。白雾位置也在那边算（鼻骨世界坐标）。 */
-import { tickStableLife, horseLifeState } from './15-stable.js';
+import { tickStableLife, horseLifeState, stableTravel, travelCarriagePlace, travelCarriagePark,
+         travelCarriageVisible, travelCarriageTied } from './15-stable.js';
 /* P1 半写实人物（2026-10-21）：加载成功后每帧只写骨骼的呼吸/转头。 */
 import { tickActors, actorState, actorWalk, actorStep, actorPose, actorRig, actorTune, actorVisit } from './16-actors.js';
 /* 马夫"递草料"的摆臂（2026-10-11 · 老黄："人喂马"）：肩枢轴组住在 08-assemble（人物几何是
@@ -1843,6 +1844,8 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   wetNow: () => wetApplied,
                   tourStart, tourStop, tourPlan, horseLifeState, actorState, actorWalk, actorStep, actorPose,
                   actorRig, actorTune, actorVisit,
+                  /* 马车版到访（2026-10-23）：探针要能读车/辕马状态、并手动摆位做 A/B */
+                  stableTravel, travelCarriagePlace, travelCarriagePark, travelCarriageVisible, travelCarriageTied,
                   tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
                   tourCaption: () => { const el = captionEl(); return el ? el.querySelector('b').textContent : ''; },
                   qosState: () => QOS.state(), setQos: (lv) => QOS.apply(lv),

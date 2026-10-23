@@ -1120,6 +1120,9 @@ function gaitPose(mode, phase){
 }
 function updateHorseGait(h, dt){
   const G = h.gait;
+  /* 被套在行驶中的马车上时，位置与腿相位由 travelCarriagePlace 统一写
+     （口径 = 车的里程，不是马自己的状态机）—— 这里必须整个让开，否则两边每帧打架。 */
+  if (h.driving) return;
   if (!G || !h.home || !h.groundY) return;
   G.timer -= dt;
   if (G.state === 'graze'){
@@ -1535,6 +1538,7 @@ function loadRodinHorses(slots){
         breath: Array.from({ length: 5 }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, world: false })),
         breathNext: 1.2 + _sr() * 2.6, breathCur: 0,
       });
+      slot.life = HORSE_LIFE[HORSE_LIFE.length - 1];   // 让"行驶中的辕马"能按槽位找到它
       born.push(key + '@' + slot.role);
       if (!horseBreathMesh.parent) scene.add(horseBreathMesh);
     }
@@ -1654,6 +1658,7 @@ export function loadStableHorses(stableGroup){
           breath: Array.from({ length: 5 }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, world: true })),
           breathNext: 1.2 + _sr() * 2.6, breathCur: 0,
         });
+        slot.life = HORSE_LIFE[HORSE_LIFE.length - 1];   // 同 Rodin 路径：行驶时按槽位取
         if (!horseBreathMesh.parent) scene.add(horseBreathMesh);
         /* ── 长尾束（2026-10-20 · 老黄："马尾巴不是兔子尾巴或者狗尾巴"）──────────────
            实测（probe/_tmp-tinker-tailbones.py，Blender 5.2 导入 tinker-raw.glb）：
@@ -1962,6 +1967,188 @@ export function makeHorse(coatMat = MAT.horseChestnut, opts = {}){
    **辐条大轮两只**、**舆**（车箱）、**篷**（半圆筒罩住后半）。
    opts.detached = true ⇒ **卸了马的停车状态**：车辕**抬起**、下面支一根"支辕棍"
    （真实停车就这么放，免得辕头戳地）—— 与"套着马待发"那驾形成对照。 */
+/* ══ 可行驶的马车（2026-10-23 · 客人到访的"马车版"）════════════════════════════
+   院子里的 carA 原本是**静态陈设**：会被 mergeStatics 烘进 mergedStatic，而且
+   `renderer.shadowMap.autoUpdate=false`，它的影子也是烘死的一次快照。
+   要让它真的开起来，三件事缺一不可：
+     ① **noMerge**（逐网格打标）—— 否则几何被烘进合并结果，车开走以后原地还留着一辆"ghost"；
+     ② **castShadow=false + 贴地软影** —— 否则影子永远留在停车位、走到哪都没有脚影（同 15 的走路马）；
+     ③ **合并静态件** —— 45 个网格挂 noMerge 就是 45 个 draw call；按材质并成 1~2 个，
+        只把两只车轮留成独立组（要转）。
+   ⚠️ 合并只在本地空间做（applyMatrix4 用"相对车组的矩阵"），所以之后整组平移/旋转照常有效。 */
+function mergeLocalMeshes(container, inv, accept){
+  const list = [];
+  container.traverse(o => { if (o.isMesh && o !== container && accept(o)) list.push(o); });
+  const buckets = new Map();
+  for (const o of list){
+    const key = o.material.uuid + '|' + (o.castShadow ? 1 : 0) + (o.receiveShadow ? 1 : 0);
+    if (!buckets.has(key)) buckets.set(key, { mat: o.material, cast: o.castShadow, recv: o.receiveShadow, items: [] });
+    buckets.get(key).items.push(o);
+  }
+  for (const b of buckets.values()){
+    if (b.items.length < 2) continue;
+    const geos = [];
+    for (const o of b.items){
+      const g = o.geometry.clone();
+      const m = new THREE.Matrix4().multiplyMatrices(inv, o.matrixWorld);
+      g.applyMatrix4(m);
+      if (!g.index){
+        const n = g.attributes.position.count, idx = new Uint32Array(n);
+        for (let i = 0; i < n; i++) idx[i] = i;
+        g.setIndex(new THREE.BufferAttribute(idx, 1));
+      }
+      if (!g.attributes.normal) g.computeVertexNormals();
+      if (!g.attributes.uv) g.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(g.attributes.position.count * 2), 2));
+      geos.push(g);
+    }
+    let merged = null;
+    try { merged = mergeGeometries(geos, false); } catch (e){ merged = null; }
+    if (!merged) continue;                       // 合并失败就保留原网格（宁可慢，不可消失）
+    const mm = new THREE.Mesh(merged, b.mat);
+    mm.castShadow = b.cast; mm.receiveShadow = b.recv;
+    mm.name = 'carriagePart';
+    container.add(mm);
+    for (const o of b.items) if (o.parent) o.parent.remove(o);
+  }
+}
+function prepareTravelCarriage(car){
+  car.updateMatrixWorld(true);
+  const wheels = car.userData.wheels || [];
+  const inWheel = (o) => {
+    let p = o;
+    while (p && p !== car){ if (wheels.includes(p)) return true; p = p.parent; }
+    return false;
+  };
+  for (const w of wheels){
+    w.updateMatrixWorld(true);
+    mergeLocalMeshes(w, new THREE.Matrix4().copy(w.matrixWorld).invert(), () => true);
+  }
+  car.updateMatrixWorld(true);
+  mergeLocalMeshes(car, new THREE.Matrix4().copy(car.matrixWorld).invert(), (o) => !inWheel(o));
+  car.traverse(o => {
+    if (!o.isMesh) return;
+    o.userData.noMerge = true;                   // 别被 mergeStatics 烘走（见上）
+    o.castShadow = false;                        // 静态阴影图烘不出"移动的车"（见上）
+    o.receiveShadow = true;
+    o.frustumCulled = false;                     // 车很大、随时在动，包围球不可靠
+  });
+  car.userData.wheels = wheels;
+  car.userData.travel = true;
+}
+
+/* 行驶中的马车 + 两匹辕马（都由 16-actors 的到访导演层驱动）。
+   parked 是"停在院里待发"的**局部**坐标（与 makeStable 里 carA 的落点一致）。 */
+const TRAVEL = {
+  ready: false, group: null, car: null, wheels: [], slots: [], blob: null,
+  cx: 0, cz: 0, stableYaw: 0, cy: 1, sy: 0,
+  parked: { lx: -3.0, lz: -1.4, yaw: Math.PI },
+  wheelR: 0.55,
+};
+export function stableTravel(){ return TRAVEL.ready ? TRAVEL : null; }
+
+const _travV = new THREE.Vector3();
+/* 把车 + 两匹辕马摆到世界 (x,z)、朝向 yaw；dist = 累计里程（驱动车轮与四腿相位）。
+   返回车心落地的世界坐标，供人物"坐在车上"用（不再让调用方另算一遍）。 */
+export function travelCarriagePlace(x, z, yaw, dist){
+  const V = TRAVEL;
+  if (!V.ready) return null;
+  const fx = Math.sin(yaw), fz = Math.cos(yaw);
+  const rx = Math.cos(yaw), rz = -Math.sin(yaw);
+  const gL = groundHeight(x - rx * 0.62, z - rz * 0.62);
+  const gR = groundHeight(x + rx * 0.62, z + rz * 0.62);
+  const gF = groundHeight(x + fx * 0.80, z + fz * 0.80);
+  const gB = groundHeight(x - fx * 0.80, z - fz * 0.80);
+  const y = (gL + gR) / 2;
+  const car = V.car;
+  car.position.copy(V.group.worldToLocal(_travV.set(x, y, z)));
+  car.rotation.order = 'YXZ';
+  // 车头 +z 沿行进方向；pitch 让车随坡抬头/低头，roll 让两轮同时落地（与 seatCart 同一口径）
+  car.rotation.set(-Math.atan2(gF - gB, 1.6), yaw - V.stableYaw, (gR - gL) / 1.24);
+  for (const w of V.wheels) w.rotation.z = dist / V.wheelR;
+  const stride0 = 0.663;
+  for (const s of V.slots){
+    const ox = s.travelOff ? s.travelOff.x : 0;
+    const oz = s.travelOff ? s.travelOff.z : 1.45;
+    const hx = x + ox * Math.cos(yaw) + oz * Math.sin(yaw);
+    const hz = z - ox * Math.sin(yaw) + oz * Math.cos(yaw);
+    const hy = groundHeight(hx, hz);
+    s.group.position.copy(V.group.worldToLocal(_travV.set(hx, hy, hz)));
+    s.group.rotation.y = yaw - V.stableYaw;
+    const L = s.life;
+    if (L){
+      L.driving = true;
+      L.gaitW = 1; L.grazeW = 0;
+      const stride = L.strideWalk || stride0;
+      const ph = ((dist / stride) + (s.travelPh || 0)) % 1;
+      L.gaitLegs = gaitPose('walk', ph < 0 ? ph + 1 : ph);
+      L.gaitBob = Math.sin(ph * Math.PI * 4) * 0.016;
+    }
+  }
+  if (V.blob){
+    V.blob.position.copy(V.group.worldToLocal(_travV.set(x, y + 0.10, z)));
+    V.blob.rotation.y = yaw - V.stableYaw;
+  }
+  return { x, y, z, yaw, pitch: car.rotation.x, roll: car.rotation.z };
+}
+
+/* 回到院里的停车位（复位 / 场景不出现时）。辕马同时回到各自的 home。 */
+export function travelCarriagePark(){
+  const V = TRAVEL;
+  if (!V.ready) return;
+  const p = V.parked;
+  const x = V.cx + p.lx * V.cy + p.lz * V.sy;
+  const z = V.cz - p.lx * V.sy + p.lz * V.cy;
+  travelCarriagePlace(x, z, V.stableYaw + p.yaw, 0);
+  for (const s of V.slots){
+    const L = s.life;
+    if (L){ L.driving = false; L.gaitW = 0; L.gaitLegs = null; L.gaitBob = 0; }
+    const h = s.home;
+    if (h){
+      s.group.position.set(h.x, h.y, h.z);
+      s.group.rotation.y = h.yaw;
+    }
+  }
+  if (V.blob){
+    V.blob.position.set(p.lx, groundHeight(x, z) + 0.10, p.lz);
+    V.blob.rotation.y = p.yaw;
+  }
+}
+
+/* 显隐（车走了 / 还没来）。抬车时辕马一起藏 —— 否则场上只剩两匹"拉空气"的马。 */
+export function travelCarriageVisible(v){
+  const V = TRAVEL;
+  if (!V.ready) return;
+  V.car.visible = !!v;
+  if (V.blob) V.blob.visible = !!v;
+  for (const s of V.slots) s.group.visible = !!v;
+}
+
+/* 系马绳（马夫把两匹辕马的缰绳拴到院内横杆上）：两根细管，与马一起走，
+   只在"已系好"时显示。位置在槽位组的局部系里（马头前下方 → 横杆方向）。 */
+function makeLeadRope(slot){
+  const g = new THREE.Group();
+  g.name = 'leadRope';
+  const mat = MAT.harness;
+  for (const sgn of [-1, 1]){
+    const c = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(sgn * 0.10, 1.05, 0.74),
+      new THREE.Vector3(sgn * 0.17, 0.96, 1.02),
+      new THREE.Vector3(sgn * 0.24, 0.99, 1.28),
+    ]);
+    const t = mesh(new THREE.TubeGeometry(c, 8, 0.016, 5, false), mat, { name: 'leadRopeTube', cast: false });
+    t.userData.noMerge = true;
+    g.add(t);
+  }
+  g.userData.noMerge = true;
+  g.visible = false;
+  slot.group.add(g);
+  slot.leadRope = g;
+  return g;
+}
+export function travelCarriageTied(on){
+  for (const s of TRAVEL.slots) if (s.leadRope) s.leadRope.visible = !!on;
+}
+
 export function makeCarriage(opts = {}){
   const g = new THREE.Group();
   const wood = MAT.woodDark, trim = MAT.wood, strap = MAT.harness;
@@ -1982,7 +2169,12 @@ export function makeCarriage(opts = {}){
     w.rotation.y = Math.PI / 2;
     return w;
   };
-  g.add(wheel(-1, 0)); g.add(wheel(1, 0));
+  /* 车轮留句柄：2026-10-23「马车版到访」要真的把车开起来，两只轮子得随里程转。
+     车体其余静态件在 prepareTravelCarriage 里按材质并成 1~2 个网格（否则 45 个网格
+     全部 noMerge ⇒ 45 个 draw call，smoke 的 800 预算吃不消）。 */
+  const wheelL = wheel(-1, 0), wheelR = wheel(1, 0);
+  g.add(wheelL); g.add(wheelR);
+  g.userData.wheels = [wheelL, wheelR];
   const axle = mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.42, 8), wood, { name: 'carriageAxle' });
   axle.rotation.z = Math.PI / 2; axle.position.set(0, 0.55, 0); g.add(axle);
   const bedY = 0.72;
@@ -3024,6 +3216,9 @@ export function makeStable(cx, cz, opts = {}){
 
   /* ③a 两驾马车：A 套着两匹马**待发**（车头朝院门 = −z）、B **卸了马**（车辕抬起、支辕棍） */
   const carA = makeCarriage({ pair: true });     // 双马套车：中央辕杆 + 横轭
+  /* 2026-10-23：这驾车要能被到访导演层"开出去"（见文件上方的 prepareTravelCarriage）。
+     ⚠️ 必须在 `deferRoot.add(st)` / mergeStatics 之前做 —— 晚了车体已经被烘进 mergedStatic。 */
+  prepareTravelCarriage(carA);
   const carAY = yardY(-3.0, -1.4);
   carA.position.set(-3.0, carAY, -1.4); carA.rotation.y = Math.PI;   // +z（辕）→ 局部 −z（院门）
   g.add(carA);
@@ -3145,6 +3340,24 @@ export function makeStable(cx, cz, opts = {}){
      · 拴马桩：lx = ±3.55、lz = −5.15；方桩 0.16×1.30，底座 0.44×0.16、桩帽 + 球顶，
        总高约 1.62m；铁环（MAT.harness）朝门洞一侧，挂高 1.08m（缰绳高度）。
      · 全部逐点取 `gy()` 落地 —— 草坡有起伏，不采地形会有一角悬空。 */
+  /* ③f 院内拴马横杆（2026-10-23 · 马车版到访的"马夫系马"需要一个真实可系的物件）：
+     车停在院门外时，两匹辕马的头朝院门里、正好够到这道横杆（0.6~0.7m）。
+     位置：世界 z≈0.9（院内、厩身前面那片空地），跨 x 38.6~41.4。 */
+  {
+    const railZ = -2.9, railY = gy(0, railZ) + 1.04;
+    for (const lx of [-1.36, 1.36]){
+      const post = mesh(box(0.12, 1.10, 0.12), MAT.woodDark, { name: 'hitchRailPost', cast: true });
+      post.position.set(lx, gy(lx, railZ) + 0.55, railZ); g.add(post);
+    }
+    const bar = mesh(box(2.90, 0.10, 0.10), MAT.wood, { name: 'hitchRailBar', cast: true });
+    bar.position.set(0, railY, railZ); g.add(bar);
+    for (const lx of [-0.62, 0.62]){
+      const ring = mesh(new THREE.TorusGeometry(0.070, 0.016, 4, 10), MAT.harness, { name: 'hitchRailRing' });
+      ring.position.set(lx, railY - 0.07, railZ + 0.05);
+      ring.rotation.y = Math.PI / 2; g.add(ring);
+    }
+  }
+
   {
     const mkHitch = (lx, lz) => {
       const y0 = gy(lx, lz);
@@ -3256,6 +3469,36 @@ export function makeStable(cx, cz, opts = {}){
   /* ⚠️ 打 noMerge 必须放在**所有槽位内容都挂完之后**（挽具是在上面的循环里挂进 slot.group 的）——
      放在 addHorseSlot 里会漏掉挽具，那些件照样被烘进 mergedStatic 而永远摘不掉。 */
   for (const s of horseSlots) markNoMerge(s.group);
+  /* ── 可行驶马车注册（2026-10-23）──────────────────────────────────────────
+     两匹辕马（role='harnessed'）才是"拉车的那两匹"，其余四匹继续原地/吃草。
+     travelOff 是"相对车心的车局部偏移"：原编成里马心在车心前方 1.45m、横向 ±0.4m
+     （车局部 +x 与厩身局部的 +x 反向 —— 由 rotation π 决定，这里按 home 反算，不写死符号）。 */
+  const travSlots = horseSlots.filter(s => s.role === 'harnessed');
+  for (let i = 0; i < travSlots.length; i++){
+    const s = travSlots[i];
+    s.travelOff = { x: -3.0 - s.home.x, z: 1.45 };
+    s.travelPh = i * 0.12;
+    makeLeadRope(s);
+  }
+  const blobMat = new THREE.MeshBasicMaterial({ map: makeSoftAlphaTex(), color: 0x000000,
+    transparent: true, opacity: 0.30, depthWrite: false });
+  const travBlob = new THREE.Mesh(new THREE.PlaneGeometry(1.9, 3.4), blobMat);
+  travBlob.name = 'carriageBlobShadow';
+  travBlob.rotation.x = -Math.PI / 2;
+  /* 车心停在 local (−3,−1.4)：贴地软影用**局部**坐标挂在本组里（组 y=0 ⇒ 局部 y = 世界高） */
+  travBlob.position.set(-3.0, groundHeight(cx + (-3.0) * cy + (-1.4) * sy,
+                                          cz - (-3.0) * sy + (-1.4) * cy) + 0.10, -1.4);
+  travBlob.rotation.y = Math.PI;
+  travBlob.renderOrder = 2;
+  travBlob.raycast = () => {};
+  travBlob.userData.aoSkip = true;
+  travBlob.userData.noMerge = true;
+  g.add(travBlob);
+  TRAVEL.ready = true;
+  TRAVEL.group = g; TRAVEL.car = carA; TRAVEL.wheels = carA.userData.wheels || [];
+  TRAVEL.slots = travSlots; TRAVEL.blob = travBlob;
+  TRAVEL.cx = cx; TRAVEL.cz = cz; TRAVEL.stableYaw = yaw; TRAVEL.cy = cy; TRAVEL.sy = sy;
+
   g.userData.stable = {
     cx, cz, yaw, plinthTop,
     groom: { x: cx + groomLocal[0] * cy + groomLocal[1] * sy,
