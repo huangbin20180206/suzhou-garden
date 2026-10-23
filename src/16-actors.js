@@ -309,6 +309,9 @@ const BOW = {
      line   → 各自走到"并排线"的起点（横向 ±gap，见 PAIR）
      pair   → 并排走完门 → 桥 → 堂前（各自的偏移航点，见 PAIR）
      hall   → 到堂前站定（S4 入座奉茶从这里接）
+     sit    → 端坐；S5 送客接在其后：rise → exit → eline/epair（并排回门内）
+              → eface/ebow（门内送客揖）→ watch（目送）→ hostback → reenter/reseat
+              （主人回座）→ done（终态，见 ESCORT 注释）
    文士的日常捧卷/端茶在整个过程中**保持关闭**（否则客人还站着、他已经读起书来）。
    ⚠️ 文士的 scroll/tea 是互斥手位状态机，必须在这里退出 —— 否则他会"边走边端着茶盏"。 */
 const VISIT = {
@@ -524,6 +527,37 @@ const ENTER_PTS = {
          [-0.45, -8.9], [-0.9, -10.3], [-1.35, -11.7], [-1.35, -12.55]],
   guest: [[1.26, -6.15], [0.45, -6.4], [0.45, -6.95], [0.45, -7.6],
           [0.45, -8.9], [0.9, -10.3], [1.35, -11.7], [1.35, -12.55]],
+};
+
+/* ── 送客（S5 · 2026-10-23）──────────────────────────────────────────────────
+   喝完茶起身送客，把 S2~S4 的路线全部倒着走一遍（同一条线已逐点验过能走）：
+     rise       起身（sitTarget=0，坐姿自己缓下来）
+     exit       倒走出堂（ENTER_PTS 反向）
+     eline/epair 并排回门内：航点 = HOST_GREET_PTS（S2 迎客路线本身方向）
+     eface/ebow 门内再作揖一次（送客礼，复用 BOW 全套）
+     watch      目送 3.5s；客人沿石板路回马厩（STABLE_ROAD_PTS 反向 = S1 的逆）
+     hostback   主人沿 S2 路线反向回堂前 → reenter/reseat 重进堂坐回太师椅 → done
+   ⚠️ 并排偏移号与 S3 **相反**（host +gap / guest −gap）：出堂时主人在西 (−1.35)、
+      客人在东 (+1.35)，并排线起点必须接得上各自的出口位置 —— host=+gap 时主人
+      恰落在 (1.14,−5.25) 原地、客人只挪 0.9m；沿用 S3 的符号两人会交换位置、
+      从对方身上穿过去（S3 的'line'相位就是这么防"各追各的点"的）。
+   ⚠️ 终态是 'done'（不是 'idle'）：visiting 门控靠 phase!=='idle' 压住文士的
+      捧卷/端茶 —— 坐回椅子的人不该突然捧起卷轴；也防 'idle' 里 guest.arrived
+      的早退把整场戏立即重播（"可重播"与否还没拍板，先不做）。 */
+const EXIT_PTS = {
+  host: [...ENTER_PTS.host].reverse(),
+  guest: [...ENTER_PTS.guest].reverse(),
+};
+const GUEST_HOME_PTS = [[0.15, 20.9], [0.15, 23.55], ...[...STABLE_ROAD_PTS].reverse()];
+const HOST_RETURN_PTS = [...HOST_GREET_PTS].reverse();       // 门内 → 堂前（S2 反向）
+const ESCORT = {
+  /* ⚠️ 从第 2 个点起排（去掉堂前 [1.2,−5.7]）：它的 ±0.45 偏移点里客人那个
+     (1.26,−6.15) 落在月台踏跺带内（踏跺 z −6.0~−6.4、一级顶 0.31），而
+     0.31 − 草地(−0.2) = 0.51 超出"一步"窗口 0.42 ⇒ 走上去会陷进台阶里。
+     从 [3.5,−5.4] 起排后，并排线起点 (3.44/3.56, −4.95/−5.85) 与两个出口位置
+     (1.14/1.26, −5.25) 之间全程是草地，无台阶；并排段比 S3 少这 1.3m 堂前浅草。 */
+  pts: HOST_GREET_PTS.slice(1),
+  hostLat: PAIR.gap, guestLat: -PAIR.gap,       // 与 S3 相反，理由见上
 };
 
 const DEFS = [
@@ -1111,6 +1145,69 @@ function giveRoute(a, pts, speed, waitT, floorMax){
   if (floorMax !== undefined){ a.def.floorMax = floorMax; a.def.followFloor = true; }
 }
 
+/* S4/S5 复用：单个人物的"转身 → 退半步 → 落座"，返回"是否已坐稳"。
+   从 'seat' 相位里原样提出（S5 送客后主人要坐回同一把椅子）——
+   两处各写一份迟早分家（本项目"两处公式不一致"的 bug 出过 41.7rad/s 那次）。 */
+function seatOne(a, sxy, dt){
+  /* ① 先转成"背对椅子"（椅子朝 +z ⇒ 人朝 +z、椅子在身后 / −z） */
+  const e = angDiff(SEAT.yaw, a.yaw);
+  if (Math.abs(e) > 0.10){
+    const d = GAIT.turn * dt;
+    a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
+    a.moved = 0;
+    a.step += dt * 0.17;
+    a.moveW = approach(a.moveW, 0.28, dt / 0.3);
+    return false;
+  }
+  const dx = sxy[0] - a.pos.x, dz = sxy[1] - a.pos.z;
+  const dist = Math.hypot(dx, dz);
+  if (dist > 0.02){
+    const k = Math.min(1, (0.55 * dt) / dist);
+    a.pos.x += dx * k; a.pos.z += dz * k;      // 退半步：不迈步，只往后退
+    a.moved = 0;
+    a.moveW = approach(a.moveW, 0, dt / 0.3);
+  }
+  /* ② 离座面 0.22m 以内才开始落座（sitW 自己 2.2/s 缓动 ≈0.45s） */
+  if (dist < 0.22) a.sitTarget = 1;
+  return a.sitW >= 0.98 && dist < 0.06;
+}
+
+/* S3/S5 复用：并排段的驱动（同一条弧长 s 驱动两个人，位置 = 中心线 ± 法线×lat）。
+   S3 'pair'（门→堂）与 S5 'epair'（堂→门）共用；latH/latG 由调用方给
+   （S5 的偏移号与 S3 相反，理由见 ESCORT 注释）。 */
+function drivePair(v, host, guest, P, latH, latG, dt, onDone){
+  const eh = angDiff(pathAt(P, v.s).yaw, host.yaw);
+  const eg = angDiff(pathAt(P, v.s).yaw, guest.yaw);
+  /* 转角处两人**一起站住转**（同一条切线 ⇒ 同时转完、转完仍并肩），
+     s 这时不推进 —— 若各转各的，先转完那个会先走出去，队形立刻散掉。 */
+  if (Math.abs(eh) > 0.12 || Math.abs(eg) > 0.12){
+    for (const [a, e] of [[host, eh], [guest, eg]]){
+      const d = GAIT.turn * dt;
+      a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
+      a.step += dt * 0.17;                       // 原地倒步
+      a.moveW = approach(a.moveW, 0.32, dt / 0.3);
+      a.moved = 0;
+    }
+    return;
+  }
+  v.s = Math.min(P.total, v.s + PAIR.speed * dt);
+  const q = pathAt(P, v.s);
+  for (const [a, lat] of [[host, latH], [guest, latG]]){
+    a.pos.x = q.x + q.nx * lat;
+    a.pos.z = q.z + q.nz * lat;
+    const e = angDiff(q.yaw, a.yaw);
+    const d = GAIT.turn * dt;
+    a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
+    a.moved = PAIR.speed * dt;
+    a.step += a.moved;
+    a.moveW = approach(a.moveW, 1, dt / 0.40);
+  }
+  if (v.s >= P.total - 1e-6){
+    for (const a of [host, guest]){ a.arrived = true; a.pairDrive = false; a.moveW = 0; }
+    onDone();
+  }
+}
+
 function tickVisit(dt){
   const v = VISIT;
   const host = actorRef(v.hostId), guest = actorRef(v.guestId);
@@ -1129,11 +1226,16 @@ function tickVisit(dt){
       v.phase = 'walk'; v.t = 0;
       host.walkOff = false;
       host.waitT = 0.3;               // 起步前再站一下（"我从堂前出来"）
+      /* 桥北踏步一级实测 0.69m（docs §6），超出默认"一步"窗口 0.42 ⇒ 上坡方向
+         取面窗口会拒绝台阶顶、"最近面"回落到地面 ⇒ 人从台阶里穿过去、沿桥底
+         洼地走（S5 探针实测 floorY 一路 −0.5~−1.0）。迎客上坡与 S5 送客回程
+         同一条路，这里放宽到 0.80，到门口'face'收回。 */
+      host.def.stepUp = 0.80;
     }
     return;
   }
   if (v.phase === 'walk'){
-    if (host.arrived){ v.phase = 'face'; v.t = 0; }
+    if (host.arrived){ v.phase = 'face'; v.t = 0; host.def.stepUp = 0.42; }
     return;
   }
   if (v.phase === 'face'){
@@ -1176,37 +1278,8 @@ function tickVisit(dt){
     return;
   }
   if (v.phase === 'pair'){
-    const P = v.path;
-    const eh = angDiff(pathAt(P, v.s).yaw, host.yaw);
-    const eg = angDiff(pathAt(P, v.s).yaw, guest.yaw);
-    /* 转角处两人**一起站住转**（同一条切线 ⇒ 同时转完、转完仍并肩），
-       s 这时不推进 —— 若各转各的，先转完那个会先走出去，队形立刻散掉。 */
-    if (Math.abs(eh) > 0.12 || Math.abs(eg) > 0.12){
-      for (const [a, e] of [[host, eh], [guest, eg]]){
-        const d = GAIT.turn * dt;
-        a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
-        a.step += dt * 0.17;                       // 原地倒步
-        a.moveW = approach(a.moveW, 0.32, dt / 0.3);
-        a.moved = 0;
-      }
-      return;
-    }
-    v.s = Math.min(P.total, v.s + PAIR.speed * dt);
-    const q = pathAt(P, v.s);
-    for (const [a, lat] of [[host, -PAIR.gap], [guest, PAIR.gap]]){
-      a.pos.x = q.x + q.nx * lat;
-      a.pos.z = q.z + q.nz * lat;
-      const e = angDiff(q.yaw, a.yaw);
-      const d = GAIT.turn * dt;
-      a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
-      a.moved = PAIR.speed * dt;
-      a.step += a.moved;
-      a.moveW = approach(a.moveW, 1, dt / 0.40);
-    }
-    if (v.s >= P.total - 1e-6){
-      for (const a of [host, guest]){ a.arrived = true; a.pairDrive = false; a.moveW = 0; }
-      v.phase = 'hall'; v.t = 0;
-    }
+    drivePair(v, host, guest, v.path, -PAIR.gap, PAIR.gap, dt,
+      () => { v.phase = 'hall'; v.t = 0; });
     return;
   }
   /* hall：到堂前站定，站一口气再进门（S4）。保持末段朝向（都朝着堂），不再互指。 */
@@ -1228,27 +1301,7 @@ function tickVisit(dt){
   if (v.phase === 'seat'){
     let done = 0;
     for (const [a, sxy] of [[host, SEAT.host], [guest, SEAT.guest]]){
-      /* ① 先转成"背对椅子"（椅子朝 +z ⇒ 人朝 +z、椅子在身后 / −z） */
-      const e = angDiff(SEAT.yaw, a.yaw);
-      if (Math.abs(e) > 0.10){
-        const d = GAIT.turn * dt;
-        a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
-        a.moved = 0;
-        a.step += dt * 0.17;
-        a.moveW = approach(a.moveW, 0.28, dt / 0.3);
-        continue;
-      }
-      const dx = sxy[0] - a.pos.x, dz = sxy[1] - a.pos.z;
-      const dist = Math.hypot(dx, dz);
-      if (dist > 0.02){
-        const k = Math.min(1, (0.55 * dt) / dist);
-        a.pos.x += dx * k; a.pos.z += dz * k;      // 退半步：不迈步，只往后退
-        a.moved = 0;
-        a.moveW = approach(a.moveW, 0, dt / 0.3);
-      }
-      /* ② 离座面 0.22m 以内才开始落座（sitW 自己 2.2/s 缓动 ≈0.45s） */
-      if (Math.hypot(dx, dz) < 0.22) a.sitTarget = 1;
-      if (a.sitW >= 0.98 && Math.hypot(dx, dz) < 0.06) done++;
+      if (seatOne(a, sxy, dt)) done++;
     }
     if (done === 2){ v.phase = 'tea'; v.t = 0; }
     return;
@@ -1262,7 +1315,113 @@ function tickVisit(dt){
     if (v.t > 6.7){ host.offerW = 0; v.phase = 'sit'; v.t = 0; }
     return;
   }
-  /* sit：两人端坐（S5 之后从这里接：送客 / 游园 / 马车回马厩）。 */
+  /* ── S5 送客（2026-10-23，见 EXIT_PTS/ESCORT 注释）───────────────────────── */
+  if (v.phase === 'sit'){
+    /* 喝完茶端坐一阵（叙事上的"叙话"），再起身送客 */
+    v.t += dt;
+    if (v.t > 10){
+      v.phase = 'rise'; v.t = 0;
+      host.sitTarget = guest.sitTarget = 0;
+      /* 出堂一路向下（唯一的上坎是门槛 +0.24，默认窗口 0.42 够），
+         把 S4 进门临时放宽的 stepUp 收回 —— 0.70 的窗口太宽，并排过桥时
+         会把桥栏杆顶也当成"一步之内的面"（S3 全程 0.42 无恙）。 */
+      host.def.stepUp = guest.def.stepUp = 0.42;
+    }
+    return;
+  }
+  if (v.phase === 'rise'){
+    if (host.sitW <= 0.06 && guest.sitW <= 0.06){
+      v.phase = 'exit'; v.t = 0;
+      giveRoute(host, EXIT_PTS.host, 0.52, 0.25, 2.0);
+      giveRoute(guest, EXIT_PTS.guest, 0.52, 0.45, 2.0);
+    }
+    return;
+  }
+  if (v.phase === 'exit'){
+    if (host.arrived && guest.arrived){
+      v.phase = 'eline'; v.t = 0;
+      v.eptsH = offsetPath(ESCORT.pts, ESCORT.hostLat);
+      v.eptsG = offsetPath(ESCORT.pts, ESCORT.guestLat);
+      v.epath = pathTable(ESCORT.pts);
+      /* 并排回程要**上**桥北踏步（0.69m 一级 > 0.42，同 stow 那条）——
+         0.80 的窗口在桥上安全：两人走中心线 ±0.45，射线打不到两侧栏杆
+         （S3 同一条偏移线已验）；廊檐口在 2.5m 以上、超窗被拒。'eface' 收回。 */
+      host.def.stepUp = guest.def.stepUp = 0.80;
+      giveRoute(host, [v.eptsH[0]], PAIR.speed, 0.25, 2.45);
+      giveRoute(guest, [v.eptsG[0]], PAIR.speed, 0.55, 2.45);
+    }
+    return;
+  }
+  if (v.phase === 'eline'){
+    if (host.arrived && guest.arrived){
+      v.phase = 'epair'; v.t = 0; v.s = 0;
+      host.pairDrive = guest.pairDrive = true;
+      host.waitT = guest.waitT = 0;
+    }
+    return;
+  }
+  if (v.phase === 'epair'){
+    drivePair(v, host, guest, v.epath, ESCORT.hostLat, ESCORT.guestLat, dt,
+      () => { v.phase = 'eface'; v.t = 0; });
+    return;
+  }
+  if (v.phase === 'eface'){
+    host.def.stepUp = guest.def.stepUp = 0.42;       // 并排结束，收回上桥的宽窗口
+    v.t += dt;
+    const dh = turnToward(host, yawToOther(host, guest), dt);
+    const dg = turnToward(guest, yawToOther(guest, host), dt);
+    /* 至少站 1.2s 再行礼（同 S2 face：走到就拜读起来像"撞上去"） */
+    if (v.t > 1.2 && dh < 0.10 && dg < 0.10){ v.phase = 'ebow'; v.t = 0; }
+    return;
+  }
+  if (v.phase === 'ebow'){
+    v.t += dt;
+    const t1 = BOW.in, t2 = BOW.in + BOW.hold, t3 = t2 + BOW.out;
+    if (v.t < t1) v.bowW = ease01(v.t / BOW.in);
+    else if (v.t < t2) v.bowW = 1;
+    else if (v.t < t3) v.bowW = 1 - ease01((v.t - t2) / BOW.out);
+    else {
+      v.bowW = 0; v.phase = 'watch'; v.t = 0;
+      /* 客人沿石板路回马厩（S1 的反向，同一串点已验过能走）；floorMax 收回 1.20 */
+      giveRoute(guest, GUEST_HOME_PTS, 0.58, 0.45, 1.20);
+    }
+    turnToward(host, yawToOther(host, guest), dt);     // 转身没转完也继续对上
+    turnToward(guest, yawToOther(guest, host), dt);
+    return;
+  }
+  if (v.phase === 'watch'){
+    /* 目送：主人站原地看客人走远一程（3.5s），自己再回堂。
+       客人在走（自己那条 once 路线），主人无路线 → tickRoute 早退、原地站着。 */
+    v.t += dt;
+    if (v.t > 3.5){
+      v.phase = 'hostback'; v.t = 0;
+      /* 回程是**上坡**方向（廊道 0.38→1.30 逐级 + 桥拱）——同 stow/eline 的口径
+         放宽到 0.80，'reenter' 换 0.70（进门那级 0.62）、坐下收回。 */
+      host.def.stepUp = 0.80;
+      giveRoute(host, HOST_RETURN_PTS, 0.58, 0.2, 2.45);
+    }
+    return;
+  }
+  if (v.phase === 'hostback'){
+    if (host.arrived){
+      v.phase = 'reenter'; v.t = 0;
+      host.def.stepUp = 0.70;                       // 进门最后一级 0.62（同 S4 口径）
+      giveRoute(host, ENTER_PTS.host, 0.52, 0.3, 2.0);
+    }
+    return;
+  }  if (v.phase === 'reenter'){
+    if (host.arrived){ v.phase = 'reseat'; v.t = 0; }
+    return;
+  }
+  if (v.phase === 'reseat'){
+    if (seatOne(host, SEAT.host, dt)){
+      host.def.stepUp = 0.42;                       // 坐下了，收回
+      v.phase = 'done'; v.t = 0;
+    }
+    return;
+  }
+  /* done：终态。主人端坐堂内、客人已沿石板路回到马厩。
+     刻意不回 'idle'（理由见 ESCORT 注释）。 */
 }
 
 /* 一次完整更新（时钟由调用方推进）—— tickActors 与探针的 actorStep 共用同一份，
