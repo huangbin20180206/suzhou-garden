@@ -230,6 +230,190 @@ function makeBrush(holder){
   return g;
 }
 
+/* ── 捧卷读（P2 最后一件）────────────────────────────────────────────────────
+   文士双手捧着卷轴读；读一阵放下、喝口茶（沿用 TEA_ARM），再捧起来。
+   ⚠️ 与"端茶"是**互斥的两种手位**：共用右臂，靠 a.scrollW 交接 ——
+      卷轴放下之后才端盏，盏放下之后才捧卷轴。
+   ⚠️ 两只手腕的目标点是**反解**的（outputs/_diag/actor-scroll-solve.mjs）：
+      左右各自求解、**不镜像**（这套骨架左右骨骼朝向本来不对称，同抚琴那条）。
+      实测（ex=1.0 一行）左手腕 (1.193,1.014,−5.394)、右手腕 (1.438,1.012,−5.503)
+      ⇒ 两手相距 0.268m、高差 2mm（几乎水平）；两肘在肩前 0.20m、外 0.145m。
+      目标是 (±0.155, 腕高 1.20, 前 0.30)，解出的腕比目标低 0.19m 左右，
+      所以卷轴的宽度/高度都按**实测手距**缩放（span/SCROLL.span）而不是写死。
+   ⚠️ 卷轴姿态**不写死**：每帧按两只腕子的实际位置现算（位置 = 两腕中点，
+      X = 左腕→右腕，纸面法线 = 前上方）—— 与茶盏、马刷同一条经验：骨骼一转，
+      道具跟着走，不会"纸歪了、手空了"。
+   ⚠️ 纸面**上沿朝人、法线朝前上方**（上仰 24°）：外场（相机在正面偏上）看到的是
+      纸面；竖直拿着时从默认俯视机位只看见一条白边。 */
+const SCROLL = {
+  /* 反解结果（outputs/_diag/actor-scroll-solve2.log 的 chest42 一组）：
+     目标 = 腕高 1.32（相对脚下，胸口）、左右 ±0.21、前伸 0.30；实测每只手误差 0.04m，
+     两只手因此相距约 0.36m（不是 0.42）—— 缩放按**实测**走，见下面 span。
+     ⚠️ 第一版目标取 1.20/±0.155（腰腹高、两手并拢）：出图里两只手被宽袖口吞掉、
+        卷轴只露出一个白三角（outputs/_diag/actor-scroll/front.png）⇒ 抬到胸口、
+        两手拉开，纸面才从袖口之间露出来。 */
+  L: { sx: -2.34, sy: -1.77, sz: -0.17, ex: 0.70 },
+  R: { sx: -1.99, sy: 0.77, sz: -0.43, ex: 0.70 },
+  w: 0.42, h: 0.26,      // 纸面宽 × 高（宽由两手距离定，见 span）
+  yOff: 0.02,            // 纸心比手高一点：握的是卷轴的下三分之一，纸往上展开
+  span: 0.42,            // 反解目标的两手间距（缩放基准）
+  hx: 0.90,              // 腕子内旋（actor-grip-sweep 的 E 组）：指节朝下、扣住木轴
+  tilt: 0.42,            // 纸面上仰角（rad）≈24°
+  hold: [22, 38],        // 捧读时长（秒）
+  trans: 1.00,           // 举起 / 放下各多久
+  headDown: 0.22,        // 读的时候低头看纸（顶在 o.headDown 之上）
+  fwdMin: 0.80, fwdMax: 1.15,   // 手距缩放夹紧（防解出的姿势异常时纸被拉爆）
+};
+const _scL = new THREE.Vector3(), _scR = new THREE.Vector3(), _scC = new THREE.Vector3();
+const _scX = new THREE.Vector3(), _scY = new THREE.Vector3(), _scZ = new THREE.Vector3();
+const _scF = new THREE.Vector3(), _scM = new THREE.Matrix4();
+const _scQ = new THREE.Quaternion(), _scQ2 = new THREE.Quaternion();
+
+/* 卷轴纸：奶白底 + 八列竖排"墨点" + 一方朱印。
+   不写真字 —— 5m 外只是一列列墨点，写真字反而会露出分辨率；抖动是确定性的
+   （sin 哈希），不吃全局/私有随机流。 */
+function makeScrollPaperTex(){
+  const c = document.createElement('canvas');
+  c.width = 256; c.height = 200;
+  const g = c.getContext('2d');
+  g.fillStyle = '#F3E9D4';
+  g.fillRect(0, 0, 256, 200);
+  g.globalAlpha = 0.05;                        // 纸纤维：淡淡的横纹，近景别像一块纯色板
+  for (let y = 0; y < 200; y += 3){
+    g.fillStyle = (y % 6) ? '#9C8B6A' : '#FFFFFF';
+    g.fillRect(0, y, 256, 1);
+  }
+  g.globalAlpha = 1;
+  const hsh = (i) => { const s = Math.sin(i * 12.9898) * 43758.5453; return s - Math.floor(s); };
+  g.fillStyle = '#2B2622';
+  let k = 0;
+  for (let col = 0; col < 8; col++){
+    const x = 18 + col * 29;
+    g.fillRect(x, 16, 12, 4);                  // 列首"抬头"比正文粗一点
+    let y = 30;
+    while (y < 176){
+      const w = 9 + hsh(++k) * 6, h = 5 + hsh(++k) * 4;
+      g.fillRect(x + hsh(++k) * 2, y, w, h);
+      y += h + 3 + hsh(++k) * 5;
+    }
+  }
+  g.fillStyle = '#A8362C';                     // 朱印
+  g.fillRect(214, 158, 20, 20);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+
+/* 卷轴：纸面 + 两端竖向木轴 + 轴头。原点在纸心，局部 +Z = 纸面法线。 */
+function makeScroll(holder){
+  const g = new THREE.Group();
+  g.name = 'actorScroll';
+  const paper = new THREE.Mesh(new THREE.PlaneGeometry(SCROLL.w, SCROLL.h),
+    new THREE.MeshStandardMaterial({ map: makeScrollPaperTex(), roughness: 0.94, metalness: 0.0,
+                                     side: THREE.DoubleSide }));
+  paper.position.y = SCROLL.yOff;              // 握下三分之一、纸往上展开
+  g.add(paper);
+  for (const s of [-1, 1]){
+    /* 木轴心必须**正好落在手腕上**（x = ±w/2、y = 0）：卷轴整体按实测手距缩放，
+       木轴随缩放一起落到腕心，手掌才包得住它（第一版多放了 1.2cm + 抬 2cm，
+       实测两只手各离轴心 2.5cm，近景读成"手悬在纸下面"）。 */
+    const rod = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, SCROLL.h + 0.035, 10), MAT.wood);
+    rod.position.set(s * (SCROLL.w * 0.5), 0, -0.010);
+    g.add(rod);
+    for (const t of [-1, 1]){
+      const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.030, 10), MAT.woodDark);
+      cap.position.set(rod.position.x, t * (SCROLL.h * 0.5 + 0.030), -0.010);
+      g.add(cap);
+    }
+  }
+  g.traverse(o => {
+    if (!o.isMesh) return;
+    o.castShadow = false;                      // 手里的小件，投影贡献≈0，只会撑大阴影盒
+    o.receiveShadow = true;
+    o.userData.noMerge = true;
+  });
+  g.userData.noMerge = true;
+  g.visible = false;
+  holder.add(g);
+  return g;
+}
+
+/* ── 手持草料（马夫）────────────────────────────────────────────────────────
+   马夫前俯看马吃草的时候，手里也该有一把草（否则站着一个空手闲人）。
+   ⚠️ **只动左肘**：这只 rig 的腰带挂了一批与骨骼几何上分不开的顶点（见
+      research/characters/repair_hands.py 与 BRUSH 的注释），转肩会把腰带拽成尖刺。
+   ⚠️ 肘角是**扫出来**的（outputs/_diag/actor-bale-solve.log，肩保持垂手基线）：
+      ex −1.6 ⇒ 腕在身前 0.116m、离地 1.06m；−1.2 ⇒ 0.093m；−0.35 ⇒ 0.024m。
+      **但"往前伸"这条路被站位堵死了**：马夫离马腹只有 20cm（马身 x≥38.2、人在 x=38.0），
+      前伸 11cm 的一把草（半径 0.14m）会**整个插进马的颈肩里**（实测草把包围盒
+      中心 (38.36,1.19,1.09) 落在马身包围盒内，出图里一点都看不见）。
+      ⇒ 取"手臂自然垂着、草把拎在身侧"（ex −0.35），草把**竖直**立在手里
+        （不跟前臂方向 —— 前臂朝下，草会朝地）。
+   ⚠️ 草把摆在腕**上 5cm**、不挂手骨：每帧按腕位重摆（同茶盏/马刷）。 */
+const HAY_ARM = { ex: -0.35, up: 0.05, out: 0.13, lean: 0.30, len: 0.24 };
+const _hyE = new THREE.Vector3(), _hyQ = new THREE.Quaternion();
+const _hyQ2 = new THREE.Quaternion(), _hyF = new THREE.Vector3();
+const _hyY = new THREE.Vector3(0, 1, 0);
+
+/* 手里的一把草：11 根细锥管（InstancedMesh，1 个 draw call）沿 +Z 散开 + 两道捆绳。
+   梢头偏青绿（"是草不是棍"）—— 用一条竖渐变贴图而不是顶点色：InstancedMesh 的
+   顶点色只管"整根一个色"，而草要根黄梢绿。
+   ⚠️ 第一版用 mergeGeometries 拼 11 根管，结果**静默失败**（合并返回空、草不出现，
+      且异常被资产加载器的 onError 吞掉）⇒ 改用 InstancedMesh，不碰合并。
+   局部 +Z = 草梢方向、原点在捆绳处。 */
+function makeHayStrawTex(){
+  const c = document.createElement('canvas');
+  c.width = 2; c.height = 16;
+  const g = c.getContext('2d');
+  const grd = g.createLinearGradient(0, 16, 0, 0);   // 下（根）=黄褐 → 上（梢）=青绿
+  grd.addColorStop(0.0, '#B99F63');
+  grd.addColorStop(0.55, '#C9B372');
+  grd.addColorStop(1.0, '#8FA457');
+  g.fillStyle = grd; g.fillRect(0, 0, 2, 16);
+  const t = new THREE.CanvasTexture(c);
+  t.colorSpace = THREE.SRGBColorSpace;
+  return t;
+}
+function makeHayHandful(holder){
+  const g = new THREE.Group();
+  g.name = 'actorHay';
+  /* 圆柱轴就是 +Y ⇒ 草把**竖直**（手臂垂着的时候，跟"前臂方向"走会朝地） */
+  const geo = new THREE.CylinderGeometry(0.0035, 0.0055, 1, 4, 1);
+  const N = 11;
+  const im = new THREE.InstancedMesh(geo,
+    new THREE.MeshStandardMaterial({ map: makeHayStrawTex(), roughness: 0.95, metalness: 0.0,
+                                     envMapIntensity: 0.30 }), N);
+  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  for (let i = 0; i < N; i++){
+    const a = (i / 11) * Math.PI * 2 + (i % 3) * 0.21;
+    const sp = 0.026 + (i % 4) * 0.007;           // 梢头张开、根部收在一起
+    const len = HAY_ARM.len - 0.02 + ((i * 7) % 5) * 0.012;
+    pv.set(Math.cos(a) * sp * 0.55, len * 0.5 - 0.02, Math.sin(a) * sp * 0.55);
+    q.setFromAxisAngle(up, (i % 5 - 2) * 0.10);   // 每根略歪，不成一束直棍
+    /* 每根往自己那个方向倒一点点，做成"一把"而不是"一根柱" */
+    sv.set(1, len, 1);
+    M.compose(pv, q, sv);
+    im.setMatrixAt(i, M);
+  }
+  im.instanceMatrix.needsUpdate = true;
+  im.castShadow = false;                          // 手里的小件，投影贡献≈0
+  im.receiveShadow = true;
+  im.userData.noMerge = true;
+  g.add(im);
+  for (const y of [0.012, 0.052]){
+    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.030, 0.0055, 5, 12), MAT.woodDark);
+    tie.rotation.x = Math.PI / 2;                 // 环面躺平 ⇒ 套在竖直的草把上
+    tie.position.set(0, y, 0);
+    tie.castShadow = false; tie.receiveShadow = true;
+    tie.userData.noMerge = true;
+    g.add(tie);
+  }
+  g.userData.noMerge = true;
+  holder.add(g);
+  return g;
+}
+
 /* route = 往复踱步线（端点交替）。y 一律现算 groundHeight，不给写死的高度：
    两位人物站的草坪是一片缓坡，写死等于在坡上悬空/陷地。 */
 const DEFS = [
@@ -245,9 +429,10 @@ const DEFS = [
     route: null,
     /* armDown：生成件是 A 姿势（手臂抬 40°），站桩像展示人偶。
        实测 LeftUpperArm Y=+0.8 / RightUpperArm Y=-0.8 能把两臂放下来、手掌朝内。
-       tea：右手端一盏茶（P2「喝茶」），间歇抬到唇边 —— 见 TEA_ARM 的注释。 */
+       scroll：双手捧卷轴读（P2 最后一件，见 SCROLL）；tea：间歇喝茶（见 TEA_ARM）。
+       两者是**互斥手位**，由 a.scrollPhase 交接：捧读 → 放下 → 喝茶 → 再捧起来。 */
     idle: { breath: 0.016, head: 0.055, sway: 0.007, phase: 0.0, armDown: 0.80,
-            tea: true, teaEvery: [8, 14] },
+            scroll: true, tea: true, teaEvery: [8, 14] },
   },
   {
     id: 'lady',
@@ -283,7 +468,7 @@ const DEFS = [
        （见 research/characters/repair_hands.py 注释），转肩会把腰带拽成尖刺。
        brush：每 7~12s 站起来刷一轮马（只动肘/腕，见 BRUSH 的注释）。 */
     idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.11, headDown: 0.26,
-            brush: true, brushEvery: BRUSH.every },
+            brush: true, brushEvery: BRUSH.every, hay: true },
   },
   /* 两个书童（08b 的 'child' 一对，半围在先生两侧）。一件资产、两次 parse：
      高度/色调/相位各差一点，避免看出是同一个人在照镜子。
@@ -512,12 +697,17 @@ function loadActor(def){
         placeT: 0, placeN: 0, placeWait: 1.5 + det(def.idle.phase) * 4,
         teaT: 0, teaN: 0, teaWait: 1.5 + det(def.idle.phase) * 6, sipW: 0, cup: null,
         brushT: 0, brushN: 0, brushWait: 2.5 + det(def.idle.phase + 2.3) * 5, brushW: 0, brush: null,
+        scrollT: 0, scrollN: 0, scrollPhase: 0, scrollW: 0, scroll: null,
+        scrollHold: SCROLL.hold[0] + (SCROLL.hold[1] - SCROLL.hold[0]) * det(def.idle.phase + 4.1),
+        hay: null,
         hipsDown, hipsRest,
       });
       /* 品茶：盏挂在 holder 上（不挂手骨，理由见 TEA_ARM 注释） */
       const aNew = ACTORS[ACTORS.length - 1];
       if (def.idle.tea) aNew.cup = makeTeaCup(holder);
       if (def.idle.brush) aNew.brush = makeBrush(holder);
+      if (def.idle.scroll) aNew.scroll = makeScroll(holder);
+      if (def.idle.hay) aNew.hay = makeHayHandful(holder);
       markCasterBoxDirty();
       renderer.shadowMap.needsUpdate = true;   // 静态阴影图补一次，人物有影子
       settleActor(def, true);
@@ -747,10 +937,67 @@ function advance(dt){
       set('LeftUpperArm', 0.03 * b, ad, 0);
       set('RightUpperArm', 0.03 * b, -ad, 0);
     }
+    /* ── 捧卷读（P2 最后一件）：两手抬到胸前、捧着卷轴读 ────────────────────
+       相位：0 捧读(a.scrollHold 秒) → 1 放下(1s) → 2 喝茶(4.2s，复用 TEA_ARM)
+             → 3 举起(1s) → 0
+       权重 a.scrollW 在 0/2 相是纯粹的 1/0、中间两相各 1s 缓动 ⇒ 手不会瞬移，
+       且放下之后茶盏才端起来（两种手位共用右臂，必须互斥）。
+       与 armDown 的基线做加权过渡：w=0 时逐字等于"自然垂手"。 */
+    if (o.scroll){
+      a.scrollT += dt;
+      if (a.scrollPhase === 0 && a.scrollT >= a.scrollHold){
+        a.scrollPhase = 1; a.scrollT = 0;
+      } else if (a.scrollPhase === 1 && a.scrollT >= SCROLL.trans){
+        a.scrollPhase = 2; a.scrollT = 0;
+        a.teaT = 1e-4;                                   // 卷轴放下了，端盏
+        a.teaWait = o.teaEvery[0] + (o.teaEvery[1] - o.teaEvery[0]) * det(a.teaN++ + a.phase * 5.1);
+      } else if (a.scrollPhase === 2 && a.teaT <= 0 && a.scrollT > 0.1){
+        a.scrollPhase = 3; a.scrollT = 0;                // 喝完，把卷轴捧回去
+      } else if (a.scrollPhase === 3 && a.scrollT >= SCROLL.trans){
+        a.scrollPhase = 0; a.scrollT = 0;
+        a.scrollHold = SCROLL.hold[0] + (SCROLL.hold[1] - SCROLL.hold[0]) * det(a.scrollN++ + a.phase * 7.7);
+      }
+      const u2 = a.scrollT / SCROLL.trans;
+      a.scrollW = a.scrollPhase === 0 ? 1
+                : a.scrollPhase === 1 ? 1 - ease01(u2)
+                : a.scrollPhase === 2 ? 0 : ease01(u2);
+      if (a.scrollW > 0.001){
+        const w2 = a.scrollW, L = SCROLL.L, Rr = SCROLL.R;
+        set('LeftUpperArm', 0.03 * b * (1 - w2) + L.sx * w2, ad * (1 - w2) + L.sy * w2, L.sz * w2);
+        set('RightUpperArm', 0.03 * b * (1 - w2) + Rr.sx * w2, -ad * (1 - w2) + Rr.sy * w2, Rr.sz * w2);
+        set('LeftLowerArm', L.ex * w2, 0, 0);
+        set('RightLowerArm', Rr.ex * w2, 0, 0);
+        set('LeftHand', SCROLL.hx * w2, 0, 0);
+        set('RightHand', SCROLL.hx * w2, 0, 0);
+        /* 握木轴：食指/中指扣住、拇指内收（比端盏更实 —— 卷轴是有重量的） */
+        for (const sd of ['Left', 'Right']){
+          set(sd + 'IndexProximal', 0.85 * w2, 0, 0);
+          set(sd + 'MiddleProximal', 0.85 * w2, 0, 0);
+          set(sd + 'IndexIntermediate', 0.62 * w2, 0, 0);
+          set(sd + 'MiddleIntermediate', 0.62 * w2, 0, 0);
+          set(sd + 'ThumbProximal', -0.55 * w2, 0, 0);
+          set(sd + 'ThumbIntermediate', -0.48 * w2, 0, 0);
+          set(sd + 'ThumbDistal', -0.30 * w2, 0, 0);
+        }
+      }
+    }
+    /* 手持草料：只动**左肘**（肩保持垂手），手指松松地扣着草把 —— 见 HAY_ARM。 */
+    if (o.hay){
+      set('LeftLowerArm', HAY_ARM.ex, 0, 0);
+      set('LeftIndexProximal', 0.70, 0, 0);
+      set('LeftMiddleProximal', 0.70, 0, 0);
+      set('LeftIndexIntermediate', 0.50, 0, 0);
+      set('LeftMiddleIntermediate', 0.50, 0, 0);
+      set('LeftThumbProximal', -0.45, 0, 0);
+      set('LeftThumbIntermediate', -0.38, 0, 0);
+      set('LeftThumbDistal', -0.24, 0, 0);
+    }
     /* ── 品茶（P2「喝茶」）：端着 → 抬到唇边 → 放下 ────────────────────────────
        4.2s 一个来回（抬 1.3 / 停 1.6 / 落 1.3），间歇 8~14s。
-       只在**喝茶那只手**上写（右手），左臂继续走 armDown —— 两只手都端起来就成了"捧"。 */
-    if (o.tea){
+       只在**喝茶那只手**上写（右手），左臂继续走 armDown —— 两只手都端起来就成了"捧"。
+       ⚠️ 与"捧卷轴"互斥：文士双手都占着卷轴时不能端盏 ⇒ 只在卷轴放下的那一相
+          （a.scrollPhase === 2）才跑这段；其余时候把 sip 归零（否则低头角会冻住）。 */
+    if (o.tea && (!o.scroll || a.scrollPhase === 2)){
       a.teaWait -= dt;
       if (a.teaWait <= 0 && a.teaT <= 0){
         a.teaT = 1e-4;
@@ -777,6 +1024,8 @@ function advance(dt){
       set('RightThumbProximal', -0.55, 0, 0);
       set('RightThumbIntermediate', -0.50, 0, 0);
       set('RightThumbDistal', -0.33, 0, 0);
+    } else if (o.tea){
+      a.sipW = 0; a.teaT = 0;      // 双手占着卷轴：不端盏、也不留上一杯的低头角
     }
     /* ── 刷马（P3）：站起来、抬前臂、来回刷 —— **只动肘/腕** ──────────────────
        · 只在站着（w<0.3）时开始，走路自然打断；
@@ -873,7 +1122,8 @@ function advance(dt){
        品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。
        刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。 */
     const lean = (o.lean || 0) * (1 - a.brushW);
-    const hd = (o.headDown || 0) * (1 - a.brushW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW;
+    const hd = (o.headDown || 0) * (1 - a.brushW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
+             + SCROLL.headDown * a.scrollW;
     set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2, -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
@@ -933,6 +1183,8 @@ function advance(dt){
           （不刷就会"盏比手慢一帧"，抬盏那段最明显）。 */
     if (a.cup){
       const wr = a.bones.RightHand;
+      /* 捧卷轴时盏收起来（两种手位互斥；不收起会"两手捧着卷轴、腕上还挂着盏"） */
+      a.cup.visible = !o.scroll || a.scrollPhase === 2;
       if (wr){
         a.holder.updateMatrixWorld(true);
         wr.getWorldPosition(_cupV);
@@ -963,6 +1215,61 @@ function advance(dt){
         a.holder.getWorldQuaternion(_brQ2).invert();
         _brQ.setFromUnitVectors(_brZ, _brV).premultiply(_brQ2);
         a.brush.quaternion.copy(_brQ);
+      }
+    }
+    /* 卷轴跟手：位置 = 两腕中点，X 轴 = 左腕→右腕，法线 = 前上方（纸面上仰 24°）。
+       与茶盏/马刷同一条：先刷骨骼矩阵、再摆道具（否则道具比手慢一帧）。
+       宽度按**实测手距**缩放（反解出的两手相距 0.268m ≠ 目标 0.31m），
+       这样两端木轴始终落在两只手掌心里。 */
+    if (a.scroll){
+      const wl = a.bones.LeftHand, wr2 = a.bones.RightHand;
+      const show = a.scrollW > 0.04 && !!wl && !!wr2;
+      a.scroll.visible = show;
+      if (show){
+        a.holder.updateMatrixWorld(true);
+        wl.getWorldPosition(_scL);
+        wr2.getWorldPosition(_scR);
+        _scC.copy(_scL).add(_scR).multiplyScalar(0.5);
+        _scX.copy(_scR).sub(_scL);
+        const spanW = Math.max(0.02, _scX.length());
+        _scX.multiplyScalar(1 / spanW);
+        const yw2 = a.holder.rotation.y;
+        _scF.set(Math.sin(yw2), 0, Math.cos(yw2));                 // 人物正前（世界）
+        _scY.set(0, Math.cos(SCROLL.tilt), 0).addScaledVector(_scF, -Math.sin(SCROLL.tilt));
+        _scY.addScaledVector(_scX, -_scX.dot(_scY)).normalize();   // 与 X 正交（纸面才不平）
+        _scZ.crossVectors(_scX, _scY).normalize();
+        a.holder.worldToLocal(_scC);
+        a.scroll.position.copy(_scC);
+        _scM.makeBasis(_scX, _scY, _scZ);
+        _scQ.setFromRotationMatrix(_scM);
+        a.holder.getWorldQuaternion(_scQ2).invert();
+        a.scroll.quaternion.copy(_scQ).premultiply(_scQ2);
+        a.scroll.scale.set(Math.min(SCROLL.fwdMax, Math.max(SCROLL.fwdMin, spanW / SCROLL.span)), 1, 1);
+      }
+    }
+    /* 草把跟手：**竖直**立在左手里（位置 = 腕位 + 上 5cm，朝向 = 世界上方 + 轻靠向身体），
+       不跟前臂方向 —— 垂手时前臂朝下，跟它走草把就朝地了。
+       同茶盏/马刷/卷轴：先刷骨骼矩阵再摆道具。 */
+    if (a.hay){
+      const wl = a.bones.LeftHand;
+      a.hay.visible = !!wl;
+      if (wl){
+        a.holder.updateMatrixWorld(true);
+        wl.getWorldPosition(_hyE);
+        _hyE.y += HAY_ARM.up;
+        /* 往**远离身体的一侧**再让出 0.13m。⚠️ 这只 rig 的 LeftHand 在人物的 **−z 侧**
+           （yaw=π/2 时腕在 z=1.035、体心 1.3），所以"远离身体"是 (cosθ, 0, −sinθ)；
+           第一版按"左手 = +z"算，草把被塞进袍子里（实测量到 z=1.198，离体心只有 0.10m）。 */
+        const yw2 = a.holder.rotation.y;
+        _hyE.x += Math.cos(yw2) * HAY_ARM.out;
+        _hyE.z -= Math.sin(yw2) * HAY_ARM.out;
+        a.holder.worldToLocal(_hyE);
+        a.hay.position.copy(_hyE);
+        /* 朝向：竖直、绕人物正前轴往外倒 HAY_ARM.lean（负号 = 倒向外侧），再换到 holder 局部 */
+        _hyF.set(Math.sin(yw2), 0, Math.cos(yw2));
+        _hyQ.setFromAxisAngle(_hyF, -HAY_ARM.lean);
+        _hyQ2.setFromAxisAngle(_hyY, yw2).invert();
+        a.hay.quaternion.copy(_hyQ2).multiply(_hyQ);
       }
     }
   }
@@ -1028,6 +1335,8 @@ export function actorState(){
       sipW: +a.sipW.toFixed(3),
       brushT: +a.brushT.toFixed(2),
       brushW: +a.brushW.toFixed(3),
+      scrollPhase: a.scrollPhase,
+      scrollW: +a.scrollW.toFixed(3),
       moveW: +a.moveW.toFixed(3),
       floorY: a.floorY === null ? null : +a.floorY.toFixed(3),
       floorTries: a.floorTries,
