@@ -298,19 +298,24 @@ const BOW = {
   curl: 0.75, mid: 0.55, thumb: -0.55,
 };
 
-/* ── 客人到访 · 导演层（S2：出迎 → 面对面 → 相互作揖）──────────────────────
-   极小的状态机，只做四件事。**所有推进都读演员自己的状态**（arrived / 朝向差），
+/* ── 客人到访 · 导演层（S2 出迎+作揖 / S3 并排同行）──────────────────────────
+   极小的状态机。**所有推进都读演员自己的状态**（arrived / 朝向差），
    不用墙钟：掉帧、软件渲染、探针的 actorStep 快进走的都是同一条路径。
-     idle  → 客人走到门内（guest.arrived）
-     walk  → 放主人出门（scholar 沿 HOST_GREET_PTS 走一趟），等他到站
-     face  → 两人站住互指（2.1rad/s 站转，不平移）
-     bow   → 同时作揖一次（BOW 的时序）
-     done  → 保持互指；文士的日常捧卷/端茶**保持关闭**（否则客人还站着、他已经读起书来）
+     idle   → 客人走到门内（guest.arrived）
+     stow   → 主人先把卷轴放下（0.55s）
+     walk   → 放主人出门（scholar 沿 HOST_GREET_PTS 走一趟），等他到站
+     face   → 两人站住互指（2.1rad/s 站转，不平移），≥1.2s
+     bow    → 同时作揖一次（BOW 的时序）
+     line   → 各自走到"并排线"的起点（横向 ±gap，见 PAIR）
+     pair   → 并排走完门 → 桥 → 堂前（各自的偏移航点，见 PAIR）
+     hall   → 到堂前站定（S4 入座奉茶从这里接）
+   文士的日常捧卷/端茶在整个过程中**保持关闭**（否则客人还站着、他已经读起书来）。
    ⚠️ 文士的 scroll/tea 是互斥手位状态机，必须在这里退出 —— 否则他会"边走边端着茶盏"。 */
 const VISIT = {
   phase: 'idle', t: 0, bowW: 0,
   hostId: 'scholar', guestId: 'guest',
   greetPt: [0.15, 19.75],      // 门内 1.15m：两人面对面站定的位置（客人停在 0.15,20.9）
+  path: null, s: 0,            // 并排段的参数化航点（弧长驱动，见 pathTable）
 };
 
 /* 卷轴纸：奶白底 + 八列竖排"墨点" + 一方朱印。
@@ -482,6 +487,19 @@ const HOST_GREET_PTS = [
   [13.3, 15.0], [13.5, 17.0], [12.5, 18.8],                    // 绕假山东侧
   [9.0, 19.6], [5.0, 19.8], [2.0, 19.9], [0.15, 19.75],        // 门内空地向西 → 迎客点
 ];
+
+/* ── 并排同行（S3 · 2026-10-23）──────────────────────────────────────────────
+   航点 = **S2 路线的反向**（同一条线已经逐点验过能走，见 docs §6），两人各按
+   法线方向偏 ±gap 走各自的那条：主人靠内侧（园内一侧，z 更小/x 更小）。
+   ⚠️ **偏移必须用航点自身的法线算，不能按世界 x 加**：拱桥那一段路沿 z 走、
+      桥面中心 x=8.3、两侧栏杆在 6.95/9.85 —— 按世界 x 加会让"并排"变成"一前一后"
+      （实测：按世界 x 加时过桥那一段两人纵向错开 0.9m，读作"主人在前面领路"）。
+   ⚠️ gap 0.45 ⇒ 两人中心距 0.90m。再宽就出桥面（2.9m 宽减去两侧栏杆各 0.5m），
+      再窄两条长袍下摆会互相穿（下摆半宽 ≈0.35m）。 */
+const PAIR = {
+  speed: 0.62, gap: 0.45,
+  pts: [...HOST_GREET_PTS].reverse(),
+};
 
 const DEFS = [
   {
@@ -685,15 +703,22 @@ function sampleFloor(x, z){
   return null;
 }
 
-/* followFloor 专用：取**所有**命中面里离"当前高度"最近的那个。
-   为什么不能沿用 sampleFloor 的"第一个命中"：射线从 y=3.0 往下打，在树下先撞到的是
-   树冠、在廊下先撞到的是檐口（2.5~2.95m），而人其实在地上走 —— 第一个命中会让
+/* followFloor 专用：踏面取「一步之内能迈上去的最高面」，没有才回落成「离当前高度最近」。
+   为什么不能沿用 sampleFloor 的"第一个命中"：射线从高处往下打，在树下先撞到的是树冠、
+   在廊下先撞到的是檐口（2.5~2.95m），而人其实在地上走 —— 第一个命中会让
    "走到树荫底下"整个人突然抬高两米（低通 18/s，看起来就是弹一下）。
-   挑"离当前 y 最近"则天然连续：在地面选地面、上了拱桥选桥面、下桥选回地面。 */
+
+   ⚠️ 为什么也不能只用"最近"（S3 踩到，S2 时是够用的）：S2 只往**下**走
+      （堂前 → 拱桥 → 廊道 → 门），"最近"天然连续；S3 反着往**上**走时它必然失效 ——
+      廊道是架高的，人站在下面草地上：头顶 0.42m 有廊面、脚边 0.1m 有草，
+      "最近"永远选草 ⇒ 整段从廊道底下、桥底下穿过去（实测 floorY 读到 −0.99 = 桥下地面）。
+   窗口 [当前−0.60, 当前+0.42]：42cm 是普通台阶上限、60cm 是下台阶上限。
+   ⚠️ 别把上界放大到 +0.8：廊下檐口、桥栏杆都在 1.5~1.8m，开大了人会"踩上屋顶"。 */
 function sampleFloorNear(x, z, nearY){
-  _rc.set(_hitP.set(x, 3.0, z), _down);
-  _rc.far = 6.0;
-  let best = null, bd = Infinity;
+  _rc.set(_hitP.set(x, 3.6, z), _down);
+  _rc.far = 7.0;
+  let hi = null, near = null, nd = Infinity;
+  const upLim = nearY + 0.42, loLim = nearY - 0.60;
   for (const h of _rc.intersectObject(scene, true)){
     if (!h.object.isMesh) continue;
     /* 排除人物 GLB（actor_*）、程序化替身（userData.poseName）、真马（horseXxx） */
@@ -708,10 +733,11 @@ function sampleFloorNear(x, z, nearY){
     const mats = Array.isArray(h.object.material) ? h.object.material : [h.object.material];
     if (mats.some(m => m && (m.transparent || m.opacity < 0.9 || m.depthWrite === false))) continue;
     const y = h.point.y;
+    if (y >= loLim && y <= upLim && (hi === null || y > hi)) hi = y;
     const d = Math.abs(y - nearY);
-    if (d < bd){ bd = d; best = y; }
+    if (d < nd){ nd = d; near = y; }
   }
-  return best;
+  return hi !== null ? hi : near;
 }
 
 function loadActor(def){
@@ -926,6 +952,9 @@ const approach = (v, t, d)=> (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
    ⚠️ 转身是"站住转"（|Δyaw| > TURN_GATE 时不平移），不是边走边拧 ——
       真实的人转身时脚是原地倒步，边走边转在长袍上会看出膝盖朝侧面。 */
 function tickRoute(a, dt){
+  /* 并排段由导演层按弧长直接摆位（见 tickVisit 的 pair 相）——
+     这里必须**整个让开**：tickRoute 是会写 moveW 的，两边都写就会一直打架。 */
+  if (a.pairDrive) return;
   const r = a.def.route;
   a.moved = 0;
   if (!r || a.walkOff || a.arrived){ a.moveW = approach(a.moveW, 0, dt / 0.45); return; }
@@ -994,6 +1023,65 @@ function turnToward(a, yawTo, dt){
 }
 const yawToOther = (a, b) => Math.atan2(b.pos.x - a.pos.x, b.pos.z - a.pos.z);
 
+/* 把一条航点线按**自身法线**平移 lat 米（lat>0 = 行进方向右手侧）。
+   取前后相邻点算切线 ⇒ 弯道上的偏移线仍是"等距线"，两人不会在转角处并到一起。
+   端点段只有单侧相邻点，直接用该段切线（航点线本身就是直的，够用）。 */
+function offsetPath(pts, lat){
+  const out = [];
+  for (let i = 0; i < pts.length; i++){
+    const p = pts[i];
+    const q = pts[Math.min(i + 1, pts.length - 1)];
+    const o = pts[Math.max(i - 1, 0)];
+    let dx = q[0] - o[0], dz = q[1] - o[1];
+    const L = Math.hypot(dx, dz) || 1;
+    dx /= L; dz /= L;
+    out.push([p[0] - dz * lat, p[1] + dx * lat]);   // 法线 = (−dz, dx)
+  }
+  return out;
+}
+
+/* 并排线的参数化表（弧长 → 点 / 法线 / 切线朝向）。
+   为什么 S3 不走 tickRoute 的"逐航点追"：两个人各追各的点，转角的 TURN_GATE 停顿
+   与外线更长这两件事会累积成纵向错位（实测间距从 0.9m 漂到 2.8m，"并排"变成"领路"）。
+   改成**同一条弧长 s 驱动两个人**：s 相同 ⇒ 永远并肩，间距恒等于 2×gap。 */
+function pathTable(pts){
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++)
+    cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  return { pts, cum, total: cum[cum.length - 1] };
+}
+function pathAt(P, s){
+  s = Math.max(0, Math.min(P.total, s));
+  let i = 1;
+  while (i < P.cum.length - 1 && P.cum[i] < s) i++;
+  const a = P.pts[i - 1], b = P.pts[i];
+  const L = (P.cum[i] - P.cum[i - 1]) || 1;
+  const u = (s - P.cum[i - 1]) / L;
+  const dx = (b[0] - a[0]) / L, dz = (b[1] - a[1]) / L;
+  return { x: a[0] + (b[0] - a[0]) * u, z: a[1] + (b[1] - a[1]) * u,
+           nx: -dz, nz: dx, yaw: Math.atan2(dx, dz) };
+}
+const angDiff = (to, from) => {
+  let d = to - from;
+  while (d > Math.PI) d -= Math.PI * 2;
+  while (d < -Math.PI) d += Math.PI * 2;
+  return d;
+};
+
+/* 给一位演员**换一条新路线**（导演层用）。
+   ⚠️ 必须一起复位 arrived / target / walkOff / waitT —— 少一个就会出现
+      "到了新路线的起点却永远站着"（tickRoute 见 arrived 直接早退）。
+   ⚠️ floorMax 也要跟着路走：客人原本只走地面（1.20），并排要过 2.10m 的拱桥。 */
+function giveRoute(a, pts, speed, waitT, floorMax){
+  a.def.route = { pts, speed, pause: [0, 0], mode: 'once' };
+  a.target = pts.length > 1 ? 1 : 0;
+  a.arrived = false;
+  a.walkOff = false;
+  a.waitT = waitT;
+  a.sampleT = 0;
+  if (floorMax !== undefined){ a.def.floorMax = floorMax; a.def.followFloor = true; }
+}
+
 function tickVisit(dt){
   const v = VISIT;
   const host = actorRef(v.hostId), guest = actorRef(v.guestId);
@@ -1033,14 +1121,66 @@ function tickVisit(dt){
     if (v.t < t1) v.bowW = ease01(v.t / BOW.in);
     else if (v.t < t2) v.bowW = 1;
     else if (v.t < t3) v.bowW = 1 - ease01((v.t - t2) / BOW.out);
-    else { v.bowW = 0; v.phase = 'done'; v.t = 0; }
+    else {
+      v.bowW = 0; v.phase = 'line'; v.t = 0;
+      /* 礼毕立刻各自挪到"并排线"的起点：主人靠内（lat −gap）、客人靠外（+gap）。
+         起点只给一个点 ⇒ tickRoute 的 once 分支走到就 arrived（不用另写一套到位判定）。 */
+      v.ptsH = offsetPath(PAIR.pts, -PAIR.gap);
+      v.ptsG = offsetPath(PAIR.pts, PAIR.gap);
+      v.path = pathTable(PAIR.pts);
+      giveRoute(host, [v.ptsH[0]], PAIR.speed, 0.25, 2.45);
+      giveRoute(guest, [v.ptsG[0]], PAIR.speed, 0.55, 2.45);
+    }
     turnToward(host, yawToOther(host, guest), dt);     // 转身没转完也继续对上
     turnToward(guest, yawToOther(guest, host), dt);
     return;
   }
-  /* done：两人保持互指（客人等下一段 S3 并排同行；文士的日常手位保持关闭） */
-  turnToward(host, yawToOther(host, guest), dt);
-  turnToward(guest, yawToOther(guest, host), dt);
+  if (v.phase === 'line'){
+    /* 两人都站到各自那条线上才一起起步（谁先到谁站着等）—— 否则会出现
+       "客人已经走出去 2m、主人才刚迈第一步"这种不合礼数的画面。 */
+    if (host.arrived && guest.arrived){
+      v.phase = 'pair'; v.t = 0; v.s = 0;
+      host.pairDrive = guest.pairDrive = true;
+      /* 已经在各自线的起点（s=0）上稳住，起步不用再等 */
+      host.waitT = guest.waitT = 0;
+    }
+    return;
+  }
+  if (v.phase === 'pair'){
+    const P = v.path;
+    const eh = angDiff(pathAt(P, v.s).yaw, host.yaw);
+    const eg = angDiff(pathAt(P, v.s).yaw, guest.yaw);
+    /* 转角处两人**一起站住转**（同一条切线 ⇒ 同时转完、转完仍并肩），
+       s 这时不推进 —— 若各转各的，先转完那个会先走出去，队形立刻散掉。 */
+    if (Math.abs(eh) > 0.12 || Math.abs(eg) > 0.12){
+      for (const [a, e] of [[host, eh], [guest, eg]]){
+        const d = GAIT.turn * dt;
+        a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
+        a.step += dt * 0.17;                       // 原地倒步
+        a.moveW = approach(a.moveW, 0.32, dt / 0.3);
+        a.moved = 0;
+      }
+      return;
+    }
+    v.s = Math.min(P.total, v.s + PAIR.speed * dt);
+    const q = pathAt(P, v.s);
+    for (const [a, lat] of [[host, -PAIR.gap], [guest, PAIR.gap]]){
+      a.pos.x = q.x + q.nx * lat;
+      a.pos.z = q.z + q.nz * lat;
+      const e = angDiff(q.yaw, a.yaw);
+      const d = GAIT.turn * dt;
+      a.yaw += Math.abs(e) <= d ? e : (e > 0 ? d : -d);
+      a.moved = PAIR.speed * dt;
+      a.step += a.moved;
+      a.moveW = approach(a.moveW, 1, dt / 0.40);
+    }
+    if (v.s >= P.total - 1e-6){
+      for (const a of [host, guest]){ a.arrived = true; a.pairDrive = false; a.moveW = 0; }
+      v.phase = 'hall'; v.t = 0;
+    }
+    return;
+  }
+  /* hall：到堂前站定，S4（入座奉茶）从这里接。保持末段朝向（都朝着堂），不再互指。 */
 }
 
 /* 一次完整更新（时钟由调用方推进）—— tickActors 与探针的 actorStep 共用同一份，
@@ -1085,8 +1225,15 @@ function advance(dt){
     const gy = a.def.fixedY ? a.def.spot.y
       : (a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z));
     /* 位置：先落地点，再叠步态起伏。groundHeight 是缓坡，直接跟即可。
-       跟随型（走长路的人）收敛快一点，起伏路面上不至于"慢半拍"地悬空。 */
-    a.y += (gy - a.y) * Math.min(1, dt * (a.def.followFloor ? 18 : 8));
+       跟随型（走长路的人）收敛快一点，起伏路面上不至于"慢半拍"地悬空。
+       ⚠️ 18/s 在**台阶**上留了 8.6cm 的瞬时悬空（S3 实测：拱桥/廊道那段每级 0.2m 的
+          台阶，走上去的那 0.2s 里脚底一直比踏面低）⇒ 跟随型改 34/s（时间常数 29ms）。
+       ⚠️ 但**超过 22cm 的高差要直接落上去**：门内那道门槛比园内草地低 0.42m，
+          用平滑跟就会看到人"从地里升上来"（实测瞬时差 0.088 且要 0.1s 才收完）。
+          台阶本来就是"一步踩上去"，不是斜坡。普通角色仍 8/s。 */
+    const gapY = gy - a.y;
+    if (a.def.followFloor && Math.abs(gapY) > 0.22) a.y = gy;
+    else a.y += gapY * Math.min(1, dt * (a.def.followFloor ? 34 : 8));
     const o = a.def.idle;
     const p = a.step / STEP_LEN * Math.PI;      // 步态相位（按走过的距离推进）
     const w = a.moveW;
