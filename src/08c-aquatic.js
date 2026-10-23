@@ -805,6 +805,24 @@ const MACAW_DEPART = 0.55, MACAW_ARRIVE = 0.75;
 /* ⚠️ flutter 时长 0.42→0.55：与下面"整段只走 2 个周期"配套 —— 2/0.55 = 3.6Hz，
    60fps 下每帧相位 0.38rad、30fps 下 0.76rad，都在"看得出来是扇动"的采样率上。 */
 const MACAW_EV = { tail:0.38, flutter:0.55, preen:1.15, hop:0.52 };
+/* ── 翅膀扇动（2026-10-23，老黄："起跳/换峰飞行翅膀都不动"）──────────────────
+   Macaw.glb 是单网格无骨骼，翅膀**折叠贴在体侧** —— 顶点实测（outputs/_diag/macaw-wing-map.mjs）：
+   头在 +z 高处（|x|≤0.23、y 到 0.95）、尾在 −z 底部垂下、两片翅膀从肩(y≈0.45, z≈0.5)
+   沿体侧垂到翼尖(y≈−0.85, |x|≈0.27)。所以此前的"振翅"只有整身 roll
+   （Math.sin(flightT*26)）—— 翅膀几何从未参与，起跳/飞行时两片翅膀僵死。
+   修法照 installHorseRig 的伪蒙皮路子：几何烘 **aWing** 顶点权重（带符号，0=身体、1=翼外缘），
+   onBeforeCompile 里绕**前向轴(z)、过肩点 y=pivotY** 旋转。两个关键取舍：
+   ① 权重对 y>0.48 / z>0.52 **双重淡出** —— 只按 |x| 判的话，头颈(|x|≤0.23)会带 ~0.28
+      的权重跟着扇，实测读作"脖子断了"；
+   ② 扇翅是**抬-收式**（0→幅→0，用 0.5−0.5·cos），不做 ±过零摆动 —— 折叠翅的负角
+      会把翼尖扫进身体里（翼尖离肩轴几乎正下方 1.27，负角横穿躯干）。 */
+const MACAW_WING = {
+  pivotY: 0.42,                 // 肩关节高度（顶点量测，旋转不动点）
+  ampFly: 0.85,                 // 飞行扇翅幅度 rad（翼尖横摆 ≈0.18m 世界尺寸）
+  freqFly: 16,                  // 飞行扇翅角频率（2.55Hz；24fps 每帧 0.67rad，不越采样极限）
+  ampFlutter: 0.35, ampHop: 0.30,
+  follow: 18,                   // 状态切换跟随速率 1/s：落地收翅不许"啪"一下跳变
+};
 /* 确定性伪随机 ∈ [0,1)：与全局随机流无关 */
 function h01(a, b){
   const x = Math.sin(a * 127.1 + b * 311.7) * 43758.5453;
@@ -827,6 +845,11 @@ export function updateMacaws(dt, t){
     if (m.mode === 'perch' && !want){ m.mode = 'depart'; m.mt = 0; }
     else if (m.mode === 'away' && want){ m.mode = 'arrive'; m.mt = 0; }
     m.mt += dt;
+    /* 翅膀角：把上一帧各分支写入的**目标值**（m.wingT）以固定速率跟随并写进 uniform。
+       放在循环顶而不是各分支尾部 —— 三个飞行分支都以 continue 收场，这里统一做
+       状态切换的缓动，落地收翅/起飞展翅都不会"啪"一下跳变。 */
+    m.wingV += ((m.wingT || 0) - m.wingV) * Math.min(1, dt * MACAW_WING.follow);
+    if (m.matWing) m.matWing.value = m.wingV;
 
     /* ── 内部换点飞行：白天在 MACAW_SPOTS 各峰顶间弧线移动 ──
        ⚠️⚠️ 2026-10-14 运动学校对（macaw-guard：roll/pitch ≤8、yaw ≤22 rad/s，按仿真时钟
@@ -859,6 +882,8 @@ export function updateMacaws(dt, t){
       h.rotation.set(pitchUp * (u * u * (3 - 2 * u)) + 0.08 * Math.sin(m.flightT * 26 + 1.1) * lift,
                      m.yaw + (m.flyYaw - m.yaw) * lift,
                      Math.sin(m.flightT * 26) * 0.18 * lift);
+      /* 扇翅相位用 flightT（全程累积、换态不复位 —— 与 roll 同一来源，见上方不变量②） */
+      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase));
       if (u >= 1){ m.mode = 'cruise'; m.mt = 0; }
       continue;
     }
@@ -879,6 +904,7 @@ export function updateMacaws(dt, t){
       h.rotation.set(Math.atan2(dydv, Math.max(m.flyDist, 0.001)) + 0.08 * Math.sin(m.flightT * 26 + 1.1),
                      m.flyYaw,
                      Math.sin(m.flightT * 26) * 0.18);
+      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase));
       if (u >= 1){ m.mode = 'land'; m.mt = 0; }
       continue;
     }
@@ -900,6 +926,8 @@ export function updateMacaws(dt, t){
       h.rotation.set(pitchDn * lift + 0.08 * Math.sin(m.flightT * 26 + 1.1) * lift * lift,
                      m.flyYaw + (m.yaw0 - m.flyYaw) * blend,
                      Math.sin(m.flightT * 26) * 0.18 * lift);
+      /* 落地段扇翅随 lift 收 —— 触地时目标归 0，配合循环顶的缓动自然收拢 */
+      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase)) * lift;
       if (u >= 1){
         m.base.copy(m.flyTo); m.mt = 0;
         if (!want){ m.mode = 'depart'; }   // 飞行期间天气突变：落到目的地再走，不从半空瞬移
@@ -925,6 +953,7 @@ export function updateMacaws(dt, t){
       h.rotation.set(-0.34 * lift + 0.12 * Math.sin(m.mt * 26 + 1.1),
                      m.yaw0 + Math.sin(m.mt * 0.7 + m.phase) * 0.12,
                      Math.sin(m.mt * 26) * (0.26 + 0.34 * lift));
+      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.mt * MACAW_WING.freqFly + m.phase));
       if (u >= 1){
         if (m.mode === 'depart'){ m.mode = 'away'; h.visible = false; }
         else {
@@ -1060,6 +1089,15 @@ export function updateMacaws(dt, t){
       y += 0.055 * Math.sin(Math.PI * u);
       pitch = -0.12 * Math.sin(Math.PI * u);
     }
+    /* 翅膀目标（栖停段）：默认收拢；抖翅/原地小跳给短促的抬-收（外层包络与身体同相位）。
+       原地起跳 = 0.52s 内两扇（0.5−0.5·cos(u·4π)）—— 老黄指认的两个"翅膀僵死"场景之一。 */
+    let wTgt = 0;
+    if (m.ev === 'flutter' || m.ev === 'hop'){
+      const u = 1 - Math.max(0, m.evT) / MACAW_EV[m.ev];
+      wTgt = (m.ev === 'flutter' ? MACAW_WING.ampFlutter : MACAW_WING.ampHop)
+           * Math.sin(Math.PI * u) * (0.5 - 0.5 * Math.cos(u * Math.PI * 4));
+    }
+    m.wingT = wTgt;
     h.position.set(m.base.x, y, m.base.z);
     h.rotation.set(pitch, m.yaw, roll);
   }
@@ -1075,6 +1113,7 @@ export function macawState(){
     pitch: +m.holder.rotation.x.toFixed(3),
     roll: +m.holder.rotation.z.toFixed(3),
     lift: +(m.holder.position.y - m.base.y).toFixed(3),
+    wing: +((m.matWing && m.matWing.value) || 0).toFixed(3),   // 扇翅角（rad）：门禁量"翅膀动了没有"就用它
     at: [+m.base.x.toFixed(2), +m.base.y.toFixed(2), +m.base.z.toFixed(2)],
   }));
 }
@@ -1311,6 +1350,28 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
      旧写法是"每个落点造一只鸟"（for (const s of MACAW_SPOTS)）⇒ 落点一多，鸟就变多
      （门禁 macaw-guard 钉的是 3 只）。现在明确：鸟数 = MACAW_COUNT，落点里多出来的
      那个**空着**，专供"换峰飞行"当落点（3 点 3 鸟时飞行=换座=必然两只叠一起）。 */
+  /* 翅膀权重烘焙（一次，烘在 src 几何上 —— 三只 clone 共享同一份 geometry）。
+     mask = smoothstep(0.18,0.32,|x|) × (1−ss(y,0.48,0.62)) × (1−ss(z,0.52,0.66))，
+     再乘 sign(x)：+x 翼正角朝外上抬、−x 翼负角镜像。窗口全部来自
+     outputs/_diag/macaw-wing-map.mjs 的顶点量测（翅外缘 |x|≥0.32、头颈 z>0.66），
+     不是目测 —— 手填窗口的头会跟着扇（见 MACAW_WING 注释①）。 */
+  src.traverse(o => {
+    if (!o.isMesh || o.geometry.userData.aWingDone) return;
+    const geo = o.geometry, pos = geo.attributes.position;
+    const ss = (v, a, b) => {
+      const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
+      return t * t * (3 - 2 * t);
+    };
+    const arr = new Float32Array(pos.count);
+    for (let i = 0; i < pos.count; i++){
+      const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+      arr[i] = ss(Math.abs(x), 0.18, 0.32)
+             * (1 - ss(y, 0.48, 0.62)) * (1 - ss(z, 0.52, 0.66))
+             * (x >= 0 ? 1 : -1);
+    }
+    geo.setAttribute('aWing', new THREE.BufferAttribute(arr, 1));
+    geo.userData.aWingDone = true;
+  });
   for (const s of MACAW_SPOTS.slice(0, MACAW_COUNT)){
     const holder = new THREE.Group();
     /* ⚠️ 必须显式命名：Rodin 导出的这个 GLB **节点名就是泛用的 `Mesh`**
@@ -1331,10 +1392,35 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
        ⚠️ 生成 GLB 的正面朝向未知，这个偏移是**出图标定**出来的，不是推导出来的。 */
     holder.rotation.y = 5.54;
     const c = src.clone(true);
+    let wingU = null;
     c.traverse(o => {
       if (!o.isMesh) return;
-      const m = o.material;
-      if (m && m.metalness !== undefined){ m.metalness = 0.25; m.roughness = 0.65; m.needsUpdate = true; }
+      /* ⚠️ 每只鸟**独立材质**：扇翅相位逐鸟错开，共享一份材质三只就会整齐划一地扇
+         （读作机械玩具 —— 与"相位逐鸟不同"的既有取舍同一族）。
+         clone 后各自持有 uWing uniform；onBeforeCompile 源码相同 ⇒ three 仍只编一份 program。
+         ⚠️ 旧写法直接改共享材质的 metalness —— 顺手升级为"clone 后再改"，行为不变。 */
+      const m = o.material.clone();
+      m.metalness = 0.25; m.roughness = 0.65;    // 生成件 metalness=1 会渲成黑块（既有取舍）
+      wingU = { value: 0 };
+      m.userData.wingU = wingU;
+      m.onBeforeCompile = (sh) => {
+        sh.uniforms.uWing = wingU;
+        sh.vertexShader = sh.vertexShader
+          .replace('#include <common>',
+            '#include <common>\nuniform float uWing;\nattribute float aWing;')
+          .replace('#include <begin_vertex>', [
+            '#include <begin_vertex>',
+            '{',
+            '  float wingA = uWing * aWing;',
+            '  float wc = cos(wingA), ws = sin(wingA);',
+            '  vec2 wrel = transformed.xy - vec2(0.0, ' + MACAW_WING.pivotY.toFixed(3) + ');',
+            '  transformed.x = wrel.x * wc - wrel.y * ws;',
+            '  transformed.y = wrel.x * ws + wrel.y * wc + ' + MACAW_WING.pivotY.toFixed(3) + ';',
+            '}',
+          ].join('\n'));
+      };
+      m.needsUpdate = true;
+      o.material = m;
       o.castShadow = true; o.receiveShadow = true;
     });
     holder.add(c);
@@ -1353,6 +1439,7 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
       i: MACAWS.length,
       mode: perch0 ? 'perch' : 'away', mt: 0,
       ev: 'rest', evT: 0.4 + (s[2] * 3) % 2.1, yaw: 5.54, yawT: 5.54,
+      wingV: 0, wingT: 0, matWing: wingU,       // 翅膀角：跟随值 / 目标值 / 该鸟的 uniform 句柄
     });
   }
   onAssetAttached();               // 迟到资产立刻拿到当前季节状态
