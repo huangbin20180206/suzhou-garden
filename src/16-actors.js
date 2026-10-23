@@ -270,6 +270,49 @@ const _scX = new THREE.Vector3(), _scY = new THREE.Vector3(), _scZ = new THREE.V
 const _scF = new THREE.Vector3(), _scM = new THREE.Matrix4();
 const _scQ = new THREE.Quaternion(), _scQ2 = new THREE.Quaternion();
 
+/* ── 作揖（S2「主人出迎」· 2026-10-23）──────────────────────────────────────
+   拱手的手位**不是照姿势凭感觉填的**：这套 GLB 骨架没有前臂旋前、左右骨骼朝向
+   也不对称（抚琴/端茶/卷轴三轮都踩过），所以肩肘三轴由
+   `outputs/_diag/actor-bow-solve.mjs` 扫出来 —— 目标是"两腕在胸前合拢、前伸够远
+   （宽袖不插进袍子）、两手等高"。
+   读得出的"礼"只有三件事，按画面可读性给幅度、不按真人的 45°：
+     ① 躯干前俯（Chest/Spine 一起，0.62rad ≈ 36°；袖口会吃掉手的细节，太小就读成"点了个头"）
+     ② 双手在胸前合拢（两袖并在一起，这套骨架做不出"两掌相合"）
+     ③ 两人面对面同时起落（导演层对齐，不各演各的）
+   时序 0.70 起 / 1.00 停 / 0.70 落：比真人慢一点 —— 长袍摆动要时间，太快像"鞠躬机"。 */
+const BOW = {
+  lean: 0.62, head: 0.12,
+  in: 0.70, hold: 1.00, out: 0.70,
+  /* 手位（2026-10-23 二次反解：outputs/_diag/actor-bow-solve2..6.mjs）。
+     ⚠️ 第一版是**站着**解的（手在胸前没错），但作揖时躯干还要前俯 0.62rad，
+        整个上半身往前压 ⇒ 手跟着掉到胯部（实测只到脚上 0.94m，像"弯腰找东西"）。
+     这次把前俯一起摆上，并把**两腕间距**也写进目标（第一版只约束"手在胸前"，
+        解出的是"两手分开 37cm 举在脸旁"，读起来像举手）：五参数（左右肩 sx/sy + 肘）
+        一起搜（outputs/_diag/actor-bow-solve7.mjs），结果是
+       · 腕高 1.221m（相对脚底）、两腕间距 0.138m、身前 0.46m、高差 7mm；
+       · 身前 0.46m 听着远，是因为躯干已经前俯 36°、胸口本身前移了 ~0.25m，
+         实际是"手在胸前一个手掌之外"，宽袖刚好并在一起。 */
+  L: { sx: -1.85, sy: -3.75, sz: -0.17 },
+  R: { sx: -1.95, sy: 2.90, sz: -0.43 },
+  ex: 1.30, hand: 0.30,
+  curl: 0.75, mid: 0.55, thumb: -0.55,
+};
+
+/* ── 客人到访 · 导演层（S2：出迎 → 面对面 → 相互作揖）──────────────────────
+   极小的状态机，只做四件事。**所有推进都读演员自己的状态**（arrived / 朝向差），
+   不用墙钟：掉帧、软件渲染、探针的 actorStep 快进走的都是同一条路径。
+     idle  → 客人走到门内（guest.arrived）
+     walk  → 放主人出门（scholar 沿 HOST_GREET_PTS 走一趟），等他到站
+     face  → 两人站住互指（2.1rad/s 站转，不平移）
+     bow   → 同时作揖一次（BOW 的时序）
+     done  → 保持互指；文士的日常捧卷/端茶**保持关闭**（否则客人还站着、他已经读起书来）
+   ⚠️ 文士的 scroll/tea 是互斥手位状态机，必须在这里退出 —— 否则他会"边走边端着茶盏"。 */
+const VISIT = {
+  phase: 'idle', t: 0, bowW: 0,
+  hostId: 'scholar', guestId: 'guest',
+  greetPt: [0.15, 19.75],      // 门内 1.15m：两人面对面站定的位置（客人停在 0.15,20.9）
+};
+
 /* 卷轴纸：奶白底 + 八列竖排"墨点" + 一方朱印。
    不写真字 —— 5m 外只是一列列墨点，写真字反而会露出分辨率；抖动是确定性的
    （sin 哈希），不吃全局/私有随机流。 */
@@ -417,6 +460,29 @@ function makeHayHandful(holder){
 
 /* route = 往复踱步线（端点交替）。y 一律现算 groundHeight，不给写死的高度：
    两位人物站的草坪是一片缓坡，写死等于在坡上悬空/陷地。 */
+/* ── 主人出迎的路线（S2 · 2026-10-23）────────────────────────────────────────
+   从堂前 (1.2,−5.7) 绕到门内迎客点 (0.15,19.75)。走**东侧**：北岸往东 → 上拱桥 →
+   过桥后沿架高廊道往南 → 廊道南端逐级下到地面 → 绕假山东侧空地往南 → 向西到门口。
+
+   这些点不是"照着平面图画的"，是量出来的（outputs/_diag/host-layers.mjs 逐点列出
+   所有命中面，outputs/_diag/host-route-verify.mjs 沿线 0.25m 一档量踏面 + 净距）：
+     · 拱桥桥面实测 1.30(北端) → 2.10(桥心) → 1.30(南端)，桥宽 2.9m、中心线 x≈8.3；
+       桥北要靠 (7.6,−3.2) 那道 0.69m 的踏步上来 —— 直接从地面切到桥面会是 1.3m 的坎。
+     · 桥南 z 9.6~11.2 仍是一段**架高廊道**（桥面 1.30m，下面还有地面），
+       所以 floorRay 不能取"最低面"（会踩到桥下），必须跟着连续性走（见 sampleFloorNear）。
+     · 廊道 z 12~13.4 逐级降到 0.38m，再往东到 x≈12.5 才回到地面。
+     · 南园正中 z 13.5~19.3 / x 0~4.5 是一整块假山（净距 0），只能绕东侧空地（x 12~16）。
+   改桥/廊/假山的位置就要重跑 host-route-verify.mjs，否则会走进去。 */
+const HOST_GREET_PTS = [
+  [1.2, -5.7], [3.5, -5.4], [6.0, -4.0], [7.6, -3.2],          // 堂前 → 桥北踏步
+  [8.3, -2.0], [8.3, 0.5], [8.3, 2.0], [8.3, 4.6],              // 拱桥：1.30 → 2.10
+  [8.3, 7.0], [8.3, 8.8], [8.3, 9.6], [8.3, 10.4], [8.3, 11.2], // 桥面 → 架高廊道（1.30）
+  [8.3, 12.0], [8.3, 12.8], [8.7, 13.2],                       // 廊道南端逐级下坡
+  [9.5, 13.4], [11.0, 13.5], [12.5, 13.8],                     // 下到地面
+  [13.3, 15.0], [13.5, 17.0], [12.5, 18.8],                    // 绕假山东侧
+  [9.0, 19.6], [5.0, 19.8], [2.0, 19.9], [0.15, 19.75],        // 门内空地向西 → 迎客点
+];
+
 const DEFS = [
   {
     id: 'scholar',
@@ -425,9 +491,17 @@ const DEFS = [
     hidePose: 'read',
     tint: 0xAEB9C9,          // 生成件偏亮蓝；压一点饱和，贴近场景的工笔淡彩
     spot: { x: 1.2, z: -5.7, yaw: 0.42 },
-    /* 文士**不踱步**（route: null 是刻意的）：他和两个书童是"半围"阵型，
-       东侧 0.6m 就是书童，直线段必然擦身而过。他的动作留给"晨读→背手观景"。 */
-    route: null,
+    /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
+       走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
+       否则他一进园就自己往门口走，然后在那儿站两分钟。
+       floorRay + followFloor：这条路要过月台台阶、1.3~2.1m 的拱桥、架高廊道和门内台地，
+       高度不是一条 groundHeight 能算出来的，必须一路取真实踏面；
+       桥面最高 2.10m ⇒ floorMax 给 2.45（默认 0.8 会把它当"屋顶"丢掉）。 */
+    awaitGuest: true,
+    floorRay: true,
+    followFloor: true,
+    floorMax: 2.45,
+    route: { pts: HOST_GREET_PTS, speed: 0.86, pause: [0, 0], mode: 'once' },
     /* armDown：生成件是 A 姿势（手臂抬 40°），站桩像展示人偶。
        实测 LeftUpperArm Y=+0.8 / RightUpperArm Y=-0.8 能把两臂放下来、手掌朝内。
        scroll：双手捧卷轴读（P2 最后一件，见 SCROLL）；tea：间歇喝茶（见 TEA_ARM）。
@@ -611,6 +685,35 @@ function sampleFloor(x, z){
   return null;
 }
 
+/* followFloor 专用：取**所有**命中面里离"当前高度"最近的那个。
+   为什么不能沿用 sampleFloor 的"第一个命中"：射线从 y=3.0 往下打，在树下先撞到的是
+   树冠、在廊下先撞到的是檐口（2.5~2.95m），而人其实在地上走 —— 第一个命中会让
+   "走到树荫底下"整个人突然抬高两米（低通 18/s，看起来就是弹一下）。
+   挑"离当前 y 最近"则天然连续：在地面选地面、上了拱桥选桥面、下桥选回地面。 */
+function sampleFloorNear(x, z, nearY){
+  _rc.set(_hitP.set(x, 3.0, z), _down);
+  _rc.far = 6.0;
+  let best = null, bd = Infinity;
+  for (const h of _rc.intersectObject(scene, true)){
+    if (!h.object.isMesh) continue;
+    /* 排除人物 GLB（actor_*）、程序化替身（userData.poseName）、真马（horseXxx） */
+    let p = h.object, skip = false;
+    while (p){
+      if ((p.name && (p.name.startsWith('actor_') || /^horse/i.test(p.name))) ||
+          (p.userData && p.userData.poseName)) { skip = true; break; }
+      p = p.parent;
+    }
+    if (skip) continue;
+    /* 水面 / 任何半透明层不算踏面 —— 否则在桥边会"选中最接近的水面"、人踩在水上走 */
+    const mats = Array.isArray(h.object.material) ? h.object.material : [h.object.material];
+    if (mats.some(m => m && (m.transparent || m.opacity < 0.9 || m.depthWrite === false))) continue;
+    const y = h.point.y;
+    const d = Math.abs(y - nearY);
+    if (d < bd){ bd = d; best = y; }
+  }
+  return best;
+}
+
 function loadActor(def){
   const loader = new GLTFLoader();
   loader.load(def.url,
@@ -717,6 +820,9 @@ function loadActor(def){
         y: gy0,
         yaw: def.spot.yaw,
         target: r ? 1 : 0, waitT: r ? 2.0 : 0,        // 首帧先站 2s 再起步
+        /* awaitGuest：先按住不动，由迎客导演层（VISIT）放行 —— 主人不该一开局就
+           自己走到门口等两分钟。 */
+        walkOff: !!def.awaitGuest,
         step: 0, moveW: 0, moved: 0, stopN: 0,
         hopT: 0, hopDur: 0.62, hopN: 0, hopWait: def.idle.hopEvery ? 3 + det(def.idle.phase) * 6 : 0,
         floorY: null, floorTries: 0, sampleT: 0, floorDone: false,   // 只有 floorRay 的才会去点
@@ -872,9 +978,75 @@ function tickRoute(a, dt){
   a.moveW = approach(a.moveW, 1, dt / 0.40);
 }
 
+/* ── 迎客导演层 ─────────────────────────────────────────────────────────────
+   见 VISIT 的注释。这里只写 a.yaw（tickRoute 在 arrived/walkOff 时早退、不碰 yaw，
+   所以两者不打架），以及 bowW —— 姿态块在同一帧里读它。 */
+function actorRef(id){ for (const a of ACTORS) if (a.def.id === id) return a; return null; }
+
+/* 站住转（不平移，同 tickRoute 的口径）。返回**转之前**的剩余角差。 */
+function turnToward(a, yawTo, dt){
+  let dy = yawTo - a.yaw;
+  while (dy > Math.PI) dy -= Math.PI * 2;
+  while (dy < -Math.PI) dy += Math.PI * 2;
+  const d = GAIT.turn * dt;
+  a.yaw += Math.abs(dy) <= d ? dy : (dy > 0 ? d : -d);
+  return Math.abs(dy);
+}
+const yawToOther = (a, b) => Math.atan2(b.pos.x - a.pos.x, b.pos.z - a.pos.z);
+
+function tickVisit(dt){
+  const v = VISIT;
+  const host = actorRef(v.hostId), guest = actorRef(v.guestId);
+  if (!host || !guest) return;
+  if (v.phase === 'idle'){
+    /* 客人走到门内才"出门相迎"。用演员自己的 arrived，不用墙钟。 */
+    if (!guest.arrived) return;
+    v.phase = 'stow'; v.t = 0;
+    return;
+  }
+  if (v.phase === 'stow'){
+    /* 先把卷轴放下再迈步：手里还捧着卷轴就走，会看到卷轴"粘在手上跟着飘"。
+       0.55s 是 SCROLL "放下"那一段的时长量级（卷轴在这里线性收到 0）。 */
+    v.t += dt;
+    if (v.t > 0.55){
+      v.phase = 'walk'; v.t = 0;
+      host.walkOff = false;
+      host.waitT = 0.3;               // 起步前再站一下（"我从堂前出来"）
+    }
+    return;
+  }
+  if (v.phase === 'walk'){
+    if (host.arrived){ v.phase = 'face'; v.t = 0; }
+    return;
+  }
+  if (v.phase === 'face'){
+    v.t += dt;
+    const dh = turnToward(host, yawToOther(host, guest), dt);
+    const dg = turnToward(guest, yawToOther(guest, host), dt);
+    /* 至少站 1.2s 再行礼：走到就拜读起来像"撞上去" */
+    if (v.t > 1.2 && dh < 0.10 && dg < 0.10){ v.phase = 'bow'; v.t = 0; }
+    return;
+  }
+  if (v.phase === 'bow'){
+    v.t += dt;
+    const t1 = BOW.in, t2 = BOW.in + BOW.hold, t3 = t2 + BOW.out;
+    if (v.t < t1) v.bowW = ease01(v.t / BOW.in);
+    else if (v.t < t2) v.bowW = 1;
+    else if (v.t < t3) v.bowW = 1 - ease01((v.t - t2) / BOW.out);
+    else { v.bowW = 0; v.phase = 'done'; v.t = 0; }
+    turnToward(host, yawToOther(host, guest), dt);     // 转身没转完也继续对上
+    turnToward(guest, yawToOther(guest, host), dt);
+    return;
+  }
+  /* done：两人保持互指（客人等下一段 S3 并排同行；文士的日常手位保持关闭） */
+  turnToward(host, yawToOther(host, guest), dt);
+  turnToward(guest, yawToOther(guest, host), dt);
+}
+
 /* 一次完整更新（时钟由调用方推进）—— tickActors 与探针的 actorStep 共用同一份，
    避免探针里再抄一遍步态口径（抄一遍 = 改产品时两边悄悄分家）。 */
 function advance(dt){
+  tickVisit(dt);
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
   for (const a of ACTORS){
@@ -890,7 +1062,9 @@ function advance(dt){
       if (!a.def.followFloor || a.moved > 1e-4) a.sampleT -= dt;
       if (a.sampleT <= 0){
         a.sampleT = a.def.followFloor ? 0.10 : 0.25;
-        const fy = sampleFloor(a.pos.x, a.pos.z);
+        const fy = a.def.followFloor
+          ? sampleFloorNear(a.pos.x, a.pos.z, a.y)
+          : sampleFloor(a.pos.x, a.pos.z);
         const fyMax = a.def.floorMax !== undefined ? a.def.floorMax : 0.8;
         /* ⚠️ 下限不能再写死 −0.4（2026-10-23 踩到）：园子南门外那一段地面低到 −0.8，
            写死 −0.4 会把**合法路面**当成"屋顶"拒掉 ⇒ floorY 冻在上一格，
@@ -1003,7 +1177,10 @@ function advance(dt){
        权重 a.scrollW 在 0/2 相是纯粹的 1/0、中间两相各 1s 缓动 ⇒ 手不会瞬移，
        且放下之后茶盏才端起来（两种手位共用右臂，必须互斥）。
        与 armDown 的基线做加权过渡：w=0 时逐字等于"自然垂手"。 */
-    if (o.scroll){
+    /* 到访期间（从客人走到门口起）：文士退出"捧卷 ↔ 端茶"的日常循环。
+       否则他会在迎客路上一手卷轴一手茶盏（规划文档 §3 第 6 条点名的风险）。 */
+    const visiting = a.def.id === VISIT.hostId && VISIT.phase !== 'idle';
+    if (o.scroll && !visiting){
       a.scrollT += dt;
       if (a.scrollPhase === 0 && a.scrollT >= a.scrollHold){
         a.scrollPhase = 1; a.scrollT = 0;
@@ -1040,6 +1217,11 @@ function advance(dt){
           set(sd + 'ThumbDistal', -0.30 * w2, 0, 0);
         }
       }
+    } else if (o.scroll){
+      /* 迎客期间：卷轴**在 0.55s 内收掉**，不是"啪"一下消失 —— 这一步就发生在客人面前，
+         直接归零会让手里的卷轴凭空不见。收完再回到"垂手"基线。 */
+      a.scrollW = Math.max(0, a.scrollW - dt / 0.55);
+      if (a.scrollW <= 1e-3){ a.scrollPhase = 0; a.scrollT = 0; }
     }
     /* 手持草料：只动**左肘**（肩保持垂手），手指松松地扣着草把 —— 见 HAY_ARM。 */
     if (o.hay){
@@ -1057,7 +1239,7 @@ function advance(dt){
        只在**喝茶那只手**上写（右手），左臂继续走 armDown —— 两只手都端起来就成了"捧"。
        ⚠️ 与"捧卷轴"互斥：文士双手都占着卷轴时不能端盏 ⇒ 只在卷轴放下的那一相
           （a.scrollPhase === 2）才跑这段；其余时候把 sip 归零（否则低头角会冻住）。 */
-    if (o.tea && (!o.scroll || a.scrollPhase === 2)){
+    if (o.tea && !visiting && (!o.scroll || a.scrollPhase === 2)){
       a.teaWait -= dt;
       if (a.teaWait <= 0 && a.teaT <= 0){
         a.teaT = 1e-4;
@@ -1178,12 +1360,39 @@ function advance(dt){
         set(side + 'ThumbDistal', P.thumb * 0.6, 0, 0);
       }
     }
+    /* ── 作揖（S2）：两手在胸前合拢 + 躯干前俯 ─────────────────────────────────
+       权重 = 导演层的 bowW（0→1→0，起落各 0.7s）。只对参与迎客的两个人生效。
+       ⚠️ 手位用**线性插值**从"垂手基线"过渡到 BOW 的角：bowW 自己是 ease01，
+          再叠非线性会读成"弹一下"。
+       ⚠️ 躯干前俯不在这里写 —— 下面的 Chest/Spine/Head 是同一批骨的最后一次写入，
+          这里再 set 一遍会被覆盖（本项目踩过"设了没生效"的坑）。 */
+    const bw = (a.def.id === VISIT.hostId || a.def.id === VISIT.guestId) ? VISIT.bowW : 0;
+    if (bw > 0.001){
+      const L = BOW.L, Rr = BOW.R, wb = bw;
+      set('LeftUpperArm', L.sx * wb, ad * (1 - wb) + L.sy * wb, L.sz * wb);
+      set('RightUpperArm', Rr.sx * wb, -ad * (1 - wb) + Rr.sy * wb, Rr.sz * wb);
+      set('LeftLowerArm', BOW.ex * wb, 0, 0);
+      set('RightLowerArm', BOW.ex * wb, 0, 0);
+      set('LeftHand', BOW.hand * wb, 0, 0);
+      set('RightHand', BOW.hand * wb, 0, 0);
+      /* 手指并拢虚握：拱手读的是"两只袖子并在一起"，指节只做"收"不张开 */
+      for (const sd of ['Left', 'Right']){
+        set(sd + 'IndexProximal', BOW.curl * wb, 0, 0);
+        set(sd + 'MiddleProximal', BOW.curl * wb, 0, 0);
+        set(sd + 'IndexIntermediate', BOW.mid * wb, 0, 0);
+        set(sd + 'MiddleIntermediate', BOW.mid * wb, 0, 0);
+        set(sd + 'ThumbProximal', BOW.thumb * wb, 0, 0);
+        set(sd + 'ThumbIntermediate', BOW.thumb * 0.9 * wb, 0, 0);
+        set(sd + 'ThumbDistal', BOW.thumb * 0.6 * wb, 0, 0);
+      }
+    }
     /* lean / headDown：马夫"看着马吃草"那种前俯，只动躯干和头（手臂不动）。
        品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。
-       刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。 */
-    const lean = (o.lean || 0) * (1 - a.brushW);
+       刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。
+       作揖再叠一层前俯（BOW.lean）：这是"礼"的主体，手臂只是配合。 */
+    const lean = (o.lean || 0) * (1 - a.brushW) + BOW.lean * bw;
     const hd = (o.headDown || 0) * (1 - a.brushW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
-             + SCROLL.headDown * a.scrollW;
+             + SCROLL.headDown * a.scrollW + BOW.head * bw;
     set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2, -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
@@ -1375,6 +1584,22 @@ export function actorRig(id){
 
 export function actorWalk(id, on){
   for (const a of ACTORS) if (!id || a.def.id === id) a.walkOff = !on;
+}
+
+/* 探针用：迎客序列的现状（S2 验收要断"到站/间距/朝向/作揖同时性/文士没端茶"）。
+   与 actorState 分开，是因为导演层只有一组状态，不必塞进每个演员里。 */
+export function actorVisit(){
+  const one = (id) => {
+    const a = actorRef(id);
+    if (!a) return null;
+    return { id, pos: [+a.pos.x.toFixed(3), +a.y.toFixed(3), +a.pos.z.toFixed(3)],
+             yaw: +a.yaw.toFixed(3), arrived: !!a.arrived,
+             floorY: a.floorY == null ? null : +a.floorY.toFixed(3),
+             scrollW: +(a.scrollW || 0).toFixed(3), sipW: +(a.sipW || 0).toFixed(3),
+             moveW: +(a.moveW || 0).toFixed(3) };
+  };
+  return { phase: VISIT.phase, t: +VISIT.t.toFixed(2), bowW: +VISIT.bowW.toFixed(3),
+           host: one(VISIT.hostId), guest: one(VISIT.guestId) };
 }
 
 export function actorState(){
