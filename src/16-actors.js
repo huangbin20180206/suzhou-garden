@@ -21,6 +21,7 @@ import { groundHeight } from './05-water.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { figures } from './08b-figures.js';
 import { PROP_SPOTS, QIN_LOW_SEAT, SEAT_SPOTS } from './14-props.js';
+import { STABLE_ROAD_PTS } from './15-stable.js';
 import { MAT } from './01-materials.js';
 import { HOOKS } from './00-config.js';
 
@@ -513,23 +514,29 @@ const DEFS = [
     idle: { breath: 0.009, head: 0.028, sway: 0.003, phase: 2.3, qin: true, lean: 0.18, headDown: 0.12 },
   },
   /* ── 客人（2026-10-23，P4 第五个角色）────────────────────────────────────────
-     叙事位置：**刚进园门**的访客 —— 站在月洞门里侧、面朝园内，像进来后先驻足看景。
-     为什么放这儿：正堂前（文士+两个书童）、井边（仕女）、马厩（马夫）都已有人；
-     门内这一片是空的，且"客人站在门口"本身就把月洞门这条动线说清楚了。
-     ⚠️ 门内侧有蹬石台阶（07-ground 的月洞门蹬道）⇒ 必须 floorRay（吃真实踏面，
-        不能按地形高度：地形在这里比踏面低一截，按地形会陷进台阶）。
-     ⚠️ 他这件是**长袍**：走路要裙骨（add_skirt_bones.py 已加），坐/跪不行。
-     造型与文士刻意分开：灰褐直裰 + 东坡巾 + 短须 + 略壮（见 prompts.md §7）。 */
+     叙事位置：**从马厩沿石板路走到园子南门口**（"客人到访"主序列的第一段，见
+     docs/guest-visit-choreography.md）。走到门内就停、面朝园子，等主人出迎。
+     ⚠️ 航点直接用 15-stable 导出的 STABLE_ROAD_PTS（石板路控制点）+ 门内两点：
+        改路时人物自动跟着改，不另抄坐标。
+     ⚠️ 走长路必须 `followFloor`：老的 floorRay 是"头 4 秒取最高再冻结"（给站着不动的人用的），
+        走过坡/桥时会一路悬空或陷进去。桥面/台阶靠每 0.25s 重新打射线取真实踏面。
+     ⚠️ 长袍：走路靠 6 根裙骨（已加），**坐姿**要另验（见规划文档 §3）。 */
   {
     id: 'guest',
     url: 'assets/fig-guest.glb',
     height: 1.70,
     hidePose: null,
     tint: 0xF0EDE6,          // 生成件本身就偏灰褐，只做很轻的提亮（压重会糊成一团）
-    spot: { x: 0.15, z: 20.9, yaw: Math.PI },   // 门内、面朝园子（模型正面是 +z ⇒ 转 180°）
+    spot: { x: 40.0, z: 4.2, yaw: -0.13 },      // 马厩门口（石板路起点），面朝路
     floorRay: true,
-    floorMax: 1.20,          // 门槛/台基面都在 1.2m 以下；再高就是墙面，不能当踏面
-    route: null,
+    followFloor: true,
+    floorMax: 1.20,
+    route: {
+      pts: [...STABLE_ROAD_PTS, [0.15, 23.55], [0.15, 20.9]],
+      speed: 0.58,
+      pause: [0, 0],
+      mode: 'once',                              // 走一趟就停（不来回踱步）
+    },
     idle: { breath: 0.014, head: 0.05, sway: 0.008, phase: 5.4, armDown: 0.80 },
   },
 ];
@@ -806,23 +813,42 @@ function det(i){
 }
 const approach = (v, t, d)=> (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
 
-/* 往复踱步：走到端点 → 停 dwell → 掉头 → 再走。
+/* 走路：多航点 + 两种收尾（2026-10-23 为"客人到访"扩的）。
+   - mode 缺省 = 'pingpong'：到端点停 dwell 后掉头（十几位原有角色都是这个行为，逐字不变）
+   - mode = 'once'：沿航点一路走到底，到终点置 `a.arrived = true` 并停下（给导演层判断用）
+   ⚠️ 两点时仍走老的 `1 - target` 分支，保证"仕女/书童"这类既有路线一位不差。
    ⚠️ 转身是"站住转"（|Δyaw| > TURN_GATE 时不平移），不是边走边拧 ——
       真实的人转身时脚是原地倒步，边走边转在长袍上会看出膝盖朝侧面。 */
 function tickRoute(a, dt){
   const r = a.def.route;
   a.moved = 0;
-  if (!r || a.walkOff){ a.moveW = approach(a.moveW, 0, dt / 0.45); return; }
+  if (!r || a.walkOff || a.arrived){ a.moveW = approach(a.moveW, 0, dt / 0.45); return; }
   if (a.waitT > 0){
     a.waitT -= dt;
     a.moveW = approach(a.moveW, 0, dt / 0.45);
     return;
   }
+  const last = r.pts.length - 1;
   const t = r.pts[a.target];
   const dx = t[0] - a.pos.x, dz = t[1] - a.pos.z;
   const dist = Math.hypot(dx, dz);
   if (dist < 0.05){
-    a.target = 1 - a.target;
+    if (r.mode === 'once' && a.target >= last){
+      a.arrived = true;
+      a.sampleT = 0;                 // 到站补采一次脚下踏面，别带着"上一格"的高度站住
+      a.moveW = approach(a.moveW, 0, dt / 0.45);
+      return;
+    }
+    if (r.pts.length === 2){
+      a.target = 1 - a.target;
+    } else if (r.mode === 'once'){
+      a.target++;
+    } else {
+      /* 多航点往复：端点处翻向，中间点按当前方向继续 */
+      if (a.target >= last) a.dir = -1;
+      else if (a.target <= 0) a.dir = 1;
+      a.target += (a.dir || 1);
+    }
     a.waitT = r.pause[0] + (r.pause[1] - r.pause[0]) * det(a.stopN++);
     a.moveW = approach(a.moveW, 0, dt / 0.45);
     return;
@@ -857,14 +883,26 @@ function advance(dt){
        所以头 4 秒（16 次 ×0.25s）**持续采样取最高**，之后冻结：院子面一建出来就被采用。
        只接受 [−0.4, 0.8] 的命中，免得把马厩屋顶（2.9m）当成地面。
        （第一版"打中即冻结"踩过：第一个采样点打到的正是地形 0.052 ⇒ 人整体矮 5cm。） */
-    if (a.def.floorRay && !a.floorDone){
-      a.sampleT -= dt;
+    if (a.def.floorRay && (!a.floorDone || a.def.followFloor)){
+      /* followFloor（走长路的人，2026-10-23 客人）：**边走边采样**，并把间隔从 0.25s 收到
+         0.10s —— 0.25s 在 0.58m/s 下已经是 15cm 一格，起伏路面会看出"悬空/下陷"。
+         站着不动（或已到站）时只在必要时补采一次，避免每帧打射线。 */
+      if (!a.def.followFloor || a.moved > 1e-4) a.sampleT -= dt;
       if (a.sampleT <= 0){
-        a.sampleT = 0.25;
+        a.sampleT = a.def.followFloor ? 0.10 : 0.25;
         const fy = sampleFloor(a.pos.x, a.pos.z);
         const fyMax = a.def.floorMax !== undefined ? a.def.floorMax : 0.8;
-        if (fy !== null && fy > -0.4 && fy < fyMax && (a.floorY === null || fy > a.floorY + 0.004)) a.floorY = fy;
-        if (++a.floorTries >= 16) a.floorDone = true;
+        /* ⚠️ 下限不能再写死 −0.4（2026-10-23 踩到）：园子南门外那一段地面低到 −0.8，
+           写死 −0.4 会把**合法路面**当成"屋顶"拒掉 ⇒ floorY 冻在上一格，
+           人在下坡路上一路悬空（实测悬空 0.39m）。跟随型改用"相对当前高度"的窗口。 */
+        const fyLo = a.def.followFloor ? a.y - 2.0 : -0.4;
+        if (fy !== null && fy > fyLo && fy < fyMax){
+          /* 老角色仍是"头 16 次取最高再冻结"：他们站在院子/台基上不动，
+             取最高是为了等马厩台基建出来。跟随型直接取当前值。 */
+          if (a.def.followFloor) a.floorY = fy;
+          else if (a.floorY === null || fy > a.floorY + 0.004) a.floorY = fy;
+        }
+        if (!a.def.followFloor && ++a.floorTries >= 16) a.floorDone = true;
       }
     }
     /* 坐凳的人**坐的是凳子**，不是脚下那块地形：石桌四周是缓坡，跟着地形走会让
@@ -872,8 +910,9 @@ function advance(dt){
        fixedY = 钉在 spot.y（= 凳子所在的地面高，14-props 给的）。 */
     const gy = a.def.fixedY ? a.def.spot.y
       : (a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z));
-    /* 位置：先落地点，再叠步态起伏。groundHeight 是缓坡，直接跟即可。 */
-    a.y += (gy - a.y) * Math.min(1, dt * 8);    // 一阶低通：坡上不会一点点抖
+    /* 位置：先落地点，再叠步态起伏。groundHeight 是缓坡，直接跟即可。
+       跟随型（走长路的人）收敛快一点，起伏路面上不至于"慢半拍"地悬空。 */
+    a.y += (gy - a.y) * Math.min(1, dt * (a.def.followFloor ? 18 : 8));
     const o = a.def.idle;
     const p = a.step / STEP_LEN * Math.PI;      // 步态相位（按走过的距离推进）
     const w = a.moveW;
@@ -1349,6 +1388,9 @@ export function actorState(){
       mode: !a.def.route || a.walkOff ? 'stand' : (a.waitT > 0 ? 'wait' : 'walk'),
       kneelW: +a.kneelW.toFixed(3),
       sitW: +a.sitW.toFixed(3),
+      /* 探针用（2026-10-23 客人走路）：脚下踏面/是否走完，判断"悬空/到站"不必再猜 */
+      floorY: a.floorY == null ? null : +a.floorY.toFixed(3),
+      arrived: !!a.arrived, target: a.target,
       /* 探针用：对弈块到底跑没跑 —— goId 从 idle 取，placeT 只有进了那块才会动 */
       goId: (a.def.idle && a.def.idle.go) || null,
       placeT: +a.placeT.toFixed(2),
