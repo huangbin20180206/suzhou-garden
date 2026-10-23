@@ -200,3 +200,49 @@ about 12000 triangles worth of detail. No props, no text, no watermark.
   ä¸”ç»‘éª¨æƒé‡å‡ ä¹å¿…é”™ã€‚
 - **ä¸è¦**è¦æ±‚"ç…§ç‰‡çº§çš®è‚¤/æ¯›å­”/æ¬¡è¡¨é¢æ•£å°„"ï¼šæœ¬é¡¹ç›®ç”»é£æ˜¯å·¥ç¬”æ·¡å½©ï¼Œç…§ç‰‡çº§çš®è‚¤ä¼šå’Œæ•´ä¸ªåœºæ™¯
   æ‰“æ¶ï¼ˆå¯¹ç…§ï¼šé©¬ä¸¢æ‰ UV å›¾é›†ã€æ”¹ç¨‹åºç»†æ¯›ä¹‹åæ‰ä¸"åƒèœ¡åƒ"ï¼‰ã€‚
+
+---
+
+## 8. ¿ÍÈË£¨Guest£¬2026-10-23 ¡¤ P4 µÚÎå¸ö½ÇÉ«£©
+
+> ¼ÇÂ¼**Êµ¼ÊÓÃµôµÄÄÇ·İ prompt**£¨Rodin Gen-2.5-Medium£¬face_limit 12000£¬pbr=true£¬
+> export_uv=true£¬with_fbx=false£©¡£ÓëÎÄÊ¿¿ÌÒâÇø·Ö£ºÎÄÊ¿=µåÀ¶³¤ÉÀ+Íø½í+ÇåÊİ£¬
+> ¿ÍÈË=»ÒºÖÖ±ñÖ+¶«ÆÂ½í+¶ÌĞë+ÂÔ×³ ¡ª¡ª Í¬Ò»³¡¾°Àï²»ÄÜ¶Á³É"Í¬Ò»¸öÈË»»ÁË¸öÑÕÉ«"¡£
+
+```
+A single middle-aged Chinese visitor (guest) of the Ming dynasty, about forty-five years old,
+standing in a relaxed A-pose, full body from head to shoes, facing the viewer (front is +Z).
+He wears a long muted grey-brown zhiduo robe with a crossed collar (jiaoling youren), wide
+sleeves that taper to the wrist, a broad dark brown fabric belt (dabu) knotted at the waist,
+and dark cloth shoes. The robe hem stops 3 cm above the ground. On his head is a soft black
+Dongpo scarf (dongpo jin) with a slightly folded back; a trimmed short black beard and moustache.
+Slightly heavier build than a young scholar, shoulders 3 head-widths wide, arms held about 45
+degrees away from the body with palms facing inward, feet shoulder-width apart and flat on the
+ground, knees straight.
+
+Stylized semi-realistic low-poly game character: about 12000 triangles, clean silhouette, smooth
+shading with low-density topology, quads preferred, no interior geometry, no overlapping shells.
+Hand-painted 1K texture atlas: matte woven cloth with low-frequency ink-wash folds, gongbi
+light-color palette (muted grey-brown, warm off-white, dark brown), soft diffuse shading, no
+specular highlights, no sheen, no metallic parts. The face is painted on the atlas with realistic
+proportions: visible eye whites, dark iris and pupil, defined eyebrows, natural nose and mouth,
+a short beard painted as flat colour. No base, no ground plane, no shadow, no props in his hands.
+```
+
+### 8.1 ÓëÇ°Èı¼ş²»Í¬µÄÁ½²½£¨¶¼²È¹ı£©
+
+1. **±ØĞëÏÈ `prep_character.py` ÔÙ°ó¹Ç**¡£Ô­Ê¼Éú³É¼ş½Åµ×ÔÚ z=?0.947¡¢ÕûÌåÊÇ**¾ÓÖĞ**µÄ
+   £¨bounds 1.37¡Á0.54¡Á1.90£¬y¡Ê[?0.947, 0.948]£©¡£Ö±½Ó¶ª¸ø UniRig£¬»ØÀ´µÄ¹Ç¼ÜÊÇ°´
+   "¹éÒ»»¯µ½ 0~1 µÄĞ¡ÈË"°ÚµÄ£º`Hips` ÔÚ **z=0.027**¡¢`Spine` 0.123 ¡ª¡ª Õû¸±¹Ç¼ÜËõÔÚ½Åµ×£¬
+   Íø¸ñÓë¹Ç÷ÀÍêÈ«²»ÌùºÏ£¨`add_skirt_bones.py` µ±³¡±¨ `hip z=0.027 hem z=0.120`¡¢
+   `reweighted=0`£¬ÄÇ¾ÍÊÇ"¹ÇÍ·Ã»ÂäÔÚÒÂ·şÉÏ"µÄ¿ÉÁ¿»¯ĞÅºÅ£©¡£
+   ÅÜ¹ı `--height 1.70` Ö®ºó `Hips` »Øµ½ **z=0.873**£¬È¹¹Ç `reweighted=1698`¡£
+2. **UniRig µÄÊä³öÀï´øÒ»¸ö `Icosphere`**£¨2¡Á2¡Á2¡¢Ô­µã¾ÓÖĞ£©£¬ËüÊÇ°ó¹Ç¹¤¾ßµÄ×Ô´ø¼ş¡£
+   `optimize_character.py` »á°ÑËüÉ¾µô£¨ÅĞ¾İ = "Ã»ÓĞ ARMATURE ĞŞ¸ÄÆ÷µÄÍø¸ñ"£©£¬
+   ²»É¾¾Í»áÔÚ³¡¾°Àï¶à³öÒ»¸ö 2m µÄ°×Çò¡£
+
+### 8.2 Âäµã
+
+ÔÂ¶´ÃÅÄÚ `(0.15, 20.9)`¡¢`yaw=¦Ğ`£¨Ãæ³¯Ô°ÄÚ£©¡£ÃÅÄÚ²àÊÇ**µÅÊ¯Ì¨½×**²»ÊÇµØĞÎ ?
+`floorRay: true` + `floorMax: 1.20`£¨³ÔÕæÊµÌ¤Ãæ£»°´µØĞÎ¸ß¶È»áÏİ½øÌ¨½×£©¡£
+`route: null` ¡ª¡ª ÃÅ¿ÚÄÇÒ»Ğ¡Æ¬±»Ì¨½×ÓëÃÅ¶´¼Ğ×Å£¬À´»Øõâ²½»á²Èµ½Ì¨½×±ß¡£

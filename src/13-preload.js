@@ -213,6 +213,11 @@ export const PRELOAD_MANIFEST = [
      否则预载段会等一个永远不来的 settled ⇒ 进度条卡死（实测 120s）。
      `preload-manifest-sync` 的 G6 守这条。 */
   { url: 'assets/HorseTinker.glb',  bytes: 1959088, stage: '取', label: '马',   required: false },
+  /* 2026-10-23：马厩换 Rodin 三匹（无骨骼 + 1024 PBR 贴图，走 15-stable 的伪蒙皮）。
+     三份在 15-stable 的**模块求值期**发起请求（_RODIN_BOOT），否则会死等到预载超时。 */
+  { url: 'assets/horse-camargue.glb',       bytes: 782052, stage: '取', label: '马·白', required: false },
+  { url: 'assets/horse-mongolian.glb',      bytes: 786484, stage: '取', label: '马·栗', required: false },
+  { url: 'assets/horse-criollo-saddle.glb', bytes: 861892, stage: '取', label: '马·鞍', required: false },
   /* 2026-10-21 P1 半写实人物（AI 生成 + UniRig 绑骨；16-actors 在模块求值期发起下载，
      settleAsset 回报；失败时程序化替身继续站）。
      2026-10-22：三件贴图全部重导成 JPEG q88（1K）—— PNG 版单件 1.76/2.56MB 越了 1.5MB 预算，
@@ -223,6 +228,9 @@ export const PRELOAD_MANIFEST = [
   { url: 'assets/fig-laborer.glb', bytes: 737256,  stage: '取', label: '马夫', required: false },
   /* 书童（一位资产、两处实例：16-actors 的 child1/child2 各 parse 一份）。 */
   { url: 'assets/fig-child.glb',   bytes: 648316,  stage: '取', label: '书童', required: false },
+  /* 2026-10-23 P4 第五个角色「客人」（Rodin 生成 + UniRig 绑骨 + 手部权重修复 + 6 根裙骨，
+     1024 JPEG 贴图；材质是长袍 ⇒ 走路靠裙骨、不做坐姿）。 */
+  { url: 'assets/fig-guest.glb',   bytes: 667288,  stage: '取', label: '客人', required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */

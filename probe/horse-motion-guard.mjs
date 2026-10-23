@@ -82,7 +82,32 @@ const data = await page.evaluate(async () => {
     if (!tailM && tailG){
       tailM = tailG;                                   // 退路：没有旧尾就量新尾组
     }
-    if (!body) { horses.push({ role: slot.role, error: '没找到 Horse_LP 蒙皮网格' }); continue; }
+    if (!body){
+      /* 2026-10-23：马换成 Rodin 三匹（**无骨骼**，走伪蒙皮）。判据不退休成"跳过"，
+         改成量**产品自己算出来的姿态角**（rig.head/tail/leg/jaw），语义与骨骼分支一致：
+         头角到基角 = 低头吃草、尾角有摆幅 = 摇尾、腿角有摆幅 = 抬蹄、下颌角有摆幅 = 在嚼。 */
+      const h = mod.horseLifeDebug().find(x => x.group === slot.group);
+      const rig = h && h.mat && h.mat.userData && h.mat.userData.rig;
+      if (!rig) { horses.push({ role: slot.role, error: '既没有蒙皮网格、也没有伪蒙皮 rig' }); continue; }
+      const S = { head: [], tail: [], jaw: [], leg: [[], [], [], []] };
+      for (let step = 0; step < 20 * 30; step++){
+        mod.tickStableLife(1 / 30);
+        if (step % 3) continue;
+        S.head.push(rig.head.x); S.tail.push(rig.tail.x); S.jaw.push(rig.jaw ? rig.jaw.x : 0);
+        for (let k = 0; k < 4; k++) S.leg[k].push(rig.leg.getComponent(k));
+      }
+      const sp = a => a.length ? +(Math.max(...a) - Math.min(...a)).toFixed(4) : 0;
+      const av = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+      /* 口鼻相对鬐甲的高度：按 shader 同一公式把 nose 锚点绕颈枢轴转 head.x，再减颈枢轴高 */
+      const piv = h.piv.neck, nose = h.nose;
+      const ang = av(S.head), dyy = nose[1] - piv[1], dzz = nose[2] - piv[2];
+      const noseY = piv[1] + dyy * Math.cos(ang) - dzz * Math.sin(ang);
+      horses.push({ role: slot.role, mode: 'rig',
+        noseVsWithers: +(noseY - piv[1]).toFixed(3),
+        noseSpan: 0, tailSpan: sp(S.tail), jawSpan: sp(S.jaw),
+        headSpan: sp(S.head), hoofSpan: Math.max(...S.leg.map(sp)) });
+      continue;
+    }
     const bp = body.geometry.attributes.position;
     let iMuzzle = -1, iWithers = -1, zMax = -1e9, yMax = -1e9;
     for (let i=0;i<bp.count;i++){
@@ -162,10 +187,14 @@ if (fed)   ok(fed.jawSpan   >= 0.05, '②b 受喂马也在嚼', fed.jawSpan + 'r
 const stall = byRole('stall')[0];
 if (stall) ok(stall.jawSpan <= 0.03, '②c 厩内那匹不嚼（不该动嘴）', stall.jawSpan + 'rad');
 const tails = data.horses.map(h => h.tailSpan);
-ok(Math.max(...tails) >= 0.12, '③ 摇尾巴：尾尖横摆 ≥0.12m', 'max ' + Math.max(...tails) + 'm');
+/* 骨骼分支量的是**尾尖位移（米）**，伪蒙皮分支量的是**尾角（弧度）** ⇒ 门槛按分支给 */
+const tailUnit = data.horses[0] && data.horses[0].mode === 'rig' ? 'rad' : 'm';
+const TAIL_MAX = tailUnit === 'rad' ? 0.20 : 0.12;
+const TAIL_MIN = tailUnit === 'rad' ? 0.15 : 0.08;
+ok(Math.max(...tails) >= TAIL_MAX, `③ 摇尾巴：尾${tailUnit === 'rad' ? '角' : '尖横摆'} ≥${TAIL_MAX}${tailUnit}`, 'max ' + Math.max(...tails) + tailUnit);
 /* ⚠️ 2026-10-20 验收补的**盲区**：原来只看 max ⇒ 六匹里五匹不动也照样绿。
    老黄要求"马蹄马尾不规则动"是**对所有马**的 ⇒ 逐匹都要有下限。 */
-ok(Math.min(...tails) >= 0.08, '③b 每匹马都在摇尾（不是只有几匹动）', 'min ' + Math.min(...tails) + 'm');
+ok(Math.min(...tails) >= TAIL_MIN, '③b 每匹马都在摇尾（不是只有几匹动）', 'min ' + Math.min(...tails) + tailUnit);
 const hoofs = data.horses.map(h => h.hoofSpan);
 ok(Math.max(...hoofs) >= 0.15, '④ 动前蹄：蹄骨角摆动 ≥0.15rad', 'max ' + Math.max(...hoofs) + 'rad');
 const heads = data.horses.map(h => h.headSpan);

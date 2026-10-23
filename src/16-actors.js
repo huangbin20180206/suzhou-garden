@@ -512,6 +512,26 @@ const DEFS = [
     route: null,
     idle: { breath: 0.009, head: 0.028, sway: 0.003, phase: 2.3, qin: true, lean: 0.18, headDown: 0.12 },
   },
+  /* ── 客人（2026-10-23，P4 第五个角色）────────────────────────────────────────
+     叙事位置：**刚进园门**的访客 —— 站在月洞门里侧、面朝园内，像进来后先驻足看景。
+     为什么放这儿：正堂前（文士+两个书童）、井边（仕女）、马厩（马夫）都已有人；
+     门内这一片是空的，且"客人站在门口"本身就把月洞门这条动线说清楚了。
+     ⚠️ 门内侧有蹬石台阶（07-ground 的月洞门蹬道）⇒ 必须 floorRay（吃真实踏面，
+        不能按地形高度：地形在这里比踏面低一截，按地形会陷进台阶）。
+     ⚠️ 他这件是**长袍**：走路要裙骨（add_skirt_bones.py 已加），坐/跪不行。
+     造型与文士刻意分开：灰褐直裰 + 东坡巾 + 短须 + 略壮（见 prompts.md §7）。 */
+  {
+    id: 'guest',
+    url: 'assets/fig-guest.glb',
+    height: 1.70,
+    hidePose: null,
+    tint: 0xF0EDE6,          // 生成件本身就偏灰褐，只做很轻的提亮（压重会糊成一团）
+    spot: { x: 0.15, z: 20.9, yaw: Math.PI },   // 门内、面朝园子（模型正面是 +z ⇒ 转 180°）
+    floorRay: true,
+    floorMax: 1.20,          // 门槛/台基面都在 1.2m 以下；再高就是墙面，不能当踏面
+    route: null,
+    idle: { breath: 0.014, head: 0.05, sway: 0.008, phase: 5.4, armDown: 0.80 },
+  },
 ];
 
 /* 隐藏程序化替身。near 给了就按**最近的那个**挑：
@@ -557,6 +577,7 @@ function settleActor(def, ok, err){
   else if (def.id === 'lady') HOOKS.settleAsset?.('assets/fig-lady.glb', ok, err);
   else if (def.id === 'laborer') HOOKS.settleAsset?.('assets/fig-laborer.glb', ok, err);
   else if (def.id === 'child1' || def.id === 'child2') HOOKS.settleAsset?.('assets/fig-child.glb', ok, err);
+  else if (def.id === 'guest') HOOKS.settleAsset?.('assets/fig-guest.glb', ok, err);
 }
 
 /* 脚下那个面：马厩院子/台基不是地形（groundHeight 给 −0.05，院子面 0.10），

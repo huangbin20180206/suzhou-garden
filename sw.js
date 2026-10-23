@@ -113,11 +113,12 @@
    （手机竖屏 390×844 上面板展开后底部要滚动 38px 才看得见最后一行，实测探针见
    outputs/_diag/panel-fit-scan.mjs；改后留 ~65px 余量）。 */
 /* 2026-10-21 bump v41→v42：GLBS 预载清单加入 fig-scholar.glb / fig-lady.glb。 */
-const CACHE = 'suzhou-garden-v42';
+/* 2026-10-23 bump v42→v43：GLBS 预载清单加入 Rodin 三匹马。 */
+const CACHE = 'suzhou-garden-v43';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
-const ASSET_CACHE = 'suzhou-garden-assets-v16';  // 2026-10-22 三个人物 GLB 换 JPEG 贴图 + 新增 fig-laborer.glb（文件都比 sw 新 ⇒ 升桶）
+const ASSET_CACHE = 'suzhou-garden-assets-v18';  // 2026-10-23 新增三匹马 + 客人 GLB（文件比 sw 新 ⇒ 升桶）
 const SHELL = [
   './',
   './index.html',
@@ -137,6 +138,13 @@ const GLBS = [
   './assets/Macaw.glb',
   /* 2026-10-19：马厩换 Tinker 照片级马（454 骨骼 + 鬃尾），与 13-preload 同步。 */
   './assets/HorseTinker.glb',
+  /* 2026-10-23：马厩换 Rodin 三匹（自带耳/眼/鼻孔/蹄形 + 1024 PBR 贴图；无骨骼走伪蒙皮）。
+     与 13-preload 的 PRELOAD_MANIFEST 同步（preload-manifest-sync 门盯着）。 */
+  './assets/horse-camargue.glb',
+  './assets/horse-mongolian.glb',
+  './assets/horse-criollo-saddle.glb',
+  /* 2026-10-23：第五个角色「客人」（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
+  './assets/fig-guest.glb',
   /* 2026-10-14 试水批次：太湖石主峰替换件（改浅灰重导后 5.46MB ⇒ 资产桶现为 assets-v3；
      与 13-preload 的 PRELOAD_MANIFEST 同步（preload-manifest-sync 门盯着）。 */
   './assets/boulder-hero.glb',

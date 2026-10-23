@@ -63,3 +63,49 @@ npm run check                 # è¯­æ³• + no-undef + PWA
 npm run verify:quick          # 7 é“å¿«é—¨ï¼ˆæ”¹å®ŒåŠŸèƒ½å…ˆè·‘è¿™ä¸ªï¼‰
 node outputs/_diag/actor-final-shots.mjs   # äººç‰©é“å…·éªŒæ”¶å›¾ + é‡åŒ–
 ```
+
+---
+
+## 7. ÏÂÎç×·¼Ó£¨2026-10-23£©£º»»Âí + µÚÎå¸ö½ÇÉ«
+
+### 7.1 Âí£ºTinker ¡ú Rodin ÈıÆ¥£¨ÎŞ¹Ç÷À£¬Î±ÃÉÆ¤£©
+
+| Ïî | Öµ |
+|---|---|
+| ×Ê²ú | `assets/horse-camargue.glb` 782KB / `horse-mongolian.glb` 786KB / `horse-criollo-saddle.glb` 862KB |
+| À´Ô´ | ÓÃ»§ÒÑÉú³É×Ê²ú¿â£¨`search_my_assets`£©£¬ÈıÆ¥¶¼ÊÇ Rodin Éú³É¼ş£¬×Ô´ø¶ú/ÑÛ/±Ç¿×/ÌãĞÎ + 2048 PBR |
+| ´¦Àí | `outputs/_diag/horse-cand/convert_horse.py`£º½Åµ× y=0¡¢Í·³¯ +Z¡¢×Ü¸ß 1.75¡¢x/z ¾ÓÖĞ¡¢ÌùÍ¼½µµ½ 1024 JPEG |
+| ¹Ç¼Ü | **Ã»ÓĞ¹Ç÷À**£¨`skins=0`£©? ×ßÏîÄ¿ÏÖ³ÉµÄ×ÅÉ«Æ÷Î±ÃÉÆ¤ `installHorseRig` |
+| È¨ÖØ | `rodinRigData()` °´¹éÒ»»¯ºóµÄÊµ¼Ê¼¸ºÎÁ¿£ºËÄÌãĞÄ·Ö´Ø¡¢¾±ÊàÖá (0,1.26,0.40)¡¢Î²¸ù¡¢ÏÂò¢½Âµã |
+| ²½·ù | `strideWalk = 2¡Á¼ç¸ß¡Ásin(A) = 0.663m`£¨ÓÃ HORSE_GAIT ³£Á¿»á»¬²½£© |
+| ·ÖÅä | ¾ÇÄÚ criollo/camargue¡¢Ô¯Àï camargue+mongolian¡¢³Ô²İ camargue¡¢ÊÜÎ¹ mongolian |
+| »ØÍË | `src/15-stable.js` ¶¥²¿ `HORSE_MODEL = 'tinker'` Ò»ĞĞ |
+
+ÑéÖ¤£º`outputs/_diag/horse-rodin-check.mjs`£¨PASS£©¡ª¡ªÁùÆ¥¶¼ÔÚ¡¢`headDot=1`£¨Í·³¯²ÛÎ»Ç°·½£©¡¢
+½ÅÏÂ `minY == groupY`¡¢Óë¾ÇÄÚÈÎºÎ·ÇÂíÍø¸ñ**°üÎ§ºĞÏà½»Ìå»ı 0**¡¢¿ì½ø 12s ÁùÆ¥×ËÌ¬½ÇÈ«¶¼ÓĞ°Ú·ù¡¢
+Áã pageerror¡£³öÍ¼´æ `outputs/_diag/horse-rodin/`£¨wide/quarter/top/inside/close£©¡£
+
+ÃÅ½ûÍ¬²½£º`probe/horse-motion-guard.mjs` ¼ÓÁË**Î±ÃÉÆ¤·ÖÖ§** ¡ª¡ª Ã»ÓĞÃÉÆ¤Íø¸ñÊ±¸ÄÁ¿
+`rig.head/tail/leg/jaw`£¨Î²°ÚÃÅ¼÷°´µ¥Î»Çø·Ö£º¹Ç÷À·ÖÖ§ÊÇÃ×¡¢Î±ÃÉÆ¤ÊÇ»¡¶È£©£¬
+ËùÒÔ"µÍÍ·³Ô²İ/Ò¡Î²/Ì§Ìã/¾×½À/°×Æø"ÎåÏîÒ»ÌõÃ»ÍË¡£
+
+?? Á½Ìõ±ğ²È£º¢Ù ÌùµØÈíÓ°ÊÇ 1.18¡Á2.30 µÄ**Áãºñ¶ÈÆ½Ãæ**£¬Ëã½ø×é°üÎ§ºĞ»áÈÃÏàÁÚÁ½Æ¥"²åÔÚÒ»Æğ"
+£¨¼ÙÑôĞÔ 0.51m3£©£¬Á¿Ïà½»±ØĞëÖ»È¡Âí±¾ÌåÍø¸ñ£»¢Ú Î±ÃÉÆ¤Ö»×¢ÈëÑÕÉ«²ÄÖÊ¡¢**Ã»×¢ÈëÉî¶È²ÄÖÊ**
+? ÁùÆ¥È«²¿ `castShadow=false` + ÌùµØÈíÓ°£¬·ñÔòÍ¶Ó°ÓÀÔ¶ÊÇ"Ã»µÍÍ·µÄÕ¾×Ë"¡£
+
+### 7.2 µÚÎå¸ö½ÇÉ«¡¸¿ÍÈË¡¹
+
+| Ïî | Öµ |
+|---|---|
+| ×Ê²ú | `assets/fig-guest.glb` 667KB / 11222 tri / **60 ¹Ç**£¨54 + 6 È¹¹Ç£©|
+| prompt | `research/characters/prompts.md` ¡ì8£¨»ÒºÖÖ±ñÖ + ¶«ÆÂ½í + ¶ÌĞë + ÂÔ×³£¬ÓëÎÄÊ¿Çø·Ö£©|
+| ¹ÜÏß | Rodin Gen-2.5-Medium ¡ú **prep_character.py** ¡ú UniRig ¡ú repair_hands.py ¡ú add_skirt_bones.py ¡ú optimize_character.py |
+| Âäµã | ÔÂ¶´ÃÅÄÚ `(0.15, 20.9)`¡¢`yaw=¦Ğ`£¨Ãæ³¯Ô°ÄÚ£©¡¢`floorRay: true`¡¢`floorMax: 1.20` |
+
+?? **±ØĞëÏÈ prep ÔÙ°ó¹Ç**£ºÔ­Ê¼Éú³É¼ş½Åµ×ÔÚ z=?0.947£¨¾ÓÖĞ£©£¬Ö±½Ó¶ª¸ø UniRig »ØÀ´µÄ¹Ç¼ÜÊÇ
+"°´ 0~1 ¹éÒ»»¯Ğ¡ÈË"°ÚµÄ ¡ª¡ª `Hips` ÂäÔÚ **z=0.027**£¬Õû¸±¹Ç¼ÜËõÔÚ½Åµ×¡¢ÓëÍø¸ñÍêÈ«²»ÌùºÏ£»
+`add_skirt_bones.py` »áµ±³¡±¨ `hip z=0.027 hem z=0.120 / reweighted=0`£¨Õâ¾ÍÊÇ"¹ÇÍ·Ã»ÂäÔÚÒÂ·şÉÏ"
+µÄ¿ÉÁ¿»¯ĞÅºÅ£©¡£prep µ½ `--height 1.70` Ö®ºó `Hips` »Øµ½ **z=0.873**¡¢È¹¹Ç `reweighted=1698`¡£
+
+?? UniRig Êä³öÀï´øÒ»¸ö `Icosphere`£¨2¡Á2¡Á2£©£¬`optimize_character.py` »á°´"Ã»ÓĞ ARMATURE ĞŞ¸ÄÆ÷"
+É¾µôËü£»²»É¾³¡¾°Àï»á¶àÒ»¸ö 2m °×Çò¡£

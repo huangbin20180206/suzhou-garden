@@ -887,19 +887,24 @@ export function bakeHorseShading(geo, w, opts = {}){
       "鹦鹉抽搐"的教训（每帧相位超过 ~0.8rad 就走样成乱抖）；③ 幅度按"远看读得出"给：
       15~25m 外 1° ≈ 4~7mm，所以姿态角都在 5° 以上。 */
 function installHorseRig(mat, geo, W, piv){
-  const P = { head: piv.neck, tail: piv.tail, legF: piv.legF, legH: piv.legH };
+  const P = { head: piv.neck, tail: piv.tail, legF: piv.legF, legH: piv.legH,
+              jaw: piv.jaw || [0, 1.2, 0.8] };
   mat.userData.rig = { head: new THREE.Vector2(0, 0), tail: new THREE.Vector2(0, 0),
-                       leg: new THREE.Vector4(0, 0, 0, 0) };
+                       leg: new THREE.Vector4(0, 0, 0, 0), jaw: new THREE.Vector2(0, 0) };
   const N = geo.attributes.position.count, pos = geo.attributes.position;
   const A = new Float32Array(N * 4), B = new Float32Array(N * 2);
+  const J = W.jaw ? new Float32Array(N) : null;
   for (let i = 0; i < N; i++){
     const x = pos.getX(i), L = x < 0 ? 1 : 0, R = x < 0 ? 0 : 1;
     A[i*4] = W.head[i]; A[i*4+1] = W.tail[i];
     A[i*4+2] = W.legF[i] * L; A[i*4+3] = W.legF[i] * R;
     B[i*2] = W.legH[i] * L;  B[i*2+1] = W.legH[i] * R;
+    if (J) J[i] = W.jaw[i];
   }
   geo.setAttribute('aRigA', new THREE.BufferAttribute(A, 4));
   geo.setAttribute('aRigB', new THREE.BufferAttribute(B, 2));
+  /* 下颌（Rodin 件没有下颌骨，只能靠这一层权重开合；旧 Tripo 马没有，是这次补的） */
+  geo.setAttribute('aRigJaw', new THREE.BufferAttribute(J || new Float32Array(N), 1));
   mat.onBeforeCompile = (sh) => {
     /* ⚠️ uniform 的 value 直接指向 mat.userData.rig 里那几个向量 —— 于是每帧改
        `rig.head.x` 就等于改 uniform（不必去找 shader 对象；onBeforeCompile 只跑一次）。 */
@@ -910,12 +915,15 @@ function installHorseRig(mat, geo, W, piv){
     sh.uniforms.uPivTail = { value: P.tail };
     sh.uniforms.uPivLegF = { value: P.legF };
     sh.uniforms.uPivLegH = { value: P.legH };
+    sh.uniforms.uJawAng  = { value: mat.userData.rig.jaw };
+    sh.uniforms.uPivJaw  = { value: P.jaw };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec4 aRigA;
         attribute vec2 aRigB;
-        uniform vec2 uHeadAng; uniform vec2 uTailAng; uniform vec4 uLegAng;
-        uniform vec3 uPivHead; uniform vec3 uPivTail; uniform vec3 uPivLegF; uniform vec3 uPivLegH;
+        attribute float aRigJaw;
+        uniform vec2 uHeadAng; uniform vec2 uTailAng; uniform vec4 uLegAng; uniform vec2 uJawAng;
+        uniform vec3 uPivHead; uniform vec3 uPivTail; uniform vec3 uPivLegF; uniform vec3 uPivLegH; uniform vec3 uPivJaw;
         vec3 rigRX(vec3 p, vec3 pv, float a){ float c = cos(a), s = sin(a); vec3 d = p - pv;
           return vec3(d.x, d.y * c - d.z * s, d.y * s + d.z * c) + pv; }
         vec3 rigRY(vec3 p, vec3 pv, float a){ float c = cos(a), s = sin(a); vec3 d = p - pv;
@@ -923,6 +931,8 @@ function installHorseRig(mat, geo, W, piv){
       `)
       .replace('#include <begin_vertex>', `
         vec3 transformed = vec3( position );
+        /* 下颌先开合，再套头颈旋转（顺序反了的话，低头时下巴会被拉离鼻子） */
+        if (aRigJaw > 0.002) transformed = mix(transformed, rigRX(transformed, uPivJaw, uJawAng.x), aRigJaw);
         if (aRigA.x > 0.002){ vec3 q = rigRX(transformed, uPivHead, uHeadAng.x); q = rigRY(q, uPivHead, uHeadAng.y); transformed = mix(transformed, q, aRigA.x); }
         if (aRigA.y > 0.002){ vec3 q = rigRY(transformed, uPivTail, uTailAng.x); q = rigRX(q, uPivTail, uTailAng.y); transformed = mix(transformed, q, aRigA.y); }
         if (aRigA.z > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegF, uLegAng.x), aRigA.z);
@@ -932,6 +942,37 @@ function installHorseRig(mat, geo, W, piv){
       `);
   };
   mat.needsUpdate = true;
+}
+
+/* ── Rodin 马的姿态：同一个"角度语义"写进伪蒙皮 uniform ─────────────────────
+   口径与 applyTinkerPose 保持一致（这样 tickStableLife 只算一份角度，两条路通用）：
+     · 头：+ = 低头；吃草那两匹额外加基角（graze 0.95 / fed 0.66）× grazeW
+     · 尾：tailYaw 原样（shader 里 rigRY 绕竖轴 = 左右甩）
+     · 腿：伪蒙皮的 rigRX **正 = 蹄子向后**，而 gaitPose 的 u 是"前为正"⇒ 取负号
+   ⚠️ 伪蒙皮做不出屈膝，整条腿绕肩/髋摆；15~25m 观感距离够用（旧 Tripo 马同款）。 */
+function applyRodinPose(h, headPitch, headYaw, tailYaw, leg){
+  const rig = h.mat && h.mat.userData && h.mat.userData.rig;
+  if (!rig) return;
+  const gw = (h.grazeW == null) ? 1 : h.grazeW;
+  let hp = headPitch * 1.9;
+  if (h.role === 'graze') hp += 0.95 * gw; else if (h.role === 'fed') hp += 0.66 * gw;
+  rig.head.x = hp;
+  rig.head.y = headYaw * 1.15;
+  rig.tail.x = tailYaw;
+  /* 咀嚼：口径与 Tinker 路径同源（吃草/受喂那两匹 5~9°，其余只有底噪） */
+  const chew = (h.role === 'graze' || h.role === 'fed')
+    ? (0.085 + 0.065 * Math.sin(_stT * 5.4 + h.phase)) * gw
+      + 0.008 * Math.sin(_stT * 0.9 + h.phase) * (1 - gw)
+    : 0.008 * Math.sin(_stT * 0.9 + h.phase);
+  rig.jaw.x = chew;
+  const gait = (h.gaitW > 0.001 && h.gaitLegs) ? h.gaitLegs : null;
+  if (gait){
+    const g = h.gaitW, k = (n) => -((gait[n] ? gait[n][0] : 0) * g);
+    rig.leg.set(k('FL'), k('FR'), k('HL'), k('HR'));
+  } else {
+    /* 静止时偶尔抬前蹄：leg[0]=左前 leg[1]=右前（与 Tinker 路径同口径） */
+    rig.leg.set(-(leg[0] || 0) * 1.2, -(leg[1] || 0) * 1.2, 0, 0);
+  }
 }
 
 /* ── 每匹马的"生活"状态（装完 rig 后登记；tickStableLife 每帧推）────────────── */
@@ -956,10 +997,15 @@ export function horseLifeState(){
                  gaitW: +(h.gaitW || 0).toFixed(3), grazeW: +(h.grazeW || 0).toFixed(3),
                  pos: [+h.group.position.x.toFixed(3), +h.group.position.y.toFixed(3), +h.group.position.z.toFixed(3)],
                  breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null }
-             : { role: h.role,
+             : { role: h.role, skeletal: false,
                  headPitch: +h.mat.userData.rig.head.x.toFixed(3), headYaw: +h.mat.userData.rig.head.y.toFixed(3),
                  tailYaw: +h.mat.userData.rig.tail.x.toFixed(3),
+                 jaw: h.mat.userData.rig.jaw ? +h.mat.userData.rig.jaw.x.toFixed(3) : 0,
                  leg: [...h.mat.userData.rig.leg].map(v => +v.toFixed(3)),
+                 gaitW: +(h.gaitW || 0).toFixed(3), grazeW: +(h.grazeW || 0).toFixed(3),
+                 gait: h.gait ? { state: h.gait.state, dist: +h.gait.dist.toFixed(3),
+                   phase: +h.gait.phase.toFixed(3) } : null,
+                 pos: [+h.group.position.x.toFixed(3), +h.group.position.y.toFixed(3), +h.group.position.z.toFixed(3)],
                  breath: h.breath ? { live: h.breath.filter(b => b.life > 0).length } : null }) };
 }
 /* ── 调试钩子（2026-10-19 · 骨链诊断用）：当前姿态 vs 绑定姿态的骨骼四元数 ──
@@ -1107,7 +1153,9 @@ function updateHorseGait(h, dt){
   G.lastDist = G.dist;
   const D = HORSE_GAIT[G.mode];
   if (h.gaitW > 0.001){
-    G.phase = (G.phase + delta / D.stride) % 1;
+    /* 步幅：Rodin 马按自己的肩高现算（h.strideWalk），否则用模式常量 —— 用错会滑步 */
+    const stride = h.strideWalk || D.stride;
+    G.phase = (G.phase + delta / stride) % 1;
     h.gaitLegs = gaitPose(G.mode, G.phase);
     h.gaitBob = Math.sin(G.phase * Math.PI * 4) * D.bob;
   } else {
@@ -1202,13 +1250,11 @@ export function tickStableLife(dt){
       headYaw   += 0.12 * Math.sin(t * 0.13 + ph * 2.3);
       headPitch += 0.16 * Math.sin(t * 0.16 + ph * 1.7);
     }
-    /* ⑤ 写姿态：Tinker 走骨骼；程序化替身走旧伪蒙皮 uniform */
+    /* ⑤ 写姿态：Tinker 走骨骼；Rodin/程序化替身走旧伪蒙皮 uniform */
     if (h.anim){
       applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt);
     } else {
-      const rig = h.mat.userData.rig;
-      rig.head.x = headPitch; rig.head.y = headYaw; rig.tail.x = tailYaw;
-      rig.leg.set(leg[0], leg[1], leg[2], leg[3]);
+      applyRodinPose(h, headPitch, headYaw, tailYaw, leg);
     }
 
     /* ⑥ 冬天：口鼻喷白雾。Tinker 用**鼻骨世界坐标**（真实跟随低头/抬头），
@@ -1298,7 +1344,205 @@ function horseSrcOnce(){
 /* 2026-10-19：Rodin Horse.glb 已换成 Tinker（见上方 tinkerBuffer 的 settle 握手），
    下面这份 horseSrcOnce 仅作历史回退保留，不在模块求值期调用（否会 404 拉一次废资源）。 */
 
+/* ══ Rodin 马（2026-10-23）════════════════════════════════════════════════════
+   为什么换：Tinker 那匹是 BlenderKit 的低模，耳朵/鼻孔/嘴都是后来补的件；已生成
+   资产库里有三匹 Rodin 件，自带耳/眼/鼻孔/蹄形 + 2048 的漫反射/法线/粗糙度贴图。
+   ⚠️ 三匹**都没有骨骼**（validate_glb: skins=0）⇒ 走本项目现成的"着色器伪蒙皮"
+      （installHorseRig）：六块区域权重烘进顶点属性，每帧只写几个角度，CPU 成本 0。
+   ⚠️ 归一化不在运行时做：outputs/_diag/horse-cand/convert_horse.py 已经烘成
+      **脚底 y=0、头朝 +z、总高 1.75、x/z 居中**，这里只做"防御性复核"。
+   ⚠️ 伪蒙皮只认"整条腿绕肩/髋摆"，做不出屈膝；15~25m 的观感距离下读作走路没问题，
+      这也是旧 Tripo 马用过、验收通过的那条路。 */
+const HORSE_MODEL = 'rodin';        // 'rodin' = 三匹无骨骼 Rodin 件（伪蒙皮）；'tinker' = 骨骼版
+const RODIN_GLB = {
+  camargue:  'assets/horse-camargue.glb',
+  mongolian: 'assets/horse-mongolian.glb',
+  criollo:   'assets/horse-criollo-saddle.glb',
+};
+const _rodinSrc = new Map();
+/* G6 接线：预载清单要求 src 里出现**字面 URL** 的 settleAsset 调用 ——
+   写成 RODIN_GLB[key] 变量不算（probe/preload-manifest-sync 的正则只认字面量）。
+   所以这里按 key 显式分派，别改成通用变量。漏了会每次进项目死等满 180s（2026-10-11 的前科）。 */
+function settleRodin(key, ok, err){
+  if (key === 'camargue') HOOKS.settleAsset?.('assets/horse-camargue.glb', ok, err);
+  else if (key === 'mongolian') HOOKS.settleAsset?.('assets/horse-mongolian.glb', ok, err);
+  else if (key === 'criollo') HOOKS.settleAsset?.('assets/horse-criollo-saddle.glb', ok, err);
+}
+function rodinSrcOnce(key){
+  if (_rodinSrc.has(key)) return _rodinSrc.get(key);
+  const url = RODIN_GLB[key];
+  const p = new Promise((res, rej) => {
+    new GLTFLoader().load(url,
+      (gltf) => { settleRodin(key, true); res(gltf.scene); },
+      (e) => { HOOKS.reportAssetProgress?.(url, e.loaded, e.total); },
+      (err) => { settleRodin(key, false, err); rej(err); });
+  });
+  p.catch(() => {});                       // 失败别留 unhandled rejection
+  _rodinSrc.set(key, p);
+  return p;
+}
+/* 模块求值期就发请求：预载阶段（11-loop 的 warmBoot 第一步）会等清单里的资产 settle，
+   等到开园之后才发的请求必然死等到 PRELOAD_TIMEOUT_MS（2026-10-11 的教训）。 */
+const _RODIN_BOOT = Object.keys(RODIN_GLB).map(rodinSrcOnce);
+
+/* ── 伪蒙皮的权重与枢轴：全部按**归一化后的实际几何**量，不手填 ──────────────
+   手填的坑（旧 Tripo 马）：三匹马的腿位差 5~8cm，枢轴落在腿外就会"腿绕着空气转"。 */
+function rodinRigData(geo){
+  geo.computeBoundingBox();
+  const bb = geo.boundingBox;
+  const H = bb.max.y - bb.min.y, Lmin = bb.min.z, Lmax = bb.max.z;
+  const pos = geo.attributes.position, N = pos.count;
+  const sm = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+  /* ① 蹄心：最低 12% 高度按 x/z 符号分四簇（与 outputs/_diag/horse-cand/landmarks.mjs 同口径） */
+  const cl = { FL: [0, 0], FR: [0, 0], HL: [0, 0], HR: [0, 0] };
+  const cnt = { FL: 0, FR: 0, HL: 0, HR: 0 };
+  for (let i = 0; i < N; i++){
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    if (y > bb.min.y + H * 0.12) continue;
+    const k = (z > 0 ? 'F' : 'H') + (x > 0 ? 'R' : 'L');
+    cl[k][0] += x; cl[k][1] += z; cnt[k]++;
+  }
+  for (const k of Object.keys(cl)) if (cnt[k]){ cl[k][0] /= cnt[k]; cl[k][1] /= cnt[k]; }
+  const frontZ = (cl.FL[1] + cl.FR[1]) / 2 || 0.26;
+  const hindZ  = (cl.HL[1] + cl.HR[1]) / 2 || -0.62;
+  /* ② 四块权重（head/tail/前腿/后腿），全部 smoothstep 抹平，避免关节处一道折痕 */
+  const W = { head: new Float32Array(N), tail: new Float32Array(N),
+              legF: new Float32Array(N), legH: new Float32Array(N) };
+  let tailTop = -1e9, muzzleY = 0, muzzleN = 0;
+  for (let i = 0; i < N; i++){
+    const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+    W.head[i] = sm(0.26, 0.50, z) * sm(0.88, 1.02, y);          // 颈+头：腿（y<0.95）天然排除
+    W.tail[i] = sm(-0.74, -0.90, z) * sm(0.18, 0.10, Math.abs(x)); // 尾：只认最后 20cm 的中线
+    const down = sm(0.95, 0.62, y), side = sm(0.05, 0.12, Math.abs(x));
+    W.legF[i] = down * side * sm(0.02, 0.16, z);
+    W.legH[i] = down * side * sm(-0.02, -0.16, z);
+    if (W.tail[i] > 0.5) tailTop = Math.max(tailTop, y);
+    if (z > Lmax - 0.06){ muzzleY += y; muzzleN++; }
+  }
+  const piv = {
+    neck: [0, 1.26, 0.40],
+    tail: [0, tailTop > -1e8 ? tailTop : 1.10, Lmin + 0.03],
+    legF: [0, 1.20, frontZ],
+    legH: [0, 1.22, hindZ],
+    /* 下颌铰点：口鼻后方 0.26m、略高于口鼻中线（正角度 = 下巴向下张开） */
+    jaw: [0, (muzzleN ? muzzleY / muzzleN : 1.2) + 0.08, Lmax - 0.26],
+  };
+  /* ③ 下颌权重（只取"口鼻前段 + 下半"）：Rodin 件没有下颌骨，咀嚼只能靠这一层 */
+  const jawZ0 = Lmax - 0.30, jawZ1 = Lmax - 0.16;
+  const jawY1 = (muzzleN ? muzzleY / muzzleN : 1.2) + 0.06;
+  const jawY0 = jawY1 - 0.16;
+  const Wj = new Float32Array(N);
+  for (let i = 0; i < N; i++){
+    const y = pos.getY(i), z = pos.getZ(i);
+    Wj[i] = Math.min(W.head[i], sm(jawZ0, jawZ1, z) * sm(jawY1, jawY0, y));
+  }
+  W.jaw = Wj;
+  return {
+    W, piv,
+    nose: [0, muzzleN ? muzzleY / muzzleN : 1.25, Lmax - 0.02],
+    /* 不滑步：步幅 = 2×肩高×sin(摆角)，与 HORSE_GAIT 的 A 绑定（旧 Tripo 马同款口径） */
+    strideWalk: 2 * piv.legF[1] * Math.sin(HORSE_GAIT.walk.A),
+    H, L: Lmax - Lmin, frontZ, hindZ,
+  };
+}
+const _rodinRigCache = new WeakMap();        // geometry -> rigData（同一模型的多匹共用几何）
+function rodinRigOf(geo){
+  let d = _rodinRigCache.get(geo);
+  if (!d){ d = rodinRigData(geo); _rodinRigCache.set(geo, d); }
+  return d;
+}
+
 let _horseLoadStarted = false;
+/* 归一化+贴图已在 Blender 里烘好（见 RODIN_GLB 上方的说明），这里只做挂载。
+   一个模型都取不到（离线/404）时**保留程序化占位件** —— 马厩不能空着。 */
+function rodinSlotModel(slot, used){
+  if (slot.role === 'harnessed') return used.camargue <= used.mongolian ? 'camargue' : 'mongolian';
+  if (slot.role === 'graze') return 'camargue';
+  if (slot.role === 'fed') return 'mongolian';
+  return used.criollo === 0 ? 'criollo' : 'camargue';
+}
+function loadRodinHorses(slots){
+  const keys = Object.keys(RODIN_GLB);
+  Promise.all(keys.map(k => rodinSrcOnce(k).then(s => s).catch(() => null))).then((bases) => {
+    const byKey = {};
+    keys.forEach((k, i) => { byKey[k] = bases[i]; });
+    const used = { camargue: 0, mongolian: 0, criollo: 0 };
+    const born = [];
+    for (let si = 0; si < slots.length; si++){
+      const slot = slots[si];
+      const key = rodinSlotModel(slot, used);
+      used[key] = (used[key] || 0) + 1;
+      const base = byKey[key];
+      /* 这个模型没取到：留着占位件（不 push HORSE_LIFE，占位件本来就不会动） */
+      if (!base) continue;
+      const root = base.clone(true);
+      root.name = 'rodinHorse_' + key;
+      root.userData.horse = true;
+      root.userData.noMerge = true;
+      let mat = null, geo = null;
+      root.traverse(o => {
+        if (!o.isMesh) return;
+        /* 伪蒙皮只注入了材质着色器、**没注入深度材质** ⇒ 投影会是"没低头的站姿"，
+           所以不参与静态阴影图，改用贴地软影（与走路那匹同一口径）。 */
+        o.castShadow = false;
+        o.receiveShadow = true;
+        o.userData.noMerge = true;
+        o.frustumCulled = false;
+        const m = o.material.clone();          // 每匹一份：rig 的角度挂在 material.userData 上
+        m.userData = Object.assign({}, m.userData, { rodin: key });
+        m.envMapIntensity = 0.35;
+        o.material = m;
+        if (!mat){ mat = m; geo = o.geometry; }
+      });
+      if (!mat || !geo) continue;
+      const rig = rodinRigOf(geo);
+      /* 伪蒙皮注入：shader 挂在**材质**上，所以每匹各注一次（顶点属性在几何上，
+         同模型的第二匹会重写一份等值的 aRigA/aRigB —— 一次性开销，忽略） */
+      installHorseRig(mat, geo, rig.W, rig.piv);
+      /* 防御性复核：归一化哪天被改坏（脚底不在 0 / 总高差太多），先在控制台点出来 */
+      const bb = new THREE.Box3().setFromObject(root);
+      const hh = bb.max.y - bb.min.y;
+      if (Math.abs(hh - HORSE_TOTAL_H) > 0.12 || Math.abs(bb.min.y) > 0.06)
+        console.warn('[马·Rodin] 归一化异常', key, 'H=' + hh.toFixed(3), 'minY=' + bb.min.y.toFixed(3));
+      /* 摘占位件：只从场景图摘 + dispose 几何/材质（与 Tinker 路径同口径，否则 6 匹白占显存） */
+      const goneGeo = new Set(), goneMat = new Set();
+      slot.holders.forEach(h => {
+        slot.group.remove(h);
+        h.traverse(o => {
+          if (o.geometry && !goneGeo.has(o.geometry)){ goneGeo.add(o.geometry); o.geometry.dispose(); }
+          const ms = Array.isArray(o.material) ? o.material : (o.material ? [o.material] : []);
+          for (const m of ms){ if (!goneMat.has(m)){ goneMat.add(m); m.dispose(); } }
+        });
+      });
+      slot.group.add(root);
+      slot.holders = [root];
+      attachHorseBlob(slot);
+      HORSE_LIFE.push({
+        mat, piv: rig.piv, nose: rig.nose,
+        group: slot.group, role: slot.role,
+        home: slot.home, groundY: slot.groundY,
+        gait: slot.gait ? { state: 'graze', timer: 2.5 + _sr() * 3.5,
+          dist: 0, target: 0, lastDist: 0, phase: 0, mode: 'walk', lane: slot.gait.lane || 1.2 } : null,
+        strideWalk: rig.strideWalk,            // 步幅按这匹的肩高现算 ⇒ 不滑步
+        grazeW: (slot.role === 'graze' || slot.role === 'fed') ? 1 : 0,
+        gaitW: 0, gaitLegs: null, gaitBob: 0,
+        blob: slot.blob || null,
+        phase: si * 1.7 + _sr() * 6.28,
+        flick: 1.5 + _sr() * 5, flickT: 0,
+        headNext: 3 + _sr() * 12, headT: 0, headSide: _sr() < 0.5 ? -1 : 1,
+        hoofNext: 5 + _sr() * 10, hoofT: 0, hoofLeg: 0, flare: 0,
+        /* 冬天白气：world=false ⇒ 用局部坐标算（见 tickStableLife 的 else 分支） */
+        breath: Array.from({ length: 5 }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, world: false })),
+        breathNext: 1.2 + _sr() * 2.6, breathCur: 0,
+      });
+      born.push(key + '@' + slot.role);
+      if (!horseBreathMesh.parent) scene.add(horseBreathMesh);
+    }
+    if (born.length) console.info('[马·Rodin] 换上 ' + born.length + ' 匹：' + born.join(', '));
+    else console.warn('[马·Rodin] 三份 GLB 都没取到，保留程序化占位马');
+  });
+}
+
 export function loadStableHorses(stableGroup){
   const slots = stableGroup && stableGroup.userData && stableGroup.userData.horseSlots;
   if (!slots || !slots.length) return null;
@@ -1306,6 +1550,9 @@ export function loadStableHorses(stableGroup){
      （2026-10-21 诊断脚本手动调过一次，补齐这道闸。） */
   if (_horseLoadStarted) return null;
   _horseLoadStarted = true;
+  /* 2026-10-23：默认走 Rodin 三匹（自带耳/眼/鼻孔/蹄形 + PBR 贴图）。
+     回退 Tinker（骨骼版，动作更细）只需把下面这行改成 false。 */
+  if (HORSE_MODEL === 'rodin') return loadRodinHorses(slots);
   /* ══ Tinker 照片级马（2026-10-19）══════════════════════════════════════════
      与旧 Rodin 路径的差别：**每匹单独 parse 一份 glb.scene**。
      不能 `base.clone(true)` —— 克隆不会重绑 Skeleton，蒙皮网格会塌到原点/不显示
