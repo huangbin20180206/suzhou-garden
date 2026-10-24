@@ -4,11 +4,10 @@
 //    Surface Nets 与立峰 SDF 的形全靠这四个，拆散到别的文件会静默坏掉（不报错、只是石形变）。
 // ⚠️ makeTaihuPeak 一并搬入：makeRockChain / makeRockery 都在调它，留在 06 就得 06h → 06
 //    反向依赖，而 06 要门面 06h ⇒ 成环。
-import { THREE, mergeGeometries } from '../vendor.js';
-import { TAU, rnd, rr, CFG, mulberry32 } from './00-config.js';
-import { MAT, WIND, addWind, AUX_PASS_HIDDEN } from './01-materials.js';
+import { THREE } from '../vendor.js';
+import { TAU, rr, mulberry32 } from './00-config.js';
+import { MAT } from './01-materials.js';
 import { mesh } from './03-factory.js';
-import { POND_RADII, insidePond, markUnderwater } from './05-water.js';
 
 /* ══════════════════════════════════════════════════════════════
    特置太湖石立峰（hero stone）：SDF 隐式场 + Surface Nets 等值面
@@ -162,15 +161,6 @@ export function makeTaihuHeroGeo({ height = 3.4, baseR = 0.50, seed = 11, sink =
     return b * (1 - h) + a * h - k * h * (1 - h);
   };
   const smax = (a, b, k)=> -smin(-a, -b, k);              // 平滑减法：孔缘做圆角
-  const sdCap = (x, y, z, A, B, r)=>{
-    const abx = B[0] - A[0], aby = B[1] - A[1], abz = B[2] - A[2];
-    const apx = x - A[0], apy = y - A[1], apz = z - A[2];
-    const dd = abx * abx + aby * aby + abz * abz || 1e-9;
-    let tt = (apx * abx + apy * aby + apz * abz) / dd;
-    tt = tt < 0 ? 0 : (tt > 1 ? 1 : tt);
-    const qx = apx - abx * tt, qy = apy - aby * tt, qz = apz - abz * tt;
-    return Math.sqrt(qx * qx + qy * qy + qz * qz) - r;
-  };
   /* 圆台（上下不同半径的胶囊）：太湖石的"瘦"是**收分**出来的 ——
      等径圆柱无论多高都是一根柱子，下粗上细才有"立"的势。 */
   const sdCone = (x, y, z, A, B, r1, r2)=>{
@@ -253,7 +243,7 @@ export function makeTaihuHeroGeo({ height = 3.4, baseR = 0.50, seed = 11, sink =
     const cy = yBot + (yTop - yBot) * t0;
     const tilt = -0.16 + 0.32 * rndH();
     const dl = Math.hypot(1, tilt);
-    const dx = 0, dy = tilt / dl, dz = 1 / dl;             // 轴 = 局部 +z
+    const dy = tilt / dl, dz = 1 / dl;            // 轴 = 局部 +z
     const L = tunLen ?? (baseR * 3.6 + 1.0);
     const rEye = baseR * (eyeRatio + 0.06 * rndH());
     tunnels.push({

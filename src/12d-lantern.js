@@ -10,7 +10,7 @@
       festivalState 里还在用，故本文件把它们 export 出去（其余一律不导出）。 */
 import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT } from './01-materials.js';
-import { camera, ACTIVE_QUALITY } from './02-scene.js';
+import { ACTIVE_QUALITY } from './02-scene.js';
 import { world } from './02-scene.js';
 import { TAU } from './00-config.js';
 

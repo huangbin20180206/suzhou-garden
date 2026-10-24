@@ -470,7 +470,6 @@ export function preloadPhase(onTick, timeoutMs, coalesceMs){
        enterBasic() 已把还在飞的全部 settle 成失败，所以下一次 tick 的
        `a.settled >= a.count` 自然成立；这里只把**等待上限**压到 0，
        让它在下一个 tick（≤COALESCE，250ms 内）就走收尾，而不是等满 180s。 */
-    const release = () => { if (!finished) tick(); };
     function tick(){
       if (finished) return;
       const a = aggregate();

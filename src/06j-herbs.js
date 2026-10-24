@@ -9,10 +9,9 @@ import { TAU, rr, CFG, rnd, mulberry32 } from './00-config.js';
 import { jr } from './06a-rng.js';
 import { MAT, WIND } from './01-materials.js';
 import { mesh } from './03-factory.js';
-import { world, scene } from './02-scene.js';
 import { POND_RADII } from './05-water.js';
 import { makeBambooLeafGeo, makeLotusPetalGeo, makeLilyPadGeo, makeWisteriaFloretGeo } from './06c-organs.js';
-import { addPerchingAnchor, corridorRaw, installLilyCorridor } from './06d-corridor.js';
+import { addPerchingAnchor, installLilyCorridor } from './06d-corridor.js';
 import { fbm3 } from './06h-rock.js';
 
 /* ══ 池面补叶（2026-09-30 二轮：池边"大荷花"整体撤下，只保留它的叶盘）═════════
@@ -419,7 +418,7 @@ export function makeWisteria(count = 6, scale = 1, spanCap = Infinity){
   const lcInst = new THREE.InstancedMesh(lcGeo, MAT.wisteriaLeaf, leafCards.length);
   lcInst.castShadow = false;
   lcInst.userData.seasonWisteriaLeaf = true;
-  const lq = new THREE.Quaternion(), le = new THREE.Euler();
+  const le = new THREE.Euler();
   leafCards.forEach((lc, i)=>{
     p.set(lc.x, lc.y, lc.z);
     le.set(lc.rx, lc.ry, 0);

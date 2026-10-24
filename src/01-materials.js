@@ -1,6 +1,6 @@
 // 01-materials: from index.html inline 131..1020
 import { THREE } from '../vendor.js';
-import { CFG, rnd, rr, mulberry32, TAU, registry, BOOT, bootMark } from './00-config.js';
+import { CFG, mulberry32, registry, BOOT, bootMark } from './00-config.js';
 /* ══════════════════════════════════════════════════════════════
    1 · 材质库（命名角色，全局复用）
    ══════════════════════════════════════════════════════════════ */

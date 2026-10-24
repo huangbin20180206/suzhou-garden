@@ -2,9 +2,7 @@
 // 从 src/06-vegetation.js 搬出，纯几何生成器族。
 // 门面约束（方案§3.2）：原文件 import 后 export，不写 export ... from。
 import { THREE, mergeGeometries } from '../vendor.js';
-import { TAU, rr, CFG, rnd } from './00-config.js';
-import { MAT } from './01-materials.js';
-import { jr } from './06a-rng.js';
+import { TAU } from './00-config.js';
 
 export function makeLeafVolumeGeo({ len, wTop, wMid, thick, segs = 2, cup = 1.25, bow = 0 }){
   /* ⚠️ 2026-09-15 减面：这里原来是 NU=5 的**闭合体**（顶/底/侧/端四面封口），

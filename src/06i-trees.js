@@ -7,7 +7,7 @@
 import { THREE, mergeGeometries } from '../vendor.js';
 import { TAU, rr, CFG, rnd, mulberry32, HOOKS } from './00-config.js';
 import { jr } from './06a-rng.js';
-import { MAT, WIND, addWind, AUX_PASS_HIDDEN } from './01-materials.js';
+import { MAT, addWind } from './01-materials.js';
 import { mesh } from './03-factory.js';
 import { markUnderwater } from './05-water.js';
 import { makeLotusPetalGeo, makeLilyPadGeo, makePeachFruitGeo, makeTreeLanternGeo, treeLanternColor, makePeachLeafGeo, makePeachFlowerGeo, makePlumFlowerGeo, makePlumBudGeo, makePlumWitheredGeo, makeReedBladeGeo } from './06c-organs.js';

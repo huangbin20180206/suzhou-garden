@@ -129,6 +129,40 @@ try {
     }
     console.log(`      no-undef：${results.length} 个编译单元（src ${srcFiles.length} + 内联主模块 + build-entry.js + sw.js）无未定义标识符 ✓`);
   }
+  /* ── 文本编码门禁（必须 UTF-8 · 2026-10-24）──────────────────────────────────
+     病因（eca0993 实录）：docs/guest-visit-choreography.md 前 191 行是 UTF-8，
+     用 PowerShell 追加的 S6 段（192~225）却是 GBK ⇒ **同一份文件混合编码**：
+     本地 PowerShell/Git Bash 看着正常，GitHub 网页直接乱码，后续编辑越描越花。
+     判据：应用会读/人会读的文本一律 UTF-8（无 BOM 也接受）。用 fatal 解码，
+     只要有任一字节序列不是合法 UTF-8 就报红（**不做自动猜测**：猜错了就是静默改内容）。
+     ⚠️ 排除：node_modules / 生成物 outputs / 归档 _attic / 压缩后的 vendor.js。 */
+  {
+    const dec = new TextDecoder('utf-8', { fatal: true });
+    const TEXT_EXT = /\.(js|mjs|cjs|json|md|html|css|webmanifest|txt|yml|yaml|py|ps1)$/i;
+    const SKIP_DIR = new Set(['node_modules', '.git', '.codely', '.codely-cli', 'outputs',
+                              '_attic', '_wt_bd69f63', '.workbuddy', '.workbuddy-ai', '.claude', '.github']);
+    const badEnc = [];
+    let scanned = 0;
+    const walkEnc = (dir) => {
+      for (const e of fs.readdirSync(dir, { withFileTypes: true })){
+        if (SKIP_DIR.has(e.name)) continue;
+        const p = path.join(dir, e.name);
+        if (e.isDirectory()){ walkEnc(p); continue; }
+        if (!TEXT_EXT.test(e.name) || e.name === 'vendor.js') continue;
+        scanned++;
+        try { dec.decode(fs.readFileSync(p)); }
+        catch { badEnc.push(path.relative(ROOT, p)); }
+      }
+    };
+    walkEnc(ROOT);
+    if (badEnc.length){
+      throw new Error(`编码：${badEnc.length} 个文本文件不是合法 UTF-8（GitHub 上会乱码、后续编辑会继续污染）：\n`
+        + badEnc.map(p => '        · ' + p).join('\n')
+        + '\n      修法：按行判定 GBK/UTF-8 后转码（tools 里没有现成脚本时参考 2026-10-24 那次：'
+        + '逐行 fatal UTF-8 解码，失败再按 GBK 解，行尾保持原样）。');
+    }
+    console.log(`      编码：${scanned} 个文本文件均为 UTF-8 ✓`);
+  }
   const lines = m[1].split('\n').length;
   console.log(`check: PASS（内联模块 ${lines} 行 + build-entry.js + src ${srcFiles.length} 个模块：${srcFiles.join(', ')}）`);
 } catch (e) {

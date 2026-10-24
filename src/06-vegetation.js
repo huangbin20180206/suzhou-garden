@@ -1,27 +1,20 @@
 // 06-vegetation: from index.html inline 493..2993
-import { THREE, mergeGeometries, GLTFLoader, DRACOLoader, KTX2Loader, MeshoptDecoder } from '../vendor.js';
 /* ⚠️ world 从 02-scene 取，**不能**从 08-assemble 取：08 的模块体要读本模块的
    rippleInst / perchingAnchors 等模块级常量，若本模块反向 import 08 就成环 ——
    本模块的 body 被推迟到 08 之后，而 08 的 body 读到的就是 TDZ
    （实测 "Cannot access 'rippleInst' before initialization"）。依赖方向：02 → 06 → 08。 */
-import { world, scene, ACTIVE_QUALITY, renderer } from './02-scene.js';
 /* ⚠️ onAssetAttached 也**不能**静态 import 12-env：12-env 的模块体在 world 之前求值，
    而它 import 08；本模块一旦 import 12-env，12-env 就会把 08 提前拽进来 → 同一个 TDZ。
    它只在 loadAssetOnce 的**回调**里调用（那时一切就绪），故走 00-config 的 HOOKS 延迟绑定。 */
-import { TAU, rnd, rr, CFG, mulberry32, bootMark, HOOKS } from './00-config.js';
 /* 2026-10-02 CDN 双轨：assetUrl/withCdnFallback 只改"请求发到哪"，settleAsset /
    reportAssetProgress 的键**仍是相对路径**（预载清单键一位不挪）；ASSET_CDN.base
    为空（默认）时三个入口都走与旧版逐字节相同的直接调用。 */
-import { onAssetFailed, assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
 
 /* 布局专用抖动流已搬至 src/06a-rng.js（W0 拆分，2026-10-12）：
    门面约束（方案§3.2）——原文件 import 后 export，不写 export ... from。
    搬出的理由与实测依据见 06a-rng.js 内的注释块，此处不重复。 */
 import { jr } from './06a-rng.js';
 export { jr };
-import { MAT, WIND, addWind, AUX_PASS_HIDDEN } from './01-materials.js';
-import { mesh } from './03-factory.js';
-import { POND_RADII, insidePond, markUnderwater } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    6 · 植被
    ══════════════════════════════════════════════════════════════ */
@@ -32,12 +25,10 @@ import { POND_RADII, insidePond, markUnderwater } from './05-water.js';
    门面约束（方案§3.2）—— 原文件 import 后 export，不写 export ... from。
    ⚠️ 搬出的符号在 06c 内必须**行首** export：probe/import-audit.mjs 的 declsOf 正则是
    /^export\s+/gm（行首锚点），带前导缩进的 export 对门禁不可见 ⇒ 会被判成"用到但没 import"。 */
-import {
-  makeLeafVolumeGeo, makeBambooLeafGeo, makeLotusPetalGeo, makeLilyPadGeo,
+import { makeLeafVolumeGeo, makeBambooLeafGeo, makeLotusPetalGeo, makeLilyPadGeo,
   makeReedBladeGeo, makeWisteriaFloretGeo, makePeachLeafGeo, makePeachFlowerGeo,
   makePlumFlowerGeo, makePlumBudGeo, makePlumWitheredGeo, makePeachFruitGeo,
-  TREE_LANTERN_COLORS, treeLanternColor, makeTreeLanternGeo,
-} from './06c-organs.js';
+  TREE_LANTERN_COLORS, treeLanternColor, makeTreeLanternGeo } from './06c-organs.js';
 export { makeLeafVolumeGeo, makeBambooLeafGeo, makeLotusPetalGeo, makeLilyPadGeo, makeReedBladeGeo, makeWisteriaFloretGeo, makePeachLeafGeo, makePeachFlowerGeo, makePlumFlowerGeo, makePlumBudGeo, makePlumWitheredGeo, makePeachFruitGeo, TREE_LANTERN_COLORS, treeLanternColor, makeTreeLanternGeo };
 /* 草花水生（makePondPads / makeBamboo / makeWisteria / makeAquatic）+ 雾絮场
    （makeMistSpriteTex / MIST_WHITE / MIST / makeMistField）已搬至 src/06j-herbs.js（W8 拆分，2026-10-12）；

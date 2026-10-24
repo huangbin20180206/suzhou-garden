@@ -542,6 +542,7 @@ function buildLatticeMesh(segs, w, h, depth, mat, name = 'winLattice'){
 
 /* 靠椅栏杆（含美人靠）：立柱 + 上扶手 + 中枋 + 细棂条 + 靠背斜撑
    返回一个 Group；origin 在栏段中心、y=0 落在楼/台面上。 */
+  // eslint-disable-next-line no-unused-vars -- 预留：栏杆/围栏段生成器，当前场景未调用
 function makeRailing(len, { h = 1.05, back = true, postEvery = 1.6,
                             matPost = MAT.woodRed, matBar = MAT.wood } = {}){
   const g = new THREE.Group();

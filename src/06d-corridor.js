@@ -3,7 +3,6 @@
 // ⚠️ perchingAnchors 是 08-assemble / 11-loop 共享的**同一可变数组实例**：
 //    本模块只 export 它自己的引用，原文件门面 import 的是同一实例 —— 绝不许在任一侧重建。
 import { THREE } from '../vendor.js';
-import { MAT } from './01-materials.js';
 
 // 停栖点保留真实三角面与实例编号；实例网格不会被静态合并移除。
 /* ⚠️ 锚点必须**先乘 instanceMatrix 再打分**：InstancedMesh 的几何是"一片花瓣/一张叶盘"

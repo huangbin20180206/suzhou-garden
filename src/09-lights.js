@@ -5,7 +5,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
    08 之后，而 08 的 body 末尾就要调 fitShadowCamera()（读本模块的 `let casterBoxDirty`）
    → 启动期 TDZ。放 02-scene 后依赖方向单纯：02 → 09 → 08。
    （world 在本模块只在函数体内用，见下方 refreshCasterBox。） */
-import { bootMark, CFG } from './00-config.js';
+import { CFG } from './00-config.js';
 import { ACTIVE_QUALITY, scene, renderer, world } from './02-scene.js';
 /* ══════════════════════════════════════════════════════════════
    9 · 灯光

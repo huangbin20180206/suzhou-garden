@@ -12,7 +12,6 @@ import { THREE } from '../vendor.js';
 import { AUX_PASS_HIDDEN } from './01-materials.js';
 import { skyMesh, scene, camera, renderer } from './02-scene.js';
 import { sun, amb, fill, hemiLight } from './09-lights.js';
-import { bloom } from './10-post.js';
 import { TAU, HOOKS, mulberry32 } from './00-config.js';
 
 let ENV = null;                                  // 由 12-env.js 的 bindSkyEnv(ENV) 注入
@@ -830,7 +829,7 @@ function mtSpawn(tNow){
     }
     return [bx, by, bz, bEl];
   };
-  let [px, py, pz, bestEl] = pickSpawn(0.50, 11);
+  let [px, py, pz] = pickSpawn(0.50, 11);
   /* 方向 = 从辐射点向外（**真辐射几何**）。
      ⚠️⚠️ 2026-10-10 三轮定案：第一版竖直分量夹到 [−0.5,+0.22] ⇒ 流星一路往下扎出画面；
      第二版夹到 ±0.12 ⇒ 出图判读"几条彼此**平行**、不像从一个辐射点散开"（把辐射感也夹没了 ✗）。
@@ -847,7 +846,7 @@ function mtSpawn(tNow){
      否则整条命大半在画面外/远山后（这正是门禁反复量到 0 像素的那条根因之一）。 */
   if (_mtTmp.y < -0.05){
     const [hx, hy, hz, hEl] = pickSpawn(0.72, 15);
-    if (hEl >= 15){ px = hx; py = hy; pz = hz; bestEl = hEl; aimDir(); }
+    if (hEl >= 15){ px = hx; py = hy; pz = hz; aimDir(); }
   }
   /* 亮火流星约 7%（资料："很亮的火流星"才容易看出颜色）；速度/长度/粗细/寿命/亮度逐条抽。
      ⚠️ 世界尺度全部乘 MT_K（半径缩进来的换算）⇒ 角尺寸/角速度与 r=360 版一致。

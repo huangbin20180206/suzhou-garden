@@ -290,7 +290,6 @@ export function collectSeasonCaches(){
    雪在标准 PBR 里着色（不改 emissive 之类），所以它照样接受阴影与雾，看上去才是"落在地上"的。
    ❗ 必须链式挂接 onBeforeCompile：叶/柳/苇已有风场注入，季节色调也在同一个钩子上。 */
 export const snowUniform = { value: 0 };
-let windBaseApplied = 0;
 export const snowTintUniform = { value: new THREE.Color(0xF2F6FA) };
 export function installSnow(list){
   for (const m of list){

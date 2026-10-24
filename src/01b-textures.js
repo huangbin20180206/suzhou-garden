@@ -6,7 +6,7 @@
 //    少一个都会改变抽样位置 ⇒ 全园布局漂移）；01-materials 仍按原名转出（先 import 再 export），
 //    所以外部模块继续从 './01-materials.js' 取这些函数，一行都不用改。
 import { THREE } from '../vendor.js';
-import { CFG, rnd, rr, mulberry32, TAU, registry, BOOT, bootMark } from './00-config.js';
+import { rnd, rr, mulberry32, TAU, bootMark } from './00-config.js';
 
 export function makeRoofTileTex(){                      // 青灰筒瓦：筒瓦圆拱 + 板瓦底 + 岁月斑驳
   const S = 256;

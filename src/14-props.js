@@ -513,7 +513,7 @@ export function makeWaterVat(x, z, y, yaw = 0, withLotus = true){
   g.position.set(x, y, z);
   g.rotation.y = yaw;
 
-  const R = 0.44, H = 0.62;
+  const H = 0.62;
   const prof = [
     [0.20, 0.00], [0.28, 0.03], [0.36, 0.11], [0.42, 0.26],
     [0.44, 0.42], [0.43, 0.52], [0.42, 0.58], [0.47, 0.62],   // 口沿外撇

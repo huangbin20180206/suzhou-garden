@@ -17,7 +17,7 @@ import { TAU, rr, rnd, mulberry32 } from './00-config.js';
 import { MAT, WIND, makeDuckWakeTex } from './01-materials.js';
 import { world } from './02-scene.js';
 import { mesh } from './03-factory.js';
-import { markUnderwater, groundHeight } from './05-water.js';
+import { markUnderwater } from './05-water.js';
 import { makeKoiGroup } from './06-vegetation.js';
 import { perchingAnchors } from './06d-corridor.js';
 import { loadAssetOnce, placeAssets } from './06e-assets.js';
@@ -278,7 +278,6 @@ const ROCK_BIRD_PALETTE = [
   /* ② 红尾鸲   */ { base:0x8C5A40, head:0x3A2E24 },
   /* ③ 黑喉石鵖 */ { base:0x75634E, head:0x2A2723 },
 ];
-const BIRD_COLORS = BIRD_PALETTE.map(p => p.base);   // 兼容旧引用：整体基调色
 /* 石顶落点：**探针射线实测的真实石面**。
    ⚠️ 2026-10-01 按老黄要求改为「**只停在最高的假山上，2~3 只**」：
       "园中的小鸟做两三只停在最高的假山上休息"。

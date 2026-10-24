@@ -1,9 +1,9 @@
 // 05-water: from index.html inline 1062..1435
-import { THREE, mergeGeometries, Reflector } from '../vendor.js';
-import { CFG, rnd, rr, pick, TAU, DEG, registry, mulberry32, bootMark, HOOKS } from './00-config.js';
-import { MAT, waterNormalTex, WATER_REFLECT_SHADER, waterSurface, setWaterSurface, auxPass, makePondBedTex, WIND, addWind } from './01-materials.js';
-import { scene, renderer, camera, controls, skyMesh, lumOf, ENV_BAKE_LUM, ACTIVE_QUALITY } from './02-scene.js';
-import { mesh, box, makeColumn, instancedBoxes, instancedGeo, makeCorrugatedSlab, DOUGONG_H, makeDougongGeo, makeChineseRoof, makeCeiling, makeQueTu, makeGuaLuo, makeJiangnanWindow, makeChangChuang, makeLatticePanel, makeWallRun, makeWallCap } from './03-factory.js';
+import { THREE, Reflector } from '../vendor.js';
+import { CFG, rnd, rr, TAU, mulberry32, bootMark, HOOKS } from './00-config.js';
+import { MAT, WATER_REFLECT_SHADER, waterSurface, setWaterSurface, auxPass, makePondBedTex, WIND } from './01-materials.js';
+import { scene, renderer, camera, ACTIVE_QUALITY } from './02-scene.js';
+import { mesh, box } from './03-factory.js';
 /* ══════════════════════════════════════════════════════════════
    5 · 水体 · 桥 · 驳岸
    ══════════════════════════════════════════════════════════════ */
@@ -398,7 +398,6 @@ export function makeBankRocks(){
   const N = POND_PTS.length;
   for (let i = 0; i < N; i += 2){             // 步距保持 2（实测放大尺寸时改 3/4 都会更挤）
     const p = POND_PTS[i];
-    const ang = Math.atan2(p.y, p.x);
     const jitter = rr(0.88, 1.04);
     const x = p.x * jitter, z = p.y * jitter + 3.0;
     const k = (rnd()*3)|0;
@@ -443,7 +442,8 @@ export function makeBankRocks(){
 /* 汉白玉单孔拱桥 */
 export function makeArchBridge(){
   const g = new THREE.Group();
-  const span = 9.4, rise = 2.1, deckW = 2.9, thick = 2.4;
+  const span = 9.4, rise = 2.1, thick = 2.4;
+
   /* ⚠️ 拱洞高度必须**从桥身轮廓反推**，不能独立拍。桥身是贝塞尔拱（端点 rise*0.62、
      控制点 rise*0.98），拱顶 = (0.62 + 3×0.98 + 3×0.98 + 0.62)/8 × rise = 0.89·rise = 1.869。
      原来拱洞半径单独取 span*0.29 → 洞顶 = 0.05 + 2.726 = **2.776**，比桥身拱顶还高 0.9m：

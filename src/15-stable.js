@@ -63,7 +63,6 @@ const HORSE_GLB = 'research/diy-horses/horse-rodin-fallback.glb';   // 旧 Rodin
 /* 模型自带的朝向修正：生成模型的"正面"不一定朝 +z（本项目程序化马的头朝 +z）。
    实测（outputs/_diag/horse-view.html 五视图 + 坐标轴参考线：front/back/right/top 四视图
    一致指向"头朝 +z"）⇒ 与程序化马同向，**不用转**。 */
-let HORSE_FACE_YAW = 0;
 /* 真马的总高（蹄底→耳尖）。⚠️ 别按"肩高"归一：模型包围盒的 Y 就是**总高**，
    而马厩里所有配件都是照程序化替身配的（替身耳尖 ~1.74m、体长 ~1.9m），
    归一成 1.5（= 肩高）会让真马比柱子/横轭/马车**小一大圈**。取 1.75 ⇒ 体长 ~1.94m，
@@ -483,6 +482,7 @@ function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
        · **63° 以上立刻读成"脖子被压扁/折断"**（环状管在急转处自交）——所以上限锁 45°。
      枢轴 (y0.04, z0.13) 是"颈在胸口上的根"（模型局部坐标，包围盒 y∈[−0.451,0.451]）；
      权重 = z 门 × y 门，**y 门是为了不碰前腿**（腿在 y<0.05）。 */
+  // eslint-disable-next-line no-unused-vars -- 保留：换回 Tinker 骨骼马时的低头烘焙路径
 function bendHeadDown(geo, deg){
   const th = deg * Math.PI / 180, p = geo.attributes.position;
   const PY = 0.04, PZ = 0.13;
@@ -1333,6 +1333,7 @@ export function tickStableLife(dt){
    **摆放与换装那一套仍留在延迟批**（它要等马厩建好、拿到 horseSlots）。
    ⚠️ settleAsset / reportAssetProgress 都不消耗任何随机流 ⇒ 不影响布局指纹。 */
 let _horseSrc = null;
+  // eslint-disable-next-line no-unused-vars -- 保留：换回 Tinker 模型时的资产回退路径
 function horseSrcOnce(){
   if (_horseSrc) return _horseSrc;
   _horseSrc = new Promise((resolve, reject) => {
@@ -1818,6 +1819,7 @@ export function loadStableHorses(stableGroup){
       与本项目其它 Canvas 贴图同一套做法（重复 2×2 时不能有接缝）。
    ⚠️ 最细一层的格宽 8px（512/64）—— 再细就过采样，远景会闪（mipmap 也救不了）。 */
 let _horseCoat = null;
+  // eslint-disable-next-line no-unused-vars -- 保留：换回 Tinker 模型时的程序化毛流贴图
 function horseCoatMaps(){
   if (_horseCoat) return _horseCoat;
   const S = 512;
@@ -2545,7 +2547,6 @@ export function makeStableRoad(){
       const outer = laneEdge(k + 1) - (k < LANES - 1 ? 0.018 : 0);
       const outerIsEdge = (k === 0 || k === LANES - 1);
       let d = jit(0.02, 0.26) + k * 0.13;            // 各列相位不同 ⇒ 横向接缝不齐（别在路头留空档）
-      let row = 0;
       while (d < L - 0.30){
         const len = jit(0.30, 0.46);
         const t0 = d / L, t1 = Math.min(1, (d + len) / L);
@@ -2555,7 +2556,6 @@ export function makeStableRoad(){
         const sA = Math.min(a, b), sB = Math.max(a, b);
         if (sB - sA > 0.16) pushSlab(t0, t1, sA + 0.008, sB - 0.008, jit(0.62, 1.0));
         d += len + jit(0.015, 0.032);                // 缝宽 1.5~3.2cm
-        row++;
       }
     }
     const geo = new THREE.BufferGeometry();

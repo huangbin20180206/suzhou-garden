@@ -86,6 +86,21 @@ export default [
     rules: { 'no-undef': 'error' },
   },
   {
+    /* 未使用变量（2026-10-24 审核补）：马车到访里同时出现三个死变量 ——
+       `k` 算了不用、`S.t = S.s` 把自己的计时覆盖掉、`S.dist` 写了没人读。
+       no-undef 只判"名字有没有声明"，这类残留它一路放行 ⇒ 补这一条。
+       ⚠️ 只作用于 src 模块与打包入口，**不含 index.html 的内联主模块**：
+       那份脚本的主要职责就是把各模块导出**挂到 window.__garden**（调试点），
+       所以它存在大量"import 了但本文件不直接调用"的名字 —— 那是设计，不是死代码。 */
+    name: 'suzhou-garden/no-unused-vars (app modules)',
+    files: ['src/**/*.js', 'build-entry.js'],
+    rules: {
+      'no-unused-vars': ['error', { args: 'none',
+                                    varsIgnorePattern: '^_', caughtErrors: 'none',
+                                    ignoreRestSiblings: true }],
+    },
+  },
+  {
     /* Service Worker：classic script（不是 module），运行环境是 worker 作用域 */
     name: 'suzhou-garden/no-undef (service worker, classic)',
     files: ['sw.js'],

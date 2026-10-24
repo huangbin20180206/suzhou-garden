@@ -9,7 +9,7 @@
    ⚠️ PRECIP_INDOOR 同时被 12-env 的积雪覆盖层（installSnow 的 uInLo/uInHi）借用 ⇒ 本文件必须导出它。 */
 import { THREE } from '../vendor.js';
 import { scene, camera, ACTIVE_QUALITY } from './02-scene.js';
-import { groundHeight, insidePond } from './05-water.js';
+import { insidePond } from './05-water.js';
 import { TAU, mulberry32 } from './00-config.js';
 
 /* ↓ 由 12-env.js 的 bindPrecipEnv(...) 注入（见文件头；沿用原名字 "ENV" 是故意的，搬来的代码零改动） */

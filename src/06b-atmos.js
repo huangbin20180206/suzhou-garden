@@ -443,7 +443,6 @@ export function makeLensWeather(cam){
        延迟够了但起涨太陡，0.3s 就冲到可见量，读作跳变而不是渐起。 */
   const RAIN_DELAY_S = 1.6;                      // 起雨延迟：风/暗先行，雨在此之后才起步
   const RAIN_RISE_RATE = 0.6;                    // 起涨速率（/s）：0.6/s ⇒ ~1.7s 渐起满档
-  const FADE_FULL = 0.06;                        // 淡入到头：与 shader 的可见门同量级
   let rainGoal = 0;                              // 经因果链延迟后的实际目标
   let prevRainTgt = 0;                           // 上一帧的传入目标（用来识别"开始变天"）
   let riseT = -1;                                // 起涨计时器；<0 = 还没轮到雨动

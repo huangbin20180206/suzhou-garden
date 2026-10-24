@@ -4,7 +4,6 @@ import { makeWisteria } from './06j-herbs.js';
 import { mesh, box, makeQueTu, makeGuaLuo, makeLatticePanel, makeChangChuang, makeJiangnanWindow, makeChineseRoof, makeCeiling, instancedBoxes, instancedRoundRafters, DOUGONG_H, instancedGeo, makeDougongGeo, makeColumn, makeCorrugatedSlab } from './03-factory.js';
 import { MAT, makeInkWashTex, makePlaqueTex } from './01-materials.js';
 import { bootMark } from './00-config.js';
-import { POND_PTS, insidePond, POND_RADII, makePond, makeBankRocks, makeArchBridge, makeSteppingStones } from './05-water.js';
 /* ══════════════════════════════════════════════════════════════
    4 · 建筑：远香堂 / 水榭 / 游廊
    ══════════════════════════════════════════════════════════════ */
@@ -160,7 +159,6 @@ export function makeYuanxiangHall(){
   }
 
   /* ⑤ 前檐：实心墙 + 中央大门（两扇敞开）+ 两侧长窗 */
-  const panelH = colH - 0.35;
   const doorW = 3.8, doorH = 3.5;
   // 前墙（带门洞）
   const fw = new THREE.Shape();
