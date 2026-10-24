@@ -359,6 +359,14 @@ export function buildViewpoints(heroPos){
     camY = 1.35 + (dist - 12) * 0.10;                               // 越远越要抬一点，避免俯视水线
     aimY = bb.max.y * 0.46;
   }
+  /* ⚠️⚠️ 2026-10-24 实测：机位必须抬到**荷花之上**。
+     按上面公式算出的 camY=1.18m、dist=10.3m 时，相机是**站在池子里**的（x=−1.24, z=−1.95），
+     正前方 1.8m 就是池心那丛荷花（`outputs/_diag/vp-visibility.mjs` 实测中心射线第一命中
+     `LotusPlant@1.77m`，而石头在 10.5m 处）⇒ 整站看到的是一朵大荷花，立峰被挡掉一大半。
+     抬高到 2.75m 后近处荷花落到画面下缘之外（E 试位出图确认），石头居中、莲花退成点缀。
+     ⚠️ 别把这里退回"越低越自然"：机位在池中央，任何 1.2~1.9m 的高度都会被荷花挡住。 */
+  camY = Math.max(camY, 2.75);
+  aimY = Math.max(aimY, 1.70);
   return [
     { id:'hero', label:'立峰·云根',
       pos: new THREE.Vector3(hp.x - out.x * dist + side.x * dist * 0.20, camY,

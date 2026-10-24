@@ -51,7 +51,11 @@ export function makePavingTex(){                        // 青砖铺地：45° �
       if (((x + y) & 1) === 0) continue;         // 黑白相间
       const cx = (x + 0.5) * step, cy = (y + 0.5) * step;
       const v = rr(-12, 12);                          // 逐砖色差，避免整片死板
-      g.fillStyle = `rgb(${46+v|0},${49+v|0},${52+v|0})`;
+      /* 2026-10-24：菱形砖的明度从 rgb(46±12) 提到 rgb(132±12)。
+         原值对底色 #BEBAB0（190 上下）是 4:1 的硬对比，远看像**黑白棋盘**（"人工感"最重的一处）；
+         苏州园林的青砖拼花是"同色系深浅"，不是黑白色块。提亮后仍读得出菱形花色，
+         但不再抢戏。⚠️ 这里只改颜色字面量，rr()/rnd() 的调用次数与位置一字未动（布局流不变）。 */
+      g.fillStyle = `rgb(${132+v|0},${136+v|0},${139+v|0})`;
       g.beginPath();
       g.moveTo(cx, cy - step * 0.5);
       g.lineTo(cx + step * 0.5, cy);

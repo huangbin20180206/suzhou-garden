@@ -685,10 +685,13 @@ deferBootFirst('立峰·云根', function heroStones(){
       const dist2 = (need2 / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2))) * 1.5;
       const vp = VIEWPOINTS.find(v => v.id === 'hero');
       if (vp){
-        vp.pos.set(hx - out2.x * dist2 + side2.x * dist2 * 0.20,
-                   1.35 + (dist2 - 12) * 0.10,
+        /* ⚠️⚠️ 2026-10-24：这两行必须与 08d-tour 的 buildViewpoints 同步改（实测 1.18m 时
+           相机是"站在池子里"的，正前方 1.8m 就是荷花丛 ⇒ 整站看到的是一朵大荷花）。
+           抬到 2.75m 后近处花叶落到画面下缘之外。改这里之前先读 08d-tour 的同款注释。 */
+        const camY = Math.max(1.35 + (dist2 - 12) * 0.10, 2.75);
+        vp.pos.set(hx - out2.x * dist2 + side2.x * dist2 * 0.20, camY,
                    hz - out2.z * dist2 + side2.z * dist2 * 0.20);
-        vp.target.set(hx, bb2.max.y * 0.46, hz);
+        vp.target.set(hx, Math.max(bb2.max.y * 0.46, 1.70), hz);
       }
       }
     }

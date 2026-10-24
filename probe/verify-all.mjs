@@ -165,6 +165,13 @@ const SUITES = [
      ⚠️ 这条会暴露既有的 polar 相机约定：hero / heroPeak 的机位把相机放在注视点之下，
        落定后会被 controls.update() 抬高 ~0.6m —— 判据只允许"抬高"，不允许横向漂移。 */
   ['巡游端到端 tour-guard',  'probe/tour-guard.mjs'],
+  /* 机位可见性 viewpoint-visibility（2026-10-24 建，~70s）：补 P1「机位看得到吗」。
+     起因：「立峰·云根」那站在实景里**看到的是一朵大荷花** —— 相机落在池中 1.18m，
+     正前方 1.8m 就是荷花丛（中心射线第一命中 LotusPlant），石峰退到背景。
+     tour-guard 只守"落点/字幕/不穿墙"，看不见"取景被前景挡住"这类缺陷。
+     本门守：① 每个官方机位中心视线不被近处物体打断；② 3m 内荷花/睡莲不得落进画面；
+     ③ 负例自检（修复前那个池中 1.18m 位姿必须被判红，实测 inFrame=20）。 */
+  ['机位可见性 viewpoint-visibility', 'probe/viewpoint-visibility.mjs'],
   /* 院门口石狮 lion-guard（2026-10-18 建，~25s）：补 P1「石狮 404 会静默消失」。
      13-preload 把两件石狮登记为 required:false（拉不到页面照开、门口空着），
      而 smoke / preload-manifest-sync 都不查"实际挂载" ⇒ 文件被误删/改名/缓存失效时
