@@ -221,6 +221,19 @@ export function applyEnv(p){
     /* F6：山脊向雾色垂直渐变的目标色由 ShaderMaterial 的 fogColor uniform
        承担，three 每帧按 scene.fog 自动刷新，这里不用手动同步。 */
   }
+  /* 梅花自发光跟天光走（2026-10-24 · 扫图发现"冬季夜里整团自发光，像会亮的红树"）：
+     原值是常量（花瓣 0.75 / 花苞 0.55，2026-10-07 为"冬季暗光里看得见花色"加的）。
+     白天没问题；夜里环境亮度只剩 ~8% ⇒ 花比背景亮一个数量级，读作发光树。
+     系数 = 0.33 + 0.67×amb：白天（amb≈1）逐字不变；夜里压到 ~0.38 倍
+     （红 0.75→0.29、黄 0.75→0.29 —— 黄的发光色亮度本来就是红的两倍多，必须一起压）。
+     ⚠️ 每帧从 base 重算（与 hillAmb 同款纪律，不就地乘，否则逐帧累积）；
+     花苞/凋谢两份材质一起带。plum-guard 的缺陷态对照在同任务内设值即渲，不受本行影响。 */
+  const plumK = 0.33 + 0.67 * Math.min(1, curLum / ENV_BAKE_LUM);
+  for (const m of [MAT.plumBlossomRed, MAT.plumBlossomYellow, MAT.plumBud, MAT.plumWithered]){
+    if (!m) continue;
+    if (m.userData.plumBaseEI === undefined) m.userData.plumBaseEI = m.emissiveIntensity;
+    m.emissiveIntensity = m.userData.plumBaseEI * plumK;
+  }
 
   const su = skyMesh.material.uniforms;
   su.uTop.value.copy(p.skyTop);
