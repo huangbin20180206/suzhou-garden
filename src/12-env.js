@@ -1,23 +1,21 @@
 // 12-env: from index.html inline 501..1876
-import { THREE, mergeGeometries } from '../vendor.js';
+import { THREE } from '../vendor.js';
 /* ⚠️ 这里**不能** import 11-loop 的 queuePostcard / toggleSound（明信片、音景两个按钮）：
    12-env 被 2b-wind 依赖，2b-wind 又被 11-loop 依赖 → 静态 import 会构成
    2b-wind → 12-env → 11-loop → 2b-wind 的环，11-loop 的 body 会在 2b-wind 求值完成前
    跑 `animate()` / `window.__garden` → 启动期 TDZ（实测 "Cannot access 'windClock
    before initialization"，渲染循环每帧重复）。这两处都只在**事件回调**里调用，
    回调触发时所有模块早已就绪 → 走 00-config 的 HOOKS 延迟绑定（见该文件注释）。 */
-import { MAT, waterSurface, DISTANT_MATS, SEASON_TINT_REGISTRY, addWind, wetUniform, WET_MATS, SNOW_COVER_MATS, SNOW_HOOK, AUX_PASS_HIDDEN } from './01-materials.js';
+import { MAT, waterSurface, DISTANT_MATS, SNOW_COVER_MATS, SNOW_HOOK } from './01-materials.js';
 import { dragonflies, setPerchShowOK, swimTurtles, tourUserTakeover, TOUR, tourStop, tourStart,
          gotoViewpoint, showCaption, showSeasonCaption, hideCaption, VIEWPOINTS,
          cancelCamFly, CAM_FLY, introActive, introCancel, geese, GOOSE } from './08-assemble.js';
-import { sun, fitShadowCamera, amb, fill, hemiLight, markCasterBoxDirty } from './09-lights.js';
-import { skyMesh, rainbowMesh, scene, world, lumOf, ENV_BAKE_LUM, resetCamera, camera, ACTIVE_QUALITY, renderer, setEnvPreset } from './02-scene.js';
+import { sun, fitShadowCamera, amb, fill, hemiLight } from './09-lights.js';
+import { skyMesh, rainbowMesh, scene, lumOf, ENV_BAKE_LUM, resetCamera, camera, renderer, setEnvPreset } from './02-scene.js';
 import { bloom, gtaoPass, gradePass } from './10-post.js';
 import { gust } from './2b-wind.js';
-import { TAU, HOOKS, ENV_REF, mulberry32, CFG } from './00-config.js';
+import { TAU, HOOKS, ENV_REF } from './00-config.js';
 import { spawnRipple, rainRippleActive } from './06f-ripple.js';
-import { treeLanternInsts } from './06i-trees.js';
-import { POND_RADII, groundHeight, insidePond } from './05-water.js';
 /* 2026-10-05 拆分：电闪雷鸣 + 春节烟花已搬进 12b-sky.js（那边**不能** import 本模块，故由本模块注入状态机）。
    ⚠️ 这里的 import 是**必须**的，不要图省事改写成 `export { ... } from './12b-sky.js'`：
    probe/import-audit.mjs（拆分守卫）判"用到别的模块的导出名就必须显式 import"，而
@@ -34,19 +32,18 @@ export { LIGHTNING, tickLightning, lightningStrikeNow,
    ⚠️ 灯会的"look 第 4 层"（applyFestivalTo）**不在**这里 —— 它只改参数集，已随合成规则归 12a-presets.js，
       因此 12a 不必反过来 import 12c（依赖方向保持单向：本模块 → 12a/12c/12d/12e）。 */
 import { bindFestival, makeFestivalLights, collectFestivalHangAnchors, tickFestival, festivalState,
-         setFestivalFreeze, toggleFestival, _hangInsts,
-         riverLampMat, stringBulbMat, riverFlameMat } from './12c-festival.js';
+         setFestivalFreeze, toggleFestival, _hangInsts } from './12c-festival.js';
 export { makeFestivalLights, collectFestivalHangAnchors, tickFestival, festivalState, setFestivalFreeze, toggleFestival };
 /* 2026-10-05 拆分：夜间灯笼已搬进 12d-lantern.js（那边不需要注入，只 import 外部模块）。 */
 import { makeLanterns, tickLampVol, lampVolState, setLampVol, lanternGroups, hash21Lantern,
          lanternMat, _lampVol, _groundSplashMat, worldLights } from './12d-lantern.js';
 export { makeLanterns, tickLampVol, lampVolState, setLampVol, lanternGroups, hash21Lantern };
 /* 2026-10-05 拆分：雨/雪粒子 + 雨后檐滴与积水已搬进 12e-precip.js（那边不能 import 本模块，故由本模块注入 ENV）。 */
-import { bindPrecipEnv, PRECIP, updatePrecip, PRECIP_INDOOR, POSTRAIN, updatePostRain } from './12e-precip.js';
+import { bindPrecipEnv, PRECIP, updatePrecip, POSTRAIN, updatePostRain } from './12e-precip.js';
 export { PRECIP, updatePrecip, POSTRAIN, updatePostRain };
 /* 2026-10-05 拆分：环境三轴预设 + 合成规则已搬进 12a-presets.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, composeEnv, resolveEnv, mixInto,
-         paramsAtHour, nearestTimeKey, fmtHour, MOON_ARC, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
+         paramsAtHour, nearestTimeKey, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
          weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow } from './12a-presets.js';
 export { mixInto, TIME_ANCHORS, ENV_SEASON, weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow };
 /* 2026-10-05 拆分：植被季节表现 + 存在性 + 积雪/湿地已搬进 12f-season.js（那边不能 import 本模块，故注入 ENV）。 */
@@ -514,6 +511,10 @@ ENV.to   = cloneParams(ENV.cur);
    11-loop 的 mixInto(ENV.cur, from, to, t) **就地改写**、对象身份不变 → 发布一次即可，
    读到的恒为当前值。 */
 ENV_REF.cur = ENV.cur;
+/* 同时把**状态机 ENV 本身**发布出去（2026-10-24）：16-actors 的到访要读 hour/weather/season，
+   若它静态 import 本模块就会形成 16-actors → 12-env → 08-assemble → 16-actors 的环。
+   ⚠️ 两个槽口径不同：cur = 参数集（windMul/rainAmount…），env = 状态机（hour/weather…）。 */
+ENV_REF.env = ENV;
 
 /* 拆分（2026-10-05）：把环境状态机注入 12b-sky（电闪雷鸣 / 春节烟花在那边）。
    ⚠️ 必须在 body 里、且早于 11-loop 的 animate —— 那两个 tick 都从 animate 里调。

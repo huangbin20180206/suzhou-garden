@@ -189,36 +189,56 @@
 
 ---
 
-## S6 ���� �����浽�ã�2026-10-24���ύ ee0966d��
+## S6 —— 马车版到访（2026-10-24，提交 ee0966d）
 
-����Ĭ����**������**��`?visit=walk` ����ԭ���з�֧��S1~S5 ȫ�׻ع��Կ��ܣ���
+到访默认走**马车版**；`?visit=walk` 保留原步行分支（S1~S5 全套回归仍可跑）。
 
-��λ����`carIn �� gwalk �� stow/walk/face/bow/line/pair/hall/enter/seat/tea/sit`
-`�� rise/exit �� tourgo/tour �� eface/ebow/watch �� hostback �� reenter/reseat`
-`�� wrap �� (board �� driveout: back/spin/out) �� done`��done ��ȴ 45s ���Զ��ز���
+相位链：`carIn → gwalk → stow/walk/face/bow/line/pair/hall/enter/seat/tea/sit`
+`→ rise/exit → tourgo/tour → eface/ebow/watch → hostback → reenter/reseat`
+`→ wrap → (board → driveout: back/spin/out) → done`，done 冷却 45s 后自动重播。
 
-������״̬����VISCAR���� VISIT.phase ���У���`parked �� drivein �� stop �� tiewalk �� tie`
-`�� alight �� alighted �� wait �� board �� driveout �� gone`��
+马车子状态机（VISCAR，与 VISIT.phase 并行）：`parked → drivein → stop → tiewalk → tie`
+`→ alight → alighted → wait → board → driveout → gone`。
 
-### ��"Ժ����ľ�̬����"����ܿ���������ȱһ����
-1. **������ noMerge**�����򼸺α� mergeStatics ����ϲ�����������ߺ�ԭ����һ�� ghost��
-2. **castShadow=false + ������Ӱ**��`shadowMap.autoUpdate=false` �Ǽȶ�ȡ�ᣬ��̬��Ӱͼֻ��
-   һ�� ? �ᶯ�ĳ�ͶӰ��Զ��ͣ�����ơ�
-3. **�����ʺϲ���̬��**��45 ���� �� 1~2 ������ֻ����ֻ���ֳɶ�������**���**ת��
+### 让"院子里的静态马车"真的能开——三件缺一不可
+1. **逐网格 noMerge**：否则几何被 mergeStatics 烘进合并结果，车开走后原地留一份 ghost。
+2. **castShadow=false + 贴地软影**：`shadowMap.autoUpdate=false` 是既定取舍，静态阴影图只渲
+   一次 ⇒ 会动的车投影永远是停车姿势。
+3. **按材质合并静态件**（45 网格 → 1~2 个），只留两只车轮成独立组随**里程**转。
 
-������ԯ��������λ����**���**����������ǽ�ӣ������Ե���ʱ����/�ȷ���
+车轮与辕马四腿相位都由**里程**驱动（不是墙钟），所以倒车时轮子/腿反向。
 
-### �����ȹ��Ŀ�
-1. **��״̬���������˷���**��`alight` ����ֻд�� `alighted`��û��д `wait` ? �Ϳͽ׶ε�
-   "�ߵ����߾��ϳ�"��`guestSent && state==='wait' && arrived`����Ҳ������ ? �ϳ�/�볡������
-   ? `wrap` һֱ�� `gone`��������������̬ǰ��ʵ��ͣ�� 545.6s@wrap����
-2. **�ӷ�֧ʱ��ɾ�ɷ�֧**��������԰��֧ʱ�� S3 �� `eline`/`epair` ���δ���ɾ���� ? ����
-   ��֧ `exit` ֮��ͣ�� `eline` û�з�֧���֣�ʵ����� 300.7@eline����
-3. **���к������ȡ·������**��ʯ��·���ֻ�� 0.86m�������־� 1.24m������ƫ�����׾���һֻ
-   ���Ӳȵ��ݵ��ϣ�ԭ�볡ĩ��ƫ�� 2.4m�����Ὺ�ſ����ܵ��ݵ�������ʧ����
+### 三条踩过的坑
+1. **子状态机必须有人翻面**：`alight` 结束只写了 `alighted`，没人写 `wait` ⇒ 送客阶段的
+   "走到车边就上车"（`guestSent && state==='wait' && arrived`）再也不触发 ⇒ 上车/离场不发生
+   ⇒ `wrap` 一直等 `gone`，整场卡死在终态前（实测停在 545.6s@wrap）。
+2. **加分支时别删旧分支**：新增游园分支时把 S3 的 `eline`/`epair` 两段处理删掉了 ⇒ 步行
+   分支 `exit` 之后停在 `eline` 没有分支接手（实测断在 300.7@eline）。
+3. **车行航点必须取路面中线**：石板路半宽只有 0.86m、马车轮距 1.24m，航点偏出半米就有一只
+   轮子踩到草地上（原离场末段偏出 2.4m，车会开着开着跑到草地上再消失）。
 
-### ���գ���������Ⱦ����֡���������
-- �����棺ȫ��λ��ͨ�� `done`��583.6s������״̬ `gone`��nan=0������Խ�� 0���� pageerror��
-- ���з�֧�ع飺22 ��λȫ��ͨ���� eline/epair�����ŵ����ƫ�� 0.057m������ 0.913m��
-  �Ϳ�Ҿ bowW=1.00������� 0.001rad�����˾����� 0.018�����˾������ſ� 0.047��
-- �����Ž���`npm run verify:quick`��ALL GATES PASS��
+### 验收（本机软渲染，逐帧快进整场）
+- 马车版：全相位跑通至 `done`（583.6s），车状态 `gone`，nan=0、贴地越限 0、零 pageerror。
+- 步行分支回归：22 相位全跑通（含 eline/epair），脚底最大偏差 0.057m、并排 0.913m、
+  送客揖 bowW=1.00、面对面 0.001rad、主人距椅心 0.018、客人距马厩门口 0.047。
+- 快速门禁（`npm run verify:quick`）ALL GATES PASS。
+
+### 2026-10-24 审核修复（P1/P2）
+1. **客人上车后掉到地面 ~3.5s**：`startTrip` 一进来就把 `ride` 清空，而 trip 结束到
+   `driveout` 之间（等马夫走 1.41m + 跨上车）没人写回 ⇒ 落地分支按地面高度把人瞬沉下去、
+   还保持坐姿。修法：**trip 回调里补 `setRide`**，并在 `board` 每帧对已上车的客人/马夫
+   `setRide` 兜底；`sitTarget = 1` 同步挪进回调（跨上去的 1.15s 里不该是坐姿）。
+2. **里程两次跳变**：旧写法把"本段走了多远"（`S.s`）当累计里程，倒车 `-S.s`、调头 `+S.s`、
+   调头结束归零 ⇒ 车轮从 −6.2rad 跳到 +6.2rad（约 2 圈）。新增 `VISCAR.odo` 跨段连续累加
+   （倒车递减 / 原地踏步与离场递增），只把 `odo` 喂给 `travelCarriagePlace`。
+3. **wrap 无超时兜底**：该相位只等 `VISCAR.state === 'gone'`，任一环卡住就永久停在终态前、
+   且不报错。现在每 30s 打一条 `console.warn`（带卡在哪一步），超 180s 且主人已坐好就强制
+   进 `done`（复位后重演）。
+4. **死代码**：`const k`（算了不用）、`S.t = S.s`（把自己的计时覆盖掉）、`S.dist`（写了没人读）
+   已删。`eslint.config.mjs` 补 `no-unused-vars`（只作用于 src 与打包入口，不含内联主模块 ——
+   那份脚本的职责就是把导出挂到 `window.__garden`）；顺带清掉拆模块后遗留的 114 个死导入。
+5. **新增回归门禁 `probe/visit-carriage-guard.mjs`**（已注册 verify-all）：`actorStep` 快进
+   整场戏，断言相位链到 `done`、车到 `gone`、**上车窗口里客人/马夫始终在座面高度**、
+   里程 odo 跨段连续（0.4s 内 |Δ| ≤ 0.60m）、走路段贴地、零 pageerror。
+6. **导入环**：`16-actors` 不再静态 import `12-env` / `08d-tour`（各形成一个经 `08-assemble`
+   的环），改用 `00-config` 的延迟绑定：`ENV_REF.env` 与 `HOOKS.walkRoute`。

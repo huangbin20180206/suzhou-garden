@@ -53,8 +53,11 @@ export const HOOKS = {};
    全是 undefined，再被读侧的 `|| 1` 兜底吃掉 = **静默退化成晴天**（2026-09-20 实测：L2 风力
    调度器在暴雨里永远选微风档，画面风感全部偏弱）。
    ⚠️ 通则：**兜底默认值只能挡"还没发布"，挡不住"发布错了对象"** —— 破环插槽的两端必须
-   对齐"发布的是什么形状 / 读的是哪个键"，注释要写死。 */
-export const ENV_REF = { cur: null };
+   对齐"发布的是什么形状 / 读的是哪个键"，注释要写死。
+   `env` = **状态机 ENV 本身**（hour / weather / season / from / to / t …），
+   与 `cur`（解析后的参数集）分工不同，别混用：读 `hour`/`weather` 用 env，
+   读 `windMul`/`rainAmount` 用 cur。16-actors 的 visitWeatherOK 走 `env`（2026-10-24）。 */
+export const ENV_REF = { cur: null, env: null };
 
 /* 启动分段计时：init 要 3~4 秒，只看"卡"没用，得能说出时间花在哪一段（审计 P04）。
    ⚠️ 定义必须留在模块图**最上游**（本文件）：程序化贴图与材质库都在 01-materials 的模块体里跑，

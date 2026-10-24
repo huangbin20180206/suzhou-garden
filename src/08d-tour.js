@@ -2,7 +2,7 @@
 // 逻辑一字不动；两处顶层 IIFE（WALK_PATH / VIEWPOINTS）因依赖求值时序，转成 build 函数，
 // 由 08-assemble 在原行号位置调用 —— 搬家前后求值顺序逐字一致。
 import { THREE } from '../vendor.js';
-import { CFG } from './00-config.js';
+import { CFG, HOOKS } from './00-config.js';
 import { world, camera, controls, renderer, CAM_MIN_DIST, CAM_HOME, PROBE_DRIVEN } from './02-scene.js';
 import { groundHeight } from './05-water.js';
 import { envEl } from './12-env.js';
@@ -41,6 +41,10 @@ export const WALK_ROUTE = [
   [6.95, 12.85], [6.95, 12.25], [6.95, 11.60],                  // 山脊西坡·下坡道
   [6.40, 11.35], [4.60, 10.90], [2.60, 10.50], [1.10,  9.90],   // 平草地（回程）
 ];
+/* 发布给 16-actors（它要用这条环线拼"游园一圈"）。静态 import 会形成
+   16-actors → 08d-tour → 12-env → 08-assemble → 16-actors 的环（2026-10-24 审核），
+   所以走 00-config 的 HOOKS：读侧只在 buildTourPath()（运行时）取，模块求值期不碰。 */
+HOOKS.walkRoute = WALK_ROUTE;
 export let WALK_PATH = null;
 /* buildWalkPath 由 08-assemble 在原 291 行位置调用（布景之后、人物之前）：
    射线取样要求此刻 world 里只有地形/水/桥/山 —— 调用位置一字不许动。 */

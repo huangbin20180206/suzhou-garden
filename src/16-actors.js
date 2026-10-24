@@ -23,14 +23,19 @@ import { figures } from './08b-figures.js';
 import { PROP_SPOTS, QIN_LOW_SEAT, SEAT_SPOTS } from './14-props.js';
 import { STABLE_ROAD_PTS, stableTravel, travelCarriagePlace, travelCarriagePark,
          travelCarriageVisible, travelCarriageTied } from './15-stable.js';
-import { WALK_ROUTE } from './08d-tour.js';
-import { ENV } from './12-env.js';
 import { MAT } from './01-materials.js';
-import { HOOKS } from './00-config.js';
+/* ⚠️ WALK_ROUTE（08d-tour）与 ENV（12-env）**不能静态 import**（2026-10-24 审核）：
+   那两条各多出一个环 —— 16-actors → 12-env → 08-assemble → 16-actors，
+   以及 16-actors → 08d-tour → 12-env → 08-assemble → 16-actors。
+   现在没炸只因为两处都只在函数体里读；谁把读操作挪到顶层就是启动白屏（TDZ）。
+   一律走 00-config 的延迟绑定：ENV 由 12-env 发布进 ENV_REF.env，
+   WALK_ROUTE 由 08d-tour 发布进 HOOKS.walkRoute。 */
+import { HOOKS, ENV_REF } from './00-config.js';
 
 const ACTORS = [];
 let _built = false;
 let _t = 0;
+let _envRefWarned = false;      // ENV_REF.env 缺失只喊一次（否则每帧刷屏）
 
 /* ── 步态常数（口径对齐 08d 的 WALK_STRIDE=0.42 / WALK_BOB=0.028）────────────
    相位的推进按**走过的距离**算，不按时间：站下/转身/上坡都不会出现"脚在原地划"。
@@ -369,6 +374,12 @@ const CARRY = {
 let _tourPath = null;
 function buildTourPath(){
   if (_tourPath) return _tourPath;
+  /* WALK_ROUTE 走 HOOKS 延迟绑定（见文件头 import 处的注释）。这里已经是运行期
+     （开演后才调用），08d 早发布好了；没发布说明模块图出了问题，宁可炸得响亮。 */
+  const WALK_ROUTE = HOOKS.walkRoute;
+  if (!WALK_ROUTE || !WALK_ROUTE.length){
+    throw new Error('16-actors: HOOKS.walkRoute 未发布（08d-tour 未加载？）');
+  }
   const L = WALK_ROUTE.length;
   const k = 15;                                  // WALK_ROUTE[15] = (8.05, 9.75) 桥南平台
   const loop = [];
@@ -385,6 +396,7 @@ const VISCAR = {
   alighting: false, coachOff: false, tieOn: false,
   boardStarted: false, guestOn: false, coachOn: false, coachWalk: false,
   leg: '', legT: 0,
+  odo: 0,                    // 累计里程（车轮/辕马腿相位）；跨段连续，见 driveout 注释
 };
 
 /* 卷轴纸：奶白底 + 八列竖排"墨点" + 一方朱印。
@@ -1289,6 +1301,13 @@ function drivePair(v, host, guest, P, latH, latG, dt, onDone){
    ⚠️ 读 `ENV.cur` 的雨雪量而不是只看 `ENV.weather` 字符串：天气切换有 2.8s 过渡，
       只看字符串会在"刚下起来"的那几秒把人放进场。 */
 function visitWeatherOK(){
+  const ENV = ENV_REF.env;              // 延迟绑定，见文件头 import 处
+  /* 12-env 还没发布 ⇒ 条件不满足（不猜）。但**必须喊一声**：这个槽没填的话，
+     整场到访会静默地永远停在 idle，画面上什么都不报（2026-10-24 就是靠新门禁抓到的）。 */
+  if (!ENV){
+    if (!_envRefWarned){ _envRefWarned = true; console.warn('[visit] ENV_REF.env 未发布（12-env 没注入）⇒ 到访不会开始'); }
+    return false;
+  }
   const h = ENV.hour;
   if (!(h >= 7.0 && h <= 18.0)) return false;
   const w = ENV.weather;
@@ -1417,10 +1436,20 @@ function tickCarriage(dt){
     if (!S.boardStarted && !guest.trip){
       S.boardStarted = true;
       const seat = carSeat(S.last, CARRY.seat);
-      guest.sitTarget = 1;
+      /* ⚠️ sitTarget 要放在**回调**里：跨上去的 1.15s 里人还在抬腿，立刻切坐姿会读到"半蹲着飘"。
+         ⚠️⚠️ 回调里**必须补 ride**（2026-10-24 修）：startTrip 一进来就把 ride 清空，
+         而 trip 结束到 driveout 之间（等马夫走 1.41m + 跨上车，约 3.5s）没人再写它 ⇒
+         下面"落地"分支看到 !ride && !trip 就把人按**地面高度**直接落下去：
+         客人从座面（车基座 +0.615m）瞬沉到地面、还保持坐姿。 */
       startTrip(guest, { x: seat.x, y: seat.y, z: seat.z, yaw: seat.yaw }, 1.15,
-        () => { S.guestOn = true; });
+        () => {
+          S.guestOn = true;
+          if (S.last) setRide(guest, S.last, CARRY.seat, true);
+        });
     }
+    /* 已上车的人每帧钉回座位（等价于 drivein 那几段的做法）：
+       兜住"trip 刚结束、driveout 还没开始"的空窗，也让车若被挪动时人跟着走。 */
+    if (S.guestOn && !guest.trip && S.last) setRide(guest, S.last, CARRY.seat, true);
     /* 马夫走到车夫位旁边再跨上去 */
     if (S.guestOn && !S.coachOn && !coach.trip && !S.coachWalk){
       S.coachWalk = true;
@@ -1431,23 +1460,32 @@ function tickCarriage(dt){
     if (S.coachWalk && coach.arrived && !S.coachOn && !coach.trip){
       S.coachWalk = false;
       const box = carSeat(S.last, CARRY.coach);
+      /* 马夫同理：没有这一句他跨上去了也会掉回地面（他同样开着 followFloor）。 */
       startTrip(coach, { x: box.x, y: box.y, z: box.z, yaw: box.yaw }, 0.9,
-        () => { S.coachOn = true; });
+        () => {
+          S.coachOn = true;
+          if (S.last) setRide(coach, S.last, CARRY.coach, false);
+        });
     }
+    if (S.coachOn && !coach.trip && S.last) setRide(coach, S.last, CARRY.coach, false);
     if (S.guestOn && S.coachOn && !guest.trip && !coach.trip){
       S.state = 'driveout'; S.t = 0; S.leg = 'back'; S.legT = 0; S.s = 0;
+      S.odo = 0;                            // 里程从 0 起算，之后跨三个 leg 连续累加
     }
     return;
   }
   if (S.state === 'driveout'){
     S.t += dt;
     if (S.leg === 'back'){
-      /* 倒车：车头仍朝院里（yaw π），位置向南退 3.4m。里程取负 ⇒ 车轮/马腿倒着走。 */
-      const k = Math.min(1, S.t / 3.4 * CARRY.backSpeed / 3.4);
+      /* 倒车：车头仍朝院里（yaw π），位置向南退 3.4m。
+         ⚠️ 里程走独立的 S.odo（**只增只减、绝不归零**）：旧写法把 S.s 直接当里程，
+         而 S.s 是"本段走了多远"——调头结束时归零 ⇒ 车轮从 −6.2rad 一步跳到 0
+         （约 2 圈），大辐条轮 15~25m 外也看得见；调头段又用它递增，同样在转折处跳。
+         travelCarriagePlace 的 dist 同时驱动车轮转角与辕马四腿相位，必须连续。 */
       S.s = Math.min(3.4, S.s + CARRY.backSpeed * dt);
-      S.t = S.s;
+      S.odo -= CARRY.backSpeed * dt;          // 倒着走 ⇒ 里程递减（轮/腿反向）
       const x = 40.0, z = 4.0 + S.s;
-      const P = travelCarriagePlace(x, z, Math.PI, -S.s);
+      const P = travelCarriagePlace(x, z, Math.PI, S.odo);
       S.last = P;
       setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
       if (S.s >= 3.4 - 1e-6){ S.leg = 'spin'; S.legT = 0; }
@@ -1457,22 +1495,22 @@ function tickCarriage(dt){
       /* 原地调头（车马一起转，马跟着踏步）。1.15rad/s ⇒ π 用 2.7s。 */
       S.legT += dt;
       const yaw = Math.PI - Math.min(Math.PI, S.legT * CARRY.turnRate);
-      S.s += 0.55 * dt;                        // 原地踏步：让腿不是僵住的
-      const P = travelCarriagePlace(40.0, 7.4, yaw, S.s);
+      S.odo += 0.55 * dt;                      // 原地踏步：让腿不是僵住的（里程接着累加）
+      const P = travelCarriagePlace(40.0, 7.4, yaw, S.odo);
       S.last = P;
       setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
       if (S.legT * CARRY.turnRate >= Math.PI){
         S.leg = 'out'; S.legT = 0; S.s = 0;
         S.outPath = pathTable(CARRY.depart);
-        S.dist = S.s;
       }
       return;
     }
     /* out：沿石板路向南走远，到终点连人带车隐去 */
     S.legT += dt;
     S.s = Math.min(S.outPath.total, S.s + CARRY.speed * dt);
+    S.odo += CARRY.speed * dt;
     const q = pathAt(S.outPath, S.s);
-    const P = travelCarriagePlace(q.x, q.z, q.yaw, S.s);
+    const P = travelCarriagePlace(q.x, q.z, q.yaw, S.odo);
     S.last = P;
     setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
     if (S.s >= S.outPath.total - 1e-6){
@@ -1525,7 +1563,7 @@ function startVisit(){
   VISCAR.path = pathTable(CARRY.arrive); VISCAR.last = P;
   VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
   VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
-  VISCAR.leg = ''; VISCAR.outPath = null;
+  VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0;
   travelCarriageVisible(true);
   travelCarriageTied(false);
 
@@ -1554,7 +1592,7 @@ function resetVisit(){
   VISCAR.state = 'parked'; VISCAR.t = 0; VISCAR.s = 0; VISCAR.last = null;
   VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
   VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
-  VISCAR.leg = ''; VISCAR.outPath = null;
+  VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0;
   if (guest){
     guest.ride = null; guest.trip = null;
     guest.sitTarget = 0; guest.sitW = 0; guest.offerW = 0;
@@ -1859,13 +1897,31 @@ function tickVisit(dt){
     if (seatOne(host, SEAT.host, dt)){
       host.def.stepUp = 0.42;                       // 坐下了，收回
       v.hostSeated = true;
-      v.phase = 'wrap'; v.t = 0;
+      v.phase = 'wrap'; v.t = 0; v.wrapWarned = 0;
     }
     return;
   }
   /* wrap：主人坐回椅子、马车已离开（或 walk 版无马车）才收尾 */
   if (v.phase === 'wrap'){
     if (v.hostSeated && (v.mode === 'walk' || VISCAR.state === 'gone')){
+      v.phase = 'done'; v.t = 0;
+      return;
+    }
+    /* 超时兜底（2026-10-24）：这一相位只等 VISCAR.state === 'gone'，而那条链
+       （客人走到车边 → 马夫走到车夫位 → 跨上车 → 倒车 → 调头 → 离场）任何一环卡住，
+       整场戏就**永久停在 wrap**、再也不重播，而且画面上什么都不报。
+       至少让它可诊断：每 30s 打一条 warn（带卡在哪一步）；超过 180s 且主人已坐好就强制收尾
+       （resetVisit 会把车/人全部复位 ⇒ 下一场从干净状态重演，比永久卡死好）。 */
+    v.t += dt;
+    if (!v.wrapWarned || v.t - v.wrapWarned > 30){
+      v.wrapWarned = v.t;
+      console.warn('[visit] wrap 等待超时 ' + v.t.toFixed(0) + 's：hostSeated=' + !!v.hostSeated +
+                   ' car=' + VISCAR.state + '/leg=' + (VISCAR.leg || '-') +
+                   ' guestOn=' + !!VISCAR.guestOn + ' coachOn=' + !!VISCAR.coachOn +
+                   ' guestArrived=' + !!guest.arrived);
+    }
+    if (v.t > 180 && v.hostSeated){
+      console.warn('[visit] wrap 超 180s 仍未见到车离场 ⇒ 强制进入 done（复位后重演）');
       v.phase = 'done'; v.t = 0;
     }
     return;
@@ -2520,6 +2576,7 @@ export function actorVisit(){
   return { phase: VISIT.phase, t: +VISIT.t.toFixed(2), bowW: +VISIT.bowW.toFixed(3),
            mode: VISIT.mode,
            car: { state: VISCAR.state, s: +VISCAR.s.toFixed(2), leg: VISCAR.leg,
+                  odo: +VISCAR.odo.toFixed(3),          // 累计里程：门禁守"跨段连续、无跳变"
                   tieOn: !!VISCAR.tieOn, guestOn: !!VISCAR.guestOn, coachOn: !!VISCAR.coachOn,
                   ready: !!V,
                   pos: V && V.car ? V.car.getWorldPosition(new THREE.Vector3()).toArray().map(n => +n.toFixed(3)) : null },
