@@ -193,7 +193,14 @@ export const PRELOAD_MANIFEST = [
   { url: 'assets/stone-lion-male.glb', bytes: 711648, stage: '取', label: '石狮雄', required: false },
   { url: 'assets/stone-lion-female.glb', bytes: 643576, stage: '取', label: '石狮雌', required: false },
   { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
-  { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
+  /* 池边荷花三态（2026-10-24 · 老黄："荷花是低模、花瓣像刀片；没有含苞待放和
+     花谢结蓬的状态，按春夏秋三季合理处理"）。
+     旧件 assets/LotusPlant.glb（Hyper3D 单网格 267KB）**退役删除**（git 历史可回退）；
+     新三件 = Rodin Gen-2.5-Medium 生成 + Blender 归一化（高 1.65m、脚底 y=0、1024 JPEG）。
+     required:false —— 三件缺任何一件时该态不出现、页面照常（12f 状态机按存在的子节点跑）。 */
+  { url: 'assets/lotus-bloom.glb', bytes: 714356, stage: '取', label: '荷花·盛开', required: false },
+  { url: 'assets/lotus-bud.glb',   bytes: 425096, stage: '取', label: '荷花·花苞', required: false },
+  { url: 'assets/lotus-pod.glb',   bytes: 614412, stage: '取', label: '荷花·莲蓬', required: false },
   { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
   /* 金刚鹦鹉（2026-10-02 第九轮，老黄："草皮上和假山顶部的小鸟还是没有看到，
      要不你加几只金刚鹦鹉，我给你参考图，这个好像更显眼一点，3D 效果也挺好"）：

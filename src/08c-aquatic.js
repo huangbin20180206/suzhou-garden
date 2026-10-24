@@ -13,8 +13,8 @@
 // ⚠️ buildAquatic() 体内**保持 08-assemble 原缩进**（与 08b-figures 的 buildFigures 同款），
 //   且与原文逐字节相同 —— 搬家时按"原行号摆回"逐字节核对过：漏行/重行/串行/错位四类一次抓全。
 import { THREE } from '../vendor.js';
-import { TAU, rr, rnd, mulberry32 } from './00-config.js';
-import { MAT, WIND, makeDuckWakeTex } from './01-materials.js';
+import { TAU, rr, rnd, mulberry32, HOOKS } from './00-config.js';
+import { WIND, makeDuckWakeTex } from './01-materials.js';
 import { world } from './02-scene.js';
 import { mesh } from './03-factory.js';
 import { markUnderwater } from './05-water.js';
@@ -1319,13 +1319,53 @@ for (let i = 0; i < 12; i++){
 }
 lotusSpots.forEach(s=>{
   const stemH = GLB_LOTUS_STEM_H * s.s * rr(0.98, 1.03);   // ⚠️ 这 12 次 rr 是全局流的一部分，别动
-  const stem = mesh(new THREE.CylinderGeometry(0.018, 0.034, stemH, 12), MAT.lily, { name:'glbLotusStem' });
-  stem.position.set(s.x, stemH / 2, s.z);
-  world.add(stem);
+  void stemH;                                              // 2026-10-24：补杆退役（三态 GLB 自带茎），等量燃烧保留
 });
-/* 池边荷花丛（LotusPlant.glb）：落点/尺度沿用本地流 lotusSpots（跨刷新确定，
-   随机流守恒见上），由 placeAssets 异步挂载。 */
-placeAssets('assets/LotusPlant.glb', 2.0, lotusSpots);
+/* ── 池边荷花三态（2026-10-24 · 老黄："荷花是低模资产，花瓣像刀片；没有含苞待放
+       和花谢结蓬的状态，按春夏秋三季变化处理"）──────────────────────────────
+   旧方案（三轮沿革见上）：AI 生成的 LotusPlant.glb ×12 —— 单网格单贴图、花与叶
+   烘死在一起，近看花瓣是刀片；四季只有一个 lotusShow 缩放系数，没有花事阶段。
+   新方案：三件独立 GLB（盛开 lotus-bloom / 花苞 lotus-bud / 莲蓬 lotus-pod，
+   Rodin Gen-2.5-Medium 生成 + Blender 归一化：高 1.65m、脚底 y=0、1024 JPEG）。
+   · 每株一个 holder，三个子节点分别是三态；由 applyGLBSeason 按
+     lotusBud / lotusBloom / lotusPod 三键切换（12f-season 的 LOTUS_STATES）。
+   · **网格名必须叫 'LotusPlant'**：smoke 的「四类 GLB 资产均已挂载」、
+     collectSeasonGLB 的 LotusPlant 数组、refract-coverage 的池内越水面判据
+     全按这个名字认领 —— 改名等于把三道门禁的抓手全拆了。
+   · ⚠️ 三态**不能叠着摆**（旧丛是"一株一大团"）：三个子节点都放在 holder 原点、
+     同一时刻只显示一个 —— 季节切换时直接换 visible，平滑缩放交给
+     applyGLBSeason 的 LOTUS_STATES 分支（见 12f）。
+   · 风场注入沿用 seasonGLB 机制（12f 的 collectSeasonGLB 会把三态克隆的材质
+     统一 clone + addWind —— 与旧丛同一套 tip 摆动参数）。 */
+const lotusHolders = [];
+/* 先把 12 个 holder 建好（空着不显示）—— 每个状态模型独立到场、独立挂，
+   任何一件失败只是"该态缺席"，不会把整片荷花拖没（required:false 的既有约定）。 */
+for (const s of lotusSpots){
+  const holder = new THREE.Group();
+  holder.name = 'LotusPlant';            // 门禁抓手（见上注释）
+  holder.position.set(s.x, 0, s.z);
+  holder.rotation.y = s.ry;
+  holder.scale.setScalar(s.s);
+  world.add(holder);
+  lotusHolders.push(holder);
+}
+function attachLotusState(key, src){
+  for (const holder of lotusHolders){
+    const c = src.clone(true);
+    c.name = 'lotusState_' + key;
+    c.visible = false;                   // 初始全隐，applyGLBSeason 按当前季节点亮
+    holder.add(c);
+  }
+  /* 迟到资产：季节状态与阴影图都要立刻刷新一次（不等下一次环境切换） */
+  HOOKS.onAssetAttached?.();
+}
+/* ⚠️⚠️ 三件都必须写**字面 URL**（preload-manifest-sync 的 G6 只认字面量或可解析的
+   const 标识符；用 `st.url` 这种对象索引它检测不到 ⇒ 判"没人接线" ⇒ 每次进项目
+   死等满 PRELOAD_TIMEOUT_MS(180s)。2026-10-11 Horse.glb 踩过一次，见该门注释）。 */
+loadAssetOnce('assets/lotus-bloom.glb', 1.65, (src) => attachLotusState('lotusBloom', src));
+loadAssetOnce('assets/lotus-bud.glb',   1.50, (src) => attachLotusState('lotusBud',   src));
+loadAssetOnce('assets/lotus-pod.glb',   1.60, (src) => attachLotusState('lotusPod',   src));
+/* 旧 LotusPlant.glb 已退役删除（git 历史可回退）。 */
 world.add(makePondPads(lotusSpots));
 
 /* ── boulder-hero 预取（2026-10-14 · 试水单死锁修复，Chief 实测裁定）──

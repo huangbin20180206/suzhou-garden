@@ -118,7 +118,7 @@ const CACHE = 'suzhou-garden-v43';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
-const ASSET_CACHE = 'suzhou-garden-assets-v18';  // 2026-10-23 新增三匹马 + 客人 GLB（文件比 sw 新 ⇒ 升桶）
+const ASSET_CACHE = 'suzhou-garden-assets-v19';  // 2026-10-24 池边荷花换三态（LotusPlant.glb 删、lotus-{bloom,bud,pod}.glb 增）⇒ 升桶
 const SHELL = [
   './',
   './index.html',
@@ -130,7 +130,11 @@ const SHELL = [
 const GLBS = [
   /* 2026-09-30 三轮：LotusPlant.glb 回归（与 13-preload 同步；沿革见 08 的注释）。 */
   './assets/BananaPlant.glb',
-  './assets/LotusPlant.glb',
+  /* 2026-10-24：池边荷花换三态（盛开/花苞/莲蓬），旧 LotusPlant.glb 退役删除。
+     与 13-preload 的 PRELOAD_MANIFEST 同步（preload-manifest-sync 门盯着）。 */
+  './assets/lotus-bloom.glb',
+  './assets/lotus-bud.glb',
+  './assets/lotus-pod.glb',
   './assets/koi.glb',
   './assets/Turtle.glb',
   /* 2026-10-03 补：金刚鹦鹉（2026-10-02 上峰顶时只改了 13-preload，漏了这里）。

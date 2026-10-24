@@ -185,6 +185,19 @@ export function collectSeasonGLB(){
       if (o.isMesh && o.name === name && seasonGLB[name].indexOf(o) < 0) seasonGLB[name].push(o);
     });
   }
+  /* 荷花三态（2026-10-24）：新方案每株是 holder(name='LotusPlant') + 三个子节点
+     (name='lotusState_lotusBud/Bloom/Pod')，**它们不再叫 LotusPlant** ——
+     上面那圈只按 o.name===name 收，收不到 ⇒ 风场注入会整片落空（花不摆）。
+     ⚠️⚠️ 三态节点是 **Group 不是 Mesh**（GLB 的根是 Scene → 节点 → 网格），
+     只判 `o.isMesh` 会把三个状态**全部漏收** —— 画面照常显示、只是花永不摆动，
+     零报错零告警（2026-10-24 实测：12 株 × 3 态都在，却一个材质都没进风场）。
+     故这里按前缀认领后**往下收网格**；与旧丛同一条 addWind 参数（tip/0.030/硬顶 5cm）。 */
+  world.traverse(o => {
+    if (typeof o.name !== 'string' || o.name.indexOf('lotusState_') !== 0) return;
+    o.traverse(c => {
+      if (c.isMesh && seasonGLB.LotusPlant.indexOf(c) < 0) seasonGLB.LotusPlant.push(c);
+    });
+  });
   /* ── GLB 荷花丛进风场（2026-09-17 用户："荷花和荷叶为啥不会随风晃动"）──
      GLB 材质的身份和芭蕉叶一样：异步挂载、材质是 GLB 自带的，
      从来没登记进风场表 —— 于是狂风里只有我们补的那根花梗在摆、花叶本体纹丝不动。
@@ -211,7 +224,11 @@ export function collectSeasonGLB(){
    独立成函数是为了"资产一到就立即套用当前状态"，不必等下一次环境切换。 */
 export function applyGLBSeason(p){
   for (const name in seasonGLB){
-    const key = name === 'LotusPlant' ? 'lotusShow' : name === 'BananaPlant' ? 'bananaShow' : 'turtleShow';
+    /* ⚠️ 荷花**不吃**这条通用通道（2026-10-24）：lotusShow 是给"池心程序化荷花"的
+       密度键（春 0.05 / 秋 0.42 / 冬 0），拿去缩放池边这 12 株三态 GLB 会让春季
+       整株缩成 5%（等于消失）。三态由下面的状态机逐子节点控制显隐与大小。 */
+    if (name === 'LotusPlant') continue;
+    const key = name === 'BananaPlant' ? 'bananaShow' : 'turtleShow';
     const v = Math.max(0.001, p[key]);
     for (const o of seasonGLB[name]){
       o.visible = p[key] > 0.02;
@@ -223,6 +240,40 @@ export function applyGLBSeason(p){
         if (!target.userData.baseScale) target.userData.baseScale = target.scale.clone();
         target.scale.copy(target.userData.baseScale).multiplyScalar(v);
       }
+    }
+  }
+  /* ── 荷花三态状态机（2026-10-24）───────────────────────────────────────────
+     每株 holder 名叫 'LotusPlant'（三个子节点 lotusState_lotusBud/Bloom/Pod）。
+     上面那段通用缩放**已显式跳过 LotusPlant**（见循环开头的 continue）：花事阶段
+     用三键（lotusBud/lotusBloom/lotusPod）表达，在这里点亮对应子态。
+     ⚠️ seasonGLB.LotusPlant 收的是三态里的**网格**（collectSeasonGLB 按
+        o.name==='LotusPlant' 认领不到 Group 形式的 holder；三态节点名是
+        'lotusState_*'，那里按前缀往下收网格）。所以这里自己 traverse world 找
+        holder（首次调用建一次缓存，与上面"收集可重跑"同一族纪律）。
+     ⚠️⚠️ 缩放必须"乘在 baseScale 上"，不能 setScalar 覆盖 —— 三态克隆体各自的
+        scale 里带着 loadAssetOnce 的**归一化比例**（targetSize / 原始尺寸），
+        直接覆盖会让三态大小乱掉（2026-10-24 实测：盛开态被写成 0.85 倍，
+        比花苞大不了多少）。与芭蕉 crown 同一套"存基准再乘"的写法。 */
+  if (!applyGLBSeason._lotusHolders || !applyGLBSeason._lotusHolders.length){
+    applyGLBSeason._lotusHolders = [];
+    world.traverse(o => { if (o.name === 'LotusPlant') applyGLBSeason._lotusHolders.push(o); });
+    /* ⚠️⚠️ 不能加 `&& o.children.length` 当条件、也不能缓存空结果（2026-10-24 实测）：
+       holder 在 08c-aquatic 里是**同步建、没有子节点**的，三态 GLB 之后才异步挂上；
+       首次 applyGLBSeason 若只收"有子节点的"，会缓存下一个**空数组**（空数组是 truthy，
+       之后永不再收）⇒ 状态机整段不执行 ⇒ 三态全不可见、缩放停在归一化原值，
+       而画面只表现为"池边荷花全没了"，零报错。 */
+  }
+  const buds = Math.max(0, p.lotusBud || 0), blooms = Math.max(0, p.lotusBloom || 0), pods = Math.max(0, p.lotusPod || 0);
+  for (const h of applyGLBSeason._lotusHolders){
+    for (const c of h.children){
+      if (!c.name || c.name.indexOf('lotusState_') !== 0) continue;
+      const k = c.name.slice('lotusState_'.length);
+      c.visible = (k === 'lotusBud' && buds > 0.02) || (k === 'lotusBloom' && blooms > 0.02) || (k === 'lotusPod' && pods > 0.02);
+      /* 平滑缩放：非该态收到 0.001（几乎不可见 + visible=false 双保险），
+         该态按系数放大 —— 与芭蕉 crown 同款"缩放而不是闪现"观感 */
+      const v2 = k === 'lotusBud' ? buds : k === 'lotusBloom' ? blooms : pods;
+      if (!c.userData.baseScale) c.userData.baseScale = c.scale.clone();
+      c.scale.copy(c.userData.baseScale).multiplyScalar(Math.max(0.001, v2));
     }
   }
 }

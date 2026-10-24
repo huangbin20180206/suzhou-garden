@@ -467,6 +467,11 @@ export const ENV_SEASON = {
     tinWillow:0xB4D47C, tinLily:0x3E7A34, tinLotus:0xF2C7D4, tinWisteria:0x9B6FC4,   // 春：垂柳新芽淡绿（用户常识反馈）
     tinBanana:0x62B054, tinTrunk:0x3B2A1E, tintMix:0.50,
     lilyShow:0.05, lotusShow:0.05, wisteriaShow:1.0, bananaShow:0.9, reedShow:0.85, willowLeaf:0.38,   // 春：柳帘均匀变疏=新芽初绽（38%+洗牌）
+    /* 荷花三态（2026-10-24 · 老黄："没有含苞待放和花谢结蓬的状态，按春夏秋三季合理处理"）：
+       春 = 小荷才露尖尖角（花苞为主，零星初绽）｜夏 = 盛花期（盛开为主 + 少量花苞续期）
+       ｜秋 = 花事将尽（莲蓬为主 + 零星晚花）｜冬 = 三态全收（残梗也不留，池面交给冬柳倒影）。
+       ⚠️ lotusShow 保留（池心程序化荷花/莲蓬仍走它），三键只管池边 12 株三态 GLB。 */
+    lotusBud:1.0, lotusBloom:0, lotusPod:0,
     /* 竹叶季节叶量（2026-09-16 用户："初春先抽竿长叶、夏要茂密"）——
        系数×基数（12~21 片/枝）＝绝对量。夏 1.0 ≈ 4.2 万片（茂密）；
        春 0.28 ≈ 1.2 万片（初春抽竿后刚长叶，绝对量与旧版春一致）；
@@ -482,6 +487,7 @@ export const ENV_SEASON = {
     tinWillow:0x5E9638, tinLily:0x3E7A34, tinLotus:0xF2C7D4, tinWisteria:0x9B6FC4,   // 夏：翠绿繁茂（用户常识反馈）
     tinBanana:0x4F9440, tinTrunk:0x3B2A1E, tintMix:0.0,
     lilyShow:1.0, lotusShow:1.0, wisteriaShow:1.0, bananaShow:1.0, reedShow:1.0, willowLeaf:1.0,
+    lotusBud:0, lotusBloom:1.0, lotusPod:0,          // 夏：盛花期（三态一次只开一种，靠过渡插值完成"苞→花"）
     bambooLeaf:1.0,
     koiSpeed:1.0, dragonflyShow:1.0, turtleShow:1.0, gooseShow:0.0,   // 夏：无雁（盛夏非迁徙季）
     /* 夏：花落尽、桃结果（叶茂果生，落花也快被扫净只余淡痕） */
@@ -499,6 +505,7 @@ export const ENV_SEASON = {
     tinWillow:0xDCAE52, tinLily:0x6E8A3E, tinLotus:0xE0B894, tinWisteria:0xB08858,
     tinBanana:0xA89E54, tinTrunk:0x3B2A1E, tintMix:0.76,
     lilyShow:0.55, lotusShow:0.42, wisteriaShow:0.35, bananaShow:0.7, reedShow:1.0, willowLeaf:0.72,
+    lotusBud:0, lotusBloom:0, lotusPod:1.0,          // 秋：花事将尽（莲蓬挂果，花谢）
     bambooLeaf:0.43,
     koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 秋：大雁南迁过境
     /* 秋：桃叶转黄（tinLeaf）、果渐疏（快被摘/落尽），花/落花早没了 */
@@ -519,6 +526,7 @@ export const ENV_SEASON = {
     // 紫藤花期是开春四五月（见交接文档来源），冬季不该有花；藤枝走 MAT.bark，不受这里影响
     // 冬季水面不留绿：水草(MAT.reed)整片收掉，否则池面在冬天还浮着一簇簇绿草
     lilyShow:0.0, lotusShow:0.0, wisteriaShow:0.0, bananaShow:0.0, reedShow:0.0, willowLeaf:0.0,
+    lotusBud:0, lotusBloom:0, lotusPod:0,    // 冬：三态全收（枯梗也不留；池面交给冬柳与白雪）
     /* 冬：芭蕉叶幕枯落（多年生草本，假茎宿存——第九轮用户常识反馈）；
        柳叶**掉光**（垂柳是落叶乔木，裸枝过冬——2026-09-19 老黄科学反馈；
        0.02 是旧"变稀"思路残留，164 片残叶肉眼仍读作"挂着"）。 */
