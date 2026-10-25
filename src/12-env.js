@@ -1202,6 +1202,14 @@ const SNOW_BOOST = new Map([[MAT.bambooA, 0.85], [MAT.bambooB, 0.85], [MAT.banan
 for (const [mat, boost] of SNOW_BOOST){
   mat.userData.snowBoost = { value: boost };
 }
+/* 平顶面：雪要盖成"一整片"，不要斑驳（2026-10-25 老黄总览图里正堂/游廊屋面像霉斑）。
+   只登记"朝上、面积大、该被雪整片盖住"的三种瓦构件；地面/石头/植被继续走原来的斑驳版 ——
+   那些面上的斑驳是对的（雪被风刮、被踩、被屋檐滴水打穿）。
+   ⚠️ 与 snowBoost 同一条路：必须在 installSnow 之前写进 userData，着色器编译时才读得到。 */
+const SNOW_FLAT = new Map([[MAT.roof, 1.0], [MAT.ridge, 1.0], [MAT.wallCap, 1.0]]);
+for (const [mat, flat] of SNOW_FLAT){
+  mat.userData.snowFlat = { value: flat };
+}
 
 /* ══ 天气表现 · 二 · 雨 / 雪 + 雨后檐滴与积水 ⇒ 已移入 12e-precip.js（2026-10-05 拆分）═══════
    原 1848~2337 行整块搬走（纯搬家，除 PRECIP_INDOOR 补 export 前缀外逐字未改）；

@@ -373,6 +373,9 @@ export function installSnow(list){
       // 逐材质：薄叶面用自己的加成，没有登记的材质为 0（= 完全走原来的朝上判据）
       shader.uniforms.uSnowBoost = (this.userData && this.userData.snowBoost)
                                  ? this.userData.snowBoost : { value: 0 };
+      /* 逐材质：平顶面（瓦面/屋脊/墙帽）走"整片覆盖"分支，其余为 0 = 原来的斑驳（见片元里 amtFlat） */
+      shader.uniforms.uSnowFlat = (this.userData && this.userData.snowFlat)
+                                ? this.userData.snowFlat : { value: 0 };
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vSnowW;\nvarying vec3 vSnowN;')
         .replace('#include <begin_vertex>',
@@ -399,6 +402,7 @@ export function installSnow(list){
           'uniform float uSnowCover;\n' +
           'uniform vec3 uSnowTint;\n' +
           'uniform float uSnowBoost;\n' +
+          'uniform float uSnowFlat;\n' +
           'uniform vec3 uInLo[6];\n' +
           'uniform vec3 uInHi[6];\n' +
           'uniform int uInN;\n' +
@@ -420,7 +424,16 @@ export function installSnow(list){
              薄叶面的雪就一直是"隐约有点白"，撑不起"雪压竹叶"这一笔。 */
           '    float lo = mix(0.24, 0.03, uSnowBoost);\n' +
           '    float hi = mix(0.80, 0.52, uSnowBoost);\n' +
-          '    float amt = smoothstep(lo, hi, dr) * upness * uSnowCover;\n' +
+          '    float amtMottled = smoothstep(lo, hi, dr) * upness;\n' +
+          /* 平顶面（瓦面/屋脊/墙帽）要的是「一整片白」，不是斑驳 —— uSnowFlat=1 时
+             完全不吃噪声阈值，只留一层很宽松的朝上判据：瓦垄自身的凹凸法线（谷底 y 只在
+             0.6 上下）在这一档里照样算覆盖，屋面才读作"被雪盖住"而不是"霉斑"。
+             （2026-10-25 老黄总览图：正堂与游廊屋面被读成斑块状像霉斑。）
+             ⚠️ 顺带给平顶面加背面剔除：屋面是 DoubleSide，仰头看廊下看到的是同一次
+             绘制的背面 —— 不加这一句，廊内顶棚会被刷成一片白（斑驳版看不出来，平铺版一眼就穿帮）。 */
+          '    float amtFlat = smoothstep(0.05, 0.55, vSnowN.y);\n' +
+          '    if (uSnowFlat > 0.5 && !gl_FrontFacing) amtFlat = 0.0;\n' +
+          '    float amt = mix(amtMottled, amtFlat, uSnowFlat) * uSnowCover;\n' +
           '    amt *= 1.0 + 0.25 * uSnowBoost;\n' +
           /* ⚠️ 室内剔除（2026-10-02）：盒子内的片元（堂内/廊下/亭下的地面与家具顶面）
              雪量归零 —— snowCover 只认"面朝上"，没有它堂内地面会与门外台阶雪连成一片
@@ -437,7 +450,10 @@ export function installSnow(list){
           '      inK = max(inK, mm.x * mm.y * mm.z);\n' +
           '    }\n' +
           '    amt *= 1.0 - inK;\n' +
-          '    diffuseColor.rgb = mix(diffuseColor.rgb, uSnowTint * (0.72 + 0.40 * dr), amt);\n' +
+          /* 明度也跟着分档：斑驳面靠 dr 拉出深浅（0.72~1.12）；平顶面只留很轻的起伏，
+             否则一整片白里还是一块块发灰，照样读成"脏"。 */
+          '    float tintK = mix(0.72 + 0.40 * dr, 0.93 + 0.09 * dr, uSnowFlat);\n' +
+          '    diffuseColor.rgb = mix(diffuseColor.rgb, uSnowTint * tintK, amt);\n' +
           '  }');
     };
     m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|snow'; };
