@@ -66,10 +66,19 @@ export const MACAW_EV = { tail:0.38, flutter:0.55, preen:1.15, hop:0.52 };
       会把翼尖扫进身体里（翼尖离肩轴几乎正下方 1.27，负角横穿躯干）。 */
 export const MACAW_WING = {
   pivotY: 0.42,                 // 肩关节高度（顶点量测，旋转不动点）
-  ampFly: 0.85,                 // 飞行扇翅幅度 rad（翼尖横摆 ≈0.18m 世界尺寸）
+  /* ⚠️ 2026-10-25 老黄："鹦鹉飞行的时候还是没有展开翅膀"。
+     原因是**基准角是 0**：旧写法 ampFly·(0.5−0.5cos) 只把折叠翅从"贴着体侧"抬到最多
+     0.85rad(49°)，读起来是"翅膀在抖"，不是"张开"。折叠翅本身很长（肩 y0.45 → 翼尖 −0.85），
+     绕肩转到接近水平就是一副长翼，所以改成 **在 baseFly 上扇动**：
+     飞行时 1.15±0.35rad ⇒ 46°~86°（基本水平），落地/栖停仍回到 0（收翅）。 */
+  baseFly: 1.15,
+  ampFly: 0.35,                 // 在基准角上做 ± 扇动（不再是 0→幅）
   freqFly: 16,                  // 飞行扇翅角频率（2.55Hz；24fps 每帧 0.67rad，不越采样极限）
   ampFlutter: 0.35, ampHop: 0.30,
-  follow: 18,                   // 状态切换跟随速率 1/s：落地收翅不许"啪"一下跳变
+  /* 18 → 26（2026-10-25）：baseFly 1.15 之后收翅的尾巴更长 —— 落地后一瞬间还能剩 0.06rad，
+     把 macaw-wing-guard 的"rest 时收翅 ≤0.06"顶成时红时绿（两次跑分别 0.062 / 0.012）。
+     26 仍然平滑（时间常数 38ms），但落地 0.2s 内就归零。 */
+  follow: 26,
 };
 /* 确定性伪随机 ∈ [0,1)：与全局随机流无关 */
 export function h01(a, b){
@@ -131,7 +140,7 @@ export function updateMacaws(dt, t){
                      m.yaw + (m.flyYaw - m.yaw) * lift,
                      Math.sin(m.flightT * 26) * 0.18 * lift);
       /* 扇翅相位用 flightT（全程累积、换态不复位 —— 与 roll 同一来源，见上方不变量②） */
-      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase));
+      m.wingT = MACAW_WING.baseFly + MACAW_WING.ampFly * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase);
       if (u >= 1){ m.mode = 'cruise'; m.mt = 0; }
       continue;
     }
@@ -152,7 +161,7 @@ export function updateMacaws(dt, t){
       h.rotation.set(Math.atan2(dydv, Math.max(m.flyDist, 0.001)) + 0.08 * Math.sin(m.flightT * 26 + 1.1),
                      m.flyYaw,
                      Math.sin(m.flightT * 26) * 0.18);
-      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase));
+      m.wingT = MACAW_WING.baseFly + MACAW_WING.ampFly * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase);
       if (u >= 1){ m.mode = 'land'; m.mt = 0; }
       continue;
     }
@@ -175,7 +184,7 @@ export function updateMacaws(dt, t){
                      m.flyYaw + (m.yaw0 - m.flyYaw) * blend,
                      Math.sin(m.flightT * 26) * 0.18 * lift);
       /* 落地段扇翅随 lift 收 —— 触地时目标归 0，配合循环顶的缓动自然收拢 */
-      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase)) * lift;
+      m.wingT = (MACAW_WING.baseFly + MACAW_WING.ampFly * Math.cos(m.flightT * MACAW_WING.freqFly + m.phase)) * lift;
       if (u >= 1){
         m.base.copy(m.flyTo); m.mt = 0;
         if (!want){ m.mode = 'depart'; }   // 飞行期间天气突变：落到目的地再走，不从半空瞬移
@@ -201,7 +210,7 @@ export function updateMacaws(dt, t){
       h.rotation.set(-0.34 * lift + 0.12 * Math.sin(m.mt * 26 + 1.1),
                      m.yaw0 + Math.sin(m.mt * 0.7 + m.phase) * 0.12,
                      Math.sin(m.mt * 26) * (0.26 + 0.34 * lift));
-      m.wingT = MACAW_WING.ampFly * (0.5 - 0.5 * Math.cos(m.mt * MACAW_WING.freqFly + m.phase));
+      m.wingT = MACAW_WING.baseFly + MACAW_WING.ampFly * Math.cos(m.mt * MACAW_WING.freqFly + m.phase);
       if (u >= 1){
         if (m.mode === 'depart'){ m.mode = 'away'; h.visible = false; }
         else {
