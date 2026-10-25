@@ -362,6 +362,9 @@ const DEFS = [
     height: 1.72,
     hidePose: 'read',
     tint: 0xAEB9C9,          // 生成件偏亮蓝；压一点饱和，贴近场景的工笔淡彩
+    /* 2026-10-25 着装：主人换成**藏青**（压暗 + 提饱和）。蓝衣在生成件上已经"很雅"，
+       但一眼看不出"这家有钱"——深青直裰是明清文士的正装色，比浅蓝更像当家人。 */
+    dye: { hue: 0.60, w: 0.16, shift: -0.02, sat: 1.22, val: 0.80 },
     spot: { x: 1.2, z: -5.7, yaw: 0.42 },
     /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
        走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
@@ -429,6 +432,9 @@ const DEFS = [
     height: 1.20,
     hidePose: 'child',
     tint: 0xEFE4DC,
+    /* 2026-10-25 着装：书童原来是一身暗红 + 白围裙，远看像仆役。改成**朱红**（提亮提饱和），
+       与另一个孩子的秋香黄分开 —— 大户人家的孩童本来穿得鲜亮。 */
+    dye: { hue: 0.99, w: 0.11, shift: 0.00, sat: 1.32, val: 1.38 },
     spot: { x: 1.80, z: -5.25, yaw: -2.21 },   // 面向先生（1.2,−5.7）
     route: null,
     idle: { breath: 0.018, head: 0.055, sway: 0.009, phase: 0.9, hopEvery: [9, 22], hopH: 0.20 },
@@ -439,6 +445,9 @@ const DEFS = [
     height: 1.16,
     hidePose: 'child',
     tint: 0xDCE0E8,
+    /* 另一个孩子改成**秋香/杏黄**（红相 shift +0.16 ⇒ 黄绿相）：两人同框一眼分得开，
+       也符合"这家有钱"的读法（明代孩童常穿鲜艳的绢衣）。 */
+    dye: { hue: 0.99, w: 0.11, shift: 0.16, sat: 1.08, val: 1.24 },
     spot: { x: 0.62, z: -5.10, yaw: 2.37 },    // 面向先生（1.2,−5.7）
     route: null,
     idle: { breath: 0.016, head: 0.05, sway: 0.008, phase: 4.2, hopEvery: [14, 30], hopH: 0.16 },
@@ -446,15 +455,20 @@ const DEFS = [
   /* ── 低案抚琴（P2 第一件"坐着的动作"）────────────────────────────────────────
      同一件文士资产第二次 parse（与两个书童同款做法），坐位坐标由 14-props 的
      QIN_LOW_SEAT 给 —— 桌与人是**一处真值**推出的两个点，不在这里另写一份。
-     hidePose 留空：他没有替换任何程序化人物（水榭里抚琴那位是另一处陈设，保留）。
-     ⚠️ 站在**堂前月台**上：y 必须走 floorRay（台面 1.30，不是地形），而且默认的
-        接受上限 0.8 会把 1.30 判成"屋顶"丢掉 ⇒ 本条目显式给 floorMax。 */
+     ⚠️ 2026-10-25：整套（低案 + 此人）从"堂前月台"搬进**水榭**，并取代原来那套
+        「高琴案 + 鼓凳 + 低模抚琴人」（老黄绿框："抚琴人应该在右侧凉亭里面，替代原有的低模"）。
+        ⇒ 现在水榭里只有这一个人，`hidePose` 仍留空是对的（没有程序化替身要藏）。
+     ⚠️ 站在**水榭台基**上：y 来自 QIN_LOW_SEAT（0.62），floorRay 再按真实踏面兜一道；
+        floorMax 1.70 是因为台基顶面 0.62 会被默认上限 0.8 判成屋顶丢掉。 */
   {
     id: 'qin',
     url: 'assets/fig-scholar.glb',
     height: 1.72,
     hidePose: null,
     tint: 0xC6BFAE,          // 暖褐（与讲学那位蓝灰长衫分开，同一件资产不成"照镜子"）
+    /* 2026-10-25：同一件资产第二次 parse，光靠 tint 分不开（乘色改不了色相）⇒ 用 dye 把
+       衣料从蓝相转到**竹青/石绿**（shift −0.18），和主人的藏青、客人的月白都隔开。 */
+    dye: { hue: 0.60, w: 0.16, shift: -0.18, sat: 1.02, val: 1.10 },
     spot: { x: QIN_LOW_SEAT.x, z: QIN_LOW_SEAT.z, y: QIN_LOW_SEAT.y, yaw: QIN_LOW_SEAT.yaw },
     floorRay: true,
     floorMax: 1.70,
@@ -513,6 +527,80 @@ function hideProcedural(poseName, near){
   if (f.userData.slot) f.userData.slot.h0 = 99;
   f.visible = false;
   f.userData.replacedByGLB = true;
+}
+
+/* ── 垂手（2026-10-25 修「胳膊横在身侧」）────────────────────────────────────────
+   老黄黄框："主人的手摆动动作好像很怪异"。
+   实测（outputs/_diag/actor-armdown-scan.mjs）：armDown 写的是**绕 Y**，而绑定姿势是
+   A 姿势（手臂沿 ±X 张开）⇒ 绕 Y 等于沿胳膊轴原地拧，1.6rad 手只挪 4cm，等于全程空转；
+   卷轴一放下（迎客时）手就从胸前**弹回 ±0.65m**，那一下就是"甩胳膊"。
+   真正把手放下来的是**绕 X，且左右两只骨镜像反号**（actor-armdown-solve.mjs：左 −、右 +）。
+   1.2rad ⇒ 腕心 (±0.28, 0.91, 0.23)：手落在身侧略前、与大腿齐 —— 直裰垂手的读法。
+   系数取 1.5 是为了让 idle.armDown=0.80 用同一套权重语义（0.8×1.5=1.2rad）。 */
+const ARM_DOWN = 1.5;
+
+/* ── 衣料染色（2026-10-25）──────────────────────────────────────────────────
+   老黄："所有成人的着装都一样，包括两个孩子，而且特别素雅，不像能住得起这种大院的人家"。
+   生成件是**单张贴图、整套衣服一个色相** ⇒ 直接乘 material.color 只能压暗、改不了色相
+   （蓝衣乘暖褐仍是蓝的，这就是"抚琴人 tint 设成暖褐却还是蓝的"的原因）。
+   这里改成在片元里**按色相带**重染：只动"饱和度高、且色相落在指定带内"的像素 ——
+   皮肤（橙相、低饱和）、白发、白袜、腰带都不在带内，不会被误染。
+   每个角色的参数写在 DEFS 的 `dye` 里，改衣服颜色只改那一行。 */
+const DYED_DECL =
+  'uniform float uDyeHue; uniform float uDyeW; uniform float uDyeShift;\n' +
+  'uniform float uDyeSat; uniform float uDyeVal; uniform float uDyeAmt; uniform float uDyeVMax;\n' +
+  'vec3 dyeRgb2Hsv(vec3 c){\n' +
+  '  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n' +
+  '  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n' +
+  '  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n' +
+  '  float d = q.x - min(q.w, q.y);\n' +
+  '  float e = 1.0e-10;\n' +
+  '  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);\n' +
+  '}\n' +
+  'vec3 dyeHsv2Rgb(vec3 c){\n' +
+  '  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);\n' +
+  '  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);\n' +
+  '  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);\n' +
+  '}\n';
+const DYED_BODY =
+  'if (uDyeAmt > 0.001){\n' +
+  '  vec3 dh_ = dyeRgb2Hsv(diffuseColor.rgb);\n' +
+  '  float hd_ = abs(dh_.x - uDyeHue); hd_ = min(hd_, 1.0 - hd_);\n' +
+  '  float band_ = 1.0 - smoothstep(uDyeW, uDyeW + 0.08, hd_);\n' +
+  '  float sat_ = smoothstep(0.10, 0.26, dh_.y);\n' +
+  /* 只染**暗部**：皮肤比衣料亮得多，而色相带在红相附近会绕回来（0.99±0.11 覆盖到 0.05），
+     单靠色相挡不住脸 —— 实测孩子被染成绿脸。衣料 value≈0.3~0.5、皮肤≈0.7~0.85。 */
+  '  float vmask_ = 1.0 - smoothstep(uDyeVMax - 0.10, uDyeVMax, dh_.z);\n' +
+  '  vec3 t_ = dh_;\n' +
+  '  t_.x = fract(t_.x + uDyeShift);\n' +
+  '  t_.y = clamp(t_.y * uDyeSat, 0.0, 1.0);\n' +
+  '  t_.z = clamp(t_.z * uDyeVal, 0.0, 1.0);\n' +
+  '  diffuseColor.rgb = mix(diffuseColor.rgb, dyeHsv2Rgb(t_), band_ * sat_ * vmask_ * uDyeAmt);\n' +
+  '}\n';
+
+function dyeMaterial(m, dye){
+  if (!m || !dye) return;
+  const U = {
+    uDyeHue:   { value: dye.hue === undefined ? 0.6 : dye.hue },
+    uDyeW:     { value: dye.w === undefined ? 0.16 : dye.w },
+    uDyeShift: { value: dye.shift || 0 },
+    uDyeSat:   { value: dye.sat === undefined ? 1 : dye.sat },
+    uDyeVal:   { value: dye.val === undefined ? 1 : dye.val },
+    uDyeAmt:   { value: dye.amt === undefined ? 1 : dye.amt },
+    /* 只染比这个更暗的像素（HSV 的 value）。默认 0.66：衣料 0.3~0.5、皮肤 0.7~0.85，
+       所以皮肤与白袜一律不染 —— 红相带绕回 0.05 时靠它挡脸（实测没这道闸孩子会绿脸）。 */
+    uDyeVMax:  { value: dye.vMax === undefined ? 0.66 : dye.vMax },
+  };
+  const prevCB = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
+  m.onBeforeCompile = function (shader, renderer){
+    if (prevCB) prevCB.call(this, shader, renderer);
+    Object.assign(shader.uniforms, U);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + DYED_DECL)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + DYED_BODY);
+  };
+  m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|dye'; };
+  m.needsUpdate = true;
 }
 
 function tintMaterial(m, tint){
@@ -627,8 +715,8 @@ function loadActor(def){
         o.receiveShadow = true;
         o.frustumCulled = false;
         o.userData.noMerge = true;         // 不进 mergeStatics
-        if (Array.isArray(o.material)) o.material.forEach(m => tintMaterial(m, def.tint));
-        else tintMaterial(o.material, def.tint);
+        if (Array.isArray(o.material)) o.material.forEach(m => { tintMaterial(m, def.tint); dyeMaterial(m, def.dye); });
+        else { tintMaterial(o.material, def.tint); dyeMaterial(o.material, def.dye); }
       });
 
       const bones = {};
@@ -1813,8 +1901,12 @@ function advance(dt){
     /* A 姿势 → 自然垂手（实测左 +Y / 右 -Y）。只对文士生效，仕女本来就是垂手。 */
     const ad = o.armDown || 0;
     if (ad > 0.001){
-      set('LeftUpperArm', 0.03 * b, ad, 0);
-      set('RightUpperArm', 0.03 * b, -ad, 0);
+      /* 绕 X；⚠️ **两只手都是负号**，不是镜像反号 —— 这一条实测过两遍：
+         第一次按"镜像"给右臂写 +ad，结果右胳膊被抬到脸旁（左臂正常）；
+         actor-right-arm-sign.mjs 按产品 set() 口径单扫右臂：x=−1.2 ⇒ 手 (−0.295,0.994,0.214)、
+         x=+1.2 ⇒ (−0.369,1.475,−0.343)（抬起来了）。所以左右同为 −。 */
+      set('LeftUpperArm', -ARM_DOWN * ad, 0, 0);
+      set('RightUpperArm', -ARM_DOWN * ad, 0, 0);
     }
     /* ── 捧卷读（P2 最后一件）：两手抬到胸前、捧着卷轴读 ────────────────────
        相位：0 捧读(a.scrollHold 秒) → 1 放下(1s) → 2 喝茶(4.2s，复用 TEA_ARM)
@@ -1845,8 +1937,8 @@ function advance(dt){
                 : a.scrollPhase === 2 ? 0 : ease01(u2);
       if (a.scrollW > 0.001){
         const w2 = a.scrollW, L = SCROLL.L, Rr = SCROLL.R;
-        set('LeftUpperArm', 0.03 * b * (1 - w2) + L.sx * w2, ad * (1 - w2) + L.sy * w2, L.sz * w2);
-        set('RightUpperArm', 0.03 * b * (1 - w2) + Rr.sx * w2, -ad * (1 - w2) + Rr.sy * w2, Rr.sz * w2);
+        set('LeftUpperArm', -ARM_DOWN * ad * (1 - w2) + L.sx * w2, L.sy * w2, L.sz * w2);
+        set('RightUpperArm', -ARM_DOWN * ad * (1 - w2) + Rr.sx * w2, Rr.sy * w2, Rr.sz * w2);
         set('LeftLowerArm', L.ex * w2, 0, 0);
         set('RightLowerArm', Rr.ex * w2, 0, 0);
         set('LeftHand', SCROLL.hx * w2, 0, 0);
@@ -1931,9 +2023,17 @@ function advance(dt){
       a.sipW = sip;
       }
       const A = TEA_ARM.hold, B = TEA_ARM.lift;
-      set('RightUpperArm', A.sx + (B.sx - A.sx) * sip, A.sy + (B.sy - A.sy) * sip, A.sz + (B.sz - A.sz) * sip);
-      set('RightLowerArm', A.ex + (B.ex - A.ex) * sip, 0, 0);
-      set('RightHand', A.hx + (B.hx - A.hx) * sip, 0, 0);
+      /* 抬手权重：sip 0→0.35 是从"垂手"抬到胸前（hold），0.35→1 才是举到颌下（lift）。
+         ⚠️ 2026-10-25：原来 sip=0 就直接写 hold ⇒ 他**一整天端着一只看不见的盏**，
+         出图里读成"伸手/让路"（杯子 3.9cm，被袖口挡住）。现在手垂着，喝茶才抬。 */
+      const r1 = Math.min(1, sip / 0.35);
+      const r2 = Math.max(0, Math.min(1, (sip - 0.35) / 0.65));
+      const bl = -ARM_DOWN * ad;
+      set('RightUpperArm',
+          bl * (1 - r1) + (A.sx + (B.sx - A.sx) * r2) * r1, 0,
+          (A.sz + (B.sz - A.sz) * r2) * r1);
+      set('RightLowerArm', (A.ex + (B.ex - A.ex) * r2) * r1, 0, 0);
+      set('RightHand', (A.hx + (B.hx - A.hx) * r2) * r1, 0, 0);
       /* 指节：虚握盏身（食指/中指弯、拇指内收扣住盏沿） */
       const cu = 0.80 + 0.10 * sip;
       set('RightIndexProximal', cu, 0, 0);
@@ -2047,8 +2147,8 @@ function advance(dt){
     const bw = (a.def.id === VISIT.hostId || a.def.id === VISIT.guestId) ? VISIT.bowW : 0;
     if (bw > 0.001){
       const L = BOW.L, Rr = BOW.R, wb = bw;
-      set('LeftUpperArm', L.sx * wb, ad * (1 - wb) + L.sy * wb, L.sz * wb);
-      set('RightUpperArm', Rr.sx * wb, -ad * (1 - wb) + Rr.sy * wb, Rr.sz * wb);
+      set('LeftUpperArm', -ARM_DOWN * ad * (1 - wb) + L.sx * wb, L.sy * wb, L.sz * wb);
+      set('RightUpperArm', -ARM_DOWN * ad * (1 - wb) + Rr.sx * wb, Rr.sy * wb, Rr.sz * wb);
       set('LeftLowerArm', BOW.ex * wb, 0, 0);
       set('RightLowerArm', BOW.ex * wb, 0, 0);
       set('LeftHand', BOW.hand * wb, 0, 0);

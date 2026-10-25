@@ -1427,7 +1427,7 @@ export function makeSeatedScholar({ x = 0, z = 0, y, yaw = 0, s = 1, pose = 'go'
      头球用脸贴图（2026-10-06 半写实，同站姿：16×13 分段 + figFaceMatA）。 */
   const headG = new THREE.Group();
   headG.position.set(0, NECK_Y + 0.135, 0.03);
-  headG.rotation.x = pose === 'go' ? 0.40 : (pose === 'qin' ? 0.30 : 0.24);
+  headG.rotation.x = pose === 'go' ? 0.15 : (pose === 'qin' ? 0.30 : 0.24);
   headG.add(mesh(new THREE.SphereGeometry(0.078, 16, 13), figFaceMatA, { name:'seatHead' }));
   /* 鼻梁（2026-10-21 绿框：鼻子只画在贴图上、几何是纯球 ⇒ 侧面没有鼻子=面具感）。
      小小一颗肤色 bump 压在画上去的鼻梁处（眼下脸面上），正面几乎看不见、
@@ -1841,26 +1841,37 @@ export function tickFigureAction(f, dt){
   }
 
   if (a.kind === 'board'){
-    /* ── 对弈：看盘 → 抬头思考 → 点头 → 伸手 ────────────────────────────────
-       一轮 5.4~7.8s（要求 4~8s）。四段用 figWin 平滑拼接，没有硬切。
-       抬头 −0.30rad 是从"看盘 0.40"回到"平视 0.10"，读作"想棋"；伸手只是把右前臂
-       抬离桌沿 ~9cm 再落回 —— 石桌盘心离凳心 1.1m，人够不到（见 SLEEVE.go 的注释），
-       所以不做"落子"，只做"伸手到盘沿"。 */
+    /* ── 对弈：看盘 → 抬头思考 → 伸手落子 → 收回点头 ────────────────────────
+       ⚠️ 2026-10-25 老黄："下棋的两个人像僵尸，一动不动，固定的动作和位置异常怪异"。
+       根因两条：① 基础姿势把**头压到 0.40rad（23°）**、躯干不动 ⇒ 远看就是两个驼背人；
+       ② 动作幅度只有 0.10~0.22rad，18~25m 外折算不到 2 个像素，等于没有。
+       改法：基础低头收到 0.24；四段幅度全部放大（思考抬头 −0.34、伸手 −0.35），
+       再加一条很慢的躯干左右微摆（0.02rad）——静止的"呼吸感"比大动作更管用。
+       伸手仍只到盘沿：盘心离凳心 1.10m、人前伸只有 ~0.70（见 SLEEVE.go 的注释），
+       硬做"落子"会把手拉长成橡皮。 */
     const P = a.period;
     const u = ((a.c / P) + phOff) % 1;
     const lean = figWin(u, 0.02, 0.46, 0.10);
     const up   = figWin(u, 0.50, 0.72, 0.08);
-    const nod  = figWin(u, 0.74, 0.94, 0.08);
-    const reach= figWin(u, 0.62, 0.98, 0.10);
+    const nod  = figWin(u, 0.74, 0.90, 0.08);
+    const reach= figWin(u, 0.64, 0.96, 0.10);
     a.w = Math.max(lean, up, reach);
-    if (sp) sp.rotation.x = 0.20 * lean - 0.03 * up + 0.05 * nod;
+    if (sp){
+      /* −0.05 是**坐直**的基线：光把头抬高不够，躯干还略微前倾时整个人仍读作"趴在桌上"。 */
+      sp.rotation.x = -0.05 + 0.10 * lean - 0.06 * up + 0.04 * nod;
+      sp.rotation.z = 0.020 * Math.sin(a.c * 1.05 + a.ph);       // 慢摆：静物感的分界线
+    }
     if (hd){
-      hd.rotation.x = a.headBase + 0.10 * lean - 0.30 * up + 0.10 * nod;
-      hd.rotation.y = 0.14 * up;                        // 抬头时略偏头（"想"的读法）
+      hd.rotation.x = a.headBase + 0.10 * lean - 0.34 * up + 0.10 * nod;
+      hd.rotation.y = 0.20 * up + 0.05 * Math.sin(a.c * 0.7 + a.ph * 1.3);   // 抬头时转头"看"
     }
     if (arms && arms.R){
-      arms.R.rotation.x = -0.18 * reach;
-      arms.R.rotation.y = -0.22 * reach;                // 向身体中线收 = 手移向棋盘
+      arms.R.rotation.x = -0.35 * reach;
+      arms.R.rotation.y = -0.30 * reach;      // 向身体中线收 = 手移向棋盘
+    }
+    if (arms && arms.L){
+      /* 左手偶尔换个搭腿的位置（0.9rad 的慢周期）：不加这条，两只手都是"焊住的" */
+      arms.L.rotation.x = -0.06 * Math.max(0, Math.sin(a.c * 0.55 + a.ph * 2.1));
     }
     return;
   }

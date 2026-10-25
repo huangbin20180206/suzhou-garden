@@ -29,7 +29,7 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildin
 import { makeStable, loadStableHorses, makeStableRoad } from './15-stable.js';
 import { mesh } from './03-factory.js';
 import { MAT, willowOrigins, rockNormalTex, registerWeatherRoles } from './01-materials.js';
-import { buildProps, SEAT_SPOTS, QIN_SEAT, PROP_SPOTS } from './14-props.js';
+import { buildProps, SEAT_SPOTS, PROP_SPOTS } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
    8 · 组装场景
    ══════════════════════════════════════════════════════════════ */
@@ -796,18 +796,11 @@ world.add(buildProps());
      world.add(buildProps()) 时才填好，程序化替身也刚刚才进 figures
      （16-actors 的 hideProcedural 要按 poseName 找它们来换人）。 */
   buildSeatedActors();
-  /* 抚琴人（计划书 §6「人」批 · 与 14-props #2 古琴琴桌配套）：坐在 14-props 新补的琴凳上，
-     面朝池面（临水抚琴）。座位同样读 QIN_SEAT —— 不在这里按
-     "琴桌 13.4,8.2 加个偏移"重算，理由同上面 SEAT_SPOTS 那段。
-     时段取 12.5~18（与午后品茗同框 ＝「品茗 + 抚琴」一场小聚），服色石青。 */
-  const qs = QIN_SEAT[0];
-  if (qs){
-    const fg = makeSeatedScholar({ x: qs.x, z: qs.z, y: qs.y, yaw: qs.yaw, s: 1.0, pose: 'qin', skin: 'slate' });
-    fg.userData.slot = { h0: 12.5, h1: 18.0, stroll: null };
-    fg.userData.skin = 'slate';
-    fg.userData.poseName = 'qin';
-    world.add(fg);
-  }
+  /* 抚琴人：2026-10-25 起由 **16-actors 的 AI 人物**（id 'qin'，跪坐低案）承担 ——
+     老黄："绿框中抚琴人应该在项目右侧的凉亭里面，替代原有的低模"。
+     于是这里原来那位 makeSeatedScholar(pose:'qin', skin:'slate') **撤掉**，
+     水榭那套高琴案+鼓凳也一并撤掉（见 14-props 的 QIN_LOW：低案直接落在 (13.4,8.2) 台基上）。
+     低模撤掉后没有任何东西需要"藏"——人物本体就不存在了，不必走 hideProcedural。 */
 }
 
 /* ── W2（2026-10-15）：看烟花一家已搬进 ./08b-figures.js ──

@@ -8,8 +8,16 @@
 import { THREE } from '../vendor.js';
 import { MAT } from './01-materials.js';
 export const TEA_ARM = {
-  hold: { sx: -0.42, sy: 1.19, sz: -1.18, ex: 0.60, hx: 0.35 },
-  lift: { sx: -2.20, sy: -0.18, sz: -0.55, ex: 1.10, hx: 0.35 },
+  /* ⚠️ 2026-10-25 重解（outputs/_diag/actor-tea-solve2/3.mjs）：旧值 { sy: 1.19, sz: -1.18 }
+     在当前 rig 上把右手举到**肩侧偏后**——出图里就是"胳膊横抬着"，老黄报的"手摆动很怪异"
+     有一半是这一档（另一半是 armDown 绕 Y 空转，见 16-actors 的 ARM_DOWN）。
+     ⚠️ 求解必须按产品的 `set()` 口径：bone.quaternion = 绑定姿势 × Euler(x,y,z)，
+        直接写 rotation 求出来的角是错的（第一次就踩了：解出胸前，实到手落在 (−0.52,1.24,−0.39)）。
+     ⚠️ lift 必须**在 hold 邻域内**解：全局解出的那组与 hold 差 3.6rad，抬手会甩一大圈。
+     实测 hold 手落 (−0.05,1.17,0.33) 误差 2cm；lift (0.00,1.37,0.32) 误差 8.5cm，
+     与 hold 只差 0.5rad 的肩角 ⇒ 抬手是"抬起来"而不是"抡一圈"。 */
+  hold: { sx: -2.00, sy: 0.00, sz: -0.20, ex: 1.40, hx: 0.35 },
+  lift: { sx: -2.50, sy: 0.00, sz: -0.10, ex: 1.40, hx: 0.35 },
 };
 export const TEA_CUP_FWD = 0.09;    // 盏心在腕**前**多少（袖口之外才看得见）
 export const ease01 = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
