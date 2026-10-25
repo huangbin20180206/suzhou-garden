@@ -48,7 +48,8 @@ export function makePondPads(spots){
       const sc = (0.9 + jr() * 0.7) * sp.s;
       const cl = clampAquaticToPond(0, 0, wx, wz, sc * 0.62);
       wx = cl.x; wz = cl.z;
-      p.set(wx, CFG.water + 0.075 + jr() * 0.02, wz);
+      /* 高度差 2cm → 7.5cm（水位 +0.055~0.13）：叠在一起的叶盘拉开层次，碟沿不再互相切 */
+      p.set(wx, CFG.water + 0.055 + jr() * 0.075, wz);
       q.setFromAxisAngle(AY, jr() * TAU);
       s.setScalar(sc);
       m.compose(p, q, s);
@@ -504,7 +505,7 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
        不去引用那块列表，是因为它的随机数消耗顺序不能动（一动整场景的随机布局都会变）。 */
     const wx = x + px, wz = z + pz;
     if (Math.abs(wz - 5.6) < 0.80 && wx > -4.4 && wx < 7.4) continue;
-    p.set(px, CFG.water + 0.075 + rr(0,0.02), pz);
+    p.set(px, CFG.water + 0.055 + rr(0, 0.075), pz);   // 同 makePondPads：高度差拉开（rr 调用次数不变）
     q.setFromEuler(new THREE.Euler(0, rr(0, TAU), 0));
     s.setScalar(rr(0.62, 1.25));
     m.compose(p, q, s); pads.setMatrixAt(placed, m);

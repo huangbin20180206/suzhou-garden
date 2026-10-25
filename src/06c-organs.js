@@ -127,7 +127,9 @@ export function makeLilyPadGeo(){
   for (let i = 0; i < p.count; i++){
     const x = p.getX(i), z = p.getZ(i);
     const d = Math.hypot(x, z) / R;
-    p.setY(i, Math.pow(d, 2.2) * 0.1);      // 边缘上翘成浅碟
+    /* 2026-10-26 老黄"这片荷叶穿模"：碟沿原来翘到 0.10m，而同一丛叶盘的高度差只有 2cm
+       ⇒ 一片的边沿必然切进邻片的盘面。压到 0.045（还是浅碟，但不再互相穿插）。 */
+    p.setY(i, Math.pow(d, 2.2) * 0.045);
   }
   g.computeVertexNormals();
   return g;

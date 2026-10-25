@@ -24,6 +24,7 @@ import { loadAssetOnce, placeAssets } from './06e-assets.js';
 import { KOI_ORBITS } from './06g-koi.js';
 import { makeWaterGrass, makeBananaPlant } from './06i-trees.js';
 import { makeAquatic, makePondPads } from './06j-herbs.js';
+import { MAT } from './01-materials.js';
 import { makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGeo } from './07-ground.js';
 import { onAssetAttached } from './12-env.js';
 import {setSmallBirdMesh, N_GRASS_BIRD, perchRnd, perchingDragonflies, DF_PATROL, geese, gRnd, GN, gooseSlot, GOOSE, gooseStartWave, updateGooseFlock, smallBirds, smallBirdMeshRef, bRnd, BIRD_PALETTE, ROCK_BIRD_PALETTE, ROCK_SPOTS, GRASS_SPOTS, N_ROCK_BIRD, BIRD_CAP, BIRD_FOOT_LIFT, birdState, updateSmallBirds} from './08e-birds.js';
@@ -535,6 +536,82 @@ loadAssetOnce('assets/lotus-bud.glb',   1.50, (src) => attachLotusState('lotusBu
 loadAssetOnce('assets/lotus-pod.glb',   1.60, (src) => attachLotusState('lotusPod',   src));
 /* 旧 LotusPlant.glb 已退役删除（git 历史可回退）。 */
 world.add(makePondPads(lotusSpots));
+
+/* ── 叶盘自动分层（2026-10-26 老黄："这一片荷叶是不是有穿模问题"）──────────────
+   现象：池里 70 多片叶盘叠着，高度差只有 1~2cm，而叶盘是**浅碟**（碟沿上翘
+   0.045×缩放，最大 7cm）⇒ 相邻两片的边沿必然切进对方的面，近景就是"穿模"。
+   做法：装配完对**所有** MAT.lily 的实例做一遍确定性分层 —— 按 y 从低到高遍历，
+   遇到"水平重叠且高度差 < 两片碟沿之和"的，把这一片抬到对方之上（+4mm 余量）。
+   ⚠️ 纯几何后处理：不新增/删除实例、不吃任何随机数（铁律 1），只改实例矩阵的 y。
+   ⚠️ 会改 layout-fingerprint 的实例矩阵 ⇒ 跑完要重出基线。 */
+function separateLilyPads(){
+  const RIM = 0.045, PAD_R = 0.62;
+  /* 两步：① 按 y 从低到高，水平重叠且高度差 < 两片碟沿之和就往上抬（最多 4 层、上限水面+0.42m），
+     抬不动就缩小这一片；② 收尾再做"对称收缩"—— 仍然相交的两片**各缩 6%**，反复到没有为止。
+     只缩后面那一片会漏：两片都已被放下的情况下谁也抬不动、谁也不该继续缩到很小。 */
+  const CAP_Y = 0.42, MAX_LIFT = 4;
+  const meshes = [];
+  world.traverse(o => { if (o.isInstancedMesh && o.material === MAT.lily) meshes.push(o); });
+  if (!meshes.length) return;
+  const m = new THREE.Matrix4(), pos = new THREE.Vector3();
+  const quat = new THREE.Quaternion(), scl = new THREE.Vector3();
+  const pads = [];
+  for (const im of meshes){
+    for (let i = 0; i < im.count; i++){
+      im.getMatrixAt(i, m);
+      m.decompose(pos, quat, scl);
+      pads.push({ im, i, x: pos.x, y: pos.y, z: pos.z, s: scl.x, q: quat.clone() });
+    }
+  }
+  const hitPair = (a, b) => {
+    const need = PAD_R * (a.s + b.s) * 0.95;
+    if (Math.hypot(a.x - b.x, a.z - b.z) >= need) return false;
+    return (a.y - b.y) < RIM * (a.s + b.s) && (b.y - a.y) < RIM * (a.s + b.s);
+  };
+  pads.sort((a, b) => a.y - b.y);
+  const placed = [];
+  for (const p of pads){
+    let lifts = 0;
+    for (let guard = 0; guard < 24; guard++){
+      let hit = null;
+      for (const q of placed){
+        const need = PAD_R * (p.s + q.s) * 0.95;
+        if (Math.hypot(p.x - q.x, p.z - q.z) >= need) continue;
+        const rim = RIM * (p.s + q.s);
+        if (p.y - q.y >= rim) continue;
+        hit = { q, rim };
+        break;
+      }
+      if (!hit) break;
+      const want = hit.q.y + hit.rim + 0.004;
+      if (lifts < MAX_LIFT && want <= CAP_Y){ p.y = want; lifts++; continue; }
+      p.s *= 0.88;
+      if (p.s < 0.35) { p.s = 0.35; break; }
+    }
+    placed.push(p);
+  }
+  /* ② 对称收缩：仍相交的两片各缩 6%，最多 12 轮（0.94^12 ≈ 0.48） */
+  for (let round = 0; round < 12; round++){
+    let any = false;
+    for (let i = 0; i < pads.length; i++){
+      for (let j = i + 1; j < pads.length; j++){
+        const a = pads[i], b = pads[j];
+        if (!hitPair(a, b)) continue;
+        any = true;
+        a.s = Math.max(0.32, a.s * 0.94);
+        b.s = Math.max(0.32, b.s * 0.94);
+      }
+    }
+    if (!any) break;
+  }
+  for (const p of pads){
+    pos.set(p.x, p.y, p.z);
+    m.compose(pos, p.q, new THREE.Vector3(p.s, p.s, p.s));
+    p.im.setMatrixAt(p.i, m);
+  }
+  for (const im of meshes) im.instanceMatrix.needsUpdate = true;
+}
+separateLilyPads();
 
 /* ── boulder-hero 预取（2026-10-14 · 试水单死锁修复，Chief 实测裁定）──
    预载清单（13-preload）在**模块求值期**就把 7 件计入预算，warmBoot（11-loop）等
