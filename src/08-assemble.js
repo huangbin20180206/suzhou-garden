@@ -26,7 +26,7 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildin
 /* 15-stable（2026-10-09 · 老黄："院子外围做一个马厩：停 4 匹马、2 驾双轮马车、一个马夫喂草料"）：
    建筑 + 马 + 马车 + 场院杂物整组在那个模块里；**马夫不在这里建** —— 人物工厂 makeScholar
    就在本文件下方，马厩模块持有它会造成循环 import。这里只import 马厩整体与"手里的草料捆"。 */
-import { makeStable, loadStableHorses, makeStableRoad } from './15-stable.js';
+import { makeStable, loadStableHorses, makeStableRoad, makeStableExitRoad } from './15-stable.js';
 import { mesh } from './03-factory.js';
 import { MAT, willowOrigins, rockNormalTex, registerWeatherRoles } from './01-materials.js';
 import { buildProps, SEAT_SPOTS, PROP_SPOTS } from './14-props.js';
@@ -364,6 +364,9 @@ deferBootFirst('马厩', () => {
   /* 院外石板路（上下马处 → 园子南门）：跟着地形走的带子，起点接院门、终点接月洞门
      外侧的门槛石（见 15-stable 的 makeStableRoad 注释）。 */
   deferRoot.add(makeStableRoad());
+  /* 出园新路（2026-10-25 老黄）：院门 → 东南（默认机位屏幕右下）一路出画，马车从这里进出。
+     与上面那条共用院门起点、出门口即分岔；细节更省（无门口铺装、无石灯笼）。 */
+  deferRoot.add(makeStableExitRoad());
   /* 真马模型（异步）：加载成功就把 6 个槽位里的**程序化替身**换成真马并逐匹上色；
      失败/离线时什么都不做 —— 替身照常站在那儿（马厩不会空）。
      ⚠️ 放在马厩建好之后调用：它按 `userData.horseSlots` 找槽位。

@@ -19,6 +19,101 @@ export const STABLE_ROAD_PTS = [
   [40.0, 4.2], [39.2, 10.5], [37.4, 16.5], [34.4, 21.8], [30.0, 26.2],
   [22.0, 27.2], [10.0, 26.4], [3.0, 26.0], [0.5, 25.9], [0.0, 24.55],
 ];
+/* ── 出园新路（2026-10-25）──────────────────────────────────────────────────
+   老黄："客人乘车离开还是在走去院子的石板路，这个不合理，做一条新路，朝向屏幕右下角，
+   客人离开从马厩沿这条路离开，当马车走到屏幕边缘就消失，客人来访就反过来就行。"
+   ⇒ 从马厩院门 (40,4.2) 起向**东南**铺一条同款花街铺地（默认机位朝北，东南就是屏幕右下），
+   一路到 (85,46.8) —— 早出画了，马车在那里隐去，看不到"凭空消失"。
+   与进园那条路共用同一个起点（院门），出门口立刻分岔。 */
+export const STABLE_EXIT_PTS = [
+  [40.0, 4.2], [40.9, 7.2], [42.4, 10.2], [44.6, 13.4], [47.6, 16.8],
+  [51.4, 20.6], [56.0, 24.8], [61.6, 29.4], [68.4, 34.6], [76.4, 40.4], [85.0, 46.8],
+];
+/* ── 出园新路（2026-10-25）：与 makeStableRoad 同款铺法（垫层 + 三列错缝石板），
+   但**不做院门口铺装、不做石灯笼、不做石狮** —— 这条路在墙外几十米外、还朝画面右下方
+   一路出画，细节看不成，做了只是白烧 draw call。 */
+export function makeStableExitRoad(){
+  const g = new THREE.Group();
+  g.name = 'stableExitRoad';
+  const curve = new THREE.CatmullRomCurve3(STABLE_EXIT_PTS.map(p => new THREE.Vector3(p[0], 0, p[1])));
+  const HW = 0.86;                                  // 与进园那条同宽（单车道，够马车）
+  const r2 = mulberry32(20261025);                  // 私有流：不碰全局 rnd()
+  const jit = (a, b) => a + r2() * (b - a);
+  const frameAt = (t) => {
+    const p = curve.getPointAt(t), tan = curve.getTangentAt(t);
+    const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+    return { p, tan: tan.clone().setY(0).normalize(), side };
+  };
+
+  /* ① 垫层（勾缝底） */
+  {
+    const N = 140, pos = [], idx = [];
+    for (let i = 0; i <= N; i++){
+      const { p, side } = frameAt(i / N);
+      for (const s of [1, -1]){
+        const q = p.clone().addScaledVector(side, s * HW);
+        pos.push(q.x, groundHeight(q.x, q.z) + 0.045, q.z);
+      }
+    }
+    for (let i = 0; i < N; i++){ const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color: 0x9B958A, roughness: 0.98, metalness: 0.0 });
+    registerWeatherRoles(mat, { snow: 1, wet: 1 });
+    g.add(mesh(geo, mat, { name: 'stableExitBed', cast: false, receive: true }));
+  }
+
+  /* ② 石板：三列错缝（同进园那条的读感，逐块抖动只在色调/长度上） */
+  {
+    const pos = [], col = [], idx = [];
+    const L = curve.getLength();
+    const laneW = (2 * HW) / 3;
+    const pushSlab = (t0, t1, sA, sB, tone) => {
+      const A2 = frameAt(t0), B2 = frameAt(t1);
+      const corners = [
+        A2.p.clone().addScaledVector(A2.side, sA),
+        A2.p.clone().addScaledVector(A2.side, sB),
+        B2.p.clone().addScaledVector(B2.side, sB),
+        B2.p.clone().addScaledVector(B2.side, sA),
+      ];
+      const base = pos.length / 3;
+      for (const q of corners){
+        const gy = groundHeight(q.x, q.z);
+        pos.push(q.x, gy + 0.075, q.z);
+        pos.push(q.x, gy + 0.008, q.z);
+        col.push(tone, tone * 0.985, tone * 0.955, tone * 0.78, tone * 0.77, tone * 0.75);
+      }
+      idx.push(base + 0, base + 2, base + 4, base + 0, base + 4, base + 6);
+      for (let k = 0; k < 4; k++){
+        const a = base + k * 2, b = base + ((k + 1) % 4) * 2;
+        idx.push(a, b, b + 1, a, b + 1, a + 1);
+      }
+    };
+    for (let lane = 0; lane < 3; lane++){
+      const sA = -HW + lane * laneW + 0.012;
+      const sB = sA + laneW - 0.024;
+      let s = lane * 0.17;                          // 三条列错开起步 ⇒ 横缝不贯通
+      while (s < L - 0.06){
+        const len = jit(0.30, 0.46);
+        const e = Math.min(L, s + len);
+        if (e - s < 0.12) break;
+        pushSlab(s / L, e / L, sA, sB, jit(0.58, 1.0));
+        s = e + jit(0.015, 0.032);
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('color', new THREE.Float32BufferAttribute(col, 3));
+    geo.setIndex(idx); geo.computeVertexNormals();
+    const mat = new THREE.MeshStandardMaterial({ color: 0xC9C3B4, vertexColors: true,
+                                                 roughness: 0.95, metalness: 0.0, side: THREE.DoubleSide });
+    registerWeatherRoles(mat, { snow: 1, wet: 1 });
+    g.add(mesh(geo, mat, { name: 'stableExitSlab', cast: false, receive: true }));
+  }
+  return g;
+}
+
 export function makeStableRoad(){
   const g = new THREE.Group();
   /* ⚠️⚠️ 2026-10-20 v2（老黄 09:06："到院子这个端口的还是太乱，再修的好看一些"）：

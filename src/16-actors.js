@@ -223,17 +223,20 @@ const VISIT = {
       空旷处再原地调头 —— 六米长的车马在 3.6m 院门里直接掉头会扫到门柱。
    ⚠️ 车轮/马腿的相位由**里程**驱动（travelCarriagePlace 的 dist），不是墙钟。 */
 const CARRY = {
-  speed: 1.10, backSpeed: 0.55, turnRate: 1.15,
-  /* 驶入：从石板路南段上来、停在院门外（世界 yaw = π，车头朝院里）
-     ⚠️ 航点取**石板路中线上**（STABLE_ROAD_PTS 的 (37.4,16.5)→(39.2,10.5)→(40,4.2)
-     逐段内插）：路半宽只有 0.86m、轮距 1.24m，偏出半米就有一只轮子踩到草地上。 */
-  arrive: [[37.5, 16.7], [38.3, 13.5], [39.2, 10.5], [39.6, 7.0], [40.0, 4.0]],
+  speed: 1.10, arriveSpeed: 2.60, backSpeed: 0.55, turnRate: 1.15,
+  /* 驶入 / 驶离都走**出园新路**（2026-10-25 老黄："客人乘车离开还是在走去院子的石板路，
+     这个不合理，做一条新路，朝向屏幕右下角……客人来访就反过来就行"）。
+     新路 = 15e-stable 的 STABLE_EXIT_PTS（马厩院门 → 东南 → 一路出画），这里只是取它的
+     中线航点。⚠️ 起点取**最远端**（85,46.8）：车在画面外出现、再开进来，不会"凭空冒出"；
+     远端到院门约 75m，用 arriveSpeed 2.6 跑 ≈29s，最后 12m 平滑收到 1.1 停下。
+     旧值（沿进园石板路从北面来）已撤：那条路现在只给步行版到访用。 */
+  arrive: [[85.0, 46.8], [76.4, 40.4], [68.4, 34.6], [61.6, 29.4], [56.0, 24.8],
+           [51.4, 20.6], [47.6, 16.8], [44.6, 13.4], [42.4, 10.2], [40.9, 7.2], [40.0, 4.0]],
   /* 倒车：沿车头相反方向退到空旷处（车仍朝院里 ⇒ 位置向南走） */
   backTo: [40.0, 7.4],
-  /* 调头后的离场：沿石板路中线往南走远（同一条路反向）。末点取到路弯 (30,26.2)
-     —— 离院门约 45m，车在那里藏起来不会被看成"凭空消失"。 */
-  depart: [[40.0, 7.4], [39.6, 9.6], [38.9, 11.6], [38.1, 14.2], [37.4, 16.6],
-           [36.2, 19.1], [34.4, 21.8], [32.2, 24.4], [30.0, 26.2]],
+  /* 调头后的离场：从院门口拐上**新路**向东南开，到路尽头（已经出画）连人带车隐去 */
+  depart: [[40.0, 7.4], [41.3, 8.6], [42.4, 10.2], [44.6, 13.4], [47.6, 16.8],
+           [51.4, 20.6], [56.0, 24.8], [61.6, 29.4], [68.4, 34.6], [76.4, 40.4], [85.0, 46.8]],
   seat: { x: 0.0, y: 0.615, z: -0.26 },      // 客人坐的位置（车局部；SIT 髋高 0.542 ⇒ 座面 1.15）
   coach: { x: 0.0, y: 0.785, z: 0.30 },      // 车夫站位
   side: { x: -1.10, z: -0.10 },              // 下车落脚点（车左侧）
@@ -383,6 +386,10 @@ const DEFS = [
        两者是**互斥手位**，由 a.scrollPhase 交接：捧读 → 放下 → 喝茶 → 再捧起来。 */
     idle: { breath: 0.016, head: 0.055, sway: 0.007, phase: 0.0, armDown: 0.80,
             scroll: true, tea: true, teaEvery: [8, 14] },
+    /* 垂手系数 0.75（= −0.60rad，默认 1.5 ⇒ −1.2）：−1.2 时手贴得很紧好看，但摆臂只能绕
+       上下走（实测 y 摆 0.28、前后只有 0.11 = "张翅膀"）；−0.6 时前后摆 0.24、上下 0.08。
+       手离身体略远一点（±0.42），换来的是一走路就像人。 */
+    armDownK: 0.75,
     /* 落座（S4）：太师椅是"正式厅堂的坐"，SIT.lean 0.52 是给石桌对弈
        （手要搭到盘面上）解的 —— 原样搬过来会读成"弓着背"。按 0.40 收成端坐。 */
     sitLeanK: 0.40,
@@ -494,6 +501,13 @@ const DEFS = [
     floorRay: true,
     followFloor: true,
     floorMax: 1.20,
+    /* 步幅 0.34（默认 0.42）：老黄"脚跑在身体前面"——长袍遮腿、脚只在袍摆下露一截，
+       步幅一大就是"脚先到、身子后到"。收到 0.34 后脚的前后摆幅 0.34，读起来是小步快走。 */
+    stepLen: 0.34,
+    /* 垂手系数 0.6（默认 1.5 × armDown 0.8 = 1.2rad）：这件资产的绑定姿势**本来就近垂手**
+       （x=0 时手在 ±0.47），套主人那套 −1.2 会把双手收到胸前（实测 x=−1.2 ⇒ 手 ±0.13/1.05/0.38
+       ——出图就是"双手抱在身前"）。0.6 ⇒ −0.48rad ⇒ 手 ±0.35/0.87/0.19，自然垂在大腿旁。 */
+    armDownK: 0.6,
     /* 2026-10-23：路线改由**到访导演层**给（马车停稳、客人下车之后才起步）。
        旧版写死的"一进页面就沿石板路走"在马车版里会与上下车打架。
        `hideUntilVisit`：不满足白昼/天气条件时客人不出现（老黄："下雨下雪不出现"）。 */
@@ -785,7 +799,13 @@ function loadActor(def){
         hipsBone.getWorldPosition(p);
         hipH = Math.max(0.35, p.y - gy0);
       }
-      const amp = Math.min(0.34, Math.max(0.16, Math.asin(Math.min(0.6, STEP_LEN / (2 * hipH)))));
+      /* 步幅：默认 STEP_LEN(0.42)；个别角色可覆盖（def.stepLen）。
+         ⚠️ 2026-10-25 老黄："客人走在石板路上的时候…脚跑在身体前面"——实测客人的脚在
+         身体前后各摆 0.20m，是 0.42 步幅 + 长袍遮腿造成的"脚先到"。把客人的步幅收到
+         0.34（脚跟摆动随之变 0.34），步频相应快一点，读起来才是"小步走"。
+         amp 与相位必须用**同一个步幅**，否则脚要么拖地要么滑步。 */
+      const SL = def.stepLen || STEP_LEN;
+      const amp = Math.min(0.34, Math.max(0.14, Math.asin(Math.min(0.6, SL / (2 * hipH)))));
       ACTORS.push({
         def, holder, bones, base, phase: def.idle.phase, amp, skirt,
         pos: { x: def.spot.x, z: def.spot.z },
@@ -1170,7 +1190,10 @@ function tickCarriage(dt){
   const S = VISCAR;
 
   if (S.state === 'drivein'){
-    S.s = Math.min(S.path.total, S.s + CARRY.speed * dt);
+    /* 远端 ~75m：用 arriveSpeed 开进来，最后 12m 平滑收到 CARRY.speed（硬切换到 1.1 会"一顿"） */
+    const remain = S.path.total - S.s;
+    const v = CARRY.speed + (CARRY.arriveSpeed - CARRY.speed) * Math.min(1, remain / 12);
+    S.s = Math.min(S.path.total, S.s + v * dt);
     const q = pathAt(S.path, S.s);
     const P = travelCarriagePlace(q.x, q.z, q.yaw, S.s);
     S.last = P;
@@ -1821,7 +1844,7 @@ function advance(dt){
       else a.y += gapY * Math.min(1, dt * (a.def.followFloor ? 34 : 8));
     }
     const o = a.def.idle;
-    const p = a.step / STEP_LEN * Math.PI;      // 步态相位（按走过的距离推进）
+    const p = a.step / (a.def.stepLen || STEP_LEN) * Math.PI;      // 步态相位（按走过的距离推进）
     const w = a.moveW;
     const sw = Math.sin(p);
     const bob = -GAIT.bob * Math.cos(2 * p) * w;
@@ -1900,13 +1923,29 @@ function advance(dt){
 
     /* A 姿势 → 自然垂手（实测左 +Y / 右 -Y）。只对文士生效，仕女本来就是垂手。 */
     const ad = o.armDown || 0;
+    /* 逐角色垂手系数：不同资产的绑定姿势不一样（客人本来就近垂手，用主人的角会抱手） */
+    const ADK = a.def.armDownK || ARM_DOWN;
     if (ad > 0.001){
       /* 绕 X；⚠️ **两只手都是负号**，不是镜像反号 —— 这一条实测过两遍：
          第一次按"镜像"给右臂写 +ad，结果右胳膊被抬到脸旁（左臂正常）；
          actor-right-arm-sign.mjs 按产品 set() 口径单扫右臂：x=−1.2 ⇒ 手 (−0.295,0.994,0.214)、
          x=+1.2 ⇒ (−0.369,1.475,−0.343)（抬起来了）。所以左右同为 −。 */
-      set('LeftUpperArm', -ARM_DOWN * ad, 0, 0);
-      set('RightUpperArm', -ARM_DOWN * ad, 0, 0);
+      /* 走路时手臂前后摆（2026-10-25 老黄："走路时手的位置和姿态像 gay"）：
+         · 原来走路时两条胳膊**完全不动**、直挺挺垂着，这是被读成"扭捏"的主因；
+         · 摆动的轴是 **X**（actor-swing-axis.mjs 实测：x 每 0.2rad 手前后走 5~6cm、
+           上下只 2cm；绕 z 则是 3cm 前后 + 5cm 上下 = 张翅膀，第一版就栽在这）；
+         · 左右**反号**：左 x 更负 = 手往前、右 x 更正 = 手往后 ⇒ 与腿交替；
+         · 幅度 0.40rad，配 0.10~0.26rad 屈肘（摆到前面那只手更弯）+ 前臂内旋 ±0.12
+           让掌心朝向身体 —— 直臂摆动像机器人，掌心朝外像"端着架子"。 */
+      const swing = Math.sin(p) * 0.40 * w;
+      set('LeftUpperArm', -ADK * ad - swing, 0, 0);
+      set('RightUpperArm', -ADK * ad + swing, 0, 0);
+      if (w > 0.02){
+        const bendL = 0.10 + 0.16 * Math.max(0, Math.sin(p)) * w;
+        const bendR = 0.10 + 0.16 * Math.max(0, -Math.sin(p)) * w;
+        set('LeftLowerArm', bendL, 0.12, 0);
+        set('RightLowerArm', bendR, -0.12, 0);
+      }
     }
     /* ── 捧卷读（P2 最后一件）：两手抬到胸前、捧着卷轴读 ────────────────────
        相位：0 捧读(a.scrollHold 秒) → 1 放下(1s) → 2 喝茶(4.2s，复用 TEA_ARM)
@@ -1937,8 +1976,8 @@ function advance(dt){
                 : a.scrollPhase === 2 ? 0 : ease01(u2);
       if (a.scrollW > 0.001){
         const w2 = a.scrollW, L = SCROLL.L, Rr = SCROLL.R;
-        set('LeftUpperArm', -ARM_DOWN * ad * (1 - w2) + L.sx * w2, L.sy * w2, L.sz * w2);
-        set('RightUpperArm', -ARM_DOWN * ad * (1 - w2) + Rr.sx * w2, Rr.sy * w2, Rr.sz * w2);
+        set('LeftUpperArm', -ADK * ad * (1 - w2) + L.sx * w2, L.sy * w2, L.sz * w2);
+        set('RightUpperArm', -ADK * ad * (1 - w2) + Rr.sx * w2, Rr.sy * w2, Rr.sz * w2);
         set('LeftLowerArm', L.ex * w2, 0, 0);
         set('RightLowerArm', Rr.ex * w2, 0, 0);
         set('LeftHand', SCROLL.hx * w2, 0, 0);
@@ -2028,7 +2067,7 @@ function advance(dt){
          出图里读成"伸手/让路"（杯子 3.9cm，被袖口挡住）。现在手垂着，喝茶才抬。 */
       const r1 = Math.min(1, sip / 0.35);
       const r2 = Math.max(0, Math.min(1, (sip - 0.35) / 0.65));
-      const bl = -ARM_DOWN * ad;
+      const bl = -ADK * ad;
       set('RightUpperArm',
           bl * (1 - r1) + (A.sx + (B.sx - A.sx) * r2) * r1, 0,
           (A.sz + (B.sz - A.sz) * r2) * r1);
@@ -2147,8 +2186,8 @@ function advance(dt){
     const bw = (a.def.id === VISIT.hostId || a.def.id === VISIT.guestId) ? VISIT.bowW : 0;
     if (bw > 0.001){
       const L = BOW.L, Rr = BOW.R, wb = bw;
-      set('LeftUpperArm', -ARM_DOWN * ad * (1 - wb) + L.sx * wb, L.sy * wb, L.sz * wb);
-      set('RightUpperArm', -ARM_DOWN * ad * (1 - wb) + Rr.sx * wb, Rr.sy * wb, Rr.sz * wb);
+      set('LeftUpperArm', -ADK * ad * (1 - wb) + L.sx * wb, L.sy * wb, L.sz * wb);
+      set('RightUpperArm', -ADK * ad * (1 - wb) + Rr.sx * wb, Rr.sy * wb, Rr.sz * wb);
       set('LeftLowerArm', BOW.ex * wb, 0, 0);
       set('RightLowerArm', BOW.ex * wb, 0, 0);
       set('LeftHand', BOW.hand * wb, 0, 0);

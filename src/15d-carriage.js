@@ -225,7 +225,11 @@ export function makeCarriage(opts = {}){
   const canopy = mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.86, 14, 1, true, 0, Math.PI), MAT.bambooBlind,
     { name: 'carriageCanopy', cast: false });
   canopy.rotation.z = Math.PI / 2; canopy.rotation.y = Math.PI / 2;
-  canopy.position.set(0, bedY + 0.42, -0.30); canopy.material.side = THREE.DoubleSide;
+  /* ⚠️ 2026-10-25 抬高 0.24m（老黄："客人上马后头顶和马车顶穿模了"）。实测坐姿客人
+     头顶 y=1.416、篷顶 1.281 ⇒ 高出 13.5cm。抬到 bedY+0.66 后篷顶 ≈1.52，余量约 10cm。
+     只抬篷、不动座位：座位 0.615 与车斗（bed 顶 0.765）的关系是上下车那套 trip 的落点，
+     动它要连带重验 alight/board 两段。 */
+  canopy.position.set(0, bedY + 0.66, -0.30); canopy.material.side = THREE.DoubleSide;
   g.add(canopy);
   /* 车辕：**单马**用"双辕"（两根杆夹住一匹马的两侧）；**两匹马并排**要用
      「**中央辕杆（pole）+ 横轭（yoke）**」—— 辕杆从两马**中间**穿过、横轭横在两马颈上，
