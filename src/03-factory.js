@@ -727,10 +727,10 @@ export function makeWallRun({ len, h, t, holes = [] }){
     const p = new THREE.Path();
     if (hd.type === 'circle'){
       /* ⚠️ 月洞门是**能走人的整圆洞**，不是上半圆漏窗。
-         原来只 absarc 了 π→0（上半圆）再沿弦线闭合：洞口下沿停在 y = r+0.18 = 1.80，
+         原来只 absarc 了 π→0（上半圆）再沿弦线闭合：洞口下沿停在 y = r+0.22 = 1.84，
          下面 1.8 米是**一整堵实墙** —— 人过不去，而墙外还摆着"下沉门槛石阶"。
-         圆心抬到 r+0.18 是为了让洞口下沿与 0.22 高的门槛石齐平，形状改成整圆。 */
-      const { x, r } = hd, cy = hd.cy ?? r + 0.18;
+         圆心抬到 r+0.22 是为了让洞口下沿与 0.22 高的门槛石齐平，形状改成整圆。 */
+      const { x, r } = hd, cy = hd.cy ?? r + 0.22;
       p.absarc(x, cy, r, 0, TAU, false);
     } else {                                          // 多边形漏窗
       const { x, y, r, n = 8, rot = 0 } = hd;

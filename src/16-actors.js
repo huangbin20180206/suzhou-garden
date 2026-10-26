@@ -82,6 +82,19 @@ const SIT = {
   drop: 0.395, thigh: 1.44, knee: 1.50, foot: 0.0, lean: 0.52, headDown: 0.46,
   skirtLen: 0.60, skirtRad: 1.35, lift: 1.30, kneeSwap: 1.00,
 };
+/* ── 正堂太师椅（厅堂端坐）──────────────────────────────────────────────────
+   与跪坐/石桌对弈同为“坐”，但**座高完全不同**：石桌鼓凳 0.452（地台），正堂太师椅
+   1.71（台基 1.24 + 座面 0.47）。原 SIT 按鼓凳反解，搬到厅堂会**髋沉 0.28m、腿插座底、
+   裙摆压进椅面**——正是“厅堂穿模”的根因。单列一组数：drop 0.12 按“髋≈座面+0.05”反推
+   （gy 0.93 + hipH 0.89 − drop = 1.76 ⇒ drop 0.06，留 0.06 余量防浮），
+   裙摆压缩收小（0.60→0.72，长椅腿不压短），lean/headDown 收成端坐（0.18）。 */
+const HALL_SIT = {
+  drop: 0.12, thigh: 1.44, knee: 1.50, foot: 0.0, lean: 0.18, headDown: 0.18,
+  skirtLen: 0.72, skirtRad: 1.20, lift: 0.90, kneeSwap: 1.00,
+};
+function curSit(a){
+  return (a.def.id === 'scholar' || a.def.id === 'guest') ? HALL_SIT : SIT;
+}
 
 /* ── 对弈（坐凳 + 一只手落到盘面）────────────────────────────────────────────
    两边的角度各自反解（outputs/_diag/actor-go-solve.mjs）：这套骨架左右手臂
@@ -146,6 +159,13 @@ const QIN_HAND = {
 
 const LADY_SPOT = PROP_SPOTS.ladyWell;
 const LADY_YAW = Math.atan2(PROP_SPOTS.well.x - LADY_SPOT.x, PROP_SPOTS.well.z - LADY_SPOT.z);
+/* ── 井边孩童：主人离席迎客后，两书童跑去井边与仕女玩 ────────────────────────
+   井心 −20.4,−6.1；井台外径 0.76；仕女在 −19.2,−5.2 面井。两子分别到井的南北侧
+   空草地，与仕女保持 0.8~1.0m 间距，围成“井边玩”构图。 */
+const CHILD_WELL = {
+  c1: [-19.6, -6.9],
+  c2: [-21.0, -5.6],
+};
 
 /* ── 品茶（P2「喝茶」）────────────────────────────────────────────────────────
    讲学那位文士右手端一盏，每 8~14s 把盏举到胸前再放下。两组角是反解出来的
@@ -199,7 +219,7 @@ const BOW = {
 const VISIT = {
   phase: 'idle', t: 0, bowW: 0,
   hostId: 'scholar', guestId: 'guest', coachId: 'laborer',
-  greetPt: [0.15, 19.75],      // 门内 1.15m：两人面对面站定的位置（客人停在 0.15,20.9）
+  greetPt: [0, 19.75],      // 门内 1.15m：两人面对面站定的位置（客人停在 0,20.9）居中过月洞门
   path: null, s: 0,            // 并排段的参数化航点（弧长驱动，见 pathTable）
   tourS: 0, tourPath: null,
   guestSent: false, hostSeated: false,
@@ -237,9 +257,9 @@ const CARRY = {
   /* 调头后的离场：从院门口拐上**新路**向东南开，到路尽头（已经出画）连人带车隐去 */
   depart: [[40.0, 7.4], [41.3, 8.6], [42.4, 10.2], [44.6, 13.4], [47.6, 16.8],
            [51.4, 20.6], [56.0, 24.8], [61.6, 29.4], [68.4, 34.6], [76.4, 40.4], [85.0, 46.8]],
-  seat: { x: 0.0, y: 0.615, z: -0.26 },      // 客人坐的位置（车局部；SIT 髋高 0.542 ⇒ 座面 1.15）
-  coach: { x: 0.0, y: 0.785, z: 0.30 },      // 车夫站位
-  side: { x: -1.10, z: -0.10 },              // 下车落脚点（车左侧）
+  seat: { x: 0.0, y: 1.12, z: -0.55 },      // 厢内横凳面（bedY 0.72+0.38=1.10，留 0.02 余量；z 对准后壁前 0.24m，坐姿不顶后壁）
+  coach: { x: 0.0, y: 1.15, z: 0.72 },      // 车夫木座面（bedY 0.72+0.42=1.14，坐姿落点；旧值 0.785 为站姿，已抬高）
+  side: { x: -1.10, z: -0.10 },              // 下车落脚点（车左侧，厢门中缝侧）
   coachGround: { x: 1.15, z: 0.55 },         // 马夫从车夫位跳下来的落点
   coachTie: { x: 0.95, z: 1.95 },            // 系马时站的位置（马头前侧）
 };
@@ -286,7 +306,7 @@ const HOST_GREET_PTS = [
   [8.3, 12.0], [8.3, 12.8], [8.7, 13.2],                       // 廊道南端逐级下坡
   [9.5, 13.4], [11.0, 13.5], [12.5, 13.8],                     // 下到地面
   [13.3, 15.0], [13.5, 17.0], [12.5, 18.8],                    // 绕假山东侧
-  [9.0, 19.6], [5.0, 19.8], [2.0, 19.9], [0.15, 19.75],        // 门内空地向西 → 迎客点
+  [9.0, 19.6], [5.0, 19.8], [2.0, 19.9], [0, 19.75],        // 门内空地向西 → 迎客点（居中过月洞门，原 0.15 偏东致底缘窄处穿模）
 ];
 
 /* ── 并排同行（S3 · 2026-10-23）──────────────────────────────────────────────
@@ -346,7 +366,7 @@ const EXIT_PTS = {
   host: [...ENTER_PTS.host].reverse(),
   guest: [...ENTER_PTS.guest].reverse(),
 };
-const GUEST_HOME_PTS = [[0.15, 20.9], [0.15, 23.55], ...[...STABLE_ROAD_PTS].reverse()];
+const GUEST_HOME_PTS = [[0, 20.9], [0, 23.55], ...[...STABLE_ROAD_PTS].reverse()];
 const HOST_RETURN_PTS = [...HOST_GREET_PTS].reverse();       // 门内 → 堂前（S2 反向）
 const ESCORT = {
   /* ⚠️ 从第 2 个点起排（去掉堂前 [1.2,−5.7]）：它的 ±0.45 偏移点里客人那个
@@ -444,6 +464,7 @@ const DEFS = [
     dye: { hue: 0.99, w: 0.11, shift: 0.00, sat: 1.32, val: 1.38 },
     spot: { x: 1.80, z: -5.25, yaw: -2.21 },   // 面向先生（1.2,−5.7）
     route: null,
+    floorRay: true, followFloor: true, floorMax: 1.20,
     idle: { breath: 0.018, head: 0.055, sway: 0.009, phase: 0.9, hopEvery: [9, 22], hopH: 0.20 },
   },
   {
@@ -457,6 +478,7 @@ const DEFS = [
     dye: { hue: 0.99, w: 0.11, shift: 0.16, sat: 1.08, val: 1.24 },
     spot: { x: 0.62, z: -5.10, yaw: 2.37 },    // 面向先生（1.2,−5.7）
     route: null,
+    floorRay: true, followFloor: true, floorMax: 1.20,
     idle: { breath: 0.016, head: 0.05, sway: 0.008, phase: 4.2, hopEvery: [14, 30], hopH: 0.16 },
   },
   /* ── 低案抚琴（P2 第一件"坐着的动作"）────────────────────────────────────────
@@ -1185,7 +1207,7 @@ function startTrip(a, to, dur, onDone){
    下车点在东侧草地 → 绕过停在门口的马车 → 并回石板路 → 门内。
    ⚠️ 不能直接用 STABLE_ROAD_PTS[0]=(40,4.2)：那一点正好被停着的车占住。 */
 const GUEST_ALIGHT = [[41.20, 4.20], [41.50, 5.40], [40.90, 6.60], [39.80, 8.60],
-                      ...STABLE_ROAD_PTS.slice(1), [0.15, 23.55], [0.15, 20.90]];
+                      ...STABLE_ROAD_PTS.slice(1), [0, 23.55], [0, 20.90]];
 const GUEST_HOME2 = (() => {
   const road = [...GUEST_HOME_PTS];
   road.pop();                                  // 去掉 (40,4.2)（被车占住，改走东侧草地）
@@ -1211,14 +1233,14 @@ function tickCarriage(dt){
     const q = pathAt(S.path, S.s);
     const P = travelCarriagePlace(q.x, q.z, q.yaw, S.s);
     S.last = P;
-    if (P){ setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false); }
+    if (P){ setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, true); }
     if (S.s >= S.path.total - 1e-6){ S.state = 'stop'; S.t = 0; }
     return;
   }
   if (S.state === 'stop'){
     S.t += dt;
     if (S.last) setRide(guest, S.last, CARRY.seat, true);       // 客人仍坐着
-    if (!S.coachOff) setRide(coach, S.last, CARRY.coach, false);
+    if (!S.coachOff) setRide(coach, S.last, CARRY.coach, true);
     if (S.t > 0.8 && !S.coachOff){
       S.coachOff = true;
       const g = carPoint(S.last, CARRY.coachGround.x, CARRY.coachGround.z);
@@ -1329,7 +1351,7 @@ function tickCarriage(dt){
       const x = 40.0, z = 4.0 + S.s;
       const P = travelCarriagePlace(x, z, Math.PI, S.odo);
       S.last = P;
-      setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
+      setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, true);
       if (S.s >= 3.4 - 1e-6){ S.leg = 'spin'; S.legT = 0; }
       return;
     }
@@ -1340,7 +1362,7 @@ function tickCarriage(dt){
       S.odo += 0.55 * dt;                      // 原地踏步：让腿不是僵住的（里程接着累加）
       const P = travelCarriagePlace(40.0, 7.4, yaw, S.odo);
       S.last = P;
-      setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
+      setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, true);
       if (S.legT * CARRY.turnRate >= Math.PI){
         S.leg = 'out'; S.legT = 0; S.s = 0;
         S.outPath = pathTable(CARRY.depart);
@@ -1354,7 +1376,7 @@ function tickCarriage(dt){
     const q = pathAt(S.outPath, S.s);
     const P = travelCarriagePlace(q.x, q.z, q.yaw, S.odo);
     S.last = P;
-    setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, false);
+    setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, true);
     if (S.s >= S.outPath.total - 1e-6){
       S.state = 'gone';
       travelCarriageVisible(false);
@@ -1419,7 +1441,7 @@ function startVisit(){
   coach.def.route = null; coach.walkOff = true; coach.arrived = false;
   coach.trip = null; coach.tieTarget = false; coach.tieW = 0; coach.coachW = 0;
   coach.holder.visible = true;
-  setRide(coach, P, CARRY.coach, false);
+  setRide(coach, P, CARRY.coach, true);
 
   host.walkOff = true; host.arrived = false; host.trip = null;
   return true;
@@ -1494,7 +1516,8 @@ function tickVisit(dt){
     if (!stableTravel()) return;
     if (v.mode === 'walk'){
       guest.holder.visible = true;
-      giveRoute(guest, [...STABLE_ROAD_PTS, [0.15, 23.55], [0.15, 20.9]], 0.58, 2.0, 1.20);
+      guest.def.stepUp = 0.70;
+      giveRoute(guest, [...STABLE_ROAD_PTS, [0, 23.55], [0, 20.9]], 0.58, 2.0, 1.20);
       v.phase = 'gwalk'; v.t = 0;
       return;
     }
@@ -1511,6 +1534,7 @@ function tickVisit(dt){
          上车/倒车/离场全都不发生 ⇒ wrap 一直等 VISCAR==='gone'，整场戏卡死。 */
       VISCAR.state = 'wait'; VISCAR.t = 0;
       v.phase = 'gwalk'; v.t = 0;
+      guest.def.stepUp = 0.70;
       giveRoute(guest, GUEST_ALIGHT, 0.58, 0.9, 1.20);
     }
     return;
@@ -1531,7 +1555,11 @@ function tickVisit(dt){
          取面窗口会拒绝台阶顶、"最近面"回落到地面 ⇒ 人从台阶里穿过去、沿桥底
          洼地走（S5 探针实测 floorY 一路 −0.5~−1.0）。迎客上坡与 S5 送客回程
          同一条路，这里放宽到 0.80，到门口'face'收回。 */
-      host.def.stepUp = 0.80;
+      host.def.stepUp = 1.35;
+      // 两书童随主人离席，跑向井边与仕女玩（2026-10-26 缺陷3）
+      const c1 = actorRef('child1'), c2 = actorRef('child2');
+      if (c1) giveRoute(c1, [[-5, -5.2], [-12, -6.0], CHILD_WELL.c1], 1.05, 0.15, 1.20);
+      if (c2) giveRoute(c2, [[-4, -5.5], [-11, -5.8], CHILD_WELL.c2], 1.05, 0.20, 1.20);
     }
     return;
   }
@@ -1644,7 +1672,7 @@ function tickVisit(dt){
         v.eptsH = offsetPath(ESCORT.pts, ESCORT.hostLat);
         v.eptsG = offsetPath(ESCORT.pts, ESCORT.guestLat);
         v.epath = pathTable(ESCORT.pts);
-        host.def.stepUp = guest.def.stepUp = 0.80;
+        host.def.stepUp = guest.def.stepUp = 1.35;
         giveRoute(host, [v.eptsH[0]], PAIR.speed, 0.25, 2.45);
         giveRoute(guest, [v.eptsG[0]], PAIR.speed, 0.55, 2.45);
       } else {
@@ -1673,7 +1701,7 @@ function tickVisit(dt){
   if (v.phase === 'tourgo'){
     v.tourPath = buildTourPath();
     v.tourS = TOUR.gap;
-    host.def.stepUp = guest.def.stepUp = 0.80;   // 桥北/桥南各有一级 0.69m
+    host.def.stepUp = guest.def.stepUp = 1.35;   // 桥北/桥南各有一级 0.69m
     host.def.floorMax = guest.def.floorMax = 2.45;
     host.pairDrive = guest.pairDrive = false;
     host.arrived = guest.arrived = false;
@@ -1703,8 +1731,8 @@ function tickVisit(dt){
       /* 客人沿石板路回马厩：马车版一直走到车边（GUEST_HOME2），再上车离开；
          walk 版只走回马厩门口（旧口径）。 */
       v.guestSent = true;
+      guest.def.stepUp = 0.70;
       giveRoute(guest, v.mode === 'walk' ? GUEST_HOME_PTS : GUEST_HOME2, 0.58, 0.45, 1.20);
-      guest.def.stepUp = 0.42;
     }
     turnToward(host, yawToOther(host, guest), dt);     // 转身没转完也继续对上
     turnToward(guest, yawToOther(guest, host), dt);
@@ -1718,7 +1746,7 @@ function tickVisit(dt){
       v.phase = 'hostback'; v.t = 0;
       /* 回程是**上坡**方向（廊道 0.38→1.30 逐级 + 桥拱）——同 stow/eline 的口径
          放宽到 0.80，'reenter' 换 0.70（进门那级 0.62）、坐下收回。 */
-      host.def.stepUp = 0.80;
+      host.def.stepUp = 1.35;
       giveRoute(host, HOST_RETURN_PTS, 0.58, 0.2, 2.45);
     }
     return;
@@ -1924,13 +1952,13 @@ function advance(dt){
             · **对称动作**（蹲 / 跪 / 坐）必须同号。写异号会让一条腿往前、另一条
               甩到身后：坐凳第一版右膝跑到身后 0.42m、右踝比髋还高 0.28m，
               裙下露出一大块深色裤腿，读作"背后挂着一块黑布"（v-east 出图）。 */
-    const legSym = hopCrouch * 0.8 - KNEEL.thigh * k - SIT.thigh * st2;   // 两条腿共用的对称分量
+    const cs = curSit(a); const legSym = hopCrouch * 0.8 - KNEEL.thigh * k - cs.thigh * st2;   // 两条腿共用的对称分量
     set('LeftUpperLeg',  a.amp * sw * w + legSym, 0, 0);    // 步态异号（交替）
     set('RightUpperLeg', -a.amp * sw * w + legSym, 0, 0);   // 对称分量同号（同向前屈）
-    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + SIT.knee * st2, 0, 0);
-    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + SIT.knee * st2, 0, 0);
-    set('LeftFoot',  -GAIT.foot * sw * w + KNEEL.foot * k + SIT.foot * st2, 0, 0);
-    set('RightFoot',  GAIT.foot * sw * w + KNEEL.foot * k + SIT.foot * st2, 0, 0);
+    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + cs.knee * st2, 0, 0);
+    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + cs.knee * st2, 0, 0);
+    set('LeftFoot',  -GAIT.foot * sw * w + KNEEL.foot * k + cs.foot * st2, 0, 0);
+    set('RightFoot',  GAIT.foot * sw * w + KNEEL.foot * k + cs.foot * st2, 0, 0);
     set('Hips',  0.010 * w,
         GAIT.hipYaw * sw * w,
         GAIT.hipRoll * Math.cos(p) * w);
@@ -2246,7 +2274,7 @@ function advance(dt){
     const lean = (o.lean || 0) * (1 - a.brushW) * (1 - a.coachW) + BOW.lean * bw;
     const hd = (o.headDown || 0) * (1 - a.brushW) * (1 - a.coachW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
              + SCROLL.headDown * a.scrollW + BOW.head * bw;
-    set('Chest', o.breath * b + 0.02 * w + lean + SIT.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
+    set('Chest', o.breath * b + 0.02 * w + lean + cs.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
     set('Neck', 0.008 * Math.sin(_t * 0.5 + a.phase + 0.7) + hd * 0.45, 0.4 * o.head * h, 0);
@@ -2258,7 +2286,7 @@ function advance(dt){
        ⚠️ 缩放**每帧无条件写**（k=0 时写 1），否则切回站姿时腿还是缩着的。 */
     const hb = a.bones['Hips'];
     if (hb && a.hipsRest){
-      hb.position.copy(a.hipsRest).addScaledVector(a.hipsDown, KNEEL.drop * k + SIT.drop * st2);
+      hb.position.copy(a.hipsRest).addScaledVector(a.hipsDown, KNEEL.drop * k + cs.drop * st2);
     }
     const legS = 1 - (1 - KNEEL.footScale) * k;
     for (const n of ['LeftLowerLeg', 'RightLowerLeg', 'LeftFoot', 'RightFoot', 'LeftToes', 'RightToes']){
@@ -2270,10 +2298,10 @@ function advance(dt){
       /* 两种坐姿各自压缩裙长、径向撑开；互斥 ⇒ 两段的系数相乘就等于取其一。
          跪坐髋到地 0.46（裙长要压到 0.55）、坐凳 0.54（压到 0.60）。 */
       const sq = (v) => (twoSeg ? Math.sqrt(v) : v);
-      const lenE = (1 + (sq(KNEEL.skirtLen) - 1) * k) * (1 + (sq(SIT.skirtLen) - 1) * st2);
-      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (SIT.skirtRad - 1) * st2);
+      const lenE = (1 + (sq(KNEEL.skirtLen) - 1) * k) * (1 + (sq(cs.skirtLen) - 1) * st2);
+      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (cs.skirtRad - 1) * st2);
       /* 下段的翻转方向：跪坐 0.96（几乎对折回去）、坐凳 1.00（回到竖直、垂在膝前） */
-      const swap = k + st2 > 1e-4 ? (k * KNEEL.kneeSwap + st2 * SIT.kneeSwap) / (k + st2) : 1;
+      const swap = k + st2 > 1e-4 ? (k * KNEEL.kneeSwap + st2 * cs.kneeSwap) / (k + st2) : 1;
       const sway = w * a.amp * 0.9 * sw;
       for (const sk of a.skirt){
         const front = Math.cos(sk.ang);                       // 0° = 正前 ⇒ 1
@@ -2282,7 +2310,7 @@ function advance(dt){
                  后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。 */
         const th = sway
           - k * KNEEL.lift * (0.55 + 0.55 * front)
-          - st2 * SIT.lift * (0.18 + 1.00 * Math.max(0, front));
+          - st2 * cs.lift * (0.18 + 1.00 * Math.max(0, front));
         const ba = a.bones[sk.a], ra = a.base[sk.a];
         if (ba && ra){
           q.setFromAxisAngle(sk.axis, th);
@@ -2382,7 +2410,9 @@ function advance(dt){
        同茶盏/马刷/卷轴：先刷骨骼矩阵再摆道具。 */
     if (a.hay){
       const wl = a.bones.LeftHand;
-      a.hay.visible = !!wl;
+      // ④ 马夫驾车时手握缰绳，不应再抱着草料（VISCAR 驾车段 + 任何 ride 状态）
+      const driving = !!a.ride || (a.tieW && a.tieW > 0.05) || (a.coachW && a.coachW > 0.05);
+      a.hay.visible = !!wl && !driving;
       if (wl){
         a.holder.updateMatrixWorld(true);
         wl.getWorldPosition(_hyE);

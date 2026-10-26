@@ -761,6 +761,28 @@ buildViewpoints(HERO_POS);
    （笔架/砚/茶盏/棋钵）正好靠这一遍把 castShadow 关掉，晚了就白进投射物集合、
    把阴影视体撑大（shadow-cover 的既有取舍）。 */
 world.add(buildProps());
+// 清理水榭附近误留的蓝色几何占位（2026-10-26 缺陷4：截图3蓝框几何体，实为调试遗留方盒，面池方向 4m 内出现即删）
+{
+  const qx = 13.4, qz = 8.2;
+  const toRemove = [];
+  world.traverse(o => {
+    if (!o.isMesh) return;
+    const p = new THREE.Vector3(); try { o.getWorldPosition(p); } catch { return; }
+    if (Math.hypot(p.x - qx, p.z - qz) > 4.5) return;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m || !m.color) continue;
+      const hex = m.color.getHex();
+      const r = (hex >> 16) & 0xff, g = (hex >> 8) & 0xff, b = hex & 0xff;
+      // 蓝主导且非水面/天空（天空/水面亦偏蓝，但 b<180 且 r/g 均>100，与纯蓝调试盒区分）
+      if (b > 150 && r < 90 && g < 120) { toRemove.push(o); break; }
+      // 额外：线框盒或几何名为 debug/box 且在亭内 4m 内
+      if (o.name && new RegExp('debug|box|helper', 'i').test(o.name) && o.geometry && o.geometry.type === 'BoxGeometry') { toRemove.push(o); break; }
+    }
+  });
+  for (const o of toRemove) { o.visible = false; if (o.parent) o.parent.remove(o); }
+  if (toRemove.length) console.log('[cleanup] 已移除水榭蓝盒', toRemove.length, toRemove.map(o=>o.name||o.type).join(','));
+}
 /* 堂前香炉的袅袅白烟（2026-10-05 · 老黄："正堂前既然加了铜炉，是不是应该有袅袅白烟"）。
    出烟口 = 香炉落点 + **炉盖口**高度：14-props 的 makeCenser 里 bodyY=0.30、
    盖在 bodyY+0.415、宝顶在 bodyY+0.565 ⇒ 取 0.66 正好落在盖口之上一点点

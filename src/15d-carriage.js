@@ -80,6 +80,18 @@ export const TRAVEL = {
 };
 export function stableTravel(){ return TRAVEL.ready ? TRAVEL : null; }
 
+/* ── 石板路抬升（2026-10-26 ① 轮陷）────────────────────────────────────────────
+   石板顶在 groundHeight+0.075（15e-stable 的 slab +0.075/bed +0.045），而车轮底 = car.y
+  （轮心 0.55 - 半径 0.55），旧版用裸 groundHeight ⇒ 轮底比路面低 7.5cm，在近景读作"陷进去"。
+   解法：给车心 y 加 0.075，但**只在石板路上**（ yard 仍是裸地，抬了会浮）。判别按到两条
+   石板中线的距离（HW 0.86 + 0.19 轮缘）—— 不引入环依赖，点表在本地复刻。 */
+const _ROAD_A = [[40.0,4.2],[39.2,10.5],[37.4,16.5],[34.4,21.8],[30.0,26.2],[22.0,27.2],[10.0,26.4],[3.0,26.0],[0.5,25.9],[0.0,24.55]];
+const _ROAD_B = [[40.0,4.2],[40.9,7.2],[42.4,10.2],[44.6,13.4],[47.6,16.8],[51.4,20.6],[56.0,24.8],[61.6,29.4],[68.4,34.6],[76.4,40.4],[85.0,46.8]];
+function _onStoneRoad(x,z){
+  const ck = (pts)=>{ for(let i=0;i<pts.length-1;i++){ const ax=pts[i][0],az=pts[i][1],bx=pts[i+1][0],bz=pts[i+1][1]; const dx=bx-ax,dz=bz-az; const l2=dx*dx+dz*dz||1; const t=Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/l2)); const cx=ax+dx*t,cz=az+dz*t; if(Math.hypot(x-cx,z-cz)<1.05) return true; } return false; };
+  return ck(_ROAD_A)||ck(_ROAD_B);
+}
+function _roadY(x,z){ return groundHeight(x,z) + (_onStoneRoad(x,z) ? 0.075 : 0); }
 export const _travV = new THREE.Vector3();
 /* 把车 + 两匹辕马摆到世界 (x,z)、朝向 yaw；dist = 累计里程（驱动车轮与四腿相位）。
    返回车心落地的世界坐标，供人物"坐在车上"用（不再让调用方另算一遍）。 */
@@ -88,10 +100,10 @@ export function travelCarriagePlace(x, z, yaw, dist){
   if (!V.ready) return null;
   const fx = Math.sin(yaw), fz = Math.cos(yaw);
   const rx = Math.cos(yaw), rz = -Math.sin(yaw);
-  const gL = groundHeight(x - rx * 0.62, z - rz * 0.62);
-  const gR = groundHeight(x + rx * 0.62, z + rz * 0.62);
-  const gF = groundHeight(x + fx * 0.80, z + fz * 0.80);
-  const gB = groundHeight(x - fx * 0.80, z - fz * 0.80);
+  const gL = _roadY(x - rx * 0.62, z - rz * 0.62);
+  const gR = _roadY(x + rx * 0.62, z + rz * 0.62);
+  const gF = _roadY(x + fx * 0.80, z + fz * 0.80);
+  const gB = _roadY(x - fx * 0.80, z - fz * 0.80);
   const y = (gL + gR) / 2;
   const car = V.car;
   car.position.copy(V.group.worldToLocal(_travV.set(x, y, z)));
@@ -99,7 +111,6 @@ export function travelCarriagePlace(x, z, yaw, dist){
   // 车头 +z 沿行进方向；pitch 让车随坡抬头/低头，roll 让两轮同时落地（与 seatCart 同一口径）
   car.rotation.set(-Math.atan2(gF - gB, 1.6), yaw - V.stableYaw, (gR - gL) / 1.24);
   for (const w of V.wheels) w.rotation.z = dist / V.wheelR;
-  const stride0 = 0.663;
   for (const s of V.slots){
     const ox = s.travelOff ? s.travelOff.x : 0;
     const oz = s.travelOff ? s.travelOff.z : 1.45;
@@ -112,10 +123,12 @@ export function travelCarriagePlace(x, z, yaw, dist){
     if (L){
       L.driving = true;
       L.gaitW = 1; L.grazeW = 0;
-      const stride = L.strideWalk || stride0;
+      // ⑥ 马腿核验：拉车为**快步（trot）**，对角两拍（FL+HR / FR+HL），速度 1.1~2.6 与 trot 的 1.85m/s 匹配；
+      // 旧版用 walk（四拍 0/0.25/0.5/0.75，摆幅 0.28）读作"散步拉车"，步频也对不上车速。
+      const stride = 1.24; // HORSE_GAIT.trot.stride（走 trot 时的真实步幅）
       const ph = ((dist / stride) + (s.travelPh || 0)) % 1;
-      L.gaitLegs = gaitPose('walk', ph < 0 ? ph + 1 : ph);
-      L.gaitBob = Math.sin(ph * Math.PI * 4) * 0.016;
+      L.gaitLegs = gaitPose('trot', ph < 0 ? ph + 1 : ph);
+      L.gaitBob = Math.sin(ph * Math.PI * 4) * 0.024;
     }
   }
   if (V.blob){
@@ -211,26 +224,77 @@ export function makeCarriage(opts = {}){
   g.userData.wheels = [wheelL, wheelR];
   const axle = mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.42, 8), wood, { name: 'carriageAxle' });
   axle.rotation.z = Math.PI / 2; axle.position.set(0, 0.55, 0); g.add(axle);
+  /* ── 中式厢式车厢（2026-10-26 六项·②③）──────────────────────────────────────
+     旧版：敞口矮斗 + 半筒篷（bed 1.15×1.32、侧高 0.42、后高 0.52、前低 0.30、半圆篷 0.62r）。
+     问题：① 敞口不像"轿子"，② 篷顶比坐姿客人头顶还低 13cm（已靠抬篷硬修），③ 后方有 4 根
+     向后探出的短棍（旧侧板/背板的榫头外露，近景 15m 读作"四根棍子"）。
+     新版：中式双轮轿厢 —— **三面封闭、后壁全闭、两侧各 2 个小窗、前置 2 幅布帘**。
+       · 厢体：bed 1.38×1.62（宽×长）、侧墙高 0.95、后壁全高到顶、厢顶平板 + 飞檐收口；
+       · 侧窗：每侧 2 个 0.34×0.30 小窗（外框木、内衬窗纸 MAT.winPaper，可开合读感）；
+       · 前帘：2 幅分开的布帘（深绛/靛蓝布面，双面，垂到侧墙 2/3 高），中间留缝可进出；
+       · 顶：平板顶 1.48×1.72×0.08 + 四周 0.06 飞檐，顶面 bedY+1.22 ⇒ 厢内净高 1.22m，
+         坐姿客人头顶 1.42（车y 0.075 + 座0.60 + 坐高0.74）距顶 0.18m，不穿模且不压抑；
+       · 榫头：不再外露，后向 4 根短棍一并取消。 */
   const bedY = 0.72;
-  const bed = mesh(box(1.15, 0.09, 1.32), wood, { name: 'carriageBed', cast: true });
-  bed.position.set(0, bedY, -0.05); g.add(bed);
+  const CAB_W = 1.38, CAB_L = 1.62, WALL_H = 0.95, ROOF_H = 0.08;
+  const bed = mesh(box(CAB_W, 0.09, CAB_L), wood, { name: 'carriageBed', cast: true });
+  bed.position.set(0, bedY, -0.06); g.add(bed);
+  // 侧墙：三段式（窗上/窗间/窗下）留出两个窗洞，避免用布尔/多材质
   for (const sx of [-1, 1]){
-    const side = mesh(box(0.07, 0.42, 1.28), trim, { name: 'carriageSide' });
-    side.position.set(sx * 0.54, bedY + 0.26, -0.05); g.add(side);
+    const x = sx * (CAB_W/2 - 0.04);
+    // 下槛
+    const low = mesh(box(0.07, 0.22, CAB_L), trim, { name: 'carriageSideLow' });
+    low.position.set(x, bedY + 0.16, -0.06); g.add(low);
+    // 上楣
+    const up = mesh(box(0.07, 0.18, CAB_L), trim, { name: 'carriageSideUp' });
+    up.position.set(x, bedY + WALL_H - 0.09, -0.06); g.add(up);
+    // 窗间立柱
+    const mid = mesh(box(0.07, 0.55, 0.18), trim, { name: 'carriageSideMid' });
+    mid.position.set(x, bedY + 0.52, -0.06); g.add(mid);
+    // 两个小窗：窗框 + 窗纸
+    for (const zc of [-0.38, 0.22]){
+      const wf = mesh(box(0.08, 0.30, 0.34), MAT.woodDark, { name: 'carriageWinFrame', cast: false });
+      wf.position.set(x, bedY + 0.52, zc); g.add(wf);
+      const wp = mesh(box(0.05, 0.24, 0.28), MAT.winPaper || trim, { name: 'carriageWinPaper', cast: false });
+      wp.position.set(x + sx * 0.015, bedY + 0.52, zc); g.add(wp);
+    }
   }
-  const back = mesh(box(1.10, 0.52, 0.07), trim, { name: 'carriageBack' });
-  back.position.set(0, bedY + 0.30, -0.68); g.add(back);
-  const front = mesh(box(1.10, 0.30, 0.07), trim, { name: 'carriageFront' });
-  front.position.set(0, bedY + 0.16, 0.58); g.add(front);
-  const canopy = mesh(new THREE.CylinderGeometry(0.62, 0.62, 0.86, 14, 1, true, 0, Math.PI), MAT.bambooBlind,
-    { name: 'carriageCanopy', cast: false });
-  canopy.rotation.z = Math.PI / 2; canopy.rotation.y = Math.PI / 2;
-  /* ⚠️ 2026-10-25 抬高 0.24m（老黄："客人上马后头顶和马车顶穿模了"）。实测坐姿客人
-     头顶 y=1.416、篷顶 1.281 ⇒ 高出 13.5cm。抬到 bedY+0.66 后篷顶 ≈1.52，余量约 10cm。
-     只抬篷、不动座位：座位 0.615 与车斗（bed 顶 0.765）的关系是上下车那套 trip 的落点，
-     动它要连带重验 alight/board 两段。 */
-  canopy.position.set(0, bedY + 0.66, -0.30); canopy.material.side = THREE.DoubleSide;
-  g.add(canopy);
+  // 后壁全封闭
+  const back = mesh(box(CAB_W, WALL_H, 0.07), trim, { name: 'carriageBack', cast: true });
+  back.position.set(0, bedY + WALL_H/2, -0.06 - CAB_L/2 + 0.035); g.add(back);
+  // 前口：两侧立柱 + 顶横梁（门框），中间挂 2 幅布帘
+  for (const sx of [-1, 1]){
+    const post = mesh(box(0.07, WALL_H, 0.07), trim, { name: 'carriageFrontPost', cast: true });
+    post.position.set(sx * (CAB_W/2 - 0.04), bedY + WALL_H/2, -0.06 + CAB_L/2 - 0.035); g.add(post);
+  }
+  const frontBeam = mesh(box(CAB_W, 0.10, 0.07), MAT.woodDark, { name: 'carriageFrontBeam', cast: true });
+  frontBeam.position.set(0, bedY + WALL_H - 0.05, -0.06 + CAB_L/2 - 0.035); g.add(frontBeam);
+  // 前帘 2 幅：深绛/靛蓝布面，垂到 2/3 高，中间留 0.08 缝
+  const curtainMat = new THREE.MeshStandardMaterial({ color: 0x7A2E2A, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
+  for (const sx of [-1, 1]){
+    const curtain = mesh(box(0.60, 0.62, 0.015), curtainMat, { name: 'carriageCurtain', cast: false });
+    curtain.position.set(sx * 0.32, bedY + 0.58, -0.06 + CAB_L/2 - 0.02);
+    g.add(curtain);
+  }
+  // 平板顶 + 飞檐收口（四周各出挑 0.05）
+  const roof = mesh(box(CAB_W + 0.10, ROOF_H, CAB_L + 0.10), MAT.woodDark, { name: 'carriageRoof', cast: true });
+  roof.position.set(0, bedY + WALL_H + ROOF_H/2, -0.06); g.add(roof);
+  for (const sx of [-1, 1]){
+    const eave = mesh(box(0.06, 0.04, CAB_L + 0.10), MAT.wood, { name: 'carriageEave', cast: false });
+    eave.position.set(sx * (CAB_W/2 + 0.05), bedY + WALL_H + 0.02, -0.06); g.add(eave);
+  }
+  for (const sz of [-1, 1]){
+    const eave2 = mesh(box(CAB_W + 0.10, 0.04, 0.06), MAT.wood, { name: 'carriageEaveEnd', cast: false });
+    eave2.position.set(0, bedY + WALL_H + 0.02, -0.06 + sz * (CAB_L/2 + 0.05)); g.add(eave2);
+  }
+  // 厢内座位：靠后壁的横向木座（供客人坐），高 0.38，坐面进深 0.40
+  const bench = mesh(box(CAB_W - 0.14, 0.38, 0.42), MAT.wood, { name: 'carriageBench', cast: true });
+  bench.position.set(0, bedY + 0.19, -0.06 - CAB_L/2 + 0.28); g.add(bench);
+  // 车夫木座（④）：前沿外 0.08 的简易横板，无靠背，够坐一人
+  const driverSeat = mesh(box(1.02, 0.06, 0.34), MAT.woodDark, { name: 'carriageDriverSeat', cast: true });
+  driverSeat.position.set(0, bedY + 0.42, -0.06 + CAB_L/2 + 0.18); g.add(driverSeat);
+  const driverLeg = mesh(box(0.06, 0.42, 0.06), MAT.woodDark, { name: 'carriageDriverLeg', cast: false });
+  driverLeg.position.set(0, bedY + 0.21, -0.06 + CAB_L/2 + 0.28); g.add(driverLeg);
   /* 车辕：**单马**用"双辕"（两根杆夹住一匹马的两侧）；**两匹马并排**要用
      「**中央辕杆（pole）+ 横轭（yoke）**」—— 辕杆从两马**中间**穿过、横轭横在两马颈上，
      这才是双马套车的真实结构。
@@ -259,6 +323,13 @@ export function makeCarriage(opts = {}){
       collar.rotation.x = 0.36;
       collar.scale.set(1, 1.15, 1);
       g.add(collar);
+      // 牵挽带（trace）：从项圈下沿拉回厢侧，承重可视，15m 外读作"套着"的实线
+      const trace = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(sx * 0.40, yokeY - 0.18, 1.18),
+        new THREE.Vector3(sx * 0.48, bedY + 0.28, 0.70),
+        new THREE.Vector3(sx * 0.52, bedY + 0.22, 0.28),
+      ]);
+      g.add(mesh(new THREE.TubeGeometry(trace, 6, 0.018, 4, false), strap, { name: 'yokeTrace', cast: false }));
     }
     /* ── 口络带（2026-10-14 · 用户报"马嘴和套车器具之间没有连接、悬空，像各自咬了一根木棍"）──
        ⚠️⚠️ 坐标系是这一条的关键（首版画错、出图"带子垂到马胸前"）：

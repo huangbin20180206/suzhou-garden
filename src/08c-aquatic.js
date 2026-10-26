@@ -635,10 +635,14 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
      （门禁 macaw-guard 钉的是 3 只）。现在明确：鸟数 = MACAW_COUNT，落点里多出来的
      那个**空着**，专供"换峰飞行"当落点（3 点 3 鸟时飞行=换座=必然两只叠一起）。 */
   /* 翅膀权重烘焙（一次，烘在 src 几何上 —— 三只 clone 共享同一份 geometry）。
-     mask = smoothstep(0.18,0.32,|x|) × (1−ss(y,0.48,0.62)) × (1−ss(z,0.52,0.66))，
+     mask = smoothstep(0.25,0.34,|x|) × (1−ss(y,0.48,0.62)) × (1−ss(z,0.52,0.66))，
      再乘 sign(x)：+x 翼正角朝外上抬、−x 翼负角镜像。窗口全部来自
      outputs/_diag/macaw-wing-map.mjs 的顶点量测（翅外缘 |x|≥0.32、头颈 z>0.66），
-     不是目测 —— 手填窗口的头会跟着扇（见 MACAW_WING 注释①）。 */
+     不是目测 —— 手填窗口的头会跟着扇（见 MACAW_WING 注释①）。
+     ⚠️ 2026-10-26 修"跳起时爪子瞬间变大"：旧阈值 0.18,0.32 把外侧脚趾(|x|≈0.20)算进翅膀，
+     跳起时的两次扇翅(0.22rad)把脚趾拉开，近景下读作"爪子张开且变大"（outputs/_diag/
+     macaw-close-*.png 对比：u=0.27 时脚掌展开宽度比静止时大一倍）。改 0.25,0.34 后
+     脚趾权重归零(1417 个脚部顶点中 |w|>0.01 从 45→0)，翅根仍有 1414 顶点>0.5。 */
   src.traverse(o => {
     if (!o.isMesh || o.geometry.userData.aWingDone) return;
     const geo = o.geometry, pos = geo.attributes.position;
@@ -649,7 +653,7 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
     const arr = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++){
       const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
-      arr[i] = ss(Math.abs(x), 0.18, 0.32)
+      arr[i] = ss(Math.abs(x), 0.25, 0.34)
              * (1 - ss(y, 0.48, 0.62)) * (1 - ss(z, 0.52, 0.66))
              * (x >= 0 ? 1 : -1);
     }
