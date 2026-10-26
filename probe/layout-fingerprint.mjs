@@ -119,7 +119,9 @@ async function sample(page, { poke = false } = {}){
      uPos/uDir/uSpd 算），与 mistField / fireworks 同一类 —— 矩阵里没有布局信息 ⇒ 同排除。 */
   /* ⚠️ horseBreath（2026-10-11）：冬天马口鼻白雾 —— 实例矩阵**每帧按相机朝向重写**
      （billboard）⇒ 哈希由采样相位决定、矩阵里没有布局信息 ⇒ 同排除。 */
-  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke', 'fireworks', 'meteorShower', 'horseBreath']);
+  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke', 'fireworks', 'meteorShower', 'horseBreath',
+    /* 2026-10-27：马夫手里的草料 / 马刷（挂在人物手上、跟手走的小件，与园林布局无关） */
+    'actorHayStraws', 'actorBrushSlats']);
     const EXCLUDE_GEOM = new Set(['RingGeometry']);
     const rows = [];
     let global = 0;

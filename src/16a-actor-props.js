@@ -75,17 +75,32 @@ export const _brZ = new THREE.Vector3(0, 0, 1);
 export function makeBrush(holder){
   const g = new THREE.Group();
   g.name = 'actorBrush';
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.10, 8), MAT.wood);
+  /* ⚠️ 2026-10-27（老黄："草料或者刷子根本看不出拿的有工具"）：原来的刷背 8.5×7.5cm、
+     刷毛深褐 8×7cm，在深色马身上几乎融成一块 ⇒ 加宽刷背、刷毛改成浅麦色（对深色马有反差），
+     刷尖只往前多 1cm（实测贴面 42~74mm，再多就会插进马身）。 */
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.14, 8), MAT.wood);
   handle.rotation.x = Math.PI / 2;       // 圆柱默认沿 Y ⇒ 转成沿 Z
-  handle.position.set(0, 0, 0.012);
+  handle.position.set(0, 0, 0.020);
   g.add(handle);
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.085, 0.075, 0.022), MAT.woodDark);
-  back.position.set(0, 0, 0.082);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.120, 0.100, 0.028), MAT.woodDark);
+  back.position.set(0, 0, 0.085);
   g.add(back);
-  const bristleMat = new THREE.MeshStandardMaterial({ color: 0x8E7A50, roughness: 0.95, metalness: 0.0 });
-  const bristles = new THREE.Mesh(new THREE.BoxGeometry(0.080, 0.070, 0.032), bristleMat);
-  bristles.position.set(0, 0, 0.108);
-  g.add(bristles);
+  const bristleMat = new THREE.MeshStandardMaterial({ color: 0xD9CBA6, roughness: 0.95, metalness: 0.0 });
+  /* 刷毛做成**一排细条**（12 条，条间留 1.5mm 缝）：远看是一块浅色刷面，
+     近看能读出"一撮一撮的毛"，而不是一块海绵/木块。 */
+  const SL = 12, bw = 0.008, gap = 0.0018, bd = 0.042, bh = 0.095;
+  const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(bw, bh, bd), bristleMat, SL);
+  const bm = new THREE.Matrix4();
+  for (let i = 0; i < SL; i++){
+    bm.makeTranslation((i - (SL - 1) / 2) * (bw + gap), 0, 0);
+    slats.setMatrixAt(i, bm);
+  }
+  slats.instanceMatrix.needsUpdate = true;
+  slats.name = 'actorBrushSlats';        // 布局指纹排除名单里登记（手里的小件，与园林布局无关）
+  slats.position.set(0, 0, 0.114);
+  slats.castShadow = false; slats.receiveShadow = true;
+  slats.userData.noMerge = true;
+  g.add(slats);
   g.traverse(o => {
     if (!o.isMesh) return;
     o.castShadow = false;                // 15m 外的小件，投影贡献约 0、只会撑大阴影盒
@@ -235,7 +250,7 @@ export function makeScroll(holder){
         （不跟前臂方向 —— 前臂朝下，草会朝地）。
    ⚠️ 草把摆在腕**上 5cm**、不挂手骨：每帧按腕位重摆（同茶盏/马刷）。 */
 
-export const HAY_ARM = { ex: -0.35, up: 0.05, out: 0.13, lean: 0.30, len: 0.24 };
+export const HAY_ARM = { ex: -0.35, up: 0.05, out: 0.13, lean: 0.30, len: 0.30 };
 export const _hyE = new THREE.Vector3();
 export const _hyQ = new THREE.Quaternion();
 export const _hyQ2 = new THREE.Quaternion();
@@ -254,9 +269,9 @@ export function makeHayStrawTex(){
   c.width = 2; c.height = 16;
   const g = c.getContext('2d');
   const grd = g.createLinearGradient(0, 16, 0, 0);   // 下（根）=黄褐 → 上（梢）=青绿
-  grd.addColorStop(0.0, '#B99F63');
-  grd.addColorStop(0.55, '#C9B372');
-  grd.addColorStop(1.0, '#8FA457');
+  grd.addColorStop(0.0, '#D8BC74');
+  grd.addColorStop(0.55, '#E3CF8A');
+  grd.addColorStop(1.0, '#A8BE62');
   g.fillStyle = grd; g.fillRect(0, 0, 2, 16);
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -267,17 +282,21 @@ export function makeHayHandful(holder){
   const g = new THREE.Group();
   g.name = 'actorHay';
   /* 圆柱轴就是 +Y ⇒ 草把**竖直**（手臂垂着的时候，跟"前臂方向"走会朝地） */
-  const geo = new THREE.CylinderGeometry(0.0035, 0.0055, 1, 4, 1);
-  const N = 11;
+  /* ⚠️ 2026-10-27（老黄："马夫手上的草料或者刷子根本看不出拿的有工具"）：
+     原来 11 根、半径 3.5~5.5mm、整束只有 3cm 宽 ⇒ 10~15m 外只有 3~5 个像素。
+     现在 16 根、半径 9~13mm、整束约 10cm 宽、30~36cm 长（仍是一只手能拎住的量），
+     并加了两道捆绳 —— 远看是"一捆草"，不是一根细棍。 */
+  const geo = new THREE.CylinderGeometry(0.006, 0.009, 1, 5, 1);
+  const N = 24;
   const im = new THREE.InstancedMesh(geo,
     new THREE.MeshStandardMaterial({ map: makeHayStrawTex(), roughness: 0.95, metalness: 0.0,
                                      envMapIntensity: 0.30 }), N);
   const M = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
   for (let i = 0; i < N; i++){
-    const a = (i / 11) * Math.PI * 2 + (i % 3) * 0.21;
-    const sp = 0.026 + (i % 4) * 0.007;           // 梢头张开、根部收在一起
-    const len = HAY_ARM.len - 0.02 + ((i * 7) % 5) * 0.012;
+    const a = (i / N) * Math.PI * 2 + (i % 3) * 0.21;
+    const sp = 0.050 + (i % 4) * 0.012;           // 梢头张开、根部收在一起
+    const len = HAY_ARM.len - 0.02 + ((i * 7) % 5) * 0.016;
     pv.set(Math.cos(a) * sp * 0.55, len * 0.5 - 0.02, Math.sin(a) * sp * 0.55);
     q.setFromAxisAngle(up, (i % 5 - 2) * 0.10);   // 每根略歪，不成一束直棍
     /* 每根往自己那个方向倒一点点，做成"一把"而不是"一根柱" */
@@ -286,12 +305,13 @@ export function makeHayHandful(holder){
     im.setMatrixAt(i, M);
   }
   im.instanceMatrix.needsUpdate = true;
+  im.name = 'actorHayStraws';            // 布局指纹排除名单里登记（手里的小件）
   im.castShadow = false;                          // 手里的小件，投影贡献≈0
   im.receiveShadow = true;
   im.userData.noMerge = true;
   g.add(im);
-  for (const y of [0.012, 0.052]){
-    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.030, 0.0055, 5, 12), MAT.woodDark);
+  for (const y of [0.015, 0.075]){
+    const tie = new THREE.Mesh(new THREE.TorusGeometry(0.058, 0.009, 5, 14), MAT.woodDark);
     tie.rotation.x = Math.PI / 2;                 // 环面躺平 ⇒ 套在竖直的草把上
     tie.position.set(0, y, 0);
     tie.castShadow = false; tie.receiveShadow = true;

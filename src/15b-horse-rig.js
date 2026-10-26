@@ -849,7 +849,7 @@ export function bakeHorseShading(geo, w, opts = {}){
    ② 所有角度**连续**（慢正弦 + 光滑包络），绝不用高频正弦直接打姿态 —— 这正是 2026-10-05
       "鹦鹉抽搐"的教训（每帧相位超过 ~0.8rad 就走样成乱抖）；③ 幅度按"远看读得出"给：
       15~25m 外 1° ≈ 4~7mm，所以姿态角都在 5° 以上。 */
-export function installHorseRig(mat, geo, W, piv){
+export function installHorseRig(mat, geo, W, piv, nose){
   const P = { head: piv.neck, tail: piv.tail, legF: piv.legF, legH: piv.legH,
               jaw: piv.jaw || [0, 1.2, 0.8] };
   mat.userData.rig = { head: new THREE.Vector2(0, 0), tail: new THREE.Vector2(0, 0),
@@ -880,11 +880,17 @@ export function installHorseRig(mat, geo, W, piv){
     sh.uniforms.uPivLegH = { value: P.legH };
     sh.uniforms.uJawAng  = { value: mat.userData.rig.jaw };
     sh.uniforms.uPivJaw  = { value: P.jaw };
+    /* 口鼻去粉（2026-10-27 老黄："白马的嘴唇不应该是这种粉红"）：模型贴图在唇鼻处
+       本来就带一块饱和的粉红，白光下最扎眼。做法＝**按模型局部坐标**圈出口鼻那一小块，
+       把颜色向同明度的灰压过去（只动色相/饱和、不动明暗 ⇒ 不会出现"一块脏斑"）。
+       局部坐标必须走 varying 传进片元：position 在顶点着色器里。 */
+    sh.uniforms.uMuzzle = { value: new THREE.Vector3(0, nose ? nose[1] : 1.25, nose ? nose[2] : 0.44) };
     sh.vertexShader = sh.vertexShader
       .replace('#include <common>', `#include <common>
         attribute vec4 aRigA;
         attribute vec2 aRigB;
         attribute float aRigJaw;
+        varying vec3 vHorseLocal;
         uniform vec2 uHeadAng; uniform vec2 uTailAng; uniform vec4 uLegAng; uniform vec2 uJawAng;
         uniform vec3 uPivHead; uniform vec3 uPivTail; uniform vec3 uPivLegF; uniform vec3 uPivLegH; uniform vec3 uPivJaw;
         vec3 rigRX(vec3 p, vec3 pv, float a){ float c = cos(a), s = sin(a); vec3 d = p - pv;
@@ -894,6 +900,7 @@ export function installHorseRig(mat, geo, W, piv){
       `)
       .replace('#include <begin_vertex>', `
         vec3 transformed = vec3( position );
+        vHorseLocal = position;
         /* 下颌先开合，再套头颈旋转（顺序反了的话，低头时下巴会被拉离鼻子） */
         if (aRigJaw > 0.002) transformed = mix(transformed, rigRX(transformed, uPivJaw, uJawAng.x), aRigJaw);
         if (aRigA.x > 0.002){ vec3 q = rigRX(transformed, uPivHead, uHeadAng.x); q = rigRY(q, uPivHead, uHeadAng.y); transformed = mix(transformed, q, aRigA.x); }
@@ -903,6 +910,22 @@ export function installHorseRig(mat, geo, W, piv){
         if (aRigB.x > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegH, uLegAng.z), aRigB.x);
         if (aRigB.y > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegH, uLegAng.w), aRigB.y);
       `);
+    /* 片元：口鼻去粉（见 uMuzzle 的注释）。用 map_fragment 之后改 diffuseColor，
+       贴图与顶点色都已经乘进去了，压的是最终颜色。 */
+    sh.fragmentShader = sh.fragmentShader
+      .replace('#include <common>', `#include <common>
+        varying vec3 vHorseLocal;
+        uniform vec3 uMuzzle;`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+        {
+          float mz = smoothstep(uMuzzle.z - 0.16, uMuzzle.z - 0.03, vHorseLocal.z);
+          float my = 1.0 - smoothstep(uMuzzle.y + 0.02, uMuzzle.y + 0.20, vHorseLocal.y);
+          float mm = mz * my;
+          if (mm > 0.01){
+            float ml = dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114));
+            diffuseColor.rgb = mix(diffuseColor.rgb, vec3(ml * 1.02, ml * 0.95, ml * 0.93), 0.85 * mm);
+          }
+        }`);
   };
   mat.needsUpdate = true;
 }

@@ -444,9 +444,11 @@ const DEFS = [
     hidePose: null,
     hideUntilVisit: true,    // 到访开始前不出现（马厩的常驻马夫是 groom）
     tint: 0xDFE2D8,          // 冷一点的灰，和院子的黄沙地分开（暖米色会糊在沙里）
-    /* 与 groom 共用同一件 GLB：到访中两人会同框（车夫在拴马桩、马夫在马旁），
-       全同色会被读成"复制人"。车夫袍子转成石青，马夫保持原色。 */
-    dye: { hue: 0.08, w: 0.16, shift: 0.55, sat: 0.95, val: 0.92 },
+    /* ⚠️ 2026-10-27 撤掉染衣（老黄："马夫的脸色应该是正常的亚洲黄种人的肤色"）：
+       原来给车夫配了 `dye { hue: 0.08, w: 0.16, shift: 0.55 }` 把袍子转成石青，
+       好和常驻马夫区分。但这条色相带 0.08±0.16 **正好覆盖肤色**（黄种人皮肤 h≈0.05~0.09），
+       而这张脸贴图的明度又低于 uDyeVMax 闸门 ⇒ **连脸一起被染成青蓝**（老黄截图里那个蓝脸）。
+       现在两人不再同框（车夫在场时把常驻马夫收起，见 setGroomVisible），染色没有必要了。 */
     /* 落点：马厩院里那匹低头就食的枣马（马身世界 x∈[38.20,38.80]、z∈[−0.15,1.70]，
        马头在 +z 那头、低头吃草时口鼻约 (38.5,0.87,1.81)）。
        ⚠️ P3（刷马）实测姿势（outputs/_diag/actor-brush-solve.mjs，26 方向射线取最近面）：
@@ -1541,6 +1543,15 @@ function driveTour(dt){
 }
 
 /* 开演（条件满足时）：马车已在路上，客人在车里，马夫在车夫位。 */
+/* ── 只留一个马夫（2026-10-27 老黄："现在出现了两个马夫…一个马夫就够了"）──────────
+   车夫（laborer）与常驻马夫（groom）是同一件 GLB 的两个人，到访期间会同框在马厩里，
+   两个人穿着、头巾、身材都一样 ⇒ 读作"两个马夫站在马旁边"。
+   车夫一上场就把常驻马夫收起来（车夫走了再放回来），场上任何时刻只有一个马夫。 */
+function setGroomVisible(v){
+  const gm = actorRef('groom');
+  if (gm) gm.holder.visible = !!v;
+}
+
 function startVisit(){
   const V = stableTravel();
   const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId), host = actorRef(VISIT.hostId);
@@ -1568,6 +1579,7 @@ function startVisit(){
   coach.trip = null; coach.tieTarget = false; coach.tieW = 0; coach.coachW = 0;
   coach.holder.visible = true;
   setRide(coach, P, CARRY.coach, true);
+  setGroomVisible(false);          // 车夫上场，常驻马夫退场（场上只留一个马夫）
 
   host.walkOff = true; host.arrived = false; host.trip = null;
   return true;
@@ -1610,6 +1622,8 @@ function resetVisit(){
     /* 车夫只属于到访：复位后藏起来，马厩交给常驻 groom（否则同一件 GLB 的两个人
        会在 38,1.3 重叠，用户又看到"两个马夫"）。下一次 startCarVisit 会重新显示。 */
     coach.holder.visible = false;
+    /* 车夫退场 ⇒ 常驻马夫回到马厩（场上始终只有一个马夫） */
+    setGroomVisible(true);
   }
   /* 两书童：复位时回堂前各自的位子。
      ⚠️ 2026-10-27 必须加这一段：他们跑到井边后会**留在井边**，而下一场到访的

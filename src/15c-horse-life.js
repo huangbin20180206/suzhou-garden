@@ -544,7 +544,7 @@ export function loadRodinHorses(slots){
       const rig = rodinRigOf(geo);
       /* 伪蒙皮注入：shader 挂在**材质**上，所以每匹各注一次（顶点属性在几何上，
          同模型的第二匹会重写一份等值的 aRigA/aRigB —— 一次性开销，忽略） */
-      installHorseRig(mat, geo, rig.W, rig.piv);
+      installHorseRig(mat, geo, rig.W, rig.piv, rig.nose);
       /* 防御性复核：归一化哪天被改坏（脚底不在 0 / 总高差太多），先在控制台点出来 */
       const bb = new THREE.Box3().setFromObject(root);
       const hh = bb.max.y - bb.min.y;
