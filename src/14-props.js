@@ -237,7 +237,10 @@ export function makeStoneTableSet(x, z, yaw = 0){
      mergeStatics 会把它们并进 MAT.celadon 的静态大网 —— 网格从组里被搬走、名字与引用一起
      丢掉 ⇒ 之后**再也开关不了**，而且不报错、状态全对（竹帘条 / 手持木桶同一类坑）。
      noMerge 的代价是 2 个 draw call，换"雨里真的能把棋子收起来"。 */
-  for (const [bx, bz] of [[0.34, 0.10], [0.30, -0.16]]){
+  /* 2026-10-27：两只钵原来都在棋盘**远侧** —— 等于两个人的棋子盒都放在 go1 手边，
+     go2 想"伸手探钵"够不到。改成一人一只：go1 那只留在远侧，go2 那只放到**他左手指尖**
+     正下方（反解结果 世界 (6.556,−5.74) ⇒ 桌面局部 (−0.514,−0.010)，钵心半径 0.514 < 桌面 0.60）。 */
+  for (const [bx, bz] of [[0.34, 0.10], [-0.514, -0.010]]){
     const bowl = mesh(new THREE.CylinderGeometry(0.072, 0.060, 0.062, 14), MAT.celadon, { name:'propGoBowl', cast:false });
     bowl.position.set(bx, 0.751, bz);
     bowl.userData.noMerge = true;
