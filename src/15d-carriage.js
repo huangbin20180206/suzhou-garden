@@ -337,51 +337,28 @@ export function makeCarriage(opts = {}){
       ]);
       g.add(mesh(new THREE.TubeGeometry(trace, 6, 0.018, 4, false), strap, { name: 'yokeTrace', cast: false }));
     }
-    /* ── 口络带（2026-10-14 · 用户报"马嘴和套车器具之间没有连接、悬空，像各自咬了一根木棍"）──
-       ⚠️⚠️ 坐标系是这一条的关键（首版画错、出图"带子垂到马胸前"）：
-         车 rotation.y=π ⇒ **车局部 +z = 世界 −z**；车心世界 z=−0.6 ⇒ 局部 z 与 世界 z 关系
-         `世界z = −0.6 − 局部z`。
-         实测（运行期探针）：辕里两匹马心世界 z≈0.85 ⇒ **车局部 z≈−1.45**（负侧！），
-         马嘴世界 z≈−0.30 ⇒ 车局部 z≈**−0.30**；横轭在局部 +1.98（世界 −2.58）= **在马的后面**。
-         即"马站在车的后方、辕朝相反方向" —— 首版把带子画在局部 +1.98→+2.96，
-         等于挂在车头那侧，与马嘴隔了 3m，所以出图看着是悬空垂落。
-       修法：把口络带画在**马身这一侧**（局部 z 为负），形成嘴→颊带→鼻革→缰绳的闭环：
-         · 鼻革 at 局部 z≈−0.30（= 马嘴正中），y≈0.98
-         · 颊带 从鼻革两侧斜向后上 to 局部 z≈−0.75, y≈1.15（马颊）
-         · 缰绳 从颊带上端向后 to 局部 z≈−1.30, y≈1.25（车辕/颈圈侧），形成可读的连接
-       半径 0.012~0.015（皮带量级）；与既有 strap(MAT.harness) 同材质，不引入新资产。 */
+    /* ── 缰绳（2026-10-14 提出、2026-10-27 定案）────────────────────────────────
+       2026-10-14 版按"马在车局部 −z"画了口络/颊带/缰绳，2026-10-27 用户报"车后面的木条
+       还在、越来越多"——实测两组辕马的马心在**车局部 +z**：parked 时 z≈1.45、
+       行驶时 z≈2.15，鼻端 z≈2.5/3.2。画在 −z 的管子从车厢后壁探出一排 50cm 细杆，
+       还从车厢里穿过去，正是那排"木条"。
+       现在只保留 **+z 侧的缰绳**：马鼻端 → 马颈外侧 → 车夫手部（z≈1.15）。
+       半径 0.012（皮带量级）；与既有 strap(MAT.harness) 同材质，不引入新资产。 */
     const MX = sx0 => sx0 * 0.40;                 // 两匹马横向（与辕距对齐）
+    /* ⚠️⚠️ 2026-10-27 修正（老黄："马车后面的木条还在，还越来越多"）：
+       上一版把口络/颊带/缰绳全画在**车局部 −z**（= 车厢后壁之外），再从前端拉回车夫手部
+       ⇒ 管子在车后探出一排 50cm 的细杆、并从车厢里穿过去（截图那几条"木条"就是它们）。
+       实测：辕里两匹马在**车局部 +z**（parked 马心 z≈1.45、行驶 z≈2.15，鼻端 z≈2.5/3.2）。
+       所以缰绳只能走在 +z 一侧：从马鼻端 → 马身外侧 → 车夫手部（z≈1.15，已出车厢前壁）。
+       不再生成负 z 侧的口络/颊带/前段管，车尾不会再有任何探出物。 */
     for (const sx of [-1, 1]){
-      /* 鼻革：跨过马嘴的一小段横带 */
-      const nose = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(MX(sx) - 0.075, 0.99, -0.30),
-        new THREE.Vector3(MX(sx),        0.97, -0.38),
-        new THREE.Vector3(MX(sx) + 0.075, 0.99, -0.30),
+      const handX = sx * 0.20;
+      const rein = new THREE.CatmullRomCurve3([
+        new THREE.Vector3(MX(sx),        1.10, 2.45),   // 马鼻端（parked 实测 z≈2.47）
+        new THREE.Vector3(sx * 0.50,     1.20, 1.90),   // 从马颈外侧绕过（不穿马身）
+        new THREE.Vector3(handX,         1.28, 1.15),   // 车夫手部（车夫座前沿）
       ]);
-      g.add(mesh(new THREE.TubeGeometry(nose, 6, 0.014, 5, false), strap, { name: 'bridleNose', cast: false }));
-      for (const s2 of [-1, 1]){
-        /* 颊带：鼻革侧端 → 马颊侧后方（斜向上后） */
-        const cheek = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(MX(sx) + s2 * 0.075, 0.99, -0.30),
-          new THREE.Vector3(MX(sx) + s2 * 0.095, 1.08, -0.55),
-          new THREE.Vector3(MX(sx) + s2 * 0.105, 1.16, -0.78),
-        ]);
-        g.add(mesh(new THREE.TubeGeometry(cheek, 6, 0.013, 5, false), strap, { name: 'bridleCheek', cast: false }));
-        /* 缰绳：颊带上端 → 向后拉到车辕侧，再向前延伸至车夫手部（形成"套着且有人拉"的可读连接） */
-        const rein = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(MX(sx) + s2 * 0.105, 1.16, -0.78),
-          new THREE.Vector3(MX(sx) + s2 * 0.115, 1.22, -1.10),
-          new THREE.Vector3(MX(sx) + s2 * 0.120, 1.26, -1.42),
-        ]);
-        g.add(mesh(new THREE.TubeGeometry(rein, 8, 0.012, 4, false), strap, { name: 'bridleRein', cast: false }));
-        // 前段缰绳：从马侧向车夫手部延伸（车局部前侧 0.55, 高 1.38）
-        const driverRein = new THREE.CatmullRomCurve3([
-          new THREE.Vector3(MX(sx) + s2 * 0.120, 1.26, -1.42),
-          new THREE.Vector3(MX(sx) + s2 * 0.18, 1.30, -0.55),
-          new THREE.Vector3(sx * 0.28, 1.38, 0.55),
-        ]);
-        g.add(mesh(new THREE.TubeGeometry(driverRein, 8, 0.011, 4, false), strap, { name: 'driverRein', cast: false }));
-      }
+      g.add(mesh(new THREE.TubeGeometry(rein, 10, 0.012, 4, false), strap, { name: 'bridleRein', cast: false }));
     }
   } else {
     for (const sx of [-1, 1]){

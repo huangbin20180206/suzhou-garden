@@ -92,7 +92,13 @@ const HALL_SIT = {
   drop: 0.12, thigh: 1.44, knee: 1.50, foot: 0.0, lean: 0.18, headDown: 0.18,
   skirtLen: 0.72, skirtRad: 1.20, lift: 0.90, kneeSwap: 1.00,
 };
+/* ── 车夫坐姿（2026-10-27 老黄："马夫依旧是缩成一团"）──────────────────────────
+   车夫用的是 SIT（给石桌对弈反解的 lean 0.52）：坐在高高的车夫座上再深弓 0.52，
+   读作"缩成一团"。车夫要直腰拉缰，只需轻微低头看马；腿仍沿用 SIT 的坐姿角度
+   （座面 1.15 与凳面不同，但这一组数至少保证不劈叉/穿车）。 */
+const COACH_SIT = Object.assign({}, SIT, { lean: 0.08, headDown: 0.12, skirtLen: 0.72 });
 function curSit(a){
+  if (a.def.id === VISIT.coachId) return COACH_SIT;
   return (a.def.id === 'scholar' || a.def.id === 'guest') ? HALL_SIT : SIT;
 }
 
@@ -430,8 +436,16 @@ const DEFS = [
     id: 'laborer',
     url: 'assets/fig-laborer.glb',
     height: 1.70,
-    hidePose: 'pointDown',   // 马厩那个"递草"替身（08b 的 pose:'pointDown'）
+    /* ⚠️ 2026-10-27：马夫拆成两个人 —— `laborer` = 车夫（只在到访时驾车/系马），
+       `groom` = 常驻马厩的喂马/刷马人。两者共用同一件 GLB。
+       车夫不再负责替换程序化马夫（hidePose 交给 groom），也不带草把/马刷；
+       否则到访结束后他回到马厩，会和常驻马夫重叠、并且带着坐姿（见 resetVisit）。 */
+    hidePose: null,
+    hideUntilVisit: true,    // 到访开始前不出现（马厩的常驻马夫是 groom）
     tint: 0xDFE2D8,          // 冷一点的灰，和院子的黄沙地分开（暖米色会糊在沙里）
+    /* 与 groom 共用同一件 GLB：到访中两人会同框（车夫在拴马桩、马夫在马旁），
+       全同色会被读成"复制人"。车夫袍子转成石青，马夫保持原色。 */
+    dye: { hue: 0.08, w: 0.16, shift: 0.55, sat: 0.95, val: 0.92 },
     /* 落点：马厩院里那匹低头就食的枣马（马身世界 x∈[38.20,38.80]、z∈[−0.15,1.70]，
        马头在 +z 那头、低头吃草时口鼻约 (38.5,0.87,1.81)）。
        ⚠️ P3（刷马）实测姿势（outputs/_diag/actor-brush-solve.mjs，26 方向射线取最近面）：
@@ -444,10 +458,23 @@ const DEFS = [
     spot: { x: 38.0, z: 1.30, yaw: Math.PI * 0.5 },
     floorRay: true,          // 台基/院子面不是地形：groundHeight 会让他陷 6cm
     route: null,
-    /* 前俯 + 低头 = "看着马把草吃完"。手臂**不动**：这只 rig 的腰带带误权重
-       （见 research/characters/repair_hands.py 注释），转肩会把腰带拽成尖刺。
-       brush：每 7~12s 站起来刷一轮马（只动肘/腕，见 BRUSH 的注释）。 */
-    idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.11, headDown: 0.26,
+    /* 车夫：站立时不再抱草/刷马（那是 groom 的活），只保留呼吸与轻微低头。 */
+    idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.06, headDown: 0.10 },
+  },
+  {
+    /* 常驻马厩的马夫（2026-10-27 从 laborer 里拆出来）：位置/朝向/动作沿用 P3 反解结果
+       （x=38.0, z=1.30, yaw=π/2：刷尖到马身 42~74mm、命中高度 1.16~1.28m 的颈颌）。
+       ⚠️ 这两个人共用 fig-laborer.glb；groom 负责 hidePose:'pointDown' 替换程序化马夫，
+       laborer 不再替换（它只在到访时出现，平时 holder.visible=false）。 */
+    id: 'groom',
+    url: 'assets/fig-laborer.glb',
+    height: 1.70,
+    hidePose: 'pointDown',
+    tint: 0xD8D2C2,
+    spot: { x: 38.0, z: 1.30, yaw: Math.PI * 0.5 },
+    floorRay: true,
+    route: null,
+    idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.07, headDown: 0.14,
             brush: true, brushEvery: BRUSH.every, hay: true },
   },
   /* 两个书童（08b 的 'child' 一对，半围在先生两侧）。一件资产、两次 parse：
@@ -576,14 +603,15 @@ function hideProcedural(poseName, near){
    系数取 1.5 是为了让 idle.armDown=0.80 用同一套权重语义（0.8×1.5=1.2rad）。 */
 const ARM_DOWN = 1.5;
 
-/* ── 端庄步态（2026-10-26 主客到访「手放后背 / 叠扇」→ 2026-10-27 修为自然下垂轻摆）──────
-   老黄："摇摇晃晃、手摊在身前不合常理，达官贵人一般手放后背或手拿叠扇"。
-   · 首版"双手背身、零摆幅"被读成"手被捆在背后/僵硬" —— 幅度 0，不摆正是问题；
-   · 修为"自然下垂轻摆"：手在体侧略前自然下垂，步行时前后轻摆 0.20rad（≈11°），
-     幅度约为普通摆臂的一半，读作端庄而不僵。splay（sy）从 0.48 收到 0.12，避免外八字。 */
+/* ── 端庄步态（2026-10-27 定案：自然下垂 + 轻微前后摆）────────────────────────
+   老黄两轮反馈："摇摇晃晃、手摊在身前不合常理" / "走路姿势，手还是不对"。
+   首版"双手背身、零摆幅"读作被捆住；后来把肩角压到 −1.15 又**反而抬到胸前**
+   （arm-axis-scan-2026-10-27 实测：sx=−1.2 ⇒ 腕 y=1.14/前 z=0.42；
+    sx=−0.2 ⇒ 腕 y=0.895/前 z=0.15）。所以本 rig 的自然垂手在 **sx≈−0.25**，
+   不是越负越垂。步行只用 ±0.18rad 前后摆，肘几乎不弯（0.03）。 */
 const DIGNIFIED_WALK = {
-  L: { sx: -0.55, sy: 0.12, sz: 0.06, ex: 0.18, hx: 0.08 },
-  R: { sx: -0.55, sy: -0.12, sz: -0.06, ex: 0.18, hx: 0.08 },
+  L: { sx: -0.25, sy: 0.00, sz: 0.00, ex: 0.03, hx: 0.02 },
+  R: { sx: -0.25, sy: 0.00, sz: 0.00, ex: 0.03, hx: 0.02 },
 };
 const DIGNIFIED_IDS = new Set(['scholar', 'guest']);
 
@@ -668,6 +696,7 @@ function settleActor(def, ok, err){
   else if (def.id === 'qin') HOOKS.settleAsset?.('assets/fig-scholar.glb', ok, err);
   else if (def.id === 'lady') HOOKS.settleAsset?.('assets/fig-lady.glb', ok, err);
   else if (def.id === 'laborer') HOOKS.settleAsset?.('assets/fig-laborer.glb', ok, err);
+  else if (def.id === 'groom') HOOKS.settleAsset?.('assets/fig-laborer.glb', ok, err);
   else if (def.id === 'child1' || def.id === 'child2') HOOKS.settleAsset?.('assets/fig-child.glb', ok, err);
   else if (def.id === 'guest') HOOKS.settleAsset?.('assets/fig-guest.glb', ok, err);
 }
@@ -1241,6 +1270,11 @@ function tickCarriage(dt){
     if (!S.coachOff) setRide(coach, S.last, CARRY.coach, true);
     if (S.t > 0.8 && !S.coachOff){
       S.coachOff = true;
+      /* ⚠️ 2026-10-27 真 bug（老黄："马夫依旧是缩成一团，也没有任何动作"）：
+         马夫从车夫位下来时 startTrip 只把 ride 清掉，**sitTarget 仍是 1** ⇒
+         他下地后一路以坐姿（髋沉、两腿折叠）走到拴马桩、站在那儿，眼看着就是"缩成一团"。
+         下车这一刻把 sitTarget 归零（sitW 在 1s 的 trip 里按 2.2/s 自然站直）。 */
+      coach.sitTarget = 0;
       const g = carPoint(S.last, CARRY.coachGround.x, CARRY.coachGround.z);
       g.y = groundHeight(g.x, g.z);
       startTrip(coach, { x: g.x, y: g.y, z: g.z,
@@ -1381,6 +1415,10 @@ function tickCarriage(dt){
       guest.holder.visible = false;
       coach.holder.visible = false;
       guest.ride = null; coach.ride = null;
+      /* 车走了之后两人都进入隐藏态；清坐姿，避免 45s 后 resetVisit 把"坐着的人"
+         直接放回马厩（resetVisit 里也有同样的清零，这里是双保险）。 */
+      guest.sitTarget = 0; guest.sitW = 0;
+      coach.sitTarget = 0; coach.sitW = 0; coach.offerW = 0;
     }
     return;
   }
@@ -1468,12 +1506,37 @@ function resetVisit(){
   if (coach){
     coach.ride = null; coach.trip = null; coach.tieTarget = false;
     coach.tieW = 0; coach.coachW = 0;
+    /* ⚠️ 2026-10-27 真 bug（老黄："马夫依旧是缩成一团，也没有任何动作"）：
+       setRide(..., true) 把 sitTarget 置 1，复位时只清了 ride/trip ⇒ 马夫回到马厩
+       仍保持坐姿（髋沉、两腿折叠）站在原地，像一团缩着的人，且刷马动作被坐姿盖掉。
+       guest 那一支一直有清零（见上），coach 漏了同一行。 */
+    coach.sitTarget = 0; coach.sitW = 0; coach.offerW = 0;
+    coach.moveW = 0; coach.brushT = 0; coach.brushW = 0;
     coach.pos.x = coach.def.spot.x; coach.pos.z = coach.def.spot.z;
     coach.y = coach.def.spot.y !== undefined ? coach.def.spot.y : groundHeight(coach.pos.x, coach.pos.z);
     coach.yaw = coach.def.spot.yaw;
     coach.floorY = null; coach.floorDone = false; coach.floorTries = 0;
     coach.walkOff = true; coach.arrived = false; coach.def.route = null;
-    coach.holder.visible = true;
+    /* 车夫只属于到访：复位后藏起来，马厩交给常驻 groom（否则同一件 GLB 的两个人
+       会在 38,1.3 重叠，用户又看到"两个马夫"）。下一次 startCarVisit 会重新显示。 */
+    coach.holder.visible = false;
+  }
+  /* 两书童：复位时回堂前各自的位子。
+     ⚠️ 2026-10-27 必须加这一段：他们跑到井边后会**留在井边**，而下一场到访的
+        路线仍从堂前开始 ⇒ 起手第一步就是从井边直线穿回堂前（横穿池塘）。
+        用户看到的"两个小孩子趟着池子边缘过去"有很大概率就是第二场以后的重播。
+        复位时把人放回原位、清掉旧路线与 stepUp，下一场由 stow 相位重新给路线。 */
+  for (const id of ['child1', 'child2']){
+    const c = actorRef(id);
+    if (!c) continue;
+    c.ride = null; c.trip = null;
+    c.def.route = null; c.walkOff = true; c.arrived = false;
+    c.target = 0; c.moveW = 0; c.moved = 0; c.step = 0;
+    c.pos.x = c.def.spot.x; c.pos.z = c.def.spot.z;
+    c.y = groundHeight(c.pos.x, c.pos.z);
+    c.yaw = c.def.spot.yaw;
+    c.floorY = null; c.floorDone = false; c.floorTries = 0; c.sampleT = 0;
+    c.def.stepUp = 0.42; c.def.floorMax = 1.20;
   }
   if (host){
     host.ride = null; host.trip = null;
@@ -1554,10 +1617,30 @@ function tickVisit(dt){
          洼地走（S5 探针实测 floorY 一路 −0.5~−1.0）。迎客上坡与 S5 送客回程
          同一条路，这里放宽到 0.80，到门口'face'收回。 */
       host.def.stepUp = 1.35;
-      // 两书童随主人离席，跑向井边与仕女玩（2026-10-26 缺陷3）
+      /* 两书童随主人离席，跑向井边与仕女玩（2026-10-26 缺陷3；
+         2026-10-27 重定路径 — 用户："两个小孩子是直接趟着池子边缘过去的"）。
+         旧路 z≈−5.2/−5.8 在池的**左瓣下缘**（池局部 y≈−8.2，世界 z≈−5.2）穿过水面。
+         新路先沿主人进堂的踏跺上台（与 ENTER_PTS 同一组已验证的点），
+         沿月台前缘（z≈−7.2，铺地顶面 1.30）向西，过月台西端下到草地，
+         再沿草地北缘绕到井边 —— 全程在岸上，最近点也离开水面 0.6m 以上。
+         ⚠️ floorMax 必须给 1.70：月台铺地是 1.30，旧的 1.20 会把铺地当"屋顶"拒掉，
+            采样回落到地形 ⇒ 人会贴着池岸走（这正是一条"看起来像趟水"的成因）。 */
       const c1 = actorRef('child1'), c2 = actorRef('child2');
-      if (c1) giveRoute(c1, [[-5, -5.2], [-12, -6.0], CHILD_WELL.c1], 1.05, 0.15, 1.20);
-      if (c2) giveRoute(c2, [[-4, -5.5], [-11, -5.8], CHILD_WELL.c2], 1.05, 0.20, 1.20);
+      /* 上台第一级 0.31 比默认 stepUp 0.42 只差一点，但实测旧值下两童**上不去**：
+         followFloor 的窗口拒绝台阶顶、floorY 回落到平台下的地面（y≈−0.5），
+         人就贴着池岸/钻进月台肚子里走。必须和主人进堂时一样把 stepUp 放到 1.35。 */
+      if (c1) c1.def.stepUp = 1.35;
+      if (c2) c2.def.stepUp = 1.35;
+      if (c1) giveRoute(c1, [
+        [1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -7.2],
+        [-3.0, -7.2], [-7.0, -7.2], [-10.5, -7.05], [-12.2, -6.85],
+        [-15.0, -6.75], [-17.5, -6.85], [-18.6, -6.9], CHILD_WELL.c1,
+      ], 1.05, 0.15, 1.70);
+      if (c2) giveRoute(c2, [
+        [0.62, -5.10], [0.0, -5.85], [0.45, -6.4], [0.45, -7.25],
+        [-3.2, -7.25], [-7.2, -7.25], [-10.7, -7.1], [-12.4, -6.9],
+        [-15.2, -6.8], [-17.7, -6.9], [-18.8, -6.95], CHILD_WELL.c2,
+      ], 1.05, 0.20, 1.70);
     }
     return;
   }
@@ -1981,11 +2064,11 @@ function advance(dt){
       if (isDignified){
         // 端庄轻摆：自然下垂、手在体侧略前，步行时前后轻摆 0.20rad（≈11°），幅度约为普通摆臂一半
         const D = DIGNIFIED_WALK;
-        const swing = Math.sin(p) * 0.20 * w;
+        const swing = Math.sin(p) * 0.16 * w;
         set('LeftUpperArm', D.L.sx - swing, D.L.sy, D.L.sz);
         set('RightUpperArm', D.R.sx + swing, D.R.sy, D.R.sz);
-        set('LeftLowerArm', D.L.ex + 0.08 * Math.max(0, Math.sin(p)) * w, 0, 0);
-        set('RightLowerArm', D.R.ex + 0.08 * Math.max(0, -Math.sin(p)) * w, 0, 0);
+        set('LeftLowerArm', D.L.ex + 0.04 * Math.max(0, Math.sin(p)) * w, 0, 0);
+        set('RightLowerArm', D.R.ex + 0.04 * Math.max(0, -Math.sin(p)) * w, 0, 0);
         set('LeftHand', D.L.hx, 0, 0);
         set('RightHand', D.R.hx, 0, 0);
         for (const sd of ['Left','Right']){
@@ -2018,7 +2101,11 @@ function advance(dt){
     /* 到访期间（从客人走到门口起）：文士退出"捧卷 ↔ 端茶"的日常循环。
        否则他会在迎客路上一手卷轴一手茶盏（规划文档 §3 第 6 条点名的风险）。 */
     const visiting = a.def.id === VISIT.hostId && VISIT.phase !== 'idle';
-    if (o.scroll && !visiting){
+    /* ⚠️ 2026-10-27 真 bug（老黄："走路姿势，手还是不对"）：捧卷只在**站定**时做。
+       之前只判 !visiting ⇒ 文士在自己散步时**边走边捧卷**，走路臂姿被 SCROLL 的手位整个覆盖，
+       画面上就是"两只手摊在身前、掌心朝下"（卷轴又被宽袖挡住看不见）。
+       w>0.05 时走进下面的 else-if，卷轴 0.55s 收起、手臂回到步行摆臂。 */
+    if (o.scroll && !visiting && w < 0.05){
       a.scrollT += dt;
       if (a.scrollPhase === 0 && a.scrollT >= a.scrollHold){
         a.scrollPhase = 1; a.scrollT = 0;
@@ -2101,7 +2188,8 @@ function advance(dt){
        只在**喝茶那只手**上写（右手），左臂继续走 armDown —— 两只手都端起来就成了"捧"。
        ⚠️ 与"捧卷轴"互斥：文士双手都占着卷轴时不能端盏 ⇒ 只在卷轴放下的那一相
           （a.scrollPhase === 2）才跑这段；其余时候把 sip 归零（否则低头角会冻住）。 */
-    if (o.tea && (!visiting || (a.offerW || 0) > 0.001)){
+    /* 同理：走路时不端盏（否则右臂被 TEA_ARM 抬到胸前，摆臂消失）。 */
+    if (o.tea && (!visiting || (a.offerW || 0) > 0.001) && w < 0.05){
       let sip = 0;
       if (visiting){
         /* 迎客到访（S4）：举盏的权重由导演层给（1.2s 举到位、停 4.5s、1s 放下），
