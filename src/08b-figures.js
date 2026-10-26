@@ -52,8 +52,8 @@ export const FIG_PALETTE = {
      复用 indigo/ochre 会直接进"同框"那组、且 indigo 只剩 1 点余量（阈值 60）。
      下面两色对现役五色的最小距离：绛紫 68（vs ochre）、藏青 52（vs indigo，两者 slot 不重叠、
      不参与判定，故可取）。两色对**草坪绿 #457441** 分别是 92 / 72，都过 LAWN_D 60。 */
-  plum:    { robe:0x8B4A6B, trim:0xE2D6C8, sash:0x4A2C3E },   // 绛紫 · 对弈（东草坪石桌）
-  navy:    { robe:0x2F4E7A, trim:0xDDD8C6, sash:0x1C2C44 },   // 藏青 · 对弈（东草坪石桌）
+  plum:    { robe:0xB0306A, trim:0xF0E6D8, sash:0x5A1A33 },   // 绛紫改鲜艳玫红（2026-10-26：下棋人素暗，看不出大户）
+  navy:    { robe:0x2E5FAA, trim:0xE8EEF8, sash:0x1B2E66 },   // 藏青改宝蓝鲜亮（同上）
   /* 石青 · 抚琴（水榭临水）。它和上面两色同在 12.5~18 档、又与该档的 moss 同框，
      所以要求 ≥60 的伙伴是 {moss, plum, navy}：实测 67 / 94 / 100，全部有余量。
      与 indigo/lily 只差 50/33，但那两色分别属 7.5~12 / 18~23 档，**永不与它同框**
@@ -1858,11 +1858,11 @@ export function tickFigureAction(f, dt){
     a.w = Math.max(lean, up, reach);
     if (sp){
       /* −0.05 是**坐直**的基线：光把头抬高不够，躯干还略微前倾时整个人仍读作"趴在桌上"。 */
-      sp.rotation.x = -0.05 + 0.10 * lean - 0.06 * up + 0.04 * nod;
+      sp.rotation.x = -0.02 + 0.03 * lean - 0.02 * up + 0.02 * nod; // 2026-10-26改直：原来趴桌（0.10/-0.06）
       sp.rotation.z = 0.020 * Math.sin(a.c * 1.05 + a.ph);       // 慢摆：静物感的分界线
     }
     if (hd){
-      hd.rotation.x = a.headBase + 0.10 * lean - 0.34 * up + 0.10 * nod;
+      hd.rotation.x = a.headBase + 0.03 * lean - 0.12 * up + 0.05 * nod;
       hd.rotation.y = 0.20 * up + 0.05 * Math.sin(a.c * 0.7 + a.ph * 1.3);   // 抬头时转头"看"
     }
     if (arms && arms.R){

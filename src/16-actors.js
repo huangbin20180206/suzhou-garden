@@ -367,7 +367,7 @@ const DEFS = [
     tint: 0xAEB9C9,          // 生成件偏亮蓝；压一点饱和，贴近场景的工笔淡彩
     /* 2026-10-25 着装：主人换成**藏青**（压暗 + 提饱和）。蓝衣在生成件上已经"很雅"，
        但一眼看不出"这家有钱"——深青直裰是明清文士的正装色，比浅蓝更像当家人。 */
-    dye: { hue: 0.60, w: 0.16, shift: -0.02, sat: 1.22, val: 0.80 },
+    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.42, val: 1.22 }, // 绛紫鲜艳丝绸（2026-10-26：大户人家主人，宝蓝太素）
     spot: { x: 1.2, z: -5.7, yaw: 0.42 },
     /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
        走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
@@ -497,6 +497,7 @@ const DEFS = [
     height: 1.70,
     hidePose: null,
     tint: 0xF0EDE6,          // 生成件本身就偏灰褐，只做很轻的提亮（压重会糊成一团）
+    dye: { hue: 0.58, w: 0.13, shift: 0.00, sat: 1.28, val: 1.12 }, // 月白偏天青鲜亮（与主人绛紫分开）
     spot: { x: 40.0, z: 4.2, yaw: -0.13 },      // 马厩门口（石板路起点），面朝路
     floorRay: true,
     followFloor: true,
@@ -552,6 +553,19 @@ function hideProcedural(poseName, near){
    1.2rad ⇒ 腕心 (±0.28, 0.91, 0.23)：手落在身侧略前、与大腿齐 —— 直裰垂手的读法。
    系数取 1.5 是为了让 idle.armDown=0.80 用同一套权重语义（0.8×1.5=1.2rad）。 */
 const ARM_DOWN = 1.5;
+
+/* ── 端庄步态（2026-10-26 主客到访「手放后背 / 叠扇」）──────────────────────────
+   老黄截图："摇摇晃晃、手摊在身前不合常理，达官贵人一般手放后背或手拿叠扇（一手在前一手在后）"。
+   · 之前走路靠摆臂（swing 0.40rad）实现，左右交替像"扭捏"；
+   · 端庄走法：双手背在身后、轻微屈肘、手在腰后轻握 —— 幅度 0，不摆。
+   实测这套骨架：肩 X 正=往后背，Y 正=往外撇，Z 正=往前扭；
+     0.35~0.45 已把手送到身后腰际，肘 1.05~1.15 把前臂折回身后。
+   叠扇版在 16a-actor-props 的 makeFan 另做，这里先给"双手背身"打底。 */
+const DIGNIFIED_WALK = {
+  L: { sx: 0.42, sy: 0.48, sz: 0.18, ex: 1.08, hx: 0.22 },
+  R: { sx: 0.42, sy: -0.48, sz: -0.18, ex: 1.08, hx: 0.22 },
+};
+const DIGNIFIED_IDS = new Set(['scholar', 'guest']);
 
 /* ── 衣料染色（2026-10-25）──────────────────────────────────────────────────
    老黄："所有成人的着装都一样，包括两个孩子，而且特别素雅，不像能住得起这种大院的人家"。
@@ -1937,14 +1951,36 @@ function advance(dt){
          · 左右**反号**：左 x 更负 = 手往前、右 x 更正 = 手往后 ⇒ 与腿交替；
          · 幅度 0.40rad，配 0.10~0.26rad 屈肘（摆到前面那只手更弯）+ 前臂内旋 ±0.12
            让掌心朝向身体 —— 直臂摆动像机器人，掌心朝外像"端着架子"。 */
-      const swing = Math.sin(p) * 0.40 * w;
-      set('LeftUpperArm', -ADK * ad - swing, 0, 0);
-      set('RightUpperArm', -ADK * ad + swing, 0, 0);
-      if (w > 0.02){
-        const bendL = 0.10 + 0.16 * Math.max(0, Math.sin(p)) * w;
-        const bendR = 0.10 + 0.16 * Math.max(0, -Math.sin(p)) * w;
-        set('LeftLowerArm', bendL, 0.12, 0);
-        set('RightLowerArm', bendR, -0.12, 0);
+      const isDignified = DIGNIFIED_IDS.has(a.def.id) && w > 0.02;
+      if (isDignified){
+        // 双手背身：不摆，肘微屈、手在腰后
+        const D = DIGNIFIED_WALK;
+        set('LeftUpperArm', D.L.sx, D.L.sy, D.L.sz);
+        set('RightUpperArm', D.R.sx, D.R.sy, D.R.sz);
+        set('LeftLowerArm', D.L.ex, 0, 0);
+        set('RightLowerArm', D.R.ex, 0, 0);
+        set('LeftHand', D.L.hx, 0, 0);
+        set('RightHand', D.R.hx, 0, 0);
+        // 手指轻握（不张开）
+        for (const sd of ['Left','Right']){
+          set(sd + 'IndexProximal', 0.55, 0, 0);
+          set(sd + 'MiddleProximal', 0.55, 0, 0);
+          set(sd + 'IndexIntermediate', 0.40, 0, 0);
+          set(sd + 'MiddleIntermediate', 0.40, 0, 0);
+          set(sd + 'ThumbProximal', -0.35, 0, 0);
+          set(sd + 'ThumbIntermediate', -0.30, 0, 0);
+          set(sd + 'ThumbDistal', -0.18, 0, 0);
+        }
+      } else {
+        const swing = Math.sin(p) * 0.40 * w;
+        set('LeftUpperArm', -ADK * ad - swing, 0, 0);
+        set('RightUpperArm', -ADK * ad + swing, 0, 0);
+        if (w > 0.02){
+          const bendL = 0.10 + 0.16 * Math.max(0, Math.sin(p)) * w;
+          const bendR = 0.10 + 0.16 * Math.max(0, -Math.sin(p)) * w;
+          set('LeftLowerArm', bendL, 0.12, 0);
+          set('RightLowerArm', bendR, -0.12, 0);
+        }
       }
     }
     /* ── 捧卷读（P2 最后一件）：两手抬到胸前、捧着卷轴读 ────────────────────
