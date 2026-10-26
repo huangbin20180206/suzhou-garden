@@ -98,8 +98,15 @@ const HALL_SIT = {
    读作"缩成一团"。车夫要直腰拉缰，只需轻微低头看马；腿仍沿用 SIT 的坐姿角度
    （座面 1.15 与凳面不同，但这一组数至少保证不劈叉/穿车）。 */
 const COACH_SIT = Object.assign({}, SIT, { lean: 0.08, headDown: 0.12, skirtLen: 0.72 });
+/* ── 对弈坐姿（2026-10-27 老黄："还是一副睡着了的样子，两人都坐直"）──────────────
+   SIT 的 lean 0.52 / headDown 0.46 是**为"手够到盘面"反解的**（见 GO_ARM 注释）：
+   上身压得很低，画面上就是两个人伏在桌上打瞌睡。这里把上身抬到 0.40、头只低 0.16
+   —— 手会随肩一起后移约 5cm，但最深的那只落子手仍在盘边（盘半径 0.30）。
+   若要再抬（0.30 以下）必须重跑 actor-go-solve 那套反解，否则手会离盘。 */
+const GO_SIT = Object.assign({}, SIT, { lean: 0.18, headDown: 0.08 });
 function curSit(a){
   if (a.def.id === VISIT.coachId) return COACH_SIT;
+  if (a.def.id === 'go1' || a.def.id === 'go2') return GO_SIT;
   return (a.def.id === 'scholar' || a.def.id === 'guest') ? HALL_SIT : SIT;
 }
 
@@ -394,7 +401,7 @@ const DEFS = [
     tint: 0xAEB9C9,          // 生成件偏亮蓝；压一点饱和，贴近场景的工笔淡彩
     /* 2026-10-25 着装：主人换成**藏青**（压暗 + 提饱和）。蓝衣在生成件上已经"很雅"，
        但一眼看不出"这家有钱"——深青直裰是明清文士的正装色，比浅蓝更像当家人。 */
-    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.42, val: 1.22 }, // 绛紫鲜艳丝绸（2026-10-26：大户人家主人，宝蓝太素）
+    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.55, val: 1.06 }, // 绛紫绸（2026-10-27 压深一档：1.22 太亮，读作粗布）
     spot: { x: 1.2, z: -5.7, yaw: 0.42 },
     /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
        走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
@@ -633,7 +640,7 @@ function getActorBlobMat(){
   if (!_actorBlobMat){
     _actorBlobMat = new THREE.MeshBasicMaterial({
       map: makeSoftAlphaTex(), color: 0x000000,
-      transparent: true, opacity: 0.26, depthWrite: false,
+      transparent: true, opacity: 0.18, depthWrite: false,
     });
   }
   return _actorBlobMat;
@@ -978,7 +985,10 @@ function loadActor(def){
          规矩与马厩的马同一套：**走动期间不投影、改用贴地软影；停下再烘一次**。
          切换只在"开始走/刚停下"各烘一次（整场景 shadow pass 很贵，不能每帧）。 */
       const blobMat = getActorBlobMat();
-      const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.52), blobMat);
+      /* ⚠️ 2026-10-27 二次收小（老黄："人物移动时脚底还是有拖影，感觉像穿了雪橇"）：
+         0.72×0.52 在低机位下就是一整块深色椭圆，长袍一盖只剩这块"板"。
+         改成 0.44×0.30、透明度 0.18 —— 只当"接触暗部"，不再读成影子/雪橇。 */
+      const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.30), blobMat);
       blob.name = 'actorBlobShadow';
       blob.rotation.x = -Math.PI / 2;
       /* y=0.09：石板路的面在 +0.06 左右，贴 0.02 会被铺地整个盖住（马厩的软影同样取 0.09） */
@@ -1015,7 +1025,9 @@ function loadActor(def){
    （同 poseName 有两位，只按名字取第一个会换错人）。 */
 function seatedDefs(){
   const out = [];
-  [[0, 'go1', 0xBBA9C4], [2, 'go2', 0xA7B7D2]].forEach(([si, id, tint]) => {
+  /* 2026-10-27：原来的淡紫/淡蓝（0xBBA9C4 / 0xA7B7D2）乘在白模上读作"灰扑扑的粗布"。
+     改成两身深色绸衣：靛青 / 松绿（深色才压得住"大户人家"的分量）。 */
+  [[0, 'go1', 0x3F5A7A], [2, 'go2', 0x4E6B58]].forEach(([si, id, tint]) => {
     const st = SEAT_SPOTS[si];
     if (!st) return;
     /* 往桌心挪 0.14m：坐在凳子的**前沿**（真人在石凳上下棋也是这样），
@@ -1023,7 +1035,7 @@ function seatedDefs(){
     const tb = PROP_SPOTS.stoneTable;
     const dx = tb.x - st.x, dz = tb.z - st.z;
     const dl = Math.hypot(dx, dz) || 1;
-    const push = 0.14;
+    const push = 0.30;   // 2026-10-27：坐直之后手要够到盘面 ⇒ 从 0.14 挪到 0.30（坐凳前缘）
     out.push({
       id,
       url: 'assets/fig-scholar.glb',
@@ -1737,12 +1749,19 @@ function tickVisit(dt){
       if (c2) c2.def.stepUp = 1.35;
       if (c1) giveRoute(c1, [
         [1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -7.2],
-        [-3.0, -7.2], [-7.0, -7.2], [-10.5, -7.05], [-12.2, -6.85],
+        /* ⚠️ 2026-10-27（老黄："他们居然从主堂前面的水缸上面跳过去"）：
+           原来从 (-3.0,-7.2) 直连 (-7.0,-7.2)，而左侧水缸在 (−3.7,−7.4)（月台上、
+           边缘内 0.1m，半径约 0.5）⇒ 这一段的直线正好从缸口上过去，stepUp 1.35
+           又允许"踩上去" ⇒ 画面上就是从水缸上跳过去。
+           改成绕缸北侧：先退到月台里侧 z≈−8.45（离缸心 1.05m），过了缸再回边缘。 */
+        [-2.3, -7.2], [-2.3, -8.45], [-5.3, -8.45], [-5.3, -7.2],
+        [-7.0, -7.2], [-10.5, -7.05], [-12.2, -6.85],
         [-15.0, -6.75], [-17.5, -6.85], [-18.6, -6.9], CHILD_WELL.c1,
       ], 1.05, 0.15, 1.70);
       if (c2) giveRoute(c2, [
         [0.62, -5.10], [0.0, -5.85], [0.45, -6.4], [0.45, -7.25],
-        [-3.2, -7.25], [-7.2, -7.25], [-10.7, -7.1], [-12.4, -6.9],
+        [-2.2, -7.25], [-2.2, -8.45], [-5.2, -8.45], [-5.2, -7.25],
+        [-7.2, -7.25], [-10.7, -7.1], [-12.4, -6.9],
         [-15.2, -6.8], [-17.7, -6.9], [-18.8, -6.95], CHILD_WELL.c2,
       ], 1.05, 0.20, 1.70);
     }
@@ -2280,7 +2299,9 @@ function advance(dt){
     /* 手持草料：只动**左肘**（肩保持垂手），手指松松地扣着草把 —— 见 HAY_ARM。
        马车版到访时马夫在驾车/系马，草把收起（否则一手草一手缰）。 */
     if (o.hay && a.coachW < 0.05 && a.tieW < 0.05){
-      set('LeftLowerArm', HAY_ARM.ex, 0, 0);
+      /* 2026-10-27：肘抬到 −0.90 ⇒ 草把举到马的嘴边（腕高约 0.95m），再叠 ±0.05 的慢速
+         提放 —— 原来手臂垂着，草把贴在胸前，画面上读不出"在喂马"。 */
+      set('LeftLowerArm', HAY_ARM.ex + 0.05 * Math.sin(_t * 1.3 + a.phase), 0, 0);
       set('LeftIndexProximal', 0.70, 0, 0);
       set('LeftMiddleProximal', 0.70, 0, 0);
       set('LeftIndexIntermediate', 0.50, 0, 0);
