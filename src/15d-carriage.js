@@ -198,7 +198,9 @@ export function travelCarriageTied(on){
 
 export function makeCarriage(opts = {}){
   const g = new THREE.Group();
-  const wood = MAT.woodDark, trim = MAT.wood, strap = MAT.harness;
+  /* 2026-10-27：按老黄给的参考图，厢壁改朱红（原色是浅木色，读作"货车"）。
+     深色木料仍留给窗框/前梁/底盘 —— 红板 + 深框 + 金边，是参考图那套配色。 */
+  const wood = MAT.woodDark, trim = MAT.woodRed, strap = MAT.harness;
   const detached = !!opts.detached;
   const wheel = (sx, z) => {
     const w = new THREE.Group();
@@ -236,7 +238,7 @@ export function makeCarriage(opts = {}){
          坐姿客人头顶 1.42（车y 0.075 + 座0.60 + 坐高0.74）距顶 0.18m，不穿模且不压抑；
        · 榫头：不再外露，后向 4 根短棍一并取消。 */
   const bedY = 0.72;
-  const CAB_W = 1.38, CAB_L = 1.62, WALL_H = 0.95, ROOF_H = 0.08;
+  const CAB_W = 1.38, CAB_L = 1.62, WALL_H = 0.95;
   const bed = mesh(box(CAB_W, 0.09, CAB_L), wood, { name: 'carriageBed', cast: true });
   bed.position.set(0, bedY, -0.06); g.add(bed);
   // 侧墙：三段式（窗上/窗间/窗下）留出两个窗洞，避免用布尔/多材质；侧墙收短 0.06，不探出后壁外
@@ -278,16 +280,30 @@ export function makeCarriage(opts = {}){
     curtain.position.set(sx * 0.32, bedY + 0.58, -0.06 + CAB_L/2 - 0.02);
     g.add(curtain);
   }
-  // 平板顶 + 飞檐收口（四周各出挑 0.05）
-  const roof = mesh(box(CAB_W + 0.10, ROOF_H, CAB_L + 0.10), MAT.woodDark, { name: 'carriageRoof', cast: true });
-  roof.position.set(0, bedY + WALL_H + ROOF_H/2, -0.06); g.add(roof);
+  /* ── 拱形车顶（2026-10-27，按参考图改 + 修"客人从车顶穿出来"）─────────────────
+     参考图是"半圆拱顶 + 金色包边 + 朱红厢壁"。原来的平板顶还有个硬伤：
+     平板顶下沿只有 bedY+WALL_H = 1.67m，而坐着的客人头顶约 1.92m（seat.y 1.12 + 坐姿头高 0.80）
+     ⇒ **半个上身从车顶穿出来**（老黄截图）。
+     改成半圆拱（半径 0.60、沿车身长向拉伸）：拱心 2.27m ⇒ 坐直头顶还有 0.35m 余量；
+     拱底与厢壁同宽，两侧各压一根金色包边。
+     ⚠️ 用 ExtrudeGeometry 从"上半圆"拉伸，两端自带封盖；别再回到"平板 + 飞檐"那一版。 */
+  const archR = 0.70, archT = 0.05, archL = CAB_L + 0.10;
+  const archShape = new THREE.Shape();
+  /* ⚠️ 必须做成**薄壳**（外弧 R、内弧 R−T 的环带），不能是实心半圆：
+     实心半圆会把车厢上半部整个填满 —— 客人的头直接埋进"红土"里，
+     只有帽顶从拱面钻出来（第一版就是这样，出图一眼就能看到）。 */
+  archShape.moveTo(-archR, 0);
+  archShape.absarc(0, 0, archR, Math.PI, 0, true);
+  archShape.lineTo(archR - archT, 0);
+  archShape.absarc(0, 0, archR - archT, 0, Math.PI, false);
+  archShape.lineTo(-archR, 0);
+  const archGeo = new THREE.ExtrudeGeometry(archShape, { depth: archL, bevelEnabled: false });
+  archGeo.translate(0, 0, -archL / 2 - 0.06);
+  const roof = mesh(archGeo, MAT.woodRed, { name: 'carriageRoof', cast: true });
+  roof.position.set(0, bedY + WALL_H, 0); g.add(roof);
   for (const sx of [-1, 1]){
-    const eave = mesh(box(0.06, 0.04, CAB_L + 0.10), MAT.wood, { name: 'carriageEave', cast: false });
-    eave.position.set(sx * (CAB_W/2 + 0.05), bedY + WALL_H + 0.02, -0.06); g.add(eave);
-  }
-  for (const sz of [-1, 1]){
-    const eave2 = mesh(box(CAB_W + 0.10, 0.04, 0.06), MAT.wood, { name: 'carriageEaveEnd', cast: false });
-    eave2.position.set(0, bedY + WALL_H + 0.02, -0.06 + sz * (CAB_L/2 + 0.05)); g.add(eave2);
+    const goldBar = mesh(box(0.05, 0.06, archL), MAT.gold, { name: 'carriageRoofTrim', cast: false });
+    goldBar.position.set(sx * (archR - 0.02), bedY + WALL_H + 0.03, -0.06); g.add(goldBar);
   }
   // 厢内座位：靠后壁的横向木座（供客人坐），高 0.38，坐面进深 0.40
   const bench = mesh(box(CAB_W - 0.14, 0.38, 0.42), MAT.wood, { name: 'carriageBench', cast: true });
