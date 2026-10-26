@@ -16,6 +16,7 @@
 // 真正需要裙骨的是**极大幅度**（抬腿/坐/跪），那些动作继续押后。
 
 import { THREE, GLTFLoader } from '../vendor.js';
+import { makeSoftAlphaTex } from './15a-shared.js';
 import { scene, renderer } from './02-scene.js';
 import { groundHeight } from './05-water.js';
 import { markCasterBoxDirty } from './09-lights.js';
@@ -603,17 +604,47 @@ function hideProcedural(poseName, near){
    系数取 1.5 是为了让 idle.armDown=0.80 用同一套权重语义（0.8×1.5=1.2rad）。 */
 const ARM_DOWN = 1.5;
 
-/* ── 端庄步态（2026-10-27 定案：自然下垂 + 轻微前后摆）────────────────────────
-   老黄两轮反馈："摇摇晃晃、手摊在身前不合常理" / "走路姿势，手还是不对"。
-   首版"双手背身、零摆幅"读作被捆住；后来把肩角压到 −1.15 又**反而抬到胸前**
-   （arm-axis-scan-2026-10-27 实测：sx=−1.2 ⇒ 腕 y=1.14/前 z=0.42；
-    sx=−0.2 ⇒ 腕 y=0.895/前 z=0.15）。所以本 rig 的自然垂手在 **sx≈−0.25**，
-   不是越负越垂。步行只用 ±0.18rad 前后摆，肘几乎不弯（0.03）。 */
-const DIGNIFIED_WALK = {
-  L: { sx: -0.25, sy: 0.00, sz: 0.00, ex: 0.03, hx: 0.02 },
-  R: { sx: -0.25, sy: 0.00, sz: 0.00, ex: 0.03, hx: 0.02 },
+/* ── 自然垂手（2026-10-27 第三版：上臂双轴 + 手腕三轴）─────────────────────
+   老黄三轮反馈："手摊在身前" / "这叫自然下垂并随脚步轻微摆动？"。
+   前两版都只绕 X 转，画面上仍然是"一只手整条前伸、掌心朝下"——
+   实测（outputs/_diag/arm-2axis-2026-10-27.mjs、hand-sweep-2026-10-27.mjs）：
+     · 只绕 X 时，客人走路的上臂只转了 8~21°，腕还在体侧 **0.40m**（应 0.24m）；
+     · 腕的朝向由**手骨**决定：不转手骨时手指朝前（z≈0.7）、掌面朝下，
+       正是"摊手"的样子；
+     · 要把手放到大腿旁、掌心朝内，必须上臂**同时绕 X（收下）和 Z（内收）**，
+       再把手腕三轴转过来（手指朝下、掌侧朝身体）。
+   实测解（腕位是人物局部系，括号里是手指/掌侧方向）：
+     客人 x=−0.55 z=±0.25 ⇒ 腕 (±0.245,0.825,0.202)，手指 (∓0.3,−0.95,0.11)，掌侧朝身体；
+     文士 x=−0.30 z=±0.30 ⇒ 腕 (±0.25 ,0.836,0.125)，同样手指朝下。
+   ⚠️ z 与 hy/hz **左右镜像**：这套骨架左右骨局部轴不对称，照抄会把另一只手的掌心翻到外面。
+   ⚠️ 步行的前后摆仍只叠在上臂 X 上（±0.16rad）——Z 是"内收"，不参与摆。 */
+const RELAXED_ARM = {
+  guest:   { x: -0.55, z: 0.25, hx: -1.5, hy: 0.75, hz: 1.5, ex: 0.06 },
+  scholar: { x: -0.30, z: 0.30, hx: -1.5, hy: 0.75, hz: 1.5, ex: 0.06 },
 };
-const DIGNIFIED_IDS = new Set(['scholar', 'guest']);
+
+/* 贴地软影的材质（全部人物共用一份，只建一次）。
+   ⚠️ 用 map 不用 alphaMap：makeSoftAlphaTex 的渐变在 **alpha 通道**里，
+      alphaMap 只读绿通道（白底全 1）⇒ 会变成一块实心黑方块（马厩那边踩过）。 */
+let _actorBlobMat = null;
+function getActorBlobMat(){
+  if (!_actorBlobMat){
+    _actorBlobMat = new THREE.MeshBasicMaterial({
+      map: makeSoftAlphaTex(), color: 0x000000,
+      transparent: true, opacity: 0.26, depthWrite: false,
+    });
+  }
+  return _actorBlobMat;
+}
+
+/* 绑腿材质（全部角色共用一份；色接近鞋的深褐黑，远看是裤脚/绑腿）。 */
+let _legWrapMat = null;
+function getLegWrapMat(){
+  if (!_legWrapMat){
+    _legWrapMat = new THREE.MeshStandardMaterial({ color: 0x2A2723, roughness: 0.94, metalness: 0.0 });
+  }
+  return _legWrapMat;
+}
 
 /* ── 衣料染色（2026-10-25）──────────────────────────────────────────────────
    老黄："所有成人的着装都一样，包括两个孩子，而且特别素雅，不像能住得起这种大院的人家"。
@@ -827,6 +858,42 @@ function loadActor(def){
          半径取 Hips 到地面的高度（≈ 髋到踝 + 鞋底），由实测骨骼位置算，
          不写死 —— 文士 1.72 与仕女 1.63 的髋高差 6cm，共用一套振幅就会一个滑一个蹭。 */
       holder.updateMatrixWorld(true);
+      /* ── 绑腿（2026-10-27）───────────────────────────────────────────────
+         老黄："右脚始终感觉有个拖影"。放大出图（outputs/_diag/pose-qa/guest-feet.png）
+         看到的是**一条肉色的小腿**：长袍下摆是一道开衩，迈步到最前时小腿从衩口探出来，
+         而生成件的小腿是**裸皮肤**，于是每走一步都有一块浅色跟着那只脚 —— 就是"拖影"。
+         做法：给两条小腿各套一段深色圆柱（绑腿/裤脚，明代足夫常见），挂在**小腿骨**上，
+         跟着腿走，走到裙摆外也只露出深色布，不再是肉色。
+         ⚠️ 半径/长度要按骨骼的**世界缩放**折算回骨骼局部单位（生成件经过归一化缩放），
+            否则不同身高的角色绑腿粗细会跟着变。 */
+      const wrapMat = getLegWrapMat();
+      /* 只给**有裙骨的长袍角色**加：短打角色（马夫/书童）本来就穿着长裤，
+         再套一层深色绑腿反而会在裤脚外多出一截。 */
+      if (bones.Skirt0 || bones.Skirt0a){
+        for (const side of ['Left','Right']){
+          const knee = bones[side + 'LowerLeg'], ankle = bones[side + 'Foot'];
+          if (!knee || !ankle) continue;
+          const kw = knee.getWorldPosition(new THREE.Vector3());
+          const aw = ankle.getWorldPosition(new THREE.Vector3());
+          const span = aw.clone().sub(kw);
+          const len = span.length();
+          if (!(len > 0.08)) continue;
+          const ws = Math.max(1e-4, knee.getWorldScale(new THREE.Vector3()).x);
+          const geo = new THREE.CylinderGeometry(0.075 / ws, 0.058 / ws, (len * 0.92) / ws, 10, 1, true);
+          const eq = new THREE.Quaternion();
+          knee.getWorldQuaternion(eq).invert();
+          const dir = span.clone().normalize().applyQuaternion(eq);       // 骨局部里的"膝→踝"
+          const mid = kw.clone().addScaledVector(span, 0.48);
+          knee.worldToLocal(mid);
+          const wrap = new THREE.Mesh(geo, wrapMat);
+          wrap.position.copy(mid);
+          wrap.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
+          wrap.castShadow = false;                 // 小件，投影贡献≈0；进投射物集合只会撑大阴影盒
+          wrap.receiveShadow = true;
+          wrap.userData.noMerge = true;
+          knee.add(wrap);
+        }
+      }
       /* 裙骨（有空才收集）：把"世界横向轴"换算到每根骨的局部系一次存好。
          6 根裙骨是绕身体一圈的，直接用局部 X 转会让每片往各自的方向翻；
          用同一根世界横向轴（人物正面 +Z ⇒ 横向 = X）才是"裙摆随走动前后摆"。 */
@@ -901,6 +968,29 @@ function loadActor(def){
       if (def.idle.brush) aNew.brush = makeBrush(holder);
       if (def.idle.scroll) aNew.scroll = makeScroll(holder);
       if (def.idle.hay) aNew.hay = makeHayHandful(holder);
+      /* ── 贴地软影 + 走动时不投影（2026-10-27）────────────────────────────
+         老黄："右脚始终感觉有个拖影"。取证（截图取样）：那块灰影比铺地**暗**
+         （86,91,83 vs 109,116,104/138,144,134）⇒ 是影子，不是腿/衣摆。
+         根因：阴影图是"只渲一次"的静态图（09-lights 的 shadowMap.autoUpdate=false），
+         人一走，影子就留在原地 —— 每走一步都有一块影子拖在脚后。
+         规矩与马厩的马同一套：**走动期间不投影、改用贴地软影；停下再烘一次**。
+         切换只在"开始走/刚停下"各烘一次（整场景 shadow pass 很贵，不能每帧）。 */
+      const blobMat = getActorBlobMat();
+      const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.52), blobMat);
+      blob.name = 'actorBlobShadow';
+      blob.rotation.x = -Math.PI / 2;
+      /* y=0.09：石板路的面在 +0.06 左右，贴 0.02 会被铺地整个盖住（马厩的软影同样取 0.09） */
+      blob.position.set(0, 0.09, 0.02);
+      blob.renderOrder = 2;
+      blob.visible = false;
+      blob.raycast = () => {};
+      blob.userData.aoSkip = true;
+      blob.userData.noMerge = true;
+      holder.add(blob);
+      aNew.blob = blob;
+      aNew.meshes = [];
+      inner.traverse((o) => { if (o.isMesh) aNew.meshes.push(o); });
+      aNew.shadowCast = true;
       markCasterBoxDirty();
       renderer.shadowMap.needsUpdate = true;   // 静态阴影图补一次，人物有影子
       settleActor(def, true);
@@ -1969,6 +2059,20 @@ function advance(dt){
     const o = a.def.idle;
     const p = a.step / (a.def.stepLen || STEP_LEN) * Math.PI;      // 步态相位（按走过的距离推进）
     const w = a.moveW;
+    /* 影子跟着人走（2026-10-27）：阴影图是静态只渲一次的，人一动影子就留在原地，
+       画面上就是"每走一步都有一块影子拖在脚后"（老黄："右脚始终感觉有个拖影"）。
+       做法：**在动的时候不投影**（改用贴地软影），停下时再烘一次、落到他现在的站位。
+       ⚠️ 切换才烘（整场景 shadow pass 很贵），不是每帧；坐车/上下车期间也不投影 ——
+          否则会在车厢里烘出一个人的影子。 */
+    const inMotion = w > 0.02 || !!a.ride || !!a.trip;
+    const castNow = !inMotion;
+    if (castNow !== a.shadowCast){
+      a.shadowCast = castNow;
+      for (const m of a.meshes) m.castShadow = castNow;
+      markCasterBoxDirty();
+      renderer.shadowMap.needsUpdate = true;
+    }
+    if (a.blob) a.blob.visible = w > 0.02 && !a.ride && !a.trip;
     const sw = Math.sin(p);
     const bob = -GAIT.bob * Math.cos(2 * p) * w;
 
@@ -2048,6 +2152,15 @@ function advance(dt){
     const ad = o.armDown || 0;
     /* 逐角色垂手系数：不同资产的绑定姿势不一样（客人本来就近垂手，用主人的角会抱手） */
     const ADK = a.def.armDownK || ARM_DOWN;
+    /* 自然垂手的基准角（客人/文士；其余角色为 null ⇒ 走旧的"只绕 X"口径）。
+       ⚠️ 必须定义在 `if (ad > 0.001)` **外面**：下面的捧卷/端茶/作揖都要从这个基准过渡，
+          写在块里就会变成"块内可见"，那三段拿不到、手会在切换时弹回旧姿势。 */
+    const relaxed = RELAXED_ARM[a.def.id] || null;
+    const armBaseX = () => (relaxed ? relaxed.x : -ADK * ad);
+    const armBaseZ = (side) => (relaxed ? (side === 'Left' ? relaxed.z : -relaxed.z) : 0);
+    const handBase = (side) => (relaxed
+      ? [relaxed.hx, side === 'Left' ? relaxed.hy : -relaxed.hy, side === 'Left' ? relaxed.hz : -relaxed.hz]
+      : [0, 0, 0]);
     if (ad > 0.001){
       /* 绕 X；⚠️ **两只手都是负号**，不是镜像反号 —— 这一条实测过两遍：
          第一次按"镜像"给右臂写 +ad，结果右胳膊被抬到脸旁（左臂正常）；
@@ -2060,17 +2173,16 @@ function advance(dt){
          · 左右**反号**：左 x 更负 = 手往前、右 x 更正 = 手往后 ⇒ 与腿交替；
          · 幅度 0.40rad，配 0.10~0.26rad 屈肘（摆到前面那只手更弯）+ 前臂内旋 ±0.12
            让掌心朝向身体 —— 直臂摆动像机器人，掌心朝外像"端着架子"。 */
-      const isDignified = DIGNIFIED_IDS.has(a.def.id) && w > 0.02;
-      if (isDignified){
-        // 端庄轻摆：自然下垂、手在体侧略前，步行时前后轻摆 0.20rad（≈11°），幅度约为普通摆臂一半
-        const D = DIGNIFIED_WALK;
+      if (relaxed){
+        /* 自然垂手（站与走共用同一组基准角）：手在大腿旁、掌心朝内；走路只叠前后摆。
+           基准角由 arm-2axis / hand-sweep 两个探针实测解出（见 RELAXED_ARM 注释）。 */
         const swing = Math.sin(p) * 0.16 * w;
-        set('LeftUpperArm', D.L.sx - swing, D.L.sy, D.L.sz);
-        set('RightUpperArm', D.R.sx + swing, D.R.sy, D.R.sz);
-        set('LeftLowerArm', D.L.ex + 0.04 * Math.max(0, Math.sin(p)) * w, 0, 0);
-        set('RightLowerArm', D.R.ex + 0.04 * Math.max(0, -Math.sin(p)) * w, 0, 0);
-        set('LeftHand', D.L.hx, 0, 0);
-        set('RightHand', D.R.hx, 0, 0);
+        set('LeftUpperArm',  relaxed.x - swing, 0,  relaxed.z);
+        set('RightUpperArm', relaxed.x + swing, 0, -relaxed.z);
+        set('LeftLowerArm',  relaxed.ex + 0.05 * Math.max(0,  Math.sin(p)) * w, 0, 0);
+        set('RightLowerArm', relaxed.ex + 0.05 * Math.max(0, -Math.sin(p)) * w, 0, 0);
+        set('LeftHand',  relaxed.hx,  relaxed.hy,  relaxed.hz);
+        set('RightHand', relaxed.hx, -relaxed.hy, -relaxed.hz);
         for (const sd of ['Left','Right']){
           set(sd + 'IndexProximal', 0.45, 0, 0);
           set(sd + 'MiddleProximal', 0.45, 0, 0);
@@ -2125,12 +2237,15 @@ function advance(dt){
                 : a.scrollPhase === 2 ? 0 : ease01(u2);
       if (a.scrollW > 0.001){
         const w2 = a.scrollW, L = SCROLL.L, Rr = SCROLL.R;
-        set('LeftUpperArm', -ADK * ad * (1 - w2) + L.sx * w2, L.sy * w2, L.sz * w2);
-        set('RightUpperArm', -ADK * ad * (1 - w2) + Rr.sx * w2, Rr.sy * w2, Rr.sz * w2);
-        set('LeftLowerArm', L.ex * w2, 0, 0);
-        set('RightLowerArm', Rr.ex * w2, 0, 0);
-        set('LeftHand', SCROLL.hx * w2, 0, 0);
-        set('RightHand', SCROLL.hx * w2, 0, 0);
+        /* 从"自然垂手"的基准过渡（含手腕角）—— 只过渡上臂会让手在收起/捧起时闪一下。 */
+        const hbL = handBase('Left'), hbR = handBase('Right');
+        const exB = relaxed ? relaxed.ex : 0;
+        set('LeftUpperArm',  armBaseX() * (1 - w2) + L.sx * w2, L.sy * w2, armBaseZ('Left') * (1 - w2) + L.sz * w2);
+        set('RightUpperArm', armBaseX() * (1 - w2) + Rr.sx * w2, Rr.sy * w2, armBaseZ('Right') * (1 - w2) + Rr.sz * w2);
+        set('LeftLowerArm', L.ex * w2 + exB * (1 - w2), 0, 0);
+        set('RightLowerArm', Rr.ex * w2 + exB * (1 - w2), 0, 0);
+        set('LeftHand',  SCROLL.hx * w2 + hbL[0] * (1 - w2), hbL[1] * (1 - w2), hbL[2] * (1 - w2));
+        set('RightHand', SCROLL.hx * w2 + hbR[0] * (1 - w2), hbR[1] * (1 - w2), hbR[2] * (1 - w2));
         /* 握木轴：食指/中指扣住、拇指内收（比端盏更实 —— 卷轴是有重量的） */
         for (const sd of ['Left', 'Right']){
           set(sd + 'IndexProximal', 0.85 * w2, 0, 0);
@@ -2217,12 +2332,16 @@ function advance(dt){
          出图里读成"伸手/让路"（杯子 3.9cm，被袖口挡住）。现在手垂着，喝茶才抬。 */
       const r1 = Math.min(1, sip / 0.35);
       const r2 = Math.max(0, Math.min(1, (sip - 0.35) / 0.65));
-      const bl = -ADK * ad;
+      const bl = armBaseX();
+      const bz = armBaseZ('Right');
+      const hbR = handBase('Right');
+      const exB = relaxed ? relaxed.ex : 0;
       set('RightUpperArm',
           bl * (1 - r1) + (A.sx + (B.sx - A.sx) * r2) * r1, 0,
-          (A.sz + (B.sz - A.sz) * r2) * r1);
-      set('RightLowerArm', (A.ex + (B.ex - A.ex) * r2) * r1, 0, 0);
-      set('RightHand', (A.hx + (B.hx - A.hx) * r2) * r1, 0, 0);
+          bz * (1 - r1) + (A.sz + (B.sz - A.sz) * r2) * r1);
+      set('RightLowerArm', exB * (1 - r1) + (A.ex + (B.ex - A.ex) * r2) * r1, 0, 0);
+      set('RightHand', hbR[0] * (1 - r1) + (A.hx + (B.hx - A.hx) * r2) * r1,
+          hbR[1] * (1 - r1), hbR[2] * (1 - r1));
       /* 指节：虚握盏身（食指/中指弯、拇指内收扣住盏沿） */
       const cu = 0.80 + 0.10 * sip;
       set('RightIndexProximal', cu, 0, 0);
@@ -2336,12 +2455,14 @@ function advance(dt){
     const bw = (a.def.id === VISIT.hostId || a.def.id === VISIT.guestId) ? VISIT.bowW : 0;
     if (bw > 0.001){
       const L = BOW.L, Rr = BOW.R, wb = bw;
-      set('LeftUpperArm', -ADK * ad * (1 - wb) + L.sx * wb, L.sy * wb, L.sz * wb);
-      set('RightUpperArm', -ADK * ad * (1 - wb) + Rr.sx * wb, Rr.sy * wb, Rr.sz * wb);
-      set('LeftLowerArm', BOW.ex * wb, 0, 0);
-      set('RightLowerArm', BOW.ex * wb, 0, 0);
-      set('LeftHand', BOW.hand * wb, 0, 0);
-      set('RightHand', BOW.hand * wb, 0, 0);
+      const hbL = handBase('Left'), hbR = handBase('Right');
+      const exB = relaxed ? relaxed.ex : 0;
+      set('LeftUpperArm',  armBaseX() * (1 - wb) + L.sx * wb, L.sy * wb, armBaseZ('Left') * (1 - wb) + L.sz * wb);
+      set('RightUpperArm', armBaseX() * (1 - wb) + Rr.sx * wb, Rr.sy * wb, armBaseZ('Right') * (1 - wb) + Rr.sz * wb);
+      set('LeftLowerArm', BOW.ex * wb + exB * (1 - wb), 0, 0);
+      set('RightLowerArm', BOW.ex * wb + exB * (1 - wb), 0, 0);
+      set('LeftHand',  BOW.hand * wb + hbL[0] * (1 - wb), hbL[1] * (1 - wb), hbL[2] * (1 - wb));
+      set('RightHand', BOW.hand * wb + hbR[0] * (1 - wb), hbR[1] * (1 - wb), hbR[2] * (1 - wb));
       /* 手指并拢虚握：拱手读的是"两只袖子并在一起"，指节只做"收"不张开 */
       for (const sd of ['Left', 'Right']){
         set(sd + 'IndexProximal', BOW.curl * wb, 0, 0);
@@ -2384,13 +2505,19 @@ function advance(dt){
       /* 两种坐姿各自压缩裙长、径向撑开；互斥 ⇒ 两段的系数相乘就等于取其一。
          跪坐髋到地 0.46（裙长要压到 0.55）、坐凳 0.54（压到 0.60）。 */
       const sq = (v) => (twoSeg ? Math.sqrt(v) : v);
-      const lenE = (1 + (sq(KNEEL.skirtLen) - 1) * k) * (1 + (sq(cs.skirtLen) - 1) * st2);
-      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (cs.skirtRad - 1) * st2);
+      /* 2026-10-27：走路时裙摆**跟着腿走**。
+         原先 6 片共用同一个角度（整条裙子像钟摆前后晃），摆出去的那条腿会从裙下钻出来
+         —— 实测客人走路时右小腿/鞋从袍摆缺口露出约 0.2m（outputs/_diag/pose-qa/guest-feet.png，
+         放大后能看到一条肉色的小腿）。改成：每片按它所在的那一侧跟着**同侧腿**的相位摆，
+         前片跟得多、后片跟得少；同时裙摆加长 5%、放宽 8%（长袍走路本来就会被腿撑开）。 */
+      const lenE = (1 + (sq(KNEEL.skirtLen) - 1) * k) * (1 + (sq(cs.skirtLen) - 1) * st2) * (1 + 0.05 * w);
+      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (cs.skirtRad - 1) * st2) * (1 + 0.08 * w);
       /* 下段的翻转方向：跪坐 0.96（几乎对折回去）、坐凳 1.00（回到竖直、垂在膝前） */
       const swap = k + st2 > 1e-4 ? (k * KNEEL.kneeSwap + st2 * cs.kneeSwap) / (k + st2) : 1;
-      const sway = w * a.amp * 0.9 * sw;
       for (const sk of a.skirt){
         const front = Math.cos(sk.ang);                       // 0° = 正前 ⇒ 1
+        const legSw = Math.sin(sk.ang) >= 0 ? sw : -sw;        // 跟同侧的腿（Left=+amp·sw）
+        const sway = w * a.amp * 1.15 * legSw * (0.55 + 0.45 * front);
         /* 跪坐：前襟整片前翻（0.55+0.55·front）。
            坐凳：前襟要**压在平放的大腿上**（1.0·front），后片只轻带一点（0.18）——
                  后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。 */
