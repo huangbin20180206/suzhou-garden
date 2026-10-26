@@ -1122,7 +1122,7 @@ export function makeStable(cx, cz, opts = {}){
   const travSlots = horseSlots.filter(s => s.role === 'harnessed');
   for (let i = 0; i < travSlots.length; i++){
     const s = travSlots[i];
-    s.travelOff = { x: -3.0 - s.home.x, z: 1.45 };
+    s.travelOff = { x: -3.0 - s.home.x, z: 2.15 };
     s.travelPh = i * 0.12;
     makeLeadRope(s);
   }

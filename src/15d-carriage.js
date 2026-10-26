@@ -113,7 +113,7 @@ export function travelCarriagePlace(x, z, yaw, dist){
   for (const w of V.wheels) w.rotation.z = dist / V.wheelR;
   for (const s of V.slots){
     const ox = s.travelOff ? s.travelOff.x : 0;
-    const oz = s.travelOff ? s.travelOff.z : 1.45;
+    const oz = s.travelOff ? s.travelOff.z : 2.15;
     const hx = x + ox * Math.cos(yaw) + oz * Math.sin(yaw);
     const hz = z - ox * Math.sin(yaw) + oz * Math.cos(yaw);
     const hy = groundHeight(hx, hz);
@@ -239,28 +239,30 @@ export function makeCarriage(opts = {}){
   const CAB_W = 1.38, CAB_L = 1.62, WALL_H = 0.95, ROOF_H = 0.08;
   const bed = mesh(box(CAB_W, 0.09, CAB_L), wood, { name: 'carriageBed', cast: true });
   bed.position.set(0, bedY, -0.06); g.add(bed);
-  // 侧墙：三段式（窗上/窗间/窗下）留出两个窗洞，避免用布尔/多材质
+  // 侧墙：三段式（窗上/窗间/窗下）留出两个窗洞，避免用布尔/多材质；侧墙收短 0.06，不探出后壁外
   for (const sx of [-1, 1]){
     const x = sx * (CAB_W/2 - 0.04);
+    const sideLen = CAB_L - 0.07;
+    const sideZ = -0.06 + 0.035;
     // 下槛
-    const low = mesh(box(0.07, 0.22, CAB_L), trim, { name: 'carriageSideLow' });
-    low.position.set(x, bedY + 0.16, -0.06); g.add(low);
+    const low = mesh(box(0.07, 0.22, sideLen), trim, { name: 'carriageSideLow' });
+    low.position.set(x, bedY + 0.16, sideZ); g.add(low);
     // 上楣
-    const up = mesh(box(0.07, 0.18, CAB_L), trim, { name: 'carriageSideUp' });
-    up.position.set(x, bedY + WALL_H - 0.09, -0.06); g.add(up);
+    const up = mesh(box(0.07, 0.18, sideLen), trim, { name: 'carriageSideUp' });
+    up.position.set(x, bedY + WALL_H - 0.09, sideZ); g.add(up);
     // 窗间立柱
     const mid = mesh(box(0.07, 0.55, 0.18), trim, { name: 'carriageSideMid' });
     mid.position.set(x, bedY + 0.52, -0.06); g.add(mid);
-    // 两个小窗：窗框 + 窗纸
+    // 两个小窗：窗框 + 窗纸（纸面 DoubleSide 已在材质上，减少闪烁）
     for (const zc of [-0.38, 0.22]){
       const wf = mesh(box(0.08, 0.30, 0.34), MAT.woodDark, { name: 'carriageWinFrame', cast: false });
       wf.position.set(x, bedY + 0.52, zc); g.add(wf);
-      const wp = mesh(box(0.05, 0.24, 0.28), MAT.winPaper || trim, { name: 'carriageWinPaper', cast: false });
-      wp.position.set(x + sx * 0.015, bedY + 0.52, zc); g.add(wp);
+      const wp = mesh(box(0.04, 0.22, 0.26), MAT.winPaper || trim, { name: 'carriageWinPaper', cast: false });
+      wp.position.set(x + sx * 0.012, bedY + 0.52, zc); g.add(wp);
     }
   }
-  // 后壁全封闭
-  const back = mesh(box(CAB_W, WALL_H, 0.07), trim, { name: 'carriageBack', cast: true });
+  // 后壁全封闭，微宽于厢体以盖住侧墙端部（消除背后四条木条观感）
+  const back = mesh(box(CAB_W + 0.08, WALL_H, 0.07), trim, { name: 'carriageBack', cast: true });
   back.position.set(0, bedY + WALL_H/2, -0.06 - CAB_L/2 + 0.035); g.add(back);
   // 前口：两侧立柱 + 顶横梁（门框），中间挂 2 幅布帘
   for (const sx of [-1, 1]){
@@ -290,11 +292,15 @@ export function makeCarriage(opts = {}){
   // 厢内座位：靠后壁的横向木座（供客人坐），高 0.38，坐面进深 0.40
   const bench = mesh(box(CAB_W - 0.14, 0.38, 0.42), MAT.wood, { name: 'carriageBench', cast: true });
   bench.position.set(0, bedY + 0.19, -0.06 - CAB_L/2 + 0.28); g.add(bench);
-  // 车夫木座（④）：前沿外 0.08 的简易横板，无靠背，够坐一人
+  // 车夫木座（④）：前沿横板 + 两条立柱直抵地面 + 脚踏板，够坐一人，马夫脚不悬空
   const driverSeat = mesh(box(1.02, 0.06, 0.34), MAT.woodDark, { name: 'carriageDriverSeat', cast: true });
   driverSeat.position.set(0, bedY + 0.42, -0.06 + CAB_L/2 + 0.18); g.add(driverSeat);
-  const driverLeg = mesh(box(0.06, 0.42, 0.06), MAT.woodDark, { name: 'carriageDriverLeg', cast: false });
-  driverLeg.position.set(0, bedY + 0.21, -0.06 + CAB_L/2 + 0.28); g.add(driverLeg);
+  for (const sx of [-1, 1]){
+    const leg = mesh(box(0.07, bedY + 0.42, 0.07), MAT.woodDark, { name: 'carriageDriverLeg', cast: true });
+    leg.position.set(sx * 0.45, (bedY + 0.42) / 2, -0.06 + CAB_L/2 + 0.28); g.add(leg);
+  }
+  const footBoard = mesh(box(1.02, 0.04, 0.20), MAT.wood, { name: 'carriageFootBoard', cast: true });
+  footBoard.position.set(0, 0.18, -0.06 + CAB_L/2 + 0.32); g.add(footBoard);
   /* 车辕：**单马**用"双辕"（两根杆夹住一匹马的两侧）；**两匹马并排**要用
      「**中央辕杆（pole）+ 横轭（yoke）**」—— 辕杆从两马**中间**穿过、横轭横在两马颈上，
      这才是双马套车的真实结构。
@@ -361,13 +367,20 @@ export function makeCarriage(opts = {}){
           new THREE.Vector3(MX(sx) + s2 * 0.105, 1.16, -0.78),
         ]);
         g.add(mesh(new THREE.TubeGeometry(cheek, 6, 0.013, 5, false), strap, { name: 'bridleCheek', cast: false }));
-        /* 缰绳：颊带上端 → 向后拉到车辕/颈圈侧（形成"套着"的连续读法） */
+        /* 缰绳：颊带上端 → 向后拉到车辕侧，再向前延伸至车夫手部（形成"套着且有人拉"的可读连接） */
         const rein = new THREE.CatmullRomCurve3([
           new THREE.Vector3(MX(sx) + s2 * 0.105, 1.16, -0.78),
           new THREE.Vector3(MX(sx) + s2 * 0.115, 1.22, -1.10),
           new THREE.Vector3(MX(sx) + s2 * 0.120, 1.26, -1.42),
         ]);
         g.add(mesh(new THREE.TubeGeometry(rein, 8, 0.012, 4, false), strap, { name: 'bridleRein', cast: false }));
+        // 前段缰绳：从马侧向车夫手部延伸（车局部前侧 0.55, 高 1.38）
+        const driverRein = new THREE.CatmullRomCurve3([
+          new THREE.Vector3(MX(sx) + s2 * 0.120, 1.26, -1.42),
+          new THREE.Vector3(MX(sx) + s2 * 0.18, 1.30, -0.55),
+          new THREE.Vector3(sx * 0.28, 1.38, 0.55),
+        ]);
+        g.add(mesh(new THREE.TubeGeometry(driverRein, 8, 0.011, 4, false), strap, { name: 'driverRein', cast: false }));
       }
     }
   } else {

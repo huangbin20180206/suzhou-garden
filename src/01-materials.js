@@ -415,7 +415,7 @@ export const MAT = {
                                               color:0x9EA098, roughness:0.88, metalness:0.05,
                                               envMapIntensity:0.6, flatShading:false, vertexColors:true }),
   winCore:  new THREE.MeshStandardMaterial({ color:0x3A3A38, roughness:0.9, metalness:0.0, envMapIntensity:0.2 }),
-  winPaper: new THREE.MeshStandardMaterial({ color:0xD9D3C4, roughness:0.94, metalness:0.0, envMapIntensity:0.25 }),
+  winPaper: new THREE.MeshStandardMaterial({ color:0xD9D3C4, roughness:0.96, metalness:0.0, envMapIntensity:0.08, side: THREE.DoubleSide }),
   lotusPod: new THREE.MeshStandardMaterial({ color:0xBDD270, roughness:0.82, metalness:0.0, envMapIntensity:0.4 }),  // 新蓬黄绿、比叶亮一档（验收：旧色比叶暗，明暗逻辑反了）
   lotusPodAged: new THREE.MeshStandardMaterial({ color:0xB49A58, roughness:0.85, metalness:0.0, envMapIntensity:0.35 }), // 老蓬：黄褐（三成概率）
   lotusPodDark: new THREE.MeshStandardMaterial({ color:0x3A4A20, roughness:0.9, metalness:0.0, envMapIntensity:0.2 }), // 籽孔凹窝：压得更深（孔感靠明暗对比）

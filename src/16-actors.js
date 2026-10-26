@@ -576,16 +576,14 @@ function hideProcedural(poseName, near){
    系数取 1.5 是为了让 idle.armDown=0.80 用同一套权重语义（0.8×1.5=1.2rad）。 */
 const ARM_DOWN = 1.5;
 
-/* ── 端庄步态（2026-10-26 主客到访「手放后背 / 叠扇」）──────────────────────────
-   老黄截图："摇摇晃晃、手摊在身前不合常理，达官贵人一般手放后背或手拿叠扇（一手在前一手在后）"。
-   · 之前走路靠摆臂（swing 0.40rad）实现，左右交替像"扭捏"；
-   · 端庄走法：双手背在身后、轻微屈肘、手在腰后轻握 —— 幅度 0，不摆。
-   实测这套骨架：肩 X 正=往后背，Y 正=往外撇，Z 正=往前扭；
-     0.35~0.45 已把手送到身后腰际，肘 1.05~1.15 把前臂折回身后。
-   叠扇版在 16a-actor-props 的 makeFan 另做，这里先给"双手背身"打底。 */
+/* ── 端庄步态（2026-10-26 主客到访「手放后背 / 叠扇」→ 2026-10-27 修为自然下垂轻摆）──────
+   老黄："摇摇晃晃、手摊在身前不合常理，达官贵人一般手放后背或手拿叠扇"。
+   · 首版"双手背身、零摆幅"被读成"手被捆在背后/僵硬" —— 幅度 0，不摆正是问题；
+   · 修为"自然下垂轻摆"：手在体侧略前自然下垂，步行时前后轻摆 0.20rad（≈11°），
+     幅度约为普通摆臂的一半，读作端庄而不僵。splay（sy）从 0.48 收到 0.12，避免外八字。 */
 const DIGNIFIED_WALK = {
-  L: { sx: 0.42, sy: 0.48, sz: 0.18, ex: 1.08, hx: 0.22 },
-  R: { sx: 0.42, sy: -0.48, sz: -0.18, ex: 1.08, hx: 0.22 },
+  L: { sx: -0.55, sy: 0.12, sz: 0.06, ex: 0.18, hx: 0.08 },
+  R: { sx: -0.55, sy: -0.12, sz: -0.06, ex: 0.18, hx: 0.08 },
 };
 const DIGNIFIED_IDS = new Set(['scholar', 'guest']);
 
@@ -756,7 +754,7 @@ function loadActor(def){
         -bb.min.y,
         -(bb.min.z + bb.max.z) / 2,
       );
-      holder.position.set(def.spot.x, groundHeight(def.spot.x, def.spot.z), def.spot.z);
+      holder.position.set(def.spot.x, (def.fixedY && def.spot.y !== undefined) ? def.spot.y : groundHeight(def.spot.x, def.spot.z), def.spot.z);
       holder.rotation.y = def.spot.yaw;
 
       inner.traverse((o) => {
@@ -1981,23 +1979,23 @@ function advance(dt){
            让掌心朝向身体 —— 直臂摆动像机器人，掌心朝外像"端着架子"。 */
       const isDignified = DIGNIFIED_IDS.has(a.def.id) && w > 0.02;
       if (isDignified){
-        // 双手背身：不摆，肘微屈、手在腰后
+        // 端庄轻摆：自然下垂、手在体侧略前，步行时前后轻摆 0.20rad（≈11°），幅度约为普通摆臂一半
         const D = DIGNIFIED_WALK;
-        set('LeftUpperArm', D.L.sx, D.L.sy, D.L.sz);
-        set('RightUpperArm', D.R.sx, D.R.sy, D.R.sz);
-        set('LeftLowerArm', D.L.ex, 0, 0);
-        set('RightLowerArm', D.R.ex, 0, 0);
+        const swing = Math.sin(p) * 0.20 * w;
+        set('LeftUpperArm', D.L.sx - swing, D.L.sy, D.L.sz);
+        set('RightUpperArm', D.R.sx + swing, D.R.sy, D.R.sz);
+        set('LeftLowerArm', D.L.ex + 0.08 * Math.max(0, Math.sin(p)) * w, 0, 0);
+        set('RightLowerArm', D.R.ex + 0.08 * Math.max(0, -Math.sin(p)) * w, 0, 0);
         set('LeftHand', D.L.hx, 0, 0);
         set('RightHand', D.R.hx, 0, 0);
-        // 手指轻握（不张开）
         for (const sd of ['Left','Right']){
-          set(sd + 'IndexProximal', 0.55, 0, 0);
-          set(sd + 'MiddleProximal', 0.55, 0, 0);
-          set(sd + 'IndexIntermediate', 0.40, 0, 0);
-          set(sd + 'MiddleIntermediate', 0.40, 0, 0);
-          set(sd + 'ThumbProximal', -0.35, 0, 0);
-          set(sd + 'ThumbIntermediate', -0.30, 0, 0);
-          set(sd + 'ThumbDistal', -0.18, 0, 0);
+          set(sd + 'IndexProximal', 0.45, 0, 0);
+          set(sd + 'MiddleProximal', 0.45, 0, 0);
+          set(sd + 'IndexIntermediate', 0.32, 0, 0);
+          set(sd + 'MiddleIntermediate', 0.32, 0, 0);
+          set(sd + 'ThumbProximal', -0.32, 0, 0);
+          set(sd + 'ThumbIntermediate', -0.26, 0, 0);
+          set(sd + 'ThumbDistal', -0.14, 0, 0);
         }
       } else {
         const swing = Math.sin(p) * 0.40 * w;
