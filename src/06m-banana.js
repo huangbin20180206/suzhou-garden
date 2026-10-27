@@ -4,7 +4,12 @@ import { THREE, mergeGeometries } from '../vendor.js';
 import { mesh } from './03-factory.js';
 import { MAT, addWind } from './01-materials.js';
 import { TAU, rr, mulberry32, HOOKS, CFG, rnd } from './00-config.js';
-import { loadAssetOnce, jr, makeLilyPadGeo, corridorRaw, makeLotusPetalGeo, makeReedBladeGeo } from './06-vegetation.js';
+/* ⚠️ 依赖方向必须走叶子模块：06-vegetation.js 门面会 import 本文件（经 06i-trees），
+   若反过来从门面取就成环，将来谁在顶层调用会 TDZ 白屏。2026-10-27 修正。 */
+import { jr } from './06a-rng.js';
+import { makeLilyPadGeo, makeLotusPetalGeo, makeReedBladeGeo } from './06c-organs.js';
+import { corridorRaw } from './06d-corridor.js';
+import { loadAssetOnce } from './06e-assets.js';
 import { onAssetFailed } from './13-preload.js';
 import { markUnderwater } from './05-water.js';
 export function makeBananaFruit(x, y, z){

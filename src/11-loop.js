@@ -2117,6 +2117,14 @@ let _hoverFrame = 0;
 const _HOVER_INTERVAL = 6;
 const _hoverTargets = [];
 let _hoverTried = false;
+/* 2026-10-27：鼠标没动就不必重算射线。原来每 6 帧无条件打一次，而这批目标里含
+   mergeStatics 合并出来的大网格（材质兜底分支按 MAT.marble/lily/taihu… 认，
+   合并网格沿用原材质 ⇒ 会被收进表），递归射线打在大几何上是毫秒级开销 ——
+   鼠标停在画面上也照样每 6 帧烧一次。改成"移动才重算"，静止时零成本。 */
+let _hoverDirty = true;
+let _hoverObjs = null;      // 目标表对应的 obj 数组（重建表时才重算，别每次 map）
+let _hoverLabels = new Map();   // obj → label（_labelOf 一次查祖先即可，不再逐目标 traverseAncestors）
+let _hoverCamSig = null;        // 上次射线时的相机位姿（相机动了也要重算，否则运镜时标签不跟手）
 
 /* 构建可拾取目标表：obj → label（2026-10-14 深夜扩面 · 用户真机反馈"只看到池水"）。
    根因有三，前两条都在旧版这 8 行里：
@@ -2179,12 +2187,20 @@ function _buildHoverTargets(){
             || mk === MAT.lotusSeed) _hoverTargets.push({ obj: o, label: '莲蓬' });
     }
   });
+  /* 表变了 ⇒ 派生缓存一起作废（obj 数组 + obj→label 映射 + 脏标记） */
+  _hoverObjs = _hoverTargets.map(t => t.obj);
+  _hoverLabels = new Map(_hoverTargets.map(t => [t.obj, t.label]));
+  _hoverDirty = true;
 }
 
+/* matchMedia 每次调用都要按 query 字符串查一遍，而这里每帧要问两次 ——
+   把 MediaQueryList **对象**缓存住即可：它的 .matches 会随视口/输入设备变化自动更新，
+   所以缓存对象不会让判据变陈旧（缓存 .matches 才会）。 */
+const _mqHover = (() => { try { return matchMedia('(hover:hover)'); } catch { return null; } })();
+const _mqNarrow = (() => { try { return matchMedia('(max-width:768px)'); } catch { return null; } })();
 function _hoverEnabled(){
-  try {
-    return matchMedia('(hover:hover)').matches && !matchMedia('(max-width:768px)').matches;
-  } catch { return false; }
+  if (!_mqHover || !_mqNarrow) return false;
+  return _mqHover.matches && !_mqNarrow.matches;
 }
 
 renderer.domElement.addEventListener('pointermove', (e)=>{
@@ -2192,14 +2208,17 @@ renderer.domElement.addEventListener('pointermove', (e)=>{
   const r = renderer.domElement.getBoundingClientRect();
   _hoverNdc.set(((e.clientX - r.left) / r.width) * 2 - 1,
                -((e.clientY - r.top) / r.height) * 2 + 1);
+  _hoverDirty = true;                 // 鼠标动了才需要重算射线（见 _hoverDirty 注释）
 });
 
 function _labelOf(hit){
-  for (const t of _hoverTargets){
-    if (hit.object === t.obj) return t.label;
-    let found = false;
-    hit.object.traverseAncestors(a => { if (a === t.obj) found = true; });
-    if (found) return t.label;
+  /* 一次沿祖先链上溯，命中表里的第一个即可 —— 原来是"对每个目标各跑一遍
+     traverseAncestors"，命中表有上百项时，一次悬停判定要跑上百次祖先遍历。 */
+  let o = hit.object;
+  while (o){
+    const lb = _hoverLabels.get(o);
+    if (lb !== undefined) return lb;
+    o = o.parent;
   }
   return null;
 }
@@ -2223,9 +2242,15 @@ function _tickHover(){
     }).catch(() => {});
   }
   if (!_hoverTargets.length) return;
+  /* 每 6 帧一次只是"上限"：真跑的条件是**鼠标动了**（或相机在动 —— 运镜/拖拽时
+     屏幕上的像素在变，同一个 NDC 指向的物体也变了）。都没有就直接跳过。 */
+  const camSig = camera.position.x + camera.position.y * 7.1 + camera.position.z * 13.7
+               + camera.quaternion.x * 31.3 + camera.quaternion.y * 47.9 + camera.quaternion.z * 61.7;
+  if (!_hoverDirty && camSig === _hoverCamSig) return;
   if (++_hoverFrame % _HOVER_INTERVAL !== 0) return;
+  _hoverDirty = false; _hoverCamSig = camSig;
   _hoverRay.setFromCamera(_hoverNdc, camera);
-  const objs = _hoverTargets.map(t=>t.obj);
+  const objs = _hoverObjs || (_hoverObjs = _hoverTargets.map(t => t.obj));
   const hits = _hoverRay.intersectObjects(objs, true);
   if (!hits.length){ _hoverEl.classList.remove('show'); return; }
   /* 按**距离序**取第一个有标签的命中 —— 修"只看到池水"：水面（透明）在射线上的距离

@@ -204,8 +204,10 @@ export function updateHorseGait(h, dt){
   G.lastDist = G.dist;
   const D = HORSE_GAIT[G.mode];
   if (h.gaitW > 0.001){
-    /* 步幅：Rodin 马按自己的肩高现算（h.strideWalk），否则用模式常量 —— 用错会滑步 */
-    const stride = h.strideWalk || D.stride;
+    /* 步幅：只有 walk 能用 h.strideWalk（它按 walk 的摆角 A=0.28 标定）；
+       trot 的摆角是 0.34、着地比也不同，套用 walk 的步幅会把相位推快约 1.87 倍，
+       读作"碎步打滑"（2026-10-27 修）。trot 用模式常量，与 15d 马车处的 1.24 同口径。 */
+    const stride = (G.mode === 'walk' && h.strideWalk) ? h.strideWalk : D.stride;
     G.phase = (G.phase + delta / stride) % 1;
     h.gaitLegs = gaitPose(G.mode, G.phase);
     h.gaitBob = Math.sin(G.phase * Math.PI * 4) * D.bob;

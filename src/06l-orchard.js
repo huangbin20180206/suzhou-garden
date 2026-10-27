@@ -6,7 +6,9 @@ import { mulberry32, TAU } from './00-config.js';
 import { tubeRadiusRamp } from './06k-willow.js';
 import { MAT } from './01-materials.js';
 import { mesh } from './03-factory.js';
-import { makeTreeLanternGeo, treeLanternColor, makePeachLeafGeo, makePeachFlowerGeo, makePlumWitheredGeo, makePlumBudGeo, makePeachFruitGeo, makePlumFlowerGeo, makeReedBladeGeo } from './06-vegetation.js';
+/* ⚠️ 依赖方向必须走叶子模块：06-vegetation.js 门面会 import 本文件（经 06i-trees），
+   若反过来从门面取几何工厂就成环，将来谁在顶层调用会 TDZ 白屏。2026-10-27 修正。 */
+import { makeTreeLanternGeo, treeLanternColor, makePeachLeafGeo, makePeachFlowerGeo, makePlumWitheredGeo, makePlumBudGeo, makePeachFruitGeo, makePlumFlowerGeo, makeReedBladeGeo } from './06c-organs.js';
 export const treeLanternInsts = [];
 /* 梅树的花苞网格（2026-10-08）：与花分开一份几何/材质，门禁按 `plumBuds` 名字或这份清单找得到
    （项目惯例：新加的网格要能**显式**被探针拿到，别让它去 traverse 猜）。 */

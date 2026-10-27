@@ -5,7 +5,9 @@ import { THREE, mergeGeometries } from '../vendor.js';
 import { rr, mulberry32, rnd, TAU } from './00-config.js';
 import { mesh } from './03-factory.js';
 import { MAT } from './01-materials.js';
-import { jr } from './06-vegetation.js';
+/* ⚠️ 依赖方向必须走叶子模块：06-vegetation.js 门面会 import 本文件（经 06i-trees），
+   若反过来从门面取 jr 就成环，将来谁在顶层用 jr 会 TDZ 白屏。2026-10-27 修正。 */
+import { jr } from './06a-rng.js';
 export function makeWillowCurtainGeo(){
   const g = new THREE.PlaneGeometry(0.34, 1, 1, 6);
   const pos = g.attributes.position;
