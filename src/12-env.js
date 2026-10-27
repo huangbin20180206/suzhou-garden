@@ -346,7 +346,10 @@ export function applyEnv(p){
     const c = p[mat.userData.seasonKey];
     if (u && c) u.value.copy(c);
   }
-  collectSeasonGLB();
+  /* ⚠️ 2026-10-27 复核：这里原来连续调了**两次** collectSeasonGLB()（:349 与下方
+     applyPresence 之后各一次），每次内部 2 个 world.traverse ⇒ 过渡期每帧 4 遍全园点名。
+     两次之间没有任何代码读 seasonGLB ⇒ 第一次是纯重复，删掉。稳态后由 12f 的
+     早退守卫兜住（见 collectSeasonGLB 的 _glbSettled），迟到资产走 onAssetAttached。 */
   if (window.__ENVDBG){
     const wl = seasonMeshCache.get(MAT.wisteria) || [];
     const visBefore = wl.map(o=>o.visible?1:0).join('');

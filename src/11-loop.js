@@ -53,6 +53,9 @@ const timer = new THREE.Timer();
 timer.connect(document);
 const statsEl = document.getElementById('stats');
 let acc = 0, frames = 0, fps = 0, sndAcc = 0;
+/* 锦鲤"两遍走"的暂存（2026-10-27 复核 C1）：数组本体模块级复用，
+   元素对象挂在每条鱼的 userData（d.base / d.peer）上持久复用 —— 每帧零新建。 */
+const _koiBases = [], _koiPeers = [];
 
 function onResize(){
   const w = innerWidth, h = innerHeight;
@@ -1080,7 +1083,7 @@ function animate(){
      的"抽搐/瞬间提速移位"；只关 cohesion 后跳位归 0，avoid/startle 无辜
      （只关它们：7917 / 5214，与基线同级）。改用"同伴 = 同帧**基准点**"后，
      推不推只由平滑推进的轨道位置决定、与偏移自身无关 ⇒ 回路断开，不抖。 */
-  const bases = [];
+  const bases = _koiBases; bases.length = 0;
   for (const f of fishes){
     const d = f.userData;
     /* 惊鱼加速：读取本鱼当前惊扰能量（0 起，上限约 1.6），乘进推进速度。
@@ -1096,12 +1099,25 @@ function animate(){
        z_local≈5.54 越过 4.1 的腰，鱼就骑到草皮上了。
        轨道参数 cx/cz 本来就是**池局部坐标**，直接写即可；世界坐标由父组给。
        （泳龟是 world 的直接子节点，没有父组偏移，所以下面那段必须保留 —— 别照抄删掉。） */
-    bases.push({ f, d, o,
-      bx: o.cx + Math.cos(d.t) * o.a * j,
-      bz: o.cz + Math.sin(d.t) * o.b * j });
+    /* 2026-10-27 复核 C1：base/peer 对象改成每条鱼一份持久复用（d.base / d.peer），
+       不再每帧新建 —— 字段口径不变。 */
+    const b = d.base || (d.base = { f, d, o, bx: 0, bz: 0 });
+    b.o = o;
+    b.bx = o.cx + Math.cos(d.t) * o.a * j;
+    b.bz = o.cz + Math.sin(d.t) * o.b * j;
+    bases.push(b);
   }
-  /* cohesion 的"同伴位置"＝同帧**基准点**（不含任何行为偏移）—— 见上"两遍走"注释。 */
-  const koiPeers = KOI_BEHAVIOR.cohesion ? bases.map(b => ({ x: b.bx, z: b.bz })) : null;
+  /* cohesion 的"同伴位置"＝同帧**基准点**（不含任何行为偏移）—— 见上"两遍走"注释。
+     2026-10-27 复核 C1：peer 数组与其元素对象都改为复用。 */
+  let koiPeers = null;
+  if (KOI_BEHAVIOR.cohesion){
+    koiPeers = _koiPeers; koiPeers.length = 0;
+    for (const b of bases){
+      const p = b.peer || (b.peer = { x: 0, z: 0 });
+      p.x = b.bx; p.z = b.bz;
+      koiPeers.push(p);
+    }
+  }
   for (const { f, d, o, bx, bz } of bases){
     const fx0 = f.position.x, fz0 = f.position.z;      // 本帧起点 = 上一帧末位置
     f.position.x = bx; f.position.z = bz;
@@ -1369,7 +1385,9 @@ function animate(){
       const ddx = lp ? nx - lp.x : 0, ddz = lp ? nz - lp.z : 0;
       const dist = Math.hypot(ddx, ddz);
       f.position.x = nx; f.position.z = nz;
-      f.userData.lastPos = { x: nx, z: nz };
+      /* 2026-10-27 复核 C1：lastPos 对象复用，不再每帧新建。 */
+      if (lp){ lp.x = nx; lp.z = nz; }
+      else f.userData.lastPos = { x: nx, z: nz };
       /* 朝向必须跟着**行进方向**（模型正面 = +z → `atan2(dx, dz)`）。
          ⚠️ 日程里的 `yaw` 只管首帧：`D_SCHEDULES[2].yaw = π/2` 是"面朝 +x"，而人沿 z 轴来回走
          —— 那就是**侧着身子平移**。它和"相机解算漂移"是两个**互相独立**的缺陷

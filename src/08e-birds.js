@@ -448,17 +448,22 @@ export function birdStep(b, dt, t, i){
   const yaw = Math.atan2(b.to.x - b.from.x, b.to.z - b.from.z);
   return { x, y: b.y0 + hop, z, yaw };
 }
+/* 2026-10-27 复核 C1：原来每只鸟每帧 new 3 个对象（轴向量 ×2 + 四元数），
+   全部挪模块级复用 —— 当前鸟数为 0 零成本，但恢复鸟数前这里是每帧 3N 个。 */
+const _bUpY = new THREE.Vector3(0, 1, 0);
+const _bAxisX = new THREE.Vector3(1, 0, 0);
+const _bq2 = new THREE.Quaternion();
 export function updateSmallBirds(dt, t){
   for (let i = 0; i < birdState.length; i++){
     const b = birdState[i];
     const p = birdStep(b, dt, t, i);
     _bp.set(p.x, p.y, p.z);
-    _bq.setFromAxisAngle(new THREE.Vector3(0, 1, 0), p.yaw);
+    _bq.setFromAxisAngle(_bUpY, p.yaw);
     _bs.setScalar(BIRD_SCALE);
     if (p.peck || p.preen){ /* 啄/啄毛：轻微前倾（preen 是石上鸟低头理羽） */
-      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.5));
+      _bq.multiply(_bq2.setFromAxisAngle(_bAxisX, 0.5));
     } else if (p.flap){ /* 抖翅（石上休息的鸟偶尔理羽毛）：小翅张开一点 */
-      _bq.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -p.flap));
+      _bq.multiply(_bq2.setFromAxisAngle(_bAxisX, -p.flap));
     }
     _bm.compose(_bp, _bq, _bs);
     smallBirdMesh.setMatrixAt(i, _bm);

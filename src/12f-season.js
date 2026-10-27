@@ -179,7 +179,13 @@ const seasonGLB = { LotusPlant: [], BananaPlant: [], Turtle: [] };
 /* ⚠️ 不能"一旦非空就不再搜"。莲花 12 株是同一批挂上的没问题，但**乌龟有两批**：
    岸上晒背的 placeAssets 4 只 + 池中缓游的 loadAssetOnce 2 只 —— 先到的那批把数组填满后，
    后到的那批永远进不来，冬季 turtleShow=0 就只藏了一半。改为按对象去重地追加。 */
+/* 稳态早退标记（2026-10-27 复核·过渡期每帧 2 遍全园点名）：清单收满且没有待注入
+   材质后，collectSeasonGLB 直接 return，不再 world.traverse。
+   迟到资产必须在 onAssetAttached 里先调 resetSeasonGLBSettled() 再 collect。 */
+let _glbSettled = false;
+export function resetSeasonGLBSettled(){ _glbSettled = false; }
 export function collectSeasonGLB(){
+  if (_glbSettled) return;
   for (const name in seasonGLB){
     world.traverse(o => {
       if (o.isMesh && o.name === name && seasonGLB[name].indexOf(o) < 0) seasonGLB[name].push(o);
@@ -218,6 +224,12 @@ export function collectSeasonGLB(){
     addWind(nm, 0.030, 1.15, 'tip', 0.0, 0.05);
     for (const o of seasonGLB.LotusPlant) if (o.material === m) o.material = nm;
   }
+  /* 稳态判定（2026-10-27 复核）：每张名单都非空、且没有待注入材质 ⇒ 记 settled，
+     后续帧直接 return，不再每帧 2 遍 world.traverse。迟到资产由 onAssetAttached
+     先 reset 再 collect 重新收一遍。 */
+  let allFilled = true;
+  for (const name in seasonGLB) if (!seasonGLB[name].length){ allFilled = false; break; }
+  if (allFilled && pending.size === 0) _glbSettled = true;
 }
 /* 季节存在性 + 平滑缩放（GLB 用缩放而不是二值开关：冬季 lotusShow=0 才真消失，
    中间值如芭蕉 0.12 会缩到很小而不是突兀地整片闪掉）。
@@ -278,6 +290,7 @@ export function applyGLBSeason(p){
   }
 }
 export function onAssetAttached(){
+  resetSeasonGLBSettled();
   collectSeasonGLB(); applyGLBSeason(ENV.cur);
   /* 迟到资产是**真投射物**（晒背龟/芭蕉/莲）：不光要补渲阴影图，
      包围盒也变了 —— 不重算的话阴影视体还是按旧轮廓拟合，新资产可能整个落在盒外。 */

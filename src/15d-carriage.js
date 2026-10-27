@@ -84,12 +84,13 @@ export function stableTravel(){ return TRAVEL.ready ? TRAVEL : null; }
    石板顶在 groundHeight+0.075（15e-stable 的 slab +0.075/bed +0.045），而车轮底 = car.y
   （轮心 0.55 - 半径 0.55），旧版用裸 groundHeight ⇒ 轮底比路面低 7.5cm，在近景读作"陷进去"。
    解法：给车心 y 加 0.075，但**只在石板路上**（ yard 仍是裸地，抬了会浮）。判别按到两条
-   石板中线的距离（HW 0.86 + 0.19 轮缘）—— 不引入环依赖，点表在本地复刻。 */
-const _ROAD_A = [[40.0,4.2],[39.2,10.5],[37.4,16.5],[34.4,21.8],[30.0,26.2],[22.0,27.2],[10.0,26.4],[3.0,26.0],[0.5,25.9],[0.0,24.55]];
-const _ROAD_B = [[40.0,4.2],[40.9,7.2],[42.4,10.2],[44.6,13.4],[47.6,16.8],[51.4,20.6],[56.0,24.8],[61.6,29.4],[68.4,34.6],[76.4,40.4],[85.0,46.8]];
+   石板中线的距离（HW 0.86 + 0.19 轮缘）。
+   ⚠️ 2026-10-27 复核 B2：点表改为直接 import 15a-shared 的单份真值 ——
+      原来手抄的 _ROAD_A/_ROAD_B 与 15e 的定义互不同步，改一处忘一处马车就浮空/陷地。 */
+import { STABLE_ROAD_PTS, STABLE_EXIT_PTS } from './15a-shared.js';
 function _onStoneRoad(x,z){
   const ck = (pts)=>{ for(let i=0;i<pts.length-1;i++){ const ax=pts[i][0],az=pts[i][1],bx=pts[i+1][0],bz=pts[i+1][1]; const dx=bx-ax,dz=bz-az; const l2=dx*dx+dz*dz||1; const t=Math.max(0,Math.min(1,((x-ax)*dx+(z-az)*dz)/l2)); const cx=ax+dx*t,cz=az+dz*t; if(Math.hypot(x-cx,z-cz)<1.05) return true; } return false; };
-  return ck(_ROAD_A)||ck(_ROAD_B);
+  return ck(STABLE_ROAD_PTS)||ck(STABLE_EXIT_PTS);
 }
 function _roadY(x,z){ return groundHeight(x,z) + (_onStoneRoad(x,z) ? 0.075 : 0); }
 export const _travV = new THREE.Vector3();
@@ -113,7 +114,7 @@ export function travelCarriagePlace(x, z, yaw, dist){
   for (const w of V.wheels) w.rotation.z = dist / V.wheelR;
   for (const s of V.slots){
     const ox = s.travelOff ? s.travelOff.x : 0;
-    const oz = s.travelOff ? s.travelOff.z : 2.15;
+    const oz = s.travelOff ? s.travelOff.z : 1.93;   // 无 travelOff 的兜底：与 15e 的槽位同一口径（2026-10-27 统一）
     const hx = x + ox * Math.cos(yaw) + oz * Math.sin(yaw);
     const hz = z - ox * Math.sin(yaw) + oz * Math.cos(yaw);
     /* ⚠️⚠️ 2026-10-27 修（老黄"马四肢底部有明显拖影/重影"）：这里原来写的是裸
@@ -482,7 +483,7 @@ export function makeCarriage(opts = {}){
        不再生成负 z 侧的口络/颊带/前段管，车尾不会再有任何探出物。 */
     for (const sx of [-1, 1]){
       const rein = new THREE.CatmullRomCurve3([
-        new THREE.Vector3(MX(sx),        1.10, 2.45),   // 马鼻端（parked 实测 z≈2.47）
+        new THREE.Vector3(MX(sx),        1.10, 2.95),   // 马鼻端（马心统一 1.93 后鼻端 ≈2.95，2026-10-27 随 A3 同步）
         new THREE.Vector3(sx * 0.50,     1.20, 1.90),   // 从马颈外侧绕过（不穿马身）
         /* 2026-10-27：端点从"车夫座前沿 1.15"收到**坐姿下的实际手位**（车局部实测
            手在 z 0.64~0.88 / y 1.34~1.36 / x ±0.24）——原来端点在座面前沿，车夫坐下后

@@ -20,6 +20,10 @@ import { MAT } from './01-materials.js';
 let _tinkerWarned = false;
 export const HORSE_LIFE = [];
 export const _sr = mulberry32(20261011);          // 私有流：事件间隔/相位/抖颈方向
+/* 白雾 billboard 的临时对象（2026-10-27 复核 C1：原来 tickStableLife 每帧 new 四个，
+   挪模块级复用 —— 单线程、同步体里用完即弃，与 15b 的 _tq/_te 同一套做法）。 */
+const _lifeM = new THREE.Matrix4(), _lifeQ = new THREE.Quaternion(),
+      _lifeSC = new THREE.Vector3(), _lifePP = new THREE.Vector3();
 
 /* 诊断用：返回 HORSE_LIFE 本体（可变）。仅供探针在"冻结相位"下拍步态，
    产品逻辑不读它。用法：const h = m.horseLifeDebug().find(x=>x.gait);
@@ -230,7 +234,9 @@ export function tickStableLife(dt){
   const t = advanceStableTime(dt);
   const winter = ENV && ENV.season === 'winter';
   let puff = 0;
-  const M = new THREE.Matrix4(), Q = new THREE.Quaternion(), SC = new THREE.Vector3(), PP = new THREE.Vector3();
+  /* 白雾 billboard 的临时对象（2026-10-27 复核 C1：原来每帧 new 四个，挪模块级复用；
+     单线程、本函数同步体里用完即弃，与 15b 的 _tq/_te 同一套做法）。 */
+  const M = _lifeM, Q = _lifeQ, SC = _lifeSC, PP = _lifePP;
   for (const h of HORSE_LIFE){
     const ph = h.phase;
     /* 2026-10-21：步态（走/小跑/停下吃草）—— 只有配了 gait 的马会动，其余原样。 */

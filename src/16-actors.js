@@ -321,6 +321,7 @@ const VISCAR = {
   boardStarted: false, guestOn: false, coachOn: false, coachWalk: false,
   leg: '', legT: 0,
   odo: 0,                    // 累计里程（车轮/辕马腿相位）；跨段连续，见 driveout 注释
+  backYaw0: null,            // back 段入口的进站朝向（用于把 yaw 平滑收到 π，不再一帧硬切）
 };
 
 /* 卷轴纸：奶白底 + 八列竖排"墨点" + 一方朱印。
@@ -1526,27 +1527,38 @@ function tickCarriage(dt){
          ⚠️ 里程走独立的 S.odo（**只增只减、绝不归零**）：旧写法把 S.s 直接当里程，
          而 S.s 是"本段走了多远"——调头结束时归零 ⇒ 车轮从 −6.2rad 一步跳到 0
          （约 2 圈），大辐条轮 15~25m 外也看得见；调头段又用它递增，同样在转折处跳。
-         travelCarriagePlace 的 dist 同时驱动车轮转角与辕马四腿相位，必须连续。 */
+         travelCarriagePlace 的 dist 同时驱动车轮转角与辕马四腿相位，必须连续。
+         ⚠️⚠️ 2026-10-27 修（复核 A2）：进 back 段**不再硬设 yaw=π**。arrive 终点朝向是
+         atan2(-0.9,-3.2) ≈ −2.868，硬切跳 15.7°。改为在倒车前 1m 内把车头从进站朝向
+         平滑收到 π（0.27rad / 1.8s ≈ 0.15rad/s，远低于"转向"的读感阈值）。 */
       S.s = Math.min(3.4, S.s + CARRY.backSpeed * dt);
       S.odo -= CARRY.backSpeed * dt;          // 倒着走 ⇒ 里程递减（轮/腿反向）
+      if (S.backYaw0 === null) S.backYaw0 = S.last ? S.last.yaw : Math.PI;
+      const k = Math.min(1, S.s / 1.0);                    // 前 1m 倒车距离内完成收向
+      const yaw = S.backYaw0 + angDiff(Math.PI, S.backYaw0) * k;
       const x = 40.0, z = 4.0 + S.s;
-      const P = travelCarriagePlace(x, z, Math.PI, S.odo);
+      const P = travelCarriagePlace(x, z, yaw, S.odo);
       S.last = P;
       setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, true);
-      if (S.s >= 3.4 - 1e-6){ S.leg = 'spin'; S.legT = 0; }
+      if (S.s >= 3.4 - 1e-6){ S.leg = 'spin'; S.legT = 0; S.backYaw0 = null; }
       return;
     }
     if (S.leg === 'spin'){
-      /* 原地调头（车马一起转，马跟着踏步）。1.15rad/s ⇒ π 用 2.7s。 */
+      /* 原地调头（车马一起转，马跟着踏步）。
+         ⚠️⚠️ 2026-10-27 修（复核 A2）：调头**不再收到 0**——离场首段朝向是
+         atan2(1.3,1.2) ≈ 0.826，旧版收到 0 再切出去会一帧跳 47°。改为直接收到
+         离场首段朝向（spin 开始时先建 outPath 取它的起点 yaw），
+         1.15rad/s ⇒ 2.32rad 约 2.0s。 */
       S.legT += dt;
-      const yaw = Math.PI - Math.min(Math.PI, S.legT * CARRY.turnRate);
+      if (!S.outPath) S.outPath = pathTable(CARRY.depart);
+      const yawEnd = pathAt(S.outPath, 0).yaw;
+      const yaw = Math.PI - Math.min(Math.PI - yawEnd, S.legT * CARRY.turnRate);
       S.odo += 0.55 * dt;                      // 原地踏步：让腿不是僵住的（里程接着累加）
       const P = travelCarriagePlace(40.0, 7.4, yaw, S.odo);
       S.last = P;
       setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, true);
-      if (S.legT * CARRY.turnRate >= Math.PI){
+      if (S.legT * CARRY.turnRate >= Math.PI - yawEnd){
         S.leg = 'out'; S.legT = 0; S.s = 0;
-        S.outPath = pathTable(CARRY.depart);
       }
       return;
     }
@@ -1623,7 +1635,7 @@ function startVisit(){
   VISCAR.path = pathTable(CARRY.arrive); VISCAR.last = P;
   VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
   VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
-  VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0;
+  VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0; VISCAR.backYaw0 = null;
   travelCarriageVisible(true);
   travelCarriageTied(false);
 
@@ -1653,7 +1665,7 @@ function resetVisit(){
   VISCAR.state = 'parked'; VISCAR.t = 0; VISCAR.s = 0; VISCAR.last = null;
   VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
   VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
-  VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0;
+  VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0; VISCAR.backYaw0 = null;
   if (guest){
     guest.ride = null; guest.trip = null;
     guest.sitTarget = 0; guest.sitW = 0; guest.offerW = 0;
@@ -2074,6 +2086,10 @@ function tickVisit(dt){
 
 /* 一次完整更新（时钟由调用方推进）—— tickActors 与探针的 actorStep 共用同一份，
    避免探针里再抄一遍步态口径（抄一遍 = 改产品时两边悄悄分家）。 */
+/* 骨骼姿态写入用的临时对象（2026-10-27 复核 C1：原来在 advance() 里每帧 new，
+   挪到模块级复用 —— 单线程、advance 同步体里用完即弃，共享安全）。 */
+const _poseQ = new THREE.Quaternion();
+const _poseE = new THREE.Euler();
 function advance(dt){
   /* 记下"推进前的位置"：踏面采样的节流要判这一帧到底走没走。
      ⚠️ 不能只看 a.moved —— 各写入方语义不一（tickRoute 在"没有路线/已到站"时会把它清零，
@@ -2081,8 +2097,7 @@ function advance(dt){
      2026-10-27 的"游园穿模"就是这么来的）。这里直接用真实位移兜底。 */
   for (const a of ACTORS){ a._px = a.pos.x; a._pz = a.pos.z; }
   tickVisit(dt);
-  const q = new THREE.Quaternion();
-  const e = new THREE.Euler();
+  const q = _poseQ, e = _poseE;
   for (const a of ACTORS){
     tickRoute(a, dt);
     /* 上车/下车：一段纯插值的短程（1~1.3s），不走步态、不取踏面 ——

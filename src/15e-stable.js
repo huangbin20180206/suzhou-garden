@@ -15,20 +15,19 @@ import { markCasterBoxDirty } from './09-lights.js';
 import { makeHorse } from './15c-horse-life.js';
 import { makeTrough, makeCarriage, prepareTravelCarriage, makeLeadRope, TRAVEL } from './15d-carriage.js';
 import { makeSoftAlphaTex } from './15a-shared.js';
-export const STABLE_ROAD_PTS = [
-  [40.0, 4.2], [39.2, 10.5], [37.4, 16.5], [34.4, 21.8], [30.0, 26.2],
-  [22.0, 27.2], [10.0, 26.4], [3.0, 26.0], [0.5, 25.9], [0.0, 24.55],
-];
+/* ── 石板路点表（2026-10-27 复核 B2 改为单份真值）────────────────────────────
+   两张表的定义搬到了 15a-shared（15d 马车的贴地判别也要用，原来它手抄了一份 _ROAD_A/
+   _ROAD_B，两份不同步就会浮空/陷地）。这里 import 后**转出**——本文件内部（makeStableRoad/
+   makeStableExitRoad）与 15-stable 门面/16-actors 的引用路径都不变。 */
+import { STABLE_ROAD_PTS, STABLE_EXIT_PTS } from './15a-shared.js';
+export { STABLE_ROAD_PTS, STABLE_EXIT_PTS };
 /* ── 出园新路（2026-10-25）──────────────────────────────────────────────────
    老黄："客人乘车离开还是在走去院子的石板路，这个不合理，做一条新路，朝向屏幕右下角，
    客人离开从马厩沿这条路离开，当马车走到屏幕边缘就消失，客人来访就反过来就行。"
    ⇒ 从马厩院门 (40,4.2) 起向**东南**铺一条同款花街铺地（默认机位朝北，东南就是屏幕右下），
    一路到 (85,46.8) —— 早出画了，马车在那里隐去，看不到"凭空消失"。
    与进园那条路共用同一个起点（院门），出门口立刻分岔。 */
-export const STABLE_EXIT_PTS = [
-  [40.0, 4.2], [40.9, 7.2], [42.4, 10.2], [44.6, 13.4], [47.6, 16.8],
-  [51.4, 20.6], [56.0, 24.8], [61.6, 29.4], [68.4, 34.6], [76.4, 40.4], [85.0, 46.8],
-];
+/* STABLE_EXIT_PTS 定义在 15a-shared（见上），本文件 import 后转出。 */
 /* ── 出园新路（2026-10-25）：与 makeStableRoad 同款铺法（垫层 + 三列错缝石板），
    但**不做院门口铺装、不做石灯笼、不做石狮** —— 这条路在墙外几十米外、还朝画面右下方
    一路出画，细节看不成，做了只是白烧 draw call。 */
@@ -934,11 +933,14 @@ export function makeStable(cx, cz, opts = {}){
            否则两匹站着的马 + 两根伸着的辕只会读成"车与马各自摆着"。 */
   for (const sx of [-1, 1]){
     const hx = -3.0 + sx * 0.40;
-    /* ⚠️⚠️ 落点按"**肩颈对准横轭**"反算（2026-10-10 四轮）：轭在车局部 z=1.98 ⇒ 院局部
-       z = −1.4 − 1.98 = **−3.38**；马朝 −z，肩颈在"马心 −0.55"处 ⇒ 马心要在 **−2.85**。
-       上一版马心放在 −3.8 ⇒ 轭落在**马的臀部后面**（读作"马与车脱钩、轭插在马身上"）。
-       同时马臀（马心 +0.78 = −2.05）离车厢前沿（−2.01）留 0.2m 缝 ⇒ 不再车马相撞。 */
-    const hz = -2.85;
+    /* ⚠️⚠️ 落点按"**肩颈对准横轭**"反算（2026-10-27 复核 A3 重算）：轭在车局部 z=1.38
+       （15d 的 pair 分支，2026-10-20 从 1.98 前移过一次，旧注释没跟上）⇒ 院局部
+       z = −1.4 − 1.38 = −2.78；马朝 −z，肩颈在"马心 −0.55"处 ⇒ 马心要在 **−3.33**。
+       旧值 −2.85 是按轭 1.98 算的，轭前移后没人同步马位 ⇒ 停车态轭落在马颈中段；
+       而行驶态 travelOff.z=2.15（马心车局部 2.15）又与停车差 0.7 ⇒ 出发瞬间马向前蹦。
+       现在两态统一为马心车局部 1.93（肩颈 1.38 正落轭下）；马臀（车局部 1.15）
+       离车厢前壁（≈0.81）留 0.34m 缝，不再相撞。 */
+    const hz = -3.33;
     const hy = yardY(hx, hz);
     const slot = addHorseSlot(hx, hz, hy, Math.PI, sx < 0 ? MAT.horseBlack : MAT.horseBay,
       { role: 'harnessed', decoSeed: sx < 0 ? 3 : 4, mark: sx < 0 ? null : { socks: 0.8 } });
@@ -1098,7 +1100,14 @@ export function makeStable(cx, cz, opts = {}){
      ⚠️ 三条实现要点：① **逐顶点贴合地形**（在草坡上平板会一头翘一头埋）；
      ② **不规则边 + 径向柔和 alpha**（硬边多边形会被读成"贴图瑕疵"，与雨后水膜同款处理）；
      ③ 挂在**本组**里 ⇒ 随厩身一起转（改朝向不用重算）。 */
-  const wornAlpha = makeSoftAlphaTex();
+  /* ⚠️ 2026-10-27 复核（视觉清单②"雪地里的棕色坑"）：泥地补丁改用**专用**渐隐贴图
+     —— 通用 makeSoftAlphaTex 外圈 20% 才渐隐，3m 大补丁的渐隐带只有 0.6m；中心 alpha=1
+     与四周纯白形成最大反差，读作"雪里挖了个坑"。这里渐隐带拉长到 40% 起，边缘更融。
+     同时两份泥地材质登记积雪（踩实的泥地深雪里同样落雪，活动留痕由渐隐带表达）。 */
+  const wornAlpha = makeSoftAlphaTex([[0.00, 'rgba(255,255,255,1)'],
+                                      [0.40, 'rgba(255,255,255,0.82)'],
+                                      [0.72, 'rgba(255,255,255,0.32)'],
+                                      [1.00, 'rgba(255,255,255,0)']]);
   const mkPatch = (lx, lz, r, mat, seed) => {
     const NA = 28, NR = 3;
     const pos = [], uv = [], idx = [];
@@ -1135,6 +1144,10 @@ export function makeStable(cx, cz, opts = {}){
     transparent: true, depthWrite: false, alphaMap: wornAlpha });
   const wornBare = new THREE.MeshStandardMaterial({ color: 0x6D5B45, roughness: 1.0, metalness: 0,
     transparent: true, depthWrite: false, alphaMap: wornAlpha });
+  /* 踩实的泥地深雪里同样落雪（2026-10-27 复核·视觉清单②）——不登记的话雪天它就是
+     一块被雪包围的亮棕色硬边补丁（eyes-2026-10-27b 的 S-vp-stableNear.png）。 */
+  registerWeatherRoles(wornDry, { snow: 1 });
+  registerWeatherRoles(wornBare, { snow: 1 });
   /* 上马位（A 车 + 两匹挽马脚下）= 碾压最重；停车位（B 车）= 次之；院门进出口 = 最轻 */
   mkPatch(-3.0, -2.1, 3.0, wornDry, 1.3);  mkPatch(-3.0, -2.1, 2.1, wornBare, 1.3);
   mkPatch( 3.0, -1.2, 2.2, wornDry, 2.7);  mkPatch( 3.0, -1.2, 1.5, wornBare, 2.7);
@@ -1160,7 +1173,9 @@ export function makeStable(cx, cz, opts = {}){
   const travSlots = horseSlots.filter(s => s.role === 'harnessed');
   for (let i = 0; i < travSlots.length; i++){
     const s = travSlots[i];
-    s.travelOff = { x: -3.0 - s.home.x, z: 2.15 };
+    /* ⚠️ 2026-10-27 复核 A3：travelOff.z 2.15 → 1.93，与 parked 槽位统一（马肩颈正落
+       横轭下，见上方 hz 注释）——旧值与 parked 差 0.7 ⇒ 出发瞬间马相对车向前蹦 0.7m。 */
+    s.travelOff = { x: -3.0 - s.home.x, z: 1.93 };
     s.travelPh = i * 0.12;
     makeLeadRope(s);
   }
