@@ -250,7 +250,11 @@ export function makeScroll(holder){
         （不跟前臂方向 —— 前臂朝下，草会朝地）。
    ⚠️ 草把摆在腕**上 5cm**、不挂手骨：每帧按腕位重摆（同茶盏/马刷）。 */
 
-export const HAY_ARM = { ex: -0.35, up: 0.05, out: 0.13, lean: 0.30, len: 0.30 };
+/* ⚠️ 2026-10-27：ex 从 −0.35 抬到 **−0.85**（老黄："拿草喂马看不出来、也没有任何动作"）。
+   旧角只把前臂从"垂着"抬到胯前，草把停在腿边，读作"抱着一捆草站着"；马嘴在身前
+   0.6m、高 0.9m，前臂抬平（约 −0.9）手腕才伸到马嘴下方，草把落在嘴前。
+   摆动幅度在 16-actors 的 hay 块里叠（±0.10rad 慢摆 = 递草）；up 保持 5cm。 */
+export const HAY_ARM = { ex: -0.85, up: 0.05, out: 0.13, lean: 0.30, len: 0.30 };
 export const _hyE = new THREE.Vector3();
 export const _hyQ = new THREE.Quaternion();
 export const _hyQ2 = new THREE.Quaternion();

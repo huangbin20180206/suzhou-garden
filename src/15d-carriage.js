@@ -196,22 +196,94 @@ export function travelCarriageTied(on){
   for (const s of TRAVEL.slots) if (s.leadRope) s.leadRope.visible = !!on;
 }
 
+/* ── 参考图外观材质（2026-10-27）────────────────────────────────────────────
+   用户给了参考图：红板壁 + 金框、上排大窗带菱形窗棂、米黄桶篷 + 青绿下沿、
+   实心金边圆轮。这里新增 5 个外观材质（只在车厢上用，不碰 MAT 全局表）。 */
+const CAR = {
+  red:   new THREE.MeshStandardMaterial({ color: 0x9E2B22, roughness: 0.82, metalness: 0.02 }),
+  gold:  new THREE.MeshStandardMaterial({ color: 0xC08A3E, roughness: 0.55, metalness: 0.28 }),
+  cream: new THREE.MeshStandardMaterial({ color: 0xE7D3A2, roughness: 0.80, metalness: 0.0, side: THREE.DoubleSide }),
+  teal:  new THREE.MeshStandardMaterial({ color: 0x3E6C76, roughness: 0.80, metalness: 0.0, side: THREE.DoubleSide }),
+  grey:  new THREE.MeshStandardMaterial({ color: 0x6E7C84, roughness: 0.90, metalness: 0.0 }),
+  dark:  MAT.woodDark,
+};
+/* 窗棂贴图（菱形格）：透明底 + 米色斜线；只建一次，两个车厢共用。 */
+let _latticeMat = null;
+function latticeMat(){
+  if (_latticeMat) return _latticeMat;
+  const S = 128, cv = document.createElement('canvas'); cv.width = cv.height = S;
+  const ctx = cv.getContext('2d');
+  ctx.clearRect(0, 0, S, S);
+  ctx.strokeStyle = 'rgba(238,224,186,0.95)'; ctx.lineWidth = 3;
+  for (let i = -S; i <= S; i += 18){
+    ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i + S, S); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(i, S); ctx.lineTo(i + S, 0); ctx.stroke();
+  }
+  const t = new THREE.CanvasTexture(cv); t.colorSpace = THREE.SRGBColorSpace;
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  _latticeMat = new THREE.MeshStandardMaterial({ map: t, transparent: true, side: THREE.DoubleSide,
+    roughness: 0.85, depthWrite: false });
+  return _latticeMat;
+}
+/* 桶形篷面：沿 x 的半椭圆拱、沿 z 拉长。θ 从 0（右檐）到 π（左檐），y 相对檐口。 */
+function archSurface(rx, ry, len, zc, th0, th1, segs){
+  const pos = [], idx = [];
+  const z0 = zc - len / 2, z1 = zc + len / 2;
+  for (let i = 0; i <= segs; i++){
+    const t = th0 + (th1 - th0) * i / segs;
+    const x = Math.cos(t) * rx, y = Math.sin(t) * ry;
+    pos.push(x, y, z0, x, y, z1);
+  }
+  for (let i = 0; i < segs; i++){ const a = i * 2, b = a + 1, c = a + 2, d = a + 3; idx.push(a, b, c, b, d, c); }
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  gg.setIndex(idx); gg.computeVertexNormals();
+  return gg;
+}
+/* 拱形端脸（半椭圆三角扇，朝 +z；后脸旋转 π 朝后）。 */
+function archCap(rx, ry, segs){
+  const pos = [0, 0, 0], idx = [];
+  for (let i = 0; i <= segs; i++){
+    const t = Math.PI * i / segs;
+    pos.push(Math.cos(t) * rx, Math.sin(t) * ry, 0);
+  }
+  for (let i = 1; i <= segs; i++) idx.push(0, i, i + 1);
+  const gg = new THREE.BufferGeometry();
+  gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  gg.setIndex(idx); gg.computeVertexNormals();
+  return gg;
+}
+
 export function makeCarriage(opts = {}){
   const g = new THREE.Group();
-  const wood = MAT.woodDark, trim = MAT.wood, strap = MAT.harness;
+  const wood = MAT.woodDark, strap = MAT.harness;
   const detached = !!opts.detached;
   const wheel = (sx, z) => {
+    /* 参考图那种实心圆轮：深色轮盘 + 金边 + 红辐条 + 金毂 + 一圈铆钉 */
     const w = new THREE.Group();
-    w.add(mesh(new THREE.TorusGeometry(0.55, 0.045, 6, 20), wood, { name: 'wheelRim', cast: true }));
+    const disc = mesh(new THREE.CylinderGeometry(0.55, 0.55, 0.06, 28), CAR.dark, { name: 'wheelDisc', cast: true });
+    disc.rotation.x = Math.PI / 2; w.add(disc);
+    /* 红辐条与金铆钉必须落在**轮盘外表面**（z ±0.033）——之前放在 z=0 被 6cm 厚的
+       轮盘整个吞掉，出图只剩一块光板（参考图是有红辐 + 金钉的）。 */
     for (let i = 0; i < 10; i++){
-      const sp = mesh(box(0.035, 0.50, 0.030), trim, { name: 'wheelSpoke' });
       const a = (i / 10) * Math.PI * 2;
-      sp.position.set(-Math.sin(a) * 0.25, Math.cos(a) * 0.25, 0);
-      sp.rotation.z = -a;
-      w.add(sp);
+      for (const zf of [-1, 1]){
+        const sp = mesh(box(0.05, 0.46, 0.018), CAR.red, { name: 'wheelSpoke', cast: false });
+        sp.position.set(-Math.sin(a) * 0.24, Math.cos(a) * 0.24, zf * 0.033);
+        sp.rotation.z = -a;
+        w.add(sp);
+      }
     }
-    const hub = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.10, 10), wood, { name: 'wheelHub' });
+    const hub = mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.11, 16), CAR.gold, { name: 'wheelHub' });
     hub.rotation.x = Math.PI / 2; w.add(hub);
+    for (let i = 0; i < 10; i++){
+      const a = (i / 10) * Math.PI * 2 + 0.15;
+      for (const zf of [-1, 1]){
+        const riv = mesh(new THREE.SphereGeometry(0.022, 8, 6), CAR.gold, { name: 'wheelRivet', cast: false });
+        riv.position.set(Math.cos(a) * 0.505, Math.sin(a) * 0.505, zf * 0.034);
+        w.add(riv);
+      }
+    }
     w.position.set(sx * 0.62, 0.55, z);
     w.rotation.y = Math.PI / 2;
     return w;
@@ -224,70 +296,115 @@ export function makeCarriage(opts = {}){
   g.userData.wheels = [wheelL, wheelR];
   const axle = mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.42, 8), wood, { name: 'carriageAxle' });
   axle.rotation.z = Math.PI / 2; axle.position.set(0, 0.55, 0); g.add(axle);
-  /* ── 中式厢式车厢（2026-10-26 六项·②③）──────────────────────────────────────
-     旧版：敞口矮斗 + 半筒篷（bed 1.15×1.32、侧高 0.42、后高 0.52、前低 0.30、半圆篷 0.62r）。
-     问题：① 敞口不像"轿子"，② 篷顶比坐姿客人头顶还低 13cm（已靠抬篷硬修），③ 后方有 4 根
-     向后探出的短棍（旧侧板/背板的榫头外露，近景 15m 读作"四根棍子"）。
-     新版：中式双轮轿厢 —— **三面封闭、后壁全闭、两侧各 2 个小窗、前置 2 幅布帘**。
-       · 厢体：bed 1.38×1.62（宽×长）、侧墙高 0.95、后壁全高到顶、厢顶平板 + 飞檐收口；
-       · 侧窗：每侧 2 个 0.34×0.30 小窗（外框木、内衬窗纸 MAT.winPaper，可开合读感）；
-       · 前帘：2 幅分开的布帘（深绛/靛蓝布面，双面，垂到侧墙 2/3 高），中间留缝可进出；
-       · 顶：平板顶 1.48×1.72×0.08 + 四周 0.06 飞檐，顶面 bedY+1.22 ⇒ 厢内净高 1.22m，
-         坐姿客人头顶 1.42（车y 0.075 + 座0.60 + 坐高0.74）距顶 0.18m，不穿模且不压抑；
-       · 榫头：不再外露，后向 4 根短棍一并取消。 */
+  /* ── 中式厢式车厢（2026-10-27 按用户参考图重做外观）────────────────────────────
+     参考图：红板壁 + 金框、侧面上排 4 个大窗（金框 + 菱形窗棂）、半桶形篷顶
+     （米黄篷面 + 青绿下沿 + 金边铆钉 + 两端朱红拱脸）、实心金边红辐圆轮。
+     ⚠️ 与到访导演层绑死的尺寸**一个不动**：bench 顶 1.10、车夫座顶 1.17、
+        车轮 R 0.55、CAB_W 1.38、CAB_L 1.62（CARRY.seat/coach 与里程都按它们算）。
+     ⚠️ 篷内净高：墙顶 bedY+WALL_H = 1.82，篷顶 1.82+0.50 = 2.32（局部）；
+        客人发髻局部 2.07 ⇒ 留 25cm。改墙高/座位/篷半径必须回量"发髻 vs 篷顶"。 */
   const bedY = 0.72;
-  const CAB_W = 1.38, CAB_L = 1.62, WALL_H = 0.95, ROOF_H = 0.08;
-  const bed = mesh(box(CAB_W, 0.09, CAB_L), wood, { name: 'carriageBed', cast: true });
-  bed.position.set(0, bedY, -0.06); g.add(bed);
-  // 侧墙：三段式（窗上/窗间/窗下）留出两个窗洞，避免用布尔/多材质；侧墙收短 0.06，不探出后壁外
+  const CAB_W = 1.38, CAB_L = 1.62, WALL_H = 1.10;
+  const HALF_W = CAB_W / 2, SIDE_X = CAB_W / 2 - 0.04, SIDE_LEN = CAB_L - 0.07, CZ = -0.06;
+  const Y_TOP = bedY + WALL_H;                 // 1.82
+  const BAND_Y0 = bedY + 0.58, BAND_Y1 = bedY + 1.00;   // 窗带 1.30~1.72
+  const bed = mesh(box(CAB_W, 0.09, CAB_L), CAR.dark, { name: 'carriageBed', cast: true });
+  bed.position.set(0, bedY, CZ); g.add(bed);
+
+  /* 侧壁：下金裙 + 红板 + 窗带（4 窗 3 柱）+ 上红板 */
+  const bayW = (SIDE_LEN - 3 * 0.05) / 4;
+  const bayZ = [-0.66, -0.26, 0.14, 0.54];
+  const mullZ = [-0.46, -0.06, 0.34];
   for (const sx of [-1, 1]){
-    const x = sx * (CAB_W/2 - 0.04);
-    const sideLen = CAB_L - 0.07;
-    const sideZ = -0.06 + 0.035;
-    // 下槛
-    const low = mesh(box(0.07, 0.22, sideLen), trim, { name: 'carriageSideLow' });
-    low.position.set(x, bedY + 0.16, sideZ); g.add(low);
-    // 上楣
-    const up = mesh(box(0.07, 0.18, sideLen), trim, { name: 'carriageSideUp' });
-    up.position.set(x, bedY + WALL_H - 0.09, sideZ); g.add(up);
-    // 窗间立柱
-    const mid = mesh(box(0.07, 0.55, 0.18), trim, { name: 'carriageSideMid' });
-    mid.position.set(x, bedY + 0.52, -0.06); g.add(mid);
-    // 两个小窗：窗框 + 窗纸（纸面 DoubleSide 已在材质上，减少闪烁）
-    for (const zc of [-0.38, 0.22]){
-      const wf = mesh(box(0.08, 0.30, 0.34), MAT.woodDark, { name: 'carriageWinFrame', cast: false });
-      wf.position.set(x, bedY + 0.52, zc); g.add(wf);
-      const wp = mesh(box(0.04, 0.22, 0.26), MAT.winPaper || trim, { name: 'carriageWinPaper', cast: false });
-      wp.position.set(x + sx * 0.012, bedY + 0.52, zc); g.add(wp);
+    const x = sx * SIDE_X;
+    const skirt = mesh(box(0.075, 0.075, SIDE_LEN), CAR.gold, { name: 'carriageSkirt', cast: false });
+    skirt.position.set(x, bedY + 0.0825, CZ); g.add(skirt);
+    const low = mesh(box(0.07, 0.44, SIDE_LEN), CAR.red, { name: 'carriageSideLow' });
+    low.position.set(x, bedY + 0.3375, CZ); g.add(low);
+    const topH = Y_TOP - (BAND_Y1 + 0.025);
+    const top = mesh(box(0.07, topH, SIDE_LEN), CAR.red, { name: 'carriageSideTop' });
+    top.position.set(x, (BAND_Y1 + 0.025 + Y_TOP) / 2, CZ); g.add(top);
+    for (const yy of [BAND_Y0, BAND_Y1]){
+      const rail = mesh(box(0.085, 0.05, SIDE_LEN), CAR.gold, { name: 'carriageWinRail', cast: false });
+      rail.position.set(x, yy, CZ); g.add(rail);
+    }
+    for (const mz of mullZ){
+      const m = mesh(box(0.085, BAND_Y1 - BAND_Y0, 0.05), CAR.gold, { name: 'carriageWinMull', cast: false });
+      m.position.set(x, (BAND_Y0 + BAND_Y1) / 2, mz); g.add(m);
+    }
+    /* 窗内衬（红）——窗棂后是暗红内壁，读作车厢内部 */
+    const inner = mesh(box(0.03, BAND_Y1 - BAND_Y0 - 0.02, SIDE_LEN - 0.02), CAR.red, { name: 'carriageWinInner', cast: false });
+    inner.position.set(x - sx * 0.028, (BAND_Y0 + BAND_Y1) / 2, CZ); g.add(inner);
+    /* 4 扇菱形窗棂 */
+    for (const bz of bayZ){
+      const lat = mesh(new THREE.PlaneGeometry(bayW - 0.02, BAND_Y1 - BAND_Y0 - 0.06), latticeMat(),
+        { name: 'carriageLattice', cast: false });
+      lat.position.set(x + sx * 0.006, (BAND_Y0 + BAND_Y1) / 2, bz);
+      lat.rotation.y = sx * Math.PI / 2;
+      g.add(lat);
     }
   }
-  // 后壁全封闭，微宽于厢体以盖住侧墙端部（消除背后四条木条观感）
-  const back = mesh(box(CAB_W + 0.08, WALL_H, 0.07), trim, { name: 'carriageBack', cast: true });
-  back.position.set(0, bedY + WALL_H/2, -0.06 - CAB_L/2 + 0.035); g.add(back);
-  // 前口：两侧立柱 + 顶横梁（门框），中间挂 2 幅布帘
-  for (const sx of [-1, 1]){
-    const post = mesh(box(0.07, WALL_H, 0.07), trim, { name: 'carriageFrontPost', cast: true });
-    post.position.set(sx * (CAB_W/2 - 0.04), bedY + WALL_H/2, -0.06 + CAB_L/2 - 0.035); g.add(post);
+  /* 四角金柱 */
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]){
+    const post = mesh(box(0.09, WALL_H, 0.09), CAR.gold, { name: 'carriageCorner', cast: true });
+    post.position.set(sx * (HALF_W - 0.045), bedY + WALL_H / 2, CZ + sz * (CAB_L / 2 - 0.045));
+    g.add(post);
   }
-  const frontBeam = mesh(box(CAB_W, 0.10, 0.07), MAT.woodDark, { name: 'carriageFrontBeam', cast: true });
-  frontBeam.position.set(0, bedY + WALL_H - 0.05, -0.06 + CAB_L/2 - 0.035); g.add(frontBeam);
-  // 前帘 2 幅：深绛/靛蓝布面，垂到 2/3 高，中间留 0.08 缝
-  const curtainMat = new THREE.MeshStandardMaterial({ color: 0x7A2E2A, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
+  /* 后壁：红板 + 两道金线（不再外露榫头） */
+  const back = mesh(box(CAB_W - 0.02, WALL_H - 0.02, 0.06), CAR.red, { name: 'carriageBack', cast: true });
+  back.position.set(0, bedY + WALL_H / 2, CZ - CAB_L / 2 + 0.03); g.add(back);
+  for (const yy of [bedY + 0.30, bedY + 0.86]){
+    const bar = mesh(box(CAB_W - 0.06, 0.035, 0.02), CAR.gold, { name: 'carriageBackTrim', cast: false });
+    bar.position.set(0, yy, CZ - CAB_L / 2 + 0.005); g.add(bar);
+  }
+  /* 前口：两柱 + 金横梁 + 两幅前帘 */
   for (const sx of [-1, 1]){
-    const curtain = mesh(box(0.60, 0.62, 0.015), curtainMat, { name: 'carriageCurtain', cast: false });
-    curtain.position.set(sx * 0.32, bedY + 0.58, -0.06 + CAB_L/2 - 0.02);
+    const post = mesh(box(0.08, WALL_H, 0.08), CAR.gold, { name: 'carriageFrontPost', cast: true });
+    post.position.set(sx * (HALF_W - 0.04), bedY + WALL_H / 2, CZ + CAB_L / 2 - 0.035); g.add(post);
+  }
+  const frontBeam = mesh(box(CAB_W, 0.10, 0.08), CAR.gold, { name: 'carriageFrontBeam', cast: true });
+  frontBeam.position.set(0, Y_TOP - 0.05, CZ + CAB_L / 2 - 0.035); g.add(frontBeam);
+  const curtainMat = new THREE.MeshStandardMaterial({ color: 0x7A2E2A, roughness: 0.92, metalness: 0.0, side: THREE.DoubleSide });
+  const curH = WALL_H - 0.14, curY = bedY + 0.10 + curH / 2;
+  for (const sx of [-1, 1]){
+    const curtain = mesh(box(0.58, curH, 0.015), curtainMat, { name: 'carriageCurtain', cast: false });
+    curtain.position.set(sx * 0.32, curY, CZ + CAB_L / 2 - 0.02);
     g.add(curtain);
   }
-  // 平板顶 + 飞檐收口（四周各出挑 0.05）
-  const roof = mesh(box(CAB_W + 0.10, ROOF_H, CAB_L + 0.10), MAT.woodDark, { name: 'carriageRoof', cast: true });
-  roof.position.set(0, bedY + WALL_H + ROOF_H/2, -0.06); g.add(roof);
-  for (const sx of [-1, 1]){
-    const eave = mesh(box(0.06, 0.04, CAB_L + 0.10), MAT.wood, { name: 'carriageEave', cast: false });
-    eave.position.set(sx * (CAB_W/2 + 0.05), bedY + WALL_H + 0.02, -0.06); g.add(eave);
+  /* ── 桶形篷顶（参考图的核心）：米黄篷面 + 青绿下沿 + 金檐 + 两端朱红拱脸 ── */
+  const RX = HALF_W + 0.02, RY = 0.50, ROOF_L = CAB_L + 0.12;
+  const canopy = mesh(archSurface(RX, RY, ROOF_L, CZ, 0, Math.PI, 16), CAR.cream, { name: 'carriageCanopy', cast: true });
+  canopy.position.y = Y_TOP; g.add(canopy);
+  for (const [t0, t1] of [[0, 0.34], [Math.PI - 0.34, Math.PI]]){
+    const band = mesh(archSurface(RX + 0.015, RY + 0.015, ROOF_L, CZ, t0, t1, 4), CAR.teal, { name: 'carriageCanopyBand', cast: false });
+    band.position.y = Y_TOP; g.add(band);
   }
   for (const sz of [-1, 1]){
-    const eave2 = mesh(box(CAB_W + 0.10, 0.04, 0.06), MAT.wood, { name: 'carriageEaveEnd', cast: false });
-    eave2.position.set(0, bedY + WALL_H + 0.02, -0.06 + sz * (CAB_L/2 + 0.05)); g.add(eave2);
+    const zEnd = CZ + sz * (ROOF_L / 2);
+    const cap = mesh(archCap(RX, RY, 16), CAR.red, { name: 'carriageCanopyFace', cast: true });
+    cap.position.set(0, Y_TOP, zEnd); if (sz < 0) cap.rotation.y = Math.PI; g.add(cap);
+    const pts = [];
+    for (let i = 0; i <= 16; i++){ const t = Math.PI * i / 16; pts.push(new THREE.Vector3(Math.cos(t) * RX, Y_TOP + Math.sin(t) * RY, zEnd)); }
+    g.add(mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 20, 0.026, 5, false),
+      CAR.gold, { name: 'carriageCanopyRim', cast: false }));
+  }
+  /* 檐口金线 + 铆钉 */
+  for (const sx of [-1, 1]){
+    const eave = mesh(box(0.05, 0.05, ROOF_L), CAR.gold, { name: 'carriageEave', cast: false });
+    eave.position.set(sx * RX, Y_TOP + 0.02, CZ); g.add(eave);
+    for (let i = 0; i < 8; i++){
+      const riv = mesh(new THREE.SphereGeometry(0.022, 8, 6), CAR.gold, { name: 'carriageRivet', cast: false });
+      riv.position.set(sx * RX * 0.993, Y_TOP + 0.06, CZ - ROOF_L / 2 + 0.10 + i * (ROOF_L - 0.20) / 7);
+      g.add(riv);
+    }
+  }
+  /* 车夫座垫（参考图前部那块灰蓝布）：平垫 + 前缘一卷 */
+  {
+    const pad = mesh(box(0.96, 0.07, 0.34), CAR.grey, { name: 'carriageSeatPad', cast: true });
+    pad.position.set(0, bedY + 0.455, CZ + CAB_L / 2 + 0.18); g.add(pad);
+    const lip = mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.96, 10), CAR.grey, { name: 'carriageSeatLip', cast: true });
+    lip.rotation.z = Math.PI / 2;
+    lip.position.set(0, bedY + 0.445, CZ + CAB_L / 2 + 0.36); g.add(lip);
   }
   // 厢内座位：靠后壁的横向木座（供客人坐），高 0.38，坐面进深 0.40
   const bench = mesh(box(CAB_W - 0.14, 0.38, 0.42), MAT.wood, { name: 'carriageBench', cast: true });
@@ -352,11 +469,14 @@ export function makeCarriage(opts = {}){
        所以缰绳只能走在 +z 一侧：从马鼻端 → 马身外侧 → 车夫手部（z≈1.15，已出车厢前壁）。
        不再生成负 z 侧的口络/颊带/前段管，车尾不会再有任何探出物。 */
     for (const sx of [-1, 1]){
-      const handX = sx * 0.20;
       const rein = new THREE.CatmullRomCurve3([
         new THREE.Vector3(MX(sx),        1.10, 2.45),   // 马鼻端（parked 实测 z≈2.47）
         new THREE.Vector3(sx * 0.50,     1.20, 1.90),   // 从马颈外侧绕过（不穿马身）
-        new THREE.Vector3(handX,         1.28, 1.15),   // 车夫手部（车夫座前沿）
+        /* 2026-10-27：端点从"车夫座前沿 1.15"收到**坐姿下的实际手位**（车局部实测
+           手在 z 0.64~0.88 / y 1.34~1.36 / x ±0.24）——原来端点在座面前沿，车夫坐下后
+           离手 0.5m（座位高度修正后又差 0.23m），读作"缰绳没接上"。取两手中间
+           (z 0.82) 让两根缰绳在膝前汇到手里。 */
+        new THREE.Vector3(sx * 0.24,      1.35, 0.90),
       ]);
       g.add(mesh(new THREE.TubeGeometry(rein, 10, 0.012, 4, false), strap, { name: 'bridleRein', cast: false }));
     }
