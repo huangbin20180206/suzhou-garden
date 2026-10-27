@@ -1594,7 +1594,9 @@ function driveTour(dt){
   if (v.tourS >= P.total - 1e-6){
     host.arrived = guest.arrived = true;
     host.moveW = guest.moveW = 0;
-    host.def.stepUp = guest.def.stepUp = 0.42;   // 游园结束：收回上桥的宽窗口
+    host.def.stepUp = guest.def.stepUp = 0.42;   // 游园结束，收回上桥的宽窗口
+    /* 位置交回 tickRoute（见 tourgo 的注释：不回 false 的话 hostback 给路线也走不动） */
+    host.pairDrive = guest.pairDrive = false;
     v.phase = 'eface'; v.t = 0;
   }
 }
@@ -1952,7 +1954,20 @@ function tickVisit(dt){
     v.tourS = TOUR.gap;
     host.def.stepUp = guest.def.stepUp = 1.35;   // 桥北/桥南各有一级 0.69m
     host.def.floorMax = guest.def.floorMax = 2.45;
-    host.pairDrive = guest.pairDrive = false;
+    /* ⚠️⚠️ 2026-10-27 修（老黄截图 2/3"游园与送客的路线全是穿模"）：
+       这里必须把 pairDrive 置 **true** —— 位置由 driveTour 按弧长直接写，
+       而 tickRoute 在"没有路线"时第一件事就是 `a.moved = 0`（它跑在 tickVisit 之后）。
+       踏面采样（advance 里）的节流条件是 `a.moved > 1e-4`，被清零 ⇒ **采样式彻底停摆**，
+       floorY 从开演那一刻起冻住：
+         · 游园段实测 floorY 全程 = −0.18（开演时脚下的草地高度），
+           人从堂前一路"平移"到拱桥肚子里（桥面 2.10，人在 −0.18，差 2.3m），
+           过桥面时整段从桥拱内部穿过去；
+         · 走到桥南石台（1.302）时人还沉在 −0.18，就是截图 3 那种"半截身子埋进石台"。
+       pairDrive = true 让 tickRoute 在函数**第一行**就 return（不碰 moved / moveW），
+       于是 driveTour 写的位移与 moveW 都能活到采样块 —— 与并排段（S3）同一条口径。
+       ⚠️ 游园结束时必须在 driveTour 里把它放回 false，否则后面的 hostback 给路线也走不动
+          （tickRoute 永远早退）。 */
+    host.pairDrive = guest.pairDrive = true;
     host.arrived = guest.arrived = false;
     host.walkOff = guest.walkOff = true;
     host.moveW = guest.moveW = 0;
@@ -2060,6 +2075,11 @@ function tickVisit(dt){
 /* 一次完整更新（时钟由调用方推进）—— tickActors 与探针的 actorStep 共用同一份，
    避免探针里再抄一遍步态口径（抄一遍 = 改产品时两边悄悄分家）。 */
 function advance(dt){
+  /* 记下"推进前的位置"：踏面采样的节流要判这一帧到底走没走。
+     ⚠️ 不能只看 a.moved —— 各写入方语义不一（tickRoute 在"没有路线/已到站"时会把它清零，
+     而游园段的位置是 tickVisit → driveTour 写的，清零点在写之后 ⇒ 采样会整段停摆，
+     2026-10-27 的"游园穿模"就是这么来的）。这里直接用真实位移兜底。 */
+  for (const a of ACTORS){ a._px = a.pos.x; a._pz = a.pos.z; }
   tickVisit(dt);
   const q = new THREE.Quaternion();
   const e = new THREE.Euler();
@@ -2094,7 +2114,8 @@ function advance(dt){
       /* followFloor（走长路的人，2026-10-23 客人）：**边走边采样**，并把间隔从 0.25s 收到
          0.10s —— 0.25s 在 0.58m/s 下已经是 15cm 一格，起伏路面会看出"悬空/下陷"。
          站着不动（或已到站）时只在必要时补采一次，避免每帧打射线。 */
-      if (!a.def.followFloor || a.moved > 1e-4) a.sampleT -= dt;
+      if (!a.def.followFloor || a.moved > 1e-4
+          || Math.hypot(a.pos.x - a._px, a.pos.z - a._pz) > 1e-4) a.sampleT -= dt;
       if (a.sampleT <= 0){
         a.sampleT = a.def.followFloor ? 0.10 : 0.25;
         const fy = a.def.followFloor

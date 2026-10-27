@@ -44,18 +44,49 @@ export function makeStableExitRoad(){
     const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
     return { p, tan: tan.clone().setY(0).normalize(), side };
   };
+  /* ⚠️⚠️ 2026-10-27 修（老黄截图 1"石板路上有一片模糊的影子"）：出园新路与进园路
+     **同起点 (40,4.2)、同半宽 0.86m** ⇒ 头 3~4m 两条路的石板与垫层**完全重合**
+     （射线实测同一 xz 上 stableRoadBed / stableExitBed 相差 0.000~0.002m，
+      stableExitSlab 与已合并的进园路石板相差 0.000m）⇒ 深度逐像素打架，
+     画面上就是一串明暗交错、半透明的方块顺着路铺过去。
+     做法：出园路在"进园路带内"的**段落不生成**（垫层丢扇区、石板按中心点跳过）⇒
+     它变成从进园路东侧分出去的支路，接缝被进园路自己盖住。
+     只跳几何、不动随机流（编号仍按原顺序抽），所以布局指纹不漂。 */
+  const nearEntry = (x, z, pad) => {
+    const P = STABLE_ROAD_PTS;
+    for (let i = 0; i < P.length - 1; i++){
+      const ax = P[i][0], az = P[i][1], bx = P[i + 1][0], bz = P[i + 1][1];
+      const dx = bx - ax, dz = bz - az;
+      const l2 = dx * dx + dz * dz || 1;
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / l2));
+      if (Math.hypot(x - ax - dx * t, z - az - dz * t) < pad) return true;
+    }
+    return false;
+  };
+  /* ⚠️ pad 必须把**几何本身的半宽**算进去：只按"中心点距中线"判会漏掉伸进进园路的那半块
+     （第一版用 HW+0.05，射线复测仍有 11 处叠层 —— 石板角 / 垫层内侧都还在里面）。
+     取值 = 0.86(进园半宽) + 0.37(石板/垫层最大半径) + 0.05 ⇒ 出园路从两条路**自然分开**的
+     那一小段（z≈7.0）才开始铺，接缝离进园路边 5cm，读作"出门口就分岔"。 */
+  const PAD_ROAD = HW + 0.37 + 0.05;
 
   /* ① 垫层（勾缝底） */
   {
-    const N = 140, pos = [], idx = [];
+    const N = 140, pos = [], idx = [], mid = [];
     for (let i = 0; i <= N; i++){
       const { p, side } = frameAt(i / N);
+      mid.push(p);
       for (const s of [1, -1]){
         const q = p.clone().addScaledVector(side, s * HW);
-        pos.push(q.x, groundHeight(q.x, q.z) + 0.045, q.z);
+        /* 垫层抬升 0.045 → 0.030：它与进园路的垫层同厚、同色，在"接缝露出来的那几厘米"
+           里会共面打架（旧版就是这样）。低 1.5cm 就不可能再与它同平面。 */
+        pos.push(q.x, groundHeight(q.x, q.z) + 0.030, q.z);
       }
     }
-    for (let i = 0; i < N; i++){ const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3); }
+    for (let i = 0; i < N; i++){
+      const c0 = mid[i], c1 = mid[i + 1];
+      if (nearEntry((c0.x + c1.x) / 2, (c0.z + c1.z) / 2, PAD_ROAD)) continue;
+      const a = i * 2; idx.push(a, a + 2, a + 1, a + 1, a + 2, a + 3);
+    }
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
     geo.setIndex(idx); geo.computeVertexNormals();
@@ -77,6 +108,13 @@ export function makeStableExitRoad(){
         B2.p.clone().addScaledVector(B2.side, sB),
         B2.p.clone().addScaledVector(B2.side, sA),
       ];
+      /* 落在进园路带内的石板不生成（否则与进园路石板共面打架，见 nearEntry 的注释）。
+         用四角均值判中心，跨接缝的那一块整体丢掉 ⇒ 边缘是干净的。 */
+      {
+        let cx = 0, cz = 0;
+        for (const q of corners){ cx += q.x / 4; cz += q.z / 4; }
+        if (nearEntry(cx, cz, PAD_ROAD)) return;
+      }
       const base = pos.length / 3;
       for (const q of corners){
         const gy = groundHeight(q.x, q.z);

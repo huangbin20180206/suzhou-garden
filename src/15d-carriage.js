@@ -116,7 +116,12 @@ export function travelCarriagePlace(x, z, yaw, dist){
     const oz = s.travelOff ? s.travelOff.z : 2.15;
     const hx = x + ox * Math.cos(yaw) + oz * Math.sin(yaw);
     const hz = z - ox * Math.sin(yaw) + oz * Math.cos(yaw);
-    const hy = groundHeight(hx, hz);
+    /* ⚠️⚠️ 2026-10-27 修（老黄"马四肢底部有明显拖影/重影"）：这里原来写的是裸
+       `groundHeight`，而车心走的是 `_roadY`（石板路上 +0.075）⇒ **辕马比车低 7.5cm**，
+       踏上石板路后四蹄整段埋进石板里、蹄底与路面反复穿插，远看就是"腿底下有重影"；
+       顺带贴地软影（槽位组局部 +0.09）也跟着沉到路面下 1.5cm，影子被石板切掉一半。
+       改成与车同一口径（`_roadY`）——院子外的土面它自己就等于 groundHeight，无副作用。 */
+    const hy = _roadY(hx, hz);
     s.group.position.copy(V.group.worldToLocal(_travV.set(hx, hy, hz)));
     s.group.rotation.y = yaw - V.stableYaw;
     const L = s.life;
@@ -350,12 +355,19 @@ export function makeCarriage(opts = {}){
     post.position.set(sx * (HALF_W - 0.045), bedY + WALL_H / 2, CZ + sz * (CAB_L / 2 - 0.045));
     g.add(post);
   }
-  /* 后壁：红板 + 两道金线（不再外露榫头） */
+  /* 后壁：红板 + 两道金线（不再外露榫头）
+     ⚠️⚠️ 2026-10-27 修"停稳后背部一片闪光"（老黄截图 1）：后壁厚 0.06、中心在
+     CZ−CAB_L/2+0.03 ⇒ **背面恰好在 z=−0.870**，而四角金柱的盒子（0.09 深、中心
+     CZ±(CAB_L/2−0.045)，即 −0.825）**背面也是 −0.870** ⇒ 两块面片完全共面，
+     深度测试逐像素打架，画面上就是一条金红交错的雪花带（相机一动就闪）。
+     做法：红板整体前移 0.014（背面 −0.856，比柱子内收 14mm，读作"芯板退在框内"），
+     金线压到 −0.869（在柱面 −0.870 之前 1mm，不再共面），并把金线宽度从 1.32 收到
+     1.14（x ±0.57）—— 柱子在 x 0.60~0.69，两者连 x 方向也不再重叠。 */
   const back = mesh(box(CAB_W - 0.02, WALL_H - 0.02, 0.06), CAR.red, { name: 'carriageBack', cast: true });
-  back.position.set(0, bedY + WALL_H / 2, CZ - CAB_L / 2 + 0.03); g.add(back);
+  back.position.set(0, bedY + WALL_H / 2, CZ - CAB_L / 2 + 0.044); g.add(back);
   for (const yy of [bedY + 0.30, bedY + 0.86]){
-    const bar = mesh(box(CAB_W - 0.06, 0.035, 0.02), CAR.gold, { name: 'carriageBackTrim', cast: false });
-    bar.position.set(0, yy, CZ - CAB_L / 2 + 0.005); g.add(bar);
+    const bar = mesh(box(CAB_W - 0.24, 0.035, 0.018), CAR.gold, { name: 'carriageBackTrim', cast: false });
+    bar.position.set(0, yy, CZ - CAB_L / 2 + 0.010); g.add(bar);
   }
   /* 前口：两柱 + 金横梁 + 两幅前帘 */
   for (const sx of [-1, 1]){

@@ -121,8 +121,14 @@ export function attachHorseBlob(slot){
   const m = new THREE.Mesh(new THREE.PlaneGeometry(1.18, 2.30), _horseBlobMat);
   m.name = 'horseBlobShadow';
   m.rotation.x = -Math.PI / 2;
-  /* 院里的"磨损土斑"贴在 +0.05，软影必须压在它上面，否则整块被土斑盖住（首轮实拍就是没有影）。 */
-  m.position.set(0, 0.09, 0);
+  /* ⚠️⚠️ 2026-10-27 修「马四肢底部有明显的拖影/重影」（老黄）：
+     原来抬到 **+0.09**（当年是为了压住院里的棕色"磨损土斑"，它在 gy+0.05），
+     结果这块 1.18×2.30 的黑面片**悬在蹄底上方 9cm**、正好横切四条小腿的下段 ——
+     相机在上方看时，每只蹄子的下半截都在它后面，被压暗成一片"重影"。
+     现在：土斑是不写深度的半透明层（renderOrder 0），软影 renderOrder 2 本来就画在它
+     之后 ⇒ 不需要再靠高度压它。降到 **+0.02**：只在蹄底那一小圈上，既压不住土斑、
+     也不切腿。 */
+  m.position.set(0, 0.02, 0);
   m.renderOrder = 2;
   m.raycast = () => {};
   m.userData.aoSkip = true;
@@ -459,9 +465,25 @@ export function rodinRigData(geo){
     const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
     W.head[i] = sm(0.26, 0.50, z) * sm(0.88, 1.02, y);          // 颈+头：腿（y<0.95）天然排除
     W.tail[i] = sm(-0.74, -0.90, z) * sm(0.18, 0.10, Math.abs(x)); // 尾：只认最后 20cm 的中线
-    const down = sm(0.95, 0.62, y), side = sm(0.05, 0.12, Math.abs(x));
-    W.legF[i] = down * side * sm(0.02, 0.16, z);
-    W.legH[i] = down * side * sm(-0.02, -0.16, z);
+    /* ⚠️⚠️ 2026-10-27 修「马车一动、马腹就大幅收缩」（老黄）：旧门是
+         down = sm(0.95, 0.62, y) × side = sm(0.05, 0.12, |x|) × sm(±0.02, ±0.16, z)
+       后腿那道 z 门在 z=−0.16 就吃满权重，而髋枢轴在 z=hindZ（实测 −0.52）⇒
+       **腰腹整段（z −0.16~−0.40、y 0.62~0.95）都跟着后腿转**，绕髋力臂 0.4~0.7m；
+       快步 ±0.34rad 下腹部顶点最大位移实测 **0.223m**（腹线纵向跨度 0.185→0.225），
+       画面上就是"肚子一吸一缩"。
+       改成**按到该腿蹄心竖轴的距离**给权重（真正的胶囊蒙皮）：
+         · 平面距离 0.13m 内吃满、0.26m 外为 0（腿粗 10~20cm）；
+         · y 从 1.00 渐隐到 0.55（肩/髋附近位移本来就小，不会撕出折痕）。
+       腰腹（两腿之间的中线区）到任何一条腿轴都 ≥0.3m ⇒ 权重 0，不再被腿带走。
+       ⚠️ 这两份权重在 Rodin 路径上**只用于形变**（颜色/花纹烘在贴图里），
+          收窄它不会改变毛色。 */
+    const side = sm(0.05, 0.12, Math.abs(x));
+    const down = sm(1.00, 0.55, y);
+    const axF = cnt[x > 0 ? 'FR' : 'FL'] ? cl[x > 0 ? 'FR' : 'FL'][0] : (x > 0 ? 0.12 : -0.12);
+    const axH = cnt[x > 0 ? 'HR' : 'HL'] ? cl[x > 0 ? 'HR' : 'HL'][0] : (x > 0 ? 0.12 : -0.12);
+    const capsule = (ax, az) => sm(0.26, 0.13, Math.hypot(x - ax, z - az));
+    W.legF[i] = down * side * capsule(axF, frontZ);
+    W.legH[i] = down * side * capsule(axH, hindZ);
     if (W.tail[i] > 0.5) tailTop = Math.max(tailTop, y);
     if (z > Lmax - 0.06){ muzzleY += y; muzzleN++; }
   }
