@@ -26,39 +26,36 @@ HEAD = `c79d549`，分支 `refactor-06-split-20261013`。
 
 ## 三、剩余待办（按优先级）
 
-### 0. 重跑验证（先做，~15 分钟）
-`npm run verify:quick` 必须在本批改动后重跑一次留档。改动面是 06k/06l/06m/11/15c 五个文件，覆盖 quick 里的 import-audit / layout-fingerprint / smoke。
+### 已完成（第二轮，见提交记录）
+- ✅ **A2 马车朝向跳变**：back 段进站朝向 → π 的 15.7° 硬切改为倒车前 1m 内平滑收向；spin 调头目标从 0 改为离场首段朝向（≈0.826），47° 硬切消除（16-actors.js driveout）。
+- ✅ **A3 辕马错位 0.7m**：parked 槽位（−2.85）与 travelOff（2.15）统一为"马肩颈正落横轭下"——马心车局部 1.93（轭 1.38 + 肩距 0.55），parked hz=−3.33 / travelOff.z=1.93 / 无 travelOff 兜底同口径；缰绳鼻端起点随马心 1.93 同步到 2.95（15e-stable.js / 15d-carriage.js）。
+- ✅ **C1 每帧临时对象**：锦鲤 bases/peers（11-loop.js，d.base/d.peer 持久复用）、散步 lastPos（复用）、15c 白雾 billboard 四件套（_lifeM/_lifeQ/_lifeSC/_lifePP）、16-actors 姿态 q/e（_poseQ/_poseE）、08e 小鸟 3 件套（_bUpY/_bAxisX/_bq2）全部挪模块级。
+- ✅ **B2 路点抄两份**：STABLE_ROAD_PTS / STABLE_EXIT_PTS 单份定义移入 15a-shared，15e import 后转出（门面/16-actors 引用路径不变），15d 删手抄副本直接 import。
+- ✅ **verify:quick 重跑**：日志 `outputs/_diag/verify-quick-2026-10-27-c1.log`。
 
-### 1. 马车朝向跳变（A2，~1h）⭐ 用户可见
-- `back` 段硬设 `yaw=π`（16-actors.js:1533），而 `arrive` 终点朝向 `atan2(-0.9,-3.2)≈-2.868` ⇒ 一帧跳 15.7°。
-- `spin` 结束 `yaw=0`，`depart` 首段 `atan2(1.3,1.2)≈0.825` ⇒ 一帧跳 47°。
-- **修法**：depart 首段不走 `pathAt` 直接摆位，先用现有的 `angDiff` 插值把 yaw 从 0 平滑转到 0.825（可以并入 spin 段末尾多转 47°，或在 out 段前加 0.3s 的对齐小步）。back 段同理：进入 back 时从当前 yaw 平滑回 π，而不是直接设值。
-- **验收**：新增/扩展 `probe/visit-carriage-guard.mjs`，判据加"任意 0.4s 窗口 |Δyaw| ≤ 0.12rad"（1.15rad/s 转向速率 × 0.4s ≈ 0.46，取 0.12 已很宽松；跳变帧实测 >0.27）。
+### 已完成（第三轮）
+- ✅ **换季过渡全园点名**：12-env 删掉第一次重复的 `collectSeasonGLB()`（两次之间无人读 seasonGLB）；12f 加 `_glbSettled` 稳态早退（名单收满且无待注入材质 ⇒ 后续帧不再 traverse），迟到资产走 `onAssetAttached` 先 reset 再 collect。过渡期从每帧 4 遍降到收敛后 0 遍。
+- ✅ **雪天泥地硬边（视觉清单②）**：15e 泥地补丁改用专用渐隐贴图（40% 起渐隐，停点 [[0,1],[0.40,0.82],[0.72,0.32],[1,0]]）；`makeSoftAlphaTex` 参数化（不传参 = 旧版逐字节不变，贴地软影等调用方不受影响）；`wornDry/wornBare` 登记 `registerWeatherRoles({snow:1})` —— 深雪里补丁随地面落雪，不再是被雪包围的棕色硬坑。
+- ✅ **probe 仓库卫生**：git 跟踪的 11 个 `_tmp-*.mjs` 已 `git rm`（可从历史恢复）；134 个未跟踪的一次性脚本挪进 `probe/_attic/` 归档（**未删除**，找旧诊断脚本去那里）。
+- ✅ **A2/A3 端到端验证**：`visit-carriage-guard` 18 项 ALL PASS（相位链 done、odo 连续、零掉座、零 pageerror；spin 实测 2.0s = 新公式预测）；`horse-motion-guard` ALL PASS（马位移动后六匹动作判据不受影响）。
+- ✅ **verify:quick 全绿**：日志 `outputs/_diag/verify-quick-2026-10-27-c1.log`（含 A2/A3/C1/B2 改动）。
 
-### 2. 辕马相对车错位 0.7m（A3，~0.5h）⭐ 用户可见
-- parked 时马在车局部 z≈1.45（15e-stable.js:943 槽位 −2.85 vs 车心 −1.4+），行驶时 `travelOff.z=2.15`（15e-stable.js:1163）⇒ 出发瞬间马向前蹦 0.7m。
-- **修法**（二选一，推荐 ①）：
-  ① 把 `travelOff.z` 改 1.45 与 parked 对齐；轭在车局部 z=1.38（15d-carriage.js:453），马肩颈"马心−0.55"落在 1.38 ⇒ 马心理论位 1.93——说明 **1.45 本来就偏后**，正确做法是 parked 槽位与 travelOff 统一取 1.93（顺带修掉"轭落在马肩后"的旧账）。
-  ② 只把 travelOff 改 1.45 保持现状观感，轭错位留档不动。
-- **验收**：到访探针里量"马心到车心距离"在 parked→drivein 切换帧 |Δ| ≤ 0.05m。
-- ⚠️ 改槽位要同步 15e-stable.js 的注释与 yardWear/粪堆等邻近摆位，跑 `figure-foot-guard`。
+### 明确不做 / 需要视觉迭代（原因如下）
+- **水色偏黑（视觉清单①）**：查实**不是**低档专属 bug——低档的"天空近似假反射"通道正常（`uReflMix=0` = 天空近似而非关闭，01-materials.js:125），主因是水体吸收 + 深色池底在常规视角占画面主体（fres 菲涅尔角度小）。且 fresnel-guard 钉死了具体亮度数值（F=0.0200/0.0693/0.6800 三档 + 像素亮度对比），改吸收系数必须配截图逐轮调参并重校门禁，盲改必红。
+- **彩虹横贯全屏（视觉清单③）**：`renderOrder` 合成是有意设计（山盖虹），宽度调整（T0/T1/BAND/R=68）是纯观感参数，需要截图迭代定值。
+- **stableGateSlab 0.003m / roadLantern 自叠（z-fight）**：需开浏览器逐面射线探测定位重叠面（或改 GLB 模型本体），亚厘米级痕迹，收益/成本比低，留待下次视觉走查一并处理。
+- **服装分层 / 拱顶两端 / 对弈肘限位 / Tinker GLB 预载**：几何/资产级工程，需要逐帧截图确认效果，不适合盲改。
 
-### 3. 换季过渡每帧 4 次全场景遍历（~0.5h）
+### 仍待办
+
+### 3. 换季过渡每帧 4 次全场景遍历（~0.5h）—— ✅ 已完成（见上"第三轮"）
 - `12-env.js:349` 与 `:357` 连续两次 `collectSeasonGLB()`，每次内部 2 个 `world.traverse`（12f-season.js:184/195）⇒ 过渡期每帧 4 遍全园点名。
 - **修法**：删掉 :349 那次（第二次在 `applyPresence` 之后、`applyGLBSeason` 之前，是真正被用的那次；:349 是旧调用残留）。再给 `collectSeasonGLB` 加"已收满就早退"守卫（ListusPlant 等集合非空且本轮无新增 ⇒ return），过渡期从 4 遍降到 0。
 - **验收**：切季节时 `ENVDBG` 日志确认风场注入仍齐全（12 株×3 态）；`reel-guard` 绿。
 
-### 4. 每帧临时对象挪模块级（C1，~1h，机械活）
-- `11-loop.js:1083` koi `bases` 数组 + `:1099/:1104` 两批对象字面量（11 条鱼 → 23 个/帧）：预分配复用。
-- `11-loop.js:1372` `lastPos = {x,z}`：人物对象上预建字段复用。
-- `15c-horse-life.js:233` `new Matrix4/Quaternion/Vector3×2`：提成模块级（照 15b `_tq/_te` 的做法）。
-- `16-actors.js:2084-2085` `advance()` 的 Quaternion+Euler：同上。
-- `08e-birds.js:456-461` 每鸟每帧 3 个对象：现在 0 只鸟零成本，但**恢复鸟数之前必须先修**（写进 TODO 防踩）。
-- **验收**：`layout-fingerprint` 逐位不变（这些都是纯换内存写法，不能改任何数值口径）。
+### 4. 每帧临时对象挪模块级（C1）—— ✅ 已完成（见上"已完成"）
 
-### 5. 马车路点抄两份（B2，顺带做，~0.5h）
-- `15d-carriage.js:88-89` 的 `_ROAD_A/_ROAD_B` 是 `15e-stable.js` `STABLE_ROAD_PTS/STABLE_EXIT_PTS` 的手抄副本（当时为避环）。现在 15d 已经 import 15c，**不 import 15e**——检查 15e 是否可被 15d 安全引用；若仍有环风险，改为从 15a-shared 或 15e 拆出的新常量文件导出一份，两边 import。
-- **验收**：grep 确认全项目 `[[40.0,4.2]` 只出现一处定义。
+### 5. 马车路点抄两份（B2）—— ✅ 已完成（见上"已完成"）
 
 ### 6. 上一份 handoff 的 9 项遗留（没动，照旧）
 见 `docs/HANDOFF-2026-10-27.md`：Tinker GLB 预载、yardWear 不积雪、对弈肘限位、低档水黑、拱顶两端、服装分层、`_tmp-*` 清理、石路 z-fight、出园路垫层。其中 **yardWear 不积雪**（`wornDry/wornBare` 没走 `registerWeatherRoles`）与**低档水黑**（`uReflMix=0`）是另一个 AI 视觉走查确认过的用户可见项，建议排在 1/2 之后。
