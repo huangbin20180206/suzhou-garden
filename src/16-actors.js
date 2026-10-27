@@ -414,7 +414,7 @@ const DEFS = [
     tint: 0xAEB9C9,          // 生成件偏亮蓝；压一点饱和，贴近场景的工笔淡彩
     /* 2026-10-25 着装：主人换成**藏青**（压暗 + 提饱和）。蓝衣在生成件上已经"很雅"，
        但一眼看不出"这家有钱"——深青直裰是明清文士的正装色，比浅蓝更像当家人。 */
-    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.42, val: 1.22 }, // 绛紫鲜艳丝绸（2026-10-26：大户人家主人，宝蓝太素）
+    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.55, val: 1.06 }, // 绛紫绸（2026-10-27 压深一档）
     spot: { x: 1.2, z: -5.7, yaw: 0.42 },
     /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
        走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
@@ -663,7 +663,7 @@ function getActorBlobMat(){
   if (!_actorBlobMat){
     _actorBlobMat = new THREE.MeshBasicMaterial({
       map: makeSoftAlphaTex(), color: 0x000000,
-      transparent: true, opacity: 0.26, depthWrite: false,
+      transparent: true, opacity: 0.18, depthWrite: false,
     });
   }
   return _actorBlobMat;
@@ -1023,7 +1023,10 @@ function loadActor(def){
          规矩与马厩的马同一套：**走动期间不投影、改用贴地软影；停下再烘一次**。
          切换只在"开始走/刚停下"各烘一次（整场景 shadow pass 很贵，不能每帧）。 */
       const blobMat = getActorBlobMat();
-      const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.72, 0.52), blobMat);
+      /* ⚠️ 2026-10-27 二次收小（老黄："人物移动时脚底还是有拖影，感觉像穿了雪橇"）：
+         0.72×0.52 在低机位下就是一整块深色椭圆，长袍一盖只剩这块"板"。
+         改成 0.44×0.30、透明度 0.18 —— 只当"接触暗部"，不再读成影子/雪橇。 */
+      const blob = new THREE.Mesh(new THREE.PlaneGeometry(0.44, 0.30), blobMat);
       blob.name = 'actorBlobShadow';
       blob.rotation.x = -Math.PI / 2;
       /* y=0.09：石板路的面在 +0.06 左右，贴 0.02 会被铺地整个盖住（马厩的软影同样取 0.09） */
@@ -1060,7 +1063,9 @@ function loadActor(def){
    （同 poseName 有两位，只按名字取第一个会换错人）。 */
 function seatedDefs(){
   const out = [];
-  [[0, 'go1', 0xBBA9C4], [2, 'go2', 0xA7B7D2]].forEach(([si, id, tint]) => {
+  /* 2026-10-27：原来的淡紫/淡蓝（0xBBA9C4 / 0xA7B7D2）乘在白模上读作"灰扑扑的粗布"。
+     改成两身深色绸衣：靛青 / 松绿（深色才压得住"大户人家"的分量）。 */
+  [[0, 'go1', 0x3F5A7A], [2, 'go2', 0x4E6B58]].forEach(([si, id, tint]) => {
     const st = SEAT_SPOTS[si];
     if (!st) return;
     /* 往桌心挪 0.24m：坐在凳子的**最前沿**（真人在石凳上下棋也是这样），
