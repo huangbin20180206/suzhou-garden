@@ -40,11 +40,20 @@ HEAD = `c79d549`，分支 `refactor-06-split-20261013`。
 - ✅ **A2/A3 端到端验证**：`visit-carriage-guard` 18 项 ALL PASS（相位链 done、odo 连续、零掉座、零 pageerror；spin 实测 2.0s = 新公式预测）；`horse-motion-guard` ALL PASS（马位移动后六匹动作判据不受影响）。
 - ✅ **verify:quick 全绿**：日志 `outputs/_diag/verify-quick-2026-10-27-c1.log`（含 A2/A3/C1/B2 改动）。
 
-### 明确不做 / 需要视觉迭代（原因如下）
-- **水色偏黑（视觉清单①）**：查实**不是**低档专属 bug——低档的"天空近似假反射"通道正常（`uReflMix=0` = 天空近似而非关闭，01-materials.js:125），主因是水体吸收 + 深色池底在常规视角占画面主体（fres 菲涅尔角度小）。且 fresnel-guard 钉死了具体亮度数值（F=0.0200/0.0693/0.6800 三档 + 像素亮度对比），改吸收系数必须配截图逐轮调参并重校门禁，盲改必红。
-- **彩虹横贯全屏（视觉清单③）**：`renderOrder` 合成是有意设计（山盖虹），宽度调整（T0/T1/BAND/R=68）是纯观感参数，需要截图迭代定值。
-- **stableGateSlab 0.003m / roadLantern 自叠（z-fight）**：需开浏览器逐面射线探测定位重叠面（或改 GLB 模型本体），亚厘米级痕迹，收益/成本比低，留待下次视觉走查一并处理。
-- **服装分层 / 拱顶两端 / 对弈肘限位 / Tinker GLB 预载**：几何/资产级工程，需要逐帧截图确认效果，不适合盲改。
+### 已完成（第四轮 · 深夜收尾）
+- ✅ **水色偏黑（视觉清单①）**：三轮截图迭代（探针 `probe/eyes-iter.mjs`，样张 `outputs/_diag/eyes-iter/`）——
+  ① 池底透出亮度下限 0.45→0.62（01-materials 水面 shader）；② 池底贴图调色板整体提亮（01b `makePondBedTex`，淤泥基色 #4A4E3C→#5A5F47）；③ 吸收系数全档下调（uAbsorb 0.85/0.38/0.28→0.72/0.30/0.24）+ uDeep 1.80→1.58 + 水体自色 0x25443C→0x2B4B41 + 池底 envMapIntensity 0.22→0.32。
+  定量：深水区亮度 60→71、浅水区 90→98；夏/冬/夜三态截图确认不再"沥青坑"，冬水读出深浅与涟漪。**fresnel-guard ALL PASS**（F 三档函数值不受影响，像素对比关系保持）。
+- ✅ **z-fight 实修**：新探针 `probe/zfight-scan.mjs`（区域射线找 <0.02m 共面层）。真凶是 **yardWear 泥地补丁三层同高叠放**（55+ 处高差精确 0）——三组补丁错高 0/0.006/0.003、组内 Bare +0.012，现已分层 ≥1.18cm。其余扫描结果（马车坐垫 7mm、同网格自叠、ground 自叠 2 点）均在闪烁阈值外或同材质无观感影响，留档不追。旧 handoff 的 stableGateSlab↔mergedStatic 0.003m 在现扫描中未复现（已被当日 PAD_ROAD 改动覆盖）。
+- ✅ **Tinker GLB 预载移除**：HorseTinker.glb（1.96MB）移出 13-preload 清单 + sw.js 预缓存（资产桶 v19→v20），15b 删模块求值期 fetch+settle，改为 HORSE_MODEL='tinker' 分支内懒加载。**smoke 56 项 ALL PASS**（启动/预载不卡）、**horse-motion-guard ALL PASS**（默认 rodin 六匹不受影响）。启动少下 1.96MB。
+  ⚠️ 过门禁时踩的两小步（preload-manifest-sync 第一次跑红，正是它该拦的）：① sw.js GLBS **数组注释里不要出现成对引号**——门禁按引号提取条目，注释里写 `'rodin'` 会被当成清单项（已在 sw.js 注释里立牌）；② 磁盘上的 .glb 必须在两份清单**或 ASSET_EXEMPT 白名单**里——HorseTinker 已按 thunder.mp3 先例登记白名单（懒加载备选件）。
+- ✅ **对弈肘（go2 右肘 1.70rad 顶死）**：已过时——10-27 的重解把 go2 右手改为"自然垂在体侧"（sx -1.2 / 肘 0.75），白天特写（chess2-chess-closeup.png）确认两人手臂自然，无僵直。视觉结案。
+- ✅ **拱顶两端开口**：已过时——篷顶重做时已加两端朱红拱脸（carriageCanopyFace + 金边，15d:394-397），马车特写（carriage-closeup.png）确认两端封住。视觉结案。
+- ✅ **彩虹横贯（视觉清单③）**：**决定不改**。现有形状是老黄本人 15 轮反馈的收敛结果（"窄一些"→BAND 2.6、"右端藏到山脚"→T1 118°、"位置高一些"→Y+2），且有 afterrain-guard 钉住拱顶/跨度；另一个 AI 的"虚彩带"描述的就是这个收敛态。改它=推翻用户自己的决定。
+- 📷 新增两个常驻探针：`probe/eyes-iter.mjs`（四状态样张+对弈特写）、`probe/zfight-scan.mjs`（叠层扫描），后续视觉走查直接复用。
+
+### 仍待办（仅剩 1 项真正的设计工程）
+- **服装分层（host/棋手 clothing 只有色相偏移）**：需要逐人物加衣领/袍摆/腰带分层几何 + 逐轮截图确认，属独立设计工程，不适合盲改。其余 8 项旧 handoff 遗留中，3 项本轮确认已修（对弈肘/拱顶/出园路）、2 项本轮实修（yardWear 积雪+硬边/Tinker 预载）、1 项明确不做（彩虹）、z-fight 大头已清。
 
 ### 仍待办
 

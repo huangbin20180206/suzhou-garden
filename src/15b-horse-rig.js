@@ -6,7 +6,7 @@
 //   · 补件与锚点量测、伪蒙皮权重/枢轴/着色烘焙、installHorseRig
 // 本文件只做「几何与材质」，不含行为状态机（那在 15c）。
 import { GLTFLoader, THREE, mergeGeometries } from '../vendor.js';
-import { HOOKS, mulberry32 } from './00-config.js';
+import { mulberry32 } from './00-config.js';
 /* ── 真马模型（2026-10-10 · 老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行，
       然后再帮我绘制几种典型的马的颜色"）─────────────────────────────────────────
    资产来路（全部记在案，便于复核/换源）：
@@ -138,12 +138,10 @@ export function tinkerLoader(){
    页面永远到不了 done（实测 120s 超时）。旧 Rodin 路径的 horseSrcOnce 就是在这里
    settle 的，换成 Tinker 时这条握手必须一起搬过来。
    所以：模块求值期就发起 fetch，并在完成/失败时回报 settle + 进度。 */
-tinkerBuffer().then(() => {
-  HOOKS.reportAssetProgress?.(TINKER_GLB, 1616944, 1616944);
-  HOOKS.settleAsset?.(TINKER_GLB, true);
-}).catch((e) => {
-  HOOKS.settleAsset?.(TINKER_GLB, false, e);
-});
+/* ⚠️ 2026-10-28：模块求值期的 fetch+settle 已删 —— HorseTinker.glb 移出 PRELOAD_MANIFEST
+   （预载不再等它），下载改为**懒加载**：只有 loadStableHorses 走 Tinker 路径（HORSE_MODEL
+   ≠ 'rodin'）时才在延迟批里调 tinkerBuffer() 发起 fetch。默认 rodin 三匹 ⇒ 1.96MB 少下。
+   若将来把 HORSE_MODEL 改回 'tinker'：该分支自带 tinkerBuffer().then，无需恢复这段。 */
 /* 逐匹上色：
    2026-10-20 老黄纠偏（"马的整体外形还要再调整，颜色太深了，跟我们常见的马完全不一样"）：
    根因：原模型自带大块黑白斑块贴图，与 tint 相乘后黑斑死黑、读作烤焦罗威纳犬斑块。

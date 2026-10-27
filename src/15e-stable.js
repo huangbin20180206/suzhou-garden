@@ -1108,7 +1108,9 @@ export function makeStable(cx, cz, opts = {}){
                                       [0.40, 'rgba(255,255,255,0.82)'],
                                       [0.72, 'rgba(255,255,255,0.32)'],
                                       [1.00, 'rgba(255,255,255,0)']]);
-  const mkPatch = (lx, lz, r, mat, seed) => {
+  /* lift：叠层贴片的抬升。wornBare 同心叠在 wornDry 上，同高 = 整圈共面 z-fight
+     （zfight-scan 实测 55 处高差 0 —— 这才是马厩泥地闪烁的来源，2026-10-28 修）。 */
+  const mkPatch = (lx, lz, r, mat, seed, lift = 0) => {
     const NA = 28, NR = 3;
     const pos = [], uv = [], idx = [];
     for (let ir = 0; ir <= NR; ir++){
@@ -1119,7 +1121,7 @@ export function makeStable(cx, cz, opts = {}){
         const wob = 1 + (ir === NR ? 0.26 * Math.abs(Math.sin(a * 3 + seed)) - 0.13 : 0);
         const rad = r * t * wob;
         const qx = lx + Math.cos(a) * rad, qz = lz + Math.sin(a) * rad;
-        pos.push(qx, gy(qx, qz) + 0.05, qz);
+        pos.push(qx, gy(qx, qz) + 0.05 + lift, qz);
         uv.push(Math.cos(a) * t * 0.5 + 0.5, Math.sin(a) * t * 0.5 + 0.5);
       }
     }
@@ -1149,9 +1151,9 @@ export function makeStable(cx, cz, opts = {}){
   registerWeatherRoles(wornDry, { snow: 1 });
   registerWeatherRoles(wornBare, { snow: 1 });
   /* 上马位（A 车 + 两匹挽马脚下）= 碾压最重；停车位（B 车）= 次之；院门进出口 = 最轻 */
-  mkPatch(-3.0, -2.1, 3.0, wornDry, 1.3);  mkPatch(-3.0, -2.1, 2.1, wornBare, 1.3);
-  mkPatch( 3.0, -1.2, 2.2, wornDry, 2.7);  mkPatch( 3.0, -1.2, 1.5, wornBare, 2.7);
-  mkPatch( 0.0, -4.1, 2.0, wornDry, 4.1);  mkPatch( 0.0, -4.1, 1.3, wornBare, 4.1);
+  mkPatch(-3.0, -2.1, 3.0, wornDry, 1.3, 0.000);  mkPatch(-3.0, -2.1, 2.1, wornBare, 1.3, 0.012);
+  mkPatch( 3.0, -1.2, 2.2, wornDry, 2.7, 0.006);  mkPatch( 3.0, -1.2, 1.5, wornBare, 2.7, 0.018);
+  mkPatch( 0.0, -4.1, 2.0, wornDry, 4.1, 0.003);  mkPatch( 0.0, -4.1, 1.3, wornBare, 4.1, 0.015);
 
   /* 马夫站位（供 08-assemble 回填人物用）：站在**低头受喂那匹马的头前**、面朝局部 +z
      （也就是朝马嘴），栅栏（z=−4.7）**以内**。

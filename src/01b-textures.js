@@ -171,13 +171,13 @@ export function makePondBedTex(){                       // 池底：淤泥 + 藻
   const S = 1024;
   const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d');
-  g.fillStyle = '#4A4E3C'; g.fillRect(0, 0, S, S);          // 淤泥（不是黑）
+  g.fillStyle = '#5A5F47'; g.fillRect(0, 0, S, S);          // 淤泥（2026-10-28 提亮一档：4A4E3C→5A5F47，池水观感不该比泥还黑）
 
   // 大尺度斑块：藻 / 深淤泥 / 沙洲
   const blobs = [
-    ['rgba(78,96,54,0.40)',   26, 30, 80],
-    ['rgba(56,60,44,0.34)',   20, 24, 64],
-    ['rgba(108,108,90,0.26)', 18, 18, 48],
+    ['rgba(92,110,64,0.40)',   26, 30, 80],
+    ['rgba(68,72,54,0.34)',   20, 24, 64],
+    ['rgba(122,122,102,0.26)', 18, 18, 48],
   ];
   for (const [col, n, rMin, rMax] of blobs){
     g.fillStyle = col;
@@ -202,7 +202,7 @@ export function makePondBedTex(){                       // 池底：淤泥 + 藻
   // 细泥点
   for (let i = 0; i < 12000; i++){
     const v = rr(-16, 16);
-    g.fillStyle = `rgba(${74+v|0},${78+v|0},${60+v|0},0.35)`;
+    g.fillStyle = `rgba(${88+v|0},${92+v|0},${72+v|0},0.35)`;
     g.fillRect(rnd()*S, rnd()*S, rr(1,2.2), rr(1,2.2));
   }
 

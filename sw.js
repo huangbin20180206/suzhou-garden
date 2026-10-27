@@ -118,7 +118,7 @@ const CACHE = 'suzhou-garden-v43';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
-const ASSET_CACHE = 'suzhou-garden-assets-v19';  // 2026-10-24 池边荷花换三态（LotusPlant.glb 删、lotus-{bloom,bud,pod}.glb 增）⇒ 升桶
+const ASSET_CACHE = 'suzhou-garden-assets-v20';  // 2026-10-28 HorseTinker.glb 移出预缓存（备选路径改懒加载）⇒ 升桶
 const SHELL = [
   './',
   './index.html',
@@ -140,8 +140,9 @@ const GLBS = [
   /* 2026-10-03 补：金刚鹦鹉（2026-10-02 上峰顶时只改了 13-preload，漏了这里）。
      这是"两份投影"里被漏掉的那一件 —— 见上方 CACHE 的 v15 沿革注释。 */
   './assets/Macaw.glb',
-  /* 2026-10-19：马厩换 Tinker 照片级马（454 骨骼 + 鬃尾），与 13-preload 同步。 */
-  './assets/HorseTinker.glb',
+  /* 2026-10-28：HorseTinker.glb 移出预缓存（默认 HORSE_MODEL=rodin，Tinker 是备选路径，
+     改为选用时才懒加载 —— 少预载 1.96MB；离线用到时走运行期缓存 + CDN 回退。
+     ⚠️ 本数组注释里不要出现成对引号 —— 清单同步门禁按引号提取条目，会被当成清单项）。 */
   /* 2026-10-23：马厩换 Rodin 三匹（自带耳/眼/鼻孔/蹄形 + 1024 PBR 贴图；无骨骼走伪蒙皮）。
      与 13-preload 的 PRELOAD_MANIFEST 同步（preload-manifest-sync 门盯着）。 */
   './assets/horse-camargue.glb',

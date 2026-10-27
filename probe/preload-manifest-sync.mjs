@@ -53,6 +53,7 @@ const ASSET_DIR = 'assets';
    只有写了理由才放行 —— 否则"新加了个资产忘了登记"会被悄悄放过（正是本门要治的病）。 */
 const ASSET_EXEMPT = new Map([
   ['thunder.mp3', '雷声：懒加载的点缀音效（闪电时才取），不在"开园前必须到位"的范畴'],
+  ['HorseTinker.glb', 'Tinker 骨骼马：备选路径（HORSE_MODEL=tinker 才用），2026-10-28 起改懒加载，不在开园预载清单'],
 ]);
 
 const norm = (p) => String(p).replace(/^\.\//, '');

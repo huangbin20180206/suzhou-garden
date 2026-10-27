@@ -210,7 +210,7 @@ export function makePond(){
     textureWidth: ACTIVE_QUALITY.reflection || 512,
     textureHeight: ACTIVE_QUALITY.reflection || 512,
     clipBias: 0.004,
-    color: 0x25443C,          // 深水底色（0x14201E → 0x1C2E29 → 现在 0x25443C：俯视时的自色别再是黑洞）
+    color: 0x2B4B41,          // 深水自色（0x14201E → 0x1C2E29 → 0x25443C → 0x2B4B41：2026-10-28 再提一档，俯视别再是黑洞）
     shader: WATER_REFLECT_SHADER,
   });
   water.material.transparent = true;
@@ -281,7 +281,7 @@ export function makePond(){
   /* 池底：带纹理的碗形。原来是一块 color:0x1A2422 的平面 —— 低头看就是一片黑。 */
   const bedTex = makePondBedTex();
   const bedMat = new THREE.MeshStandardMaterial({
-    map: bedTex, color: 0xFFFFFF, roughness: 0.96, metalness: 0.0, envMapIntensity: 0.22,
+    map: bedTex, color: 0xFFFFFF, roughness: 0.96, metalness: 0.0, envMapIntensity: 0.32,
   });
   /* 水下焦散：光斑由世界坐标 + 时间驱动，注入到 diffuse。
      这是「水下有光在晃」最便宜的实现，也让池底不再是死板的一块。 */

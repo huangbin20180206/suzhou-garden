@@ -219,7 +219,6 @@ export const PRELOAD_MANIFEST = [
      ⚠️⚠️ 下载必须**在模块求值期**发起（15-stable 的 tinkerBuffer + settleAsset 握手），
      否则预载段会等一个永远不来的 settled ⇒ 进度条卡死（实测 120s）。
      `preload-manifest-sync` 的 G6 守这条。 */
-  { url: 'assets/HorseTinker.glb',  bytes: 1959088, stage: '取', label: '马',   required: false },
   /* 2026-10-23：马厩换 Rodin 三匹（无骨骼 + 1024 PBR 贴图，走 15-stable 的伪蒙皮）。
      三份在 15-stable 的**模块求值期**发起请求（_RODIN_BOOT），否则会死等到预载超时。 */
   { url: 'assets/horse-camargue.glb',       bytes: 782052, stage: '取', label: '马·白', required: false },

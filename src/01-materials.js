@@ -16,9 +16,9 @@ export const WATER_REFLECT_SHADER = {
     uCenter:       { value: new THREE.Vector2(0, 3.0) },   // 池心（世界 XZ）
     uPondAx:       { value: 15.7 },                         // 近似椭圆池形
     uPondAz:       { value: 9.4 },
-    uAbsorb:       { value: new THREE.Vector3(0.85, 0.38, 0.28) },  // 红先被吸收 → 深水偏青
+    uAbsorb:       { value: new THREE.Vector3(0.72, 0.30, 0.24) },  // 红先被吸收 → 深水偏青（2026-10-28 全档下调：深水区不再黑成沥青）
     uShallow:      { value: 0.95 },
-    uDeep:         { value: 1.80 },
+    uDeep:         { value: 1.58 },   // 2026-10-28：1.80→1.58，深水光程缩短 ⇒ 中心区透得出池底
     uSkyTop:       { value: new THREE.Color(0xA8BDD4) },   // 低档位用：天空三停近似反射
     uSkyMid:       { value: new THREE.Color(0xBFD2E6) },
     uSkyHorizon:   { value: new THREE.Color(0xE6E2D8) },
@@ -151,7 +151,9 @@ export const WATER_REFLECT_SHADER = {
         vec2 ruv = vec2(uPondMin.x + uPondSize.x - vWorld.x, vWorld.z - uPondMin.y) / uPondSize;
         ruv += nrm.xz * (0.004 + 0.020 * (1.0 - cosI));
         under = texture2D(uRefract, clamp(ruv, 0.002, 0.998)).rgb;
-        under *= (0.45 + 0.55 * absorb);   // 水深吸收同样压一遍池底：光程越长越暗、越偏青
+        under *= (0.62 + 0.42 * absorb);   // 水深吸收同样压一遍池底：光程越长越暗、越偏青
+                                           // （2026-10-28：下限 0.45→0.62 —— 旧值把池底压到
+                                           //  原亮度一半以下，浅水区也黑成"墨绿沥青"）
       }
       vec3 base = mix(color, under, uRefractOn * body);
 
