@@ -416,10 +416,16 @@ const DEFS = [
     url: 'assets/fig-scholar.glb',
     height: 1.72,
     hidePose: 'read',
-    tint: 0xAEB9C9,          // 生成件偏亮蓝；压一点饱和，贴近场景的工笔淡彩
+    /* 2026-10-28 老黄："主人脸色还是偏黑偏暗" ⇒ tint 撤到**纯白**（等于不乘）。
+       ⚠️ tint 是乘在整张 1K 图集上的，0xAEB9C9 连脸一起压掉约三成；袍色本来就由 dye
+          按色相带重染，提白只影响肤色/头发，不会把袍子洗淡。
+       ⚠️⚠️ 提白后**必须同时收 vMax**（见下面 dye.vMax）：绛紫色相带 0.96±0.14 会绕回
+          肤色 0.05，原来靠"只染暗部"挡脸；tint 提白把皮肤 value 从 0.39 抬到 0.57，
+          旧阈值 0.66 挡不住了 ⇒ 脸被染成洋红（出图 eyes-items/pre-B-scholar.png 实测）。 */
+    tint: 0xFFFFFF,
     /* 2026-10-25 着装：主人换成**藏青**（压暗 + 提饱和）。蓝衣在生成件上已经"很雅"，
        但一眼看不出"这家有钱"——深青直裰是明清文士的正装色，比浅蓝更像当家人。 */
-    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.55, val: 1.06 }, // 绛紫绸（2026-10-27 压深一档）
+    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.55, val: 1.06, vMax: 0.50 }, // 绛紫绸（2026-10-27 压深一档）
     layerRange: {
       waistStart: 0.55,
       waistEnd: 0.72,
@@ -773,6 +779,8 @@ function dyeMaterial(m, dye, layerRange){
        所以皮肤与白袜一律不染 —— 红相带绕回 0.05 时靠它挡脸（实测没这道闸孩子会绿脸）。 */
     uDyeVMax:  { value: dye.vMax === undefined ? 0.66 : dye.vMax },
   };
+  /* 供探针在页内做 A/B（改 vMax/hue 看脸与袍子分不分得开）—— 只读引用，不参与产品逻辑。 */
+  m.userData.dyeU = U;
   const prevCB = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
   m.onBeforeCompile = function (shader, renderer){
     if (prevCB) prevCB.call(this, shader, renderer);
@@ -1136,7 +1144,9 @@ function seatedDefs(){
      修法：tint 只留近白（同 guest 的口径），袍色全部交给 dye —— dye 按
      "袍子蓝色相带"重染，肤色(hue≈0.07)/头发在带外、亮皮肤又被 uDyeVMax 挡住，
      天然不染（laborer 撤染那条注释同源）。 */
-  [[0, 'go1', 0xEDE7DC], [2, 'go2', 0xE8E2D8]].forEach(([si, id, tint]) => {
+  /* 2026-10-28 老黄："对弈两人脸色还是偏黑" ⇒ 与主人同口径，tint 撤到**纯白**；
+     袍色仍由 dye 重染（下两行），提白只抬肤色/头发。 */
+  [[0, 'go1', 0xFFFFFF], [2, 'go2', 0xFFFFFF]].forEach(([si, id, tint]) => {
     const st = SEAT_SPOTS[si];
     if (!st) return;
     /* 往桌心挪 0.24m：坐在凳子的**最前沿**（真人在石凳上下棋也是这样），
