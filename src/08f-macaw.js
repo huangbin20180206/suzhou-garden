@@ -53,9 +53,13 @@ export const MACAWS = [];
 export const MACAW_COUNT = 3;                      // 鸟数（落点可以更多：多出来的空着给飞行用）
 export const MACAW_LIFT = 2.4;                       // 起飞/落下时抬升的高度（m）
 export const MACAW_CRUISE = 1.6;                     // 换点巡航弧顶额外高度（m）
-export const MACAW_TAKEOFF = 0.35, MACAW_LANDING = 0.55; // 内部飞行 起/落时长（秒）
-export const MACAW_FLY_DUR = 1.4;                    // 内部飞行巡航时长（秒）
-export const MACAW_DEPART = 0.55, MACAW_ARRIVE = 0.75;
+/* ⚠️ 2026-10-28 老黄："飞得太快、一晃就过" ⇒ 三段时长整体 ×1.43（0.35/1.4/0.55 →
+   0.50/2.0/0.80），速度降约 30%。**三者必须同比例改**：下方注释里那三条连续性
+   （俯仰斜率相等 / yaw 最短角 / 振翅同源）靠的是"起降斜率 = 巡航端点斜率"这组**闭合**，
+   只要三段的相对比例不变、闭合就仍然成立；而角速度会随时长变大而变小（更安全）。 */
+export const MACAW_TAKEOFF = 0.50, MACAW_LANDING = 0.80; // 内部飞行 起/落时长（秒）
+export const MACAW_FLY_DUR = 2.0;                    // 内部飞行巡航时长（秒，原 1.4）
+export const MACAW_DEPART = 0.75, MACAW_ARRIVE = 1.05;   // 隐身进出场（原 0.55/0.75，同比例）
 /* ⚠️ flutter 时长 0.42→0.55：与下面"整段只走 2 个周期"配套 —— 2/0.55 = 3.6Hz，
    60fps 下每帧相位 0.38rad、30fps 下 0.76rad，都在"看得出来是扇动"的采样率上。 */
 export const MACAW_EV = { tail:0.38, flutter:0.55, preen:1.15, hop:0.52 };
@@ -78,8 +82,12 @@ export const MACAW_WING = {
      绕肩转到接近水平就是一副长翼，所以改成 **在 baseFly 上扇动**：
      飞行时 1.15±0.35rad ⇒ 46°~86°（基本水平），落地/栖停仍回到 0（收翅）。 */
   baseFly: 1.15,
-  ampFly: 0.35,                 // 在基准角上做 ± 扇动（不再是 0→幅）
-  freqFly: 16,                  // 飞行扇翅角频率（2.55Hz；24fps 每帧 0.67rad，不越采样极限）
+  /* ⚠️ 2026-10-28 老黄："飞行时扇翅看不出来、一晃就过" ⇒ 振幅 0.35→**0.55**（±31°，
+     0.60~1.70rad = 34°~97°，抬到平展再压下来，两相读得出来）；
+     频率 16→**11**（1.75Hz，大鸟慢扇；周期 ×1.45 与时长放大同步）。
+     ⚠️ 11 在 24fps 下每帧相位 0.46rad，仍远低于"每帧 0.8rad 走样"的上限。 */
+  ampFly: 0.55,                 // 在基准角上做 ± 扇动（不再是 0→幅）
+  freqFly: 11,                  // 飞行扇翅角频率（1.75Hz）
   ampFlutter: 0.35, ampHop: 0.30,
   /* 18 → 26（2026-10-25）：baseFly 1.15 之后收翅的尾巴更长 —— 落地后一瞬间还能剩 0.06rad，
      把 macaw-wing-guard 的"rest 时收翅 ≤0.06"顶成时红时绿（两次跑分别 0.062 / 0.012）。
@@ -126,8 +134,10 @@ export function updateMacaws(dt, t){
        ④ 弧顶高 flyYMid 在 trigger 处**算一次存字段**、三分支共用：距离缩放
           （dist/8 钳 0.2~1）。同源是闭合性的构造保证 —— 各分支各算一遍正是
           41.7 rad/s 那类"两处公式抄不一致"bug 的成因。
-       ⚠️ 飞行时长常数 MACAW_TAKEOFF/FLY_DUR/LANDING（0.35/1.4/0.55）不许动 ——
-          上面三处连续性全靠这组时长闭合。**节拍阈值不在此列**：它在下方 trigger 处，
+       ⚠️ 飞行时长常数 MACAW_TAKEOFF/FLY_DUR/LANDING **必须同比例改**（2026-10-28 起
+          0.50/2.0/0.80，原 0.35/1.4/0.55 是为了降速 30%）—— 上面三处连续性靠这组
+          时长的**相对比例**闭合（起降端点斜率 = 巡航端点斜率）；只改其中一两段就会
+          在换态处产生俯仰/航向的阶跃。**节拍阈值不在此列**：它在下方 trigger 处，
           2026-10-14 由"8~22s/次"改为"首飞 10/14/18s、之后 60~120s/次"（改因：
           旧节拍下 40s 窗末必然有鸟在天上，macaw-guard ① 连挂）。
        ⚠️⚠️ 改节拍必须重跑 macaw-guard **两遍**且两遍都得绿 —— ① 是节拍稳定性判据，
@@ -378,6 +388,7 @@ export function macawState(){
     lift: +(m.holder.position.y - m.base.y).toFixed(3),
     wing: +((m.matWing && m.matWing.value) || 0).toFixed(3),   // 扇翅角（rad）：门禁量"翅膀动了没有"就用它
     at: [+m.base.x.toFixed(2), +m.base.y.toFixed(2), +m.base.z.toFixed(2)],
+    pos: m.holder.position.toArray().map(v => +v.toFixed(2)),   // 世界位置（飞行中跟拍用）
   }));
 }
 // 乌龟：池中缓游
