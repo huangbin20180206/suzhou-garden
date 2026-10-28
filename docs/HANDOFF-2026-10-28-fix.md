@@ -84,3 +84,23 @@ HEAD = `29d6e8a`，分支 `refactor-06-split-20261013`（已推送 GitHub）。
 - **截图走查**：`probe/eyes-iter.mjs`（四状态样张）、`probe/zfight-scan.mjs`
   （叠层扫描）是现成工具，改完各跑一遍；
 - **提交**：一项一提交，说明里写"改了什么+为什么+截图路径"。
+
+---
+
+## 本轮执行结果（2026-10-28 下午，HEAD 从 7b03898 起）
+
+| # | 项 | 状态 | 提交 | 关键数字 / 结论 |
+|---|---|---|---|---|
+| 1 | 草料捆蓬松化 | ✅ 完成 | dbcd95b | 单根改带弯锥形管 + 24 根外倾 6~15°、侧向缩放 0.55~1.45；私有 mulberry32(20261028)；draw call 不变 |
+| 2 | 马夫衣摆凸起 | ⛔ 未复现，**未改资产** | — | 绑定姿态渲染（probe/glb-bind-view.mjs）正面腰腹是平的，只有左前的**白色腰带结与垂带**；页面内锁显马夫拍正面（eyes-items6/v6-front.png）同样没有鼓包 ⇒ 判为腰带结/衣摆，不是网格缺陷 |
+| 3 | 三人肤色 | ✅ 完成 | 96aef7e | tint 撤到 0xFFFFFF；⚠️ 提白触发**绛紫染色带绕回肤色**（脸变洋红）⇒ scholar 的 dye 加 vMax 0.50；lady/child/guest 未动 |
+| 4 | 鹦鹉扇翅/速度 | ✅ 完成 | 2c91e31 | ampFly 0.35→0.55、freqFly 16→11、三段时长 ×1.43（速度降 30%）；实测飞行扇翅角 0.36~1.68 |
+| — | 探针工具 | ✅ | 291e52d | eyes-items2 / eyes-items6 / glbview.html + glb-bind-view.mjs |
+
+**验证**：npm run check / unit / verify:quick 全绿（outputs/_diag/verify-quick-2026-10-28.log）；
+macaw-wing-guard + macaw-guard ALL PASS；eyes-iter 四状态样张零 pageerror。
+`zfight-scan` 仍报马厩院门一带 6 组 <0.02m 叠层（ground/mergedStatic/stableGateSlab 的自叠与互叠），
+与本批改动无关（本批只动草捆几何、材质 tint 与鹦鹉参数）。
+
+**遗留**：若老黄仍觉得马夫正面有鼓包，请给一张截图 —— 从绑定姿态与页面两个角度都只剩
+腰带结那团白布，需要他的取景才能定位。
