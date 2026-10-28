@@ -531,13 +531,10 @@ const DEFS = [
     height: 1.70,
     hidePose: 'pointDown',
     tint: 0xD8D2C2,
-    /* 2026-10-27 老黄："马夫和马的距离太近了，无论是拿草喂马还是刷马鬃毛都看不出来"。
-       旧点 (38.0,1.30) 贴在马的颈侧（马身 x≥38.2），人几乎嵌进马脖子；更糟的是
-       镜头从园子一侧（西南）看过去，**他的后背正对镜头**，手和刷子全被自己挡住。
-       现在站到**马头东侧** (39.05,1.92)、面朝西偏南（对着马嘴 / 颈前段）：
-       人到马嘴 0.56m、到颈侧约 0.62m，从园子一侧看过去是"人前马后"的侧面剪影，
-       草把和刷子在两人之间的空隙里。⚠️ 站位仍受院子面约束（x>37.8、z<2.0）。 */
-    spot: { x: 38.95, z: 1.90, yaw: -1.800 },
+    /* 2026-10-28 二次重排：喂草与刷马**不再共用一个站位**。
+       喂草点在马头前外侧，朝向实测马嘴（约 38.49,0.91,1.64）；草梢斜伸到嘴前，
+       不再把竖直草捆塞进马颈。刷马则走到 chores.brushPt 的颈侧站位。 */
+    spot: { x: 39.21, z: 1.92, yaw: -2.066 },
     floorRay: true,
     route: null,
     idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.07, headDown: 0.14,
@@ -551,7 +548,9 @@ const DEFS = [
        站位退到堆前 ~0.75m；homePt/homeYaw = 原站位与朝马嘴的 yaw（与 spot 相同口径）。
        ⚠️ 与刷马互斥：行程/喂草期间刷马不开新一轮，反之亦然（见两处的门）。 */
     chores: {
-      homePt: [38.95, 1.90], homeYaw: -1.800,
+      homePt: [39.21, 1.92], homeYaw: -2.066,
+      /* 刷马回颈侧：这是 P3 用 26 方向射线验过的贴面站位（刷尖距马身 42~74mm）。 */
+      brushPt: [38.00, 1.30], brushYaw: Math.PI * 0.5,
       hayPt: [43.60, 1.42],  hayYaw: 1.671,
       speed: 0.55, grabDur: 2.2,
       /* 2026-10-28：等客的间隙从 9~16s 收到 6~10s —— 看一眼就更容易赶上"正在拿草"。 */
@@ -915,6 +914,70 @@ function sampleFloorNear(x, z, nearY, stepUp){
   return hi !== null ? hi : near;
 }
 
+/* 马夫/车夫这件生成模型的皮肤归属有两类错误（2026-10-28 老黄截图红框）：
+   ① 袖口有一大片布挂到拇指/食指尖，手指一扣就把整片布拉起 0.6m，读作"拎着衣摆"；
+   ② 腰腹也有顶点挂到上臂/前臂，抬臂时衣身跟着走。
+   不改 GLB 文件，只在加载时按"顶点到骨骼线段的距离"修正归属：
+     · 手指远处的腰带/衣料 ⇒ 脊柱/髋（布料留在腰上，不跟拳头走）；
+     · 手臂远处的躯干 ⇒ 脊柱/髋（衣身不再被手臂带走）。
+   逐顶点只改 skinIndex/skinWeight 的索引，不动位置、UV、实例矩阵，也不消耗随机数。 */
+function repairLaborerSkin(inner){
+  inner.traverse(o => {
+    if (!o.isSkinnedMesh) return;
+    const geo = o.geometry, ps = geo.attributes.position, si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
+    if (!ps || !si || !sw) return;
+    const bones = o.skeleton.bones;
+    const hips = bones.findIndex(b => b.name === 'Hips'), spine = bones.findIndex(b => b.name === 'Spine');
+    if (hips < 0 || spine < 0) return;
+    const segs = new Map();
+    const segmentFor = (bi) => {
+      if (segs.has(bi)) return segs.get(bi);
+      const b = bones[bi];
+      let child = b.children.find(x => x.isBone);
+      if (!child && b.name.endsWith('UpperArm')) child = bones.find(x => x.name === b.name.replace('UpperArm', 'LowerArm'));
+      if (!child && b.name.endsWith('LowerArm')) child = bones.find(x => x.name === b.name.replace('LowerArm', 'Hand'));
+      const a = b.getWorldPosition(new THREE.Vector3());
+      let c;
+      if (child) c = child.getWorldPosition(new THREE.Vector3());
+      else {
+        /* 指尖没有子骨：沿"父骨 → 本骨"方向补 3.5cm，别把它当成"距离无限大"
+           （否则真正的拇指尖也会被误判成衣服）。 */
+        const p = b.parent && b.parent.isBone ? b.parent.getWorldPosition(new THREE.Vector3()) : a.clone().add(new THREE.Vector3(0, -0.035, 0));
+        c = a.clone().add(a.clone().sub(p).normalize().multiplyScalar(0.035));
+      }
+      o.worldToLocal(a); o.worldToLocal(c);
+      const s = { a, c }; segs.set(bi, s); return s;
+    };
+    const distanceToSegment = (p, s) => {
+      const ab = s.c.clone().sub(s.a), ap = p.clone().sub(s.a);
+      const u = Math.max(0, Math.min(1, ap.dot(ab) / Math.max(1e-8, ab.lengthSq())));
+      return p.distanceTo(s.a.clone().addScaledVector(ab, u));
+    };
+    let changed = 0;
+    for (let i = 0; i < ps.count; i++){
+      const p = new THREE.Vector3().fromBufferAttribute(ps, i);
+      if (p.y > 1.20) continue;
+      for (let k = 0; k < 4; k++){
+        const bi = si.getComponent(i, k), b = bones[bi], w = sw.getComponent(i, k);
+        if (!b || w < 0.05) continue;
+        const finger = /^(Left|Right)(Thumb|Index|Middle)/.test(b.name);
+        const arm = /^(Left|Right)(UpperArm|LowerArm)$/.test(b.name);
+        if (!finger && !arm) continue;
+        const d = distanceToSegment(p, segmentFor(bi));
+        let target = -1;
+        if (finger && d > 0.055){
+          /* 腰带垂带被绑到了指尖：转回躯干，否则抬手时一条白布跟着拳头走。 */
+          target = p.y > 0.98 ? spine : hips;
+        } else if (arm && d > 0.12){
+          target = p.y > 0.98 ? spine : hips;
+        }
+        if (target >= 0 && target !== bi){ si.setComponent(i, k, target); changed++; }
+      }
+    }
+    if (changed){ si.needsUpdate = true; o.skeleton.update(); }
+  });
+}
+
 function loadActor(def){
   const loader = new GLTFLoader();
   loader.load(def.url,
@@ -951,6 +1014,10 @@ function loadActor(def){
 
       const bones = {};
       inner.traverse((o) => { if (o.isBone) bones[o.name] = o; });
+      if (def.id === 'laborer' || def.id === 'groom'){
+        holder.updateMatrixWorld(true);
+        repairLaborerSkin(inner);
+      }
       const base = {};
       for (const n of ['Hips', 'Spine', 'Chest', 'UpperChest', 'Neck', 'Head',
                        'LeftUpperArm', 'RightUpperArm', 'LeftLowerArm', 'RightLowerArm',
@@ -2606,6 +2673,7 @@ function advance(dt){
       a.choreT -= dt;
       a.grabW = approach(a.grabW, a.chore === 'grab' ? 1 : 0, dt / 0.45);
       if (a.chore === 'idle'){
+        turnToward(a, C.homeYaw, dt);
         /* 开程要等刷马收工（brushT 归零、权重落定），否则他一边刷马一边迈步 */
         if (a.choreT <= 0 && a.brushT <= 0 && a.brushW < 0.05){
           a.chore = 'toHay';
@@ -2637,6 +2705,22 @@ function advance(dt){
           a.hayHeld = false;
           a.choreT = C.wait[0] + (C.wait[1] - C.wait[0]) * det(a.stopN++ + a.phase * 5.9);
         }
+      } else if (a.chore === 'toBrush'){
+        if (a.arrived){ a.chore = 'brush'; a.brushT = 1e-4; }
+      } else if (a.chore === 'brush'){
+        turnToward(a, C.brushYaw, dt);
+        if (a.brushT <= 0){                        // 一轮刷完，回喂草点，不在马头前原地刷空气
+          a.chore = 'brushBack';
+          giveRoute(a, [[a.pos.x, a.pos.z], C.homePt], C.speed, 0);
+        }
+      } else if (a.chore === 'brushBack'){
+        if (a.arrived){
+          a.chore = 'idle';
+          /* 刷完立刻轮到喂草。两侧各自计时会让"间歇较短的那一项"反复抢先
+             （实测喂草整整 200 秒轮不到）⇒ 这里显式把下一个杂役让给喂草；
+             喂完时 brushWait 早已减到负值，下一轮自然接刷马，形成交替。 */
+          a.choreT = 0;
+        }
       }
     }
     /* ── 刷马（P3）：站起来、抬前臂、来回刷 —— **只动肘/腕** ──────────────────
@@ -2650,8 +2734,15 @@ function advance(dt){
       const nextWait = () => ev[0] + (ev[1] - ev[0]) * det(a.brushN++ + a.phase * 11.3);
       if (a.brushT <= 0){
         a.brushWait -= dt;
-        /* 被马车载着 / 在驾车 / 系马 / 拿草喂马的行程中不开新一轮刷马（否则马夫一边拉缰一边刷空气） */
-        if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05 && a.chore === 'idle') a.brushT = 1e-4;
+        /* 被马车载着 / 在驾车 / 系马 / 拿草喂马的行程中不开新一轮刷马。
+           喂草点与刷马点分开：先到颈侧站位，再由上面的 chore 状态机启动 brushT。 */
+        if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05 && a.chore === 'idle'){
+          if (a.def.chores && a.def.chores.brushPt){
+            const C = a.def.chores;
+            a.chore = 'toBrush';
+            giveRoute(a, [[a.pos.x, a.pos.z], C.brushPt], C.speed, 0);
+          } else a.brushT = 1e-4;
+        }
       }
       let bw2 = 0;
       if (a.brushT > 0){
@@ -2921,20 +3012,26 @@ function advance(dt){
       if (wl){
         a.holder.updateMatrixWorld(true);
         wl.getWorldPosition(_hyE);
-        _hyE.y += HAY_ARM.up;
-        /* 往外让出 0.13m。⚠️ 2026-10-27：改成**沿人物正前方**让（原来的横向让法在
-           马夫转身面向马头后会把草把推到南侧、背离马嘴 —— 出图里草捆挂在腰后）。
-           抬肘之后腕本来就在身前，再往前 13cm 正好落在马嘴与手之间的空隙里。 */
+        const feeding = a.chore === 'feed';
+        _hyE.y += feeding ? HAY_ARM.up : 0.05;
         const yw2 = a.holder.rotation.y;
-        _hyE.x += Math.sin(yw2) * HAY_ARM.out;
-        _hyE.z += Math.cos(yw2) * HAY_ARM.out;
+        const out = feeding ? HAY_ARM.out : 0.10;
+        _hyE.x += Math.sin(yw2) * out;
+        _hyE.z += Math.cos(yw2) * out;
         a.holder.worldToLocal(_hyE);
         a.hay.position.copy(_hyE);
-        /* 朝向：竖直、绕人物正前轴往外倒 HAY_ARM.lean（负号 = 倒向外侧），再换到 holder 局部 */
-        _hyF.set(Math.sin(yw2), 0, Math.cos(yw2));
-        _hyQ.setFromAxisAngle(_hyF, -HAY_ARM.lean);
         _hyQ2.setFromAxisAngle(_hyY, yw2).invert();
-        a.hay.quaternion.copy(_hyQ2).multiply(_hyQ);
+        if (feeding){
+          /* 喂草时草梢朝马嘴斜伸（略向下），不再竖着塞进马颈。
+             站位/手位按实测口鼻定位，草梢停在嘴前；路上拿草仍保持竖直。 */
+          _hyF.set(Math.sin(yw2) * 0.94, -0.34, Math.cos(yw2) * 0.94).normalize();
+          _hyF.applyQuaternion(_hyQ2);
+          a.hay.quaternion.setFromUnitVectors(_hyY, _hyF);
+        } else {
+          _hyF.set(Math.sin(yw2), 0, Math.cos(yw2));
+          _hyQ.setFromAxisAngle(_hyF, -HAY_ARM.lean);
+          a.hay.quaternion.copy(_hyQ2).multiply(_hyQ);
+        }
       }
     }
   }

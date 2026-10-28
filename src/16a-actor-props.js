@@ -67,7 +67,7 @@ export const BRUSH = {
        0.10·brushW，让人整体往前靠一下 —— 剪影变化比"只动小臂"读得出来。 */
   elbow: -1.45, wrist: 0.20,         // 举起时：前臂抬到略高于水平、腕稍回勾
   amp: 0.30, wAmp: 0.22, hz: 0.45,   // 来回刷：肘 ±0.30rad、腕反相 ±0.22rad
-  fwd: 0.10,                         // 刷心在腕前 10cm（指外才看得见）
+  fwd: 0.10,                         // 刷头离腕 10cm：贴到马颈外表面（刷毛本体只再伸出 7cm）
   every: [5, 8],                     // 两次刷马之间隔多久（其间前俯看马吃草）
   dur: 9.2,                          // 一整轮：抬 0.9 / 刷 7.4 / 收 0.9
   headDown: 0.10,                    // 刷的时候低头看刷子（不是看马嘴）
@@ -84,17 +84,21 @@ export function makeBrush(holder){
   /* ⚠️ 2026-10-27（老黄："草料或者刷子根本看不出拿的有工具"）：原来的刷背 8.5×7.5cm、
      刷毛深褐 8×7cm，在深色马身上几乎融成一块 ⇒ 加宽刷背、刷毛改成浅麦色（对深色马有反差），
      刷尖只往前多 1cm（实测贴面 42~74mm，再多就会插进马身）。 */
-  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, 0.14, 8), MAT.wood);
-  handle.rotation.x = Math.PI / 2;       // 圆柱默认沿 Y ⇒ 转成沿 Z
-  handle.position.set(0, 0, 0.020);
+  /* 握柄**向下露出**（不再顺着前臂塞进袖口/马身）：远看是"手下一根木柄、柄端贴马颈"。
+     刷头退到近表面，浅色刷毛才有反差。 */
+  const handle = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.016, 0.18, 8), MAT.wood);
+  handle.position.set(0, -0.090, 0.000);
   g.add(handle);
-  const back = new THREE.Mesh(new THREE.BoxGeometry(0.120, 0.100, 0.028), MAT.woodDark);
-  back.position.set(0, 0, 0.085);
+  const neck = new THREE.Mesh(new THREE.BoxGeometry(0.030, 0.050, 0.034), MAT.woodDark);
+  neck.position.set(0, -0.012, 0.012);
+  g.add(neck);
+  const back = new THREE.Mesh(new THREE.BoxGeometry(0.130, 0.105, 0.028), MAT.woodDark);
+  back.position.set(0, 0, 0.022);
   g.add(back);
   const bristleMat = new THREE.MeshStandardMaterial({ color: 0xD9CBA6, roughness: 0.95, metalness: 0.0 });
   /* 刷毛做成**一排细条**（12 条，条间留 1.5mm 缝）：远看是一块浅色刷面，
      近看能读出"一撮一撮的毛"，而不是一块海绵/木块。 */
-  const SL = 12, bw = 0.008, gap = 0.0018, bd = 0.042, bh = 0.095;
+  const SL = 12, bw = 0.008, gap = 0.0018, bd = 0.042, bh = 0.100;
   const slats = new THREE.InstancedMesh(new THREE.BoxGeometry(bw, bh, bd), bristleMat, SL);
   const bm = new THREE.Matrix4();
   for (let i = 0; i < SL; i++){
@@ -103,7 +107,7 @@ export function makeBrush(holder){
   }
   slats.instanceMatrix.needsUpdate = true;
   slats.name = 'actorBrushSlats';        // 布局指纹排除名单里登记（手里的小件，与园林布局无关）
-  slats.position.set(0, 0, 0.114);
+  slats.position.set(0, 0, 0.052);
   slats.castShadow = false; slats.receiveShadow = true;
   slats.userData.noMerge = true;
   g.add(slats);
@@ -256,11 +260,9 @@ export function makeScroll(holder){
         （不跟前臂方向 —— 前臂朝下，草会朝地）。
    ⚠️ 草把摆在腕**上 5cm**、不挂手骨：每帧按腕位重摆（同茶盏/马刷）。 */
 
-/* ⚠️ 2026-10-27：ex 从 −0.35 抬到 **−0.85**（老黄："拿草喂马看不出来、也没有任何动作"）。
-   旧角只把前臂从"垂着"抬到胯前，草把停在腿边，读作"抱着一捆草站着"；马嘴在身前
-   0.6m、高 0.9m，前臂抬平（约 −0.9）手腕才伸到马嘴下方，草把落在嘴前。
-   摆动幅度在 16-actors 的 hay 块里叠（±0.10rad 慢摆 = 递草）；up 保持 5cm。 */
-export const HAY_ARM = { ex: -0.85, up: 0.05, out: 0.13, lean: 0.30, len: 0.30 };
+/* 2026-10-28 定稿：ex −0.30 ⇒ 腕高约 0.97m（实测马嘴 0.91m），草把由 16-actors
+   喂草时改为**斜指马嘴**、梢头停在嘴前；路上携带仍竖直。摆动 ±0.10rad 慢摆。 */
+export const HAY_ARM = { ex: -0.30, up: 0.02, out: 0.05, lean: 0.30, len: 0.30 };
 export const _hyE = new THREE.Vector3();
 export const _hyQ = new THREE.Quaternion();
 export const _hyQ2 = new THREE.Quaternion();
