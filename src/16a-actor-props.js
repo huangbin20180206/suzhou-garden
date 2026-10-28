@@ -7,6 +7,7 @@
 // 这些常量由 16-actors 的 advance() 逐帧读取；道具本体的摆放也在那边（跟着手骨走）。
 import { THREE } from '../vendor.js';
 import { MAT } from './01-materials.js';
+import { mulberry32 } from './00-config.js';
 export const TEA_ARM = {
   /* ⚠️ 2026-10-25 重解（outputs/_diag/actor-tea-solve2/3.mjs）：旧值 { sy: 1.19, sz: -1.18 }
      在当前 rig 上把右手举到**肩侧偏后**——出图里就是"胳膊横抬着"，老黄报的"手摆动很怪异"
@@ -282,6 +283,22 @@ export function makeHayStrawTex(){
   return t;
 }
 
+/* 单根草茎：**带弯的锥形管**（根粗梢细，中段起往 +X 弯 ~3cm，梢部再撇一点）。
+   共享一份几何、用实例矩阵分出"每根弯的方向"—— 不是每根各烘一份几何。 */
+function makeHayStrawGeo(){
+  const geo = new THREE.CylinderGeometry(0.0055, 0.0095, 1, 5, 6);
+  geo.translate(0, 0.5, 0);                     // 枢轴挪到**根部**：绕基部倾，草把才不会散架
+  const pos = geo.attributes.position;
+  for (let i = 0; i < pos.count; i++){
+    const t = pos.getY(i);                      // 0 = 根、1 = 梢
+    pos.setX(i, pos.getX(i) + 0.030 * t * t + 0.008 * Math.sin(t * Math.PI));
+    pos.setZ(i, pos.getZ(i) + 0.006 * Math.sin(t * Math.PI * 1.4));
+  }
+  pos.needsUpdate = true;
+  geo.computeVertexNormals();
+  return geo;
+}
+
 export function makeHayHandful(holder){
   const g = new THREE.Group();
   g.name = 'actorHay';
@@ -290,21 +307,33 @@ export function makeHayHandful(holder){
      原来 11 根、半径 3.5~5.5mm、整束只有 3cm 宽 ⇒ 10~15m 外只有 3~5 个像素。
      现在 16 根、半径 9~13mm、整束约 10cm 宽、30~36cm 长（仍是一只手能拎住的量），
      并加了两道捆绳 —— 远看是"一捆草"，不是一根细棍。 */
-  const geo = new THREE.CylinderGeometry(0.006, 0.009, 1, 5, 1);
+  /* ⚠️ 2026-10-28（老黄："草料捆近看就是一捆直签子/一把芹菜"）：三件事让它读成"一把牧草" ——
+     ① 单根几何改成**带弯的锥形管**（中段起往一侧弯 3cm、梢部再撇），不再是直杆；
+     ② 每根各自**往外倾 6~15°** 并绕 Y 转到自己的方位 ⇒ 24 根弯向不同方向、梢头散成一蓬；
+     ③ 侧向缩放 0.55~1.45 逐根不同（弯幅与粗细一起变），避免"一个模子刻出来"。
+     ⚠️ 抖动走私有随机流 mulberry32 —— 这里**不许**动全局 rr()/rnd（铁律 1，layout-fingerprint 会红）。
+     ⚠️ 仍是一份共享几何 + InstancedMesh ⇒ draw call 不变（1 个）。 */
+  const geo = makeHayStrawGeo();
   const N = 24;
   const im = new THREE.InstancedMesh(geo,
     new THREE.MeshStandardMaterial({ map: makeHayStrawTex(), roughness: 0.95, metalness: 0.0,
                                      envMapIntensity: 0.30 }), N);
-  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), sv = new THREE.Vector3(), pv = new THREE.Vector3();
+  const M = new THREE.Matrix4(), q = new THREE.Quaternion(), qT = new THREE.Quaternion(),
+        sv = new THREE.Vector3(), pv = new THREE.Vector3();
   const up = new THREE.Vector3(0, 1, 0);
+  const X_AXIS = new THREE.Vector3(1, 0, 0);
+  const hrnd = mulberry32(20261028);              // 见上：私有流，不影响全园布局
   for (let i = 0; i < N; i++){
     const a = (i / N) * Math.PI * 2 + (i % 3) * 0.21;
-    const sp = 0.050 + (i % 4) * 0.012;           // 梢头张开、根部收在一起
     const len = HAY_ARM.len - 0.02 + ((i * 7) % 5) * 0.016;
-    pv.set(Math.cos(a) * sp * 0.55, len * 0.5 - 0.02, Math.sin(a) * sp * 0.55);
-    q.setFromAxisAngle(up, (i % 5 - 2) * 0.10);   // 每根略歪，不成一束直棍
-    /* 每根往自己那个方向倒一点点，做成"一把"而不是"一根柱" */
-    sv.set(1, len, 1);
+    const baseR = 0.012 + hrnd() * 0.012;         // 根部收在一起（一只手能握住）
+    const tilt = 0.10 + hrnd() * 0.16;            // 往外倾 6~15° ⇒ 梢头散开
+    const side = 0.55 + hrnd() * 0.90;            // 侧向尺寸（弯幅与粗细一起变）
+    /* 先绕 X 倾（往 +Z 倒），再绕 Y 转到自己那个方位 ⇒ 倾倒方向 = 该根的方位 */
+    qT.setFromAxisAngle(X_AXIS, tilt);
+    q.setFromAxisAngle(up, Math.PI / 2 - a).multiply(qT);
+    pv.set(Math.cos(a) * baseR, -0.02, Math.sin(a) * baseR);
+    sv.set(side, len, side);
     M.compose(pv, q, sv);
     im.setMatrixAt(i, M);
   }
