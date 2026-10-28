@@ -136,17 +136,21 @@ const GO_ARM = {
        go1 落子 8.8cm / 闲手 4.5cm；go2 落子 3.4cm / 闲手 2.5cm。
      ⚠️ 再动 lean / headDown / 坐位 push / 石桌位置，这四组角全部失效。 */
   go1: {
-    Right: { sx: -1.930, sy: -0.500, sz: -0.150, ex: 0.20, hx: 0.53, hy: -0.70, hz: 0.72, curl: 0.45, mid: 0.20, thumb: -0.60, place: 1 },
-    /* 闲手（2026-10-27 第三次）：不再反解"放到桌面外沿" —— 那组角要把肩转 1.0~1.5rad、
-       整条胳膊会缩进躯干里（老黄："这两人现在看起来都少一只胳膊"）。改成**自然垂在体侧**：
-       上臂只收 1.2rad、肘 0.75，手落在大腿旁（桌面以下看不见，但整条胳膊露在身侧）。 */
-    Left:  { sx: -1.200, sy: 0.000, sz: 0.050, ex: 0.75, hx: 0.00, hy: 0.00, hz: 0.00, curl: 0.55, mid: 0.45, thumb: -0.45, place: 0 },
+    /* 2026-10-28 手型修正（老黄："下棋的手掌应该向下、手指夹棋"）：
+       · 落子手：腕三轴改为 hx 0.93 / hy −1.2 / hz −0.3 —— 旧值从平视看是"拱指"，
+         俯视暴露**掌心朝上**（像接东西）；新值从俯视也是掌心朝下、指尖弯向盘面
+         （curl 0.85 / mid 0.55 手指弯成"夹子"）。页内 actorTune 实时扫出、截图确认后抄回。
+       · 闲手：从"垂在体侧"（被袍子挡住 = 少一条胳膊）改成**搭在自己这侧桌沿**：
+         上臂抬高、肘大弯让小臂落回桌面，腕角与落子手同款（掌心朝下）。
+         ⚠️ 左右骨架不对称：go1.Left 与 go2.Right 各自扫出的值不同，不镜像。 */
+    Right: { sx: -1.930, sy: -0.500, sz: -0.150, ex: 0.20, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.85, mid: 0.55, thumb: -0.60, place: 1 },
+    Left:  { sx: -1.950, sy: 0.000, sz: 0.300, ex: 1.10, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.45, mid: 0.35, thumb: -0.45, place: 0 },
   },
   go2: {
-    /* go2：左右各自反解，不镜像（理由同抚琴）。 */
-    /* 闲手同 go1：自然垂在体侧（见上） */
-    Right: { sx: -1.200, sy: 0.000, sz: -0.050, ex: 0.75, hx: 0.00, hy: 0.00, hz: 0.00, curl: 0.55, mid: 0.45, thumb: -0.45, place: 0 },
-    Left:  { sx: -1.700, sy: 0.460, sz: -0.180, ex: 0.12, hx: -0.45, hy: 0.90, hz: 1.84, curl: 0.45, mid: 0.20, thumb: -0.60, place: 1 },
+    /* go2：左右各自反解，不镜像（理由同抚琴）。落子手（Left）腕角与 go1.Right 同款
+       —— 两侧骨rest不对称，但这组恰好两侧都读作"掌心朝下"（出图各验过）。 */
+    Left:  { sx: -1.700, sy: 0.460, sz: -0.180, ex: 0.12, hx: -0.45, hy: -1.20, hz: -0.30, curl: 0.85, mid: 0.55, thumb: -0.60, place: 1 },
+    Right: { sx: -1.850, sy: 0.000, sz: -0.320, ex: 1.05, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.45, mid: 0.35, thumb: -0.45, place: 0 },
   },
 };
 
@@ -416,6 +420,14 @@ const DEFS = [
     /* 2026-10-25 着装：主人换成**藏青**（压暗 + 提饱和）。蓝衣在生成件上已经"很雅"，
        但一眼看不出"这家有钱"——深青直裰是明清文士的正装色，比浅蓝更像当家人。 */
     dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.55, val: 1.06 }, // 绛紫绸（2026-10-27 压深一档）
+    layerRange: {
+      waistStart: 0.55,
+      waistEnd: 0.72,
+      waistDark: 0.15,
+      neckStart: 0.85,
+      neckEnd: 0.95,
+      neckDark: 0.20
+    },
     spot: { x: 1.2, z: -5.7, yaw: 0.42 },
     /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
        走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
@@ -506,6 +518,20 @@ const DEFS = [
     route: null,
     idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.07, headDown: 0.14,
             brush: true, brushEvery: BRUSH.every, hay: true },
+    /* ── 拿草喂马的行程（2026-10-28 老黄："等待客人时应该有两个动作：
+       从旁边的草料堆拿草喂马 / 用刷子给马刷鬃毛"）────────────────────────────
+       刷马是原地循环（idle.brush）；喂草是**一趟行程**，由 advance 里的 chore 状态机推：
+       idle → toHay（走到草料堆）→ grab（抓一把，草把此刻才出现在手里）
+       → back（走回马头旁）→ feed（递草摆臂 7~11s）→ idle。
+       草料堆：15e 的 hayBale 组（局部 −4.30,−3.35、组 (40,−2) 朝 π ⇒ 世界 ≈(44.30,1.35)），
+       站位退到堆前 ~0.75m；homePt/homeYaw = 原站位与朝马嘴的 yaw（与 spot 相同口径）。
+       ⚠️ 与刷马互斥：行程/喂草期间刷马不开新一轮，反之亦然（见两处的门）。 */
+    chores: {
+      homePt: [38.95, 1.90], homeYaw: -1.800,
+      hayPt: [43.60, 1.42],  hayYaw: 1.671,
+      speed: 0.55, grabDur: 2.2,
+      wait: [9, 16], feed: [7, 11],
+    },
   },
   /* 两个书童（08b 的 'child' 一对，半围在先生两侧）。一件资产、两次 parse：
      高度/色调/相位各差一点，避免看出是同一个人在照镜子。
@@ -555,6 +581,14 @@ const DEFS = [
     /* 2026-10-25：同一件资产第二次 parse，光靠 tint 分不开（乘色改不了色相）⇒ 用 dye 把
        衣料从蓝相转到**竹青/石绿**（shift −0.18），和主人的藏青、客人的月白都隔开。 */
     dye: { hue: 0.60, w: 0.16, shift: -0.18, sat: 1.02, val: 1.10 },
+    layerRange: {
+      waistStart: 0.55,
+      waistEnd: 0.72,
+      waistDark: 0.15,
+      neckStart: 0.85,
+      neckEnd: 0.95,
+      neckDark: 0.20
+    },
     spot: { x: QIN_LOW_SEAT.x, z: QIN_LOW_SEAT.z, y: QIN_LOW_SEAT.y, yaw: QIN_LOW_SEAT.yaw },
     floorRay: true,
     floorMax: 1.70,
@@ -577,6 +611,14 @@ const DEFS = [
     hidePose: null,
     tint: 0xF0EDE6,          // 生成件本身就偏灰褐，只做很轻的提亮（压重会糊成一团）
     dye: { hue: 0.58, w: 0.13, shift: 0.00, sat: 1.28, val: 1.12 }, // 月白偏天青鲜亮（与主人绛紫分开）
+    layerRange: {
+      waistStart: 0.55,
+      waistEnd: 0.72,
+      waistDark: 0.15,
+      neckStart: 0.85,
+      neckEnd: 0.95,
+      neckDark: 0.20
+    },
     spot: { x: 40.0, z: 4.2, yaw: -0.13 },      // 马厩门口（石板路起点），面朝路
     floorRay: true,
     followFloor: true,
@@ -718,7 +760,7 @@ const DYED_BODY =
   '  diffuseColor.rgb = mix(diffuseColor.rgb, dyeHsv2Rgb(t_), band_ * sat_ * vmask_ * uDyeAmt);\n' +
   '}\n';
 
-function dyeMaterial(m, dye){
+function dyeMaterial(m, dye, layerRange){
   if (!m || !dye) return;
   const U = {
     uDyeHue:   { value: dye.hue === undefined ? 0.6 : dye.hue },
@@ -735,11 +777,31 @@ function dyeMaterial(m, dye){
   m.onBeforeCompile = function (shader, renderer){
     if (prevCB) prevCB.call(this, shader, renderer);
     Object.assign(shader.uniforms, U);
+    // 在 color_fragment 中染色 + 简单分层使衣领/腰带更明显
+    // ⚠️ 这套 three 版本里贴图 UV 的 varying 是 vMapUv（不是 vUv），且只在 USE_MAP 时存在 ——
+    //    第一版直接写 vUv.y，program 编译失败，人物整批渲染成半透明"幽灵"
+    //    （控制台刷 WebGL: INVALID_OPERATION: program not valid）。
+    const layeredCode = layerRange ? `
+      #ifdef USE_MAP
+      {
+        // 服装分层简化版：用 uv.y 切出两段深色带
+        float dy = vMapUv.y;
+        // 腰带：大致在袍子中部
+        if (dy > ${layerRange.waistStart} && dy < ${layerRange.waistEnd}) {
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05,0.05,0.05), ${layerRange.waistDark});
+        }
+        // 衣领：大致在袍子上部
+        if (dy > ${layerRange.neckStart} && dy < ${layerRange.neckEnd}) {
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.08,0.08,0.08), ${layerRange.neckDark});
+        }
+      }
+      #endif
+    ` : '';
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + DYED_DECL)
-      .replace('#include <color_fragment>', '#include <color_fragment>\n' + DYED_BODY);
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + DYED_BODY + layeredCode);
   };
-  m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|dye'; };
+  m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|dye-layers'; };
   m.needsUpdate = true;
 }
 
@@ -856,8 +918,8 @@ function loadActor(def){
         o.receiveShadow = true;
         o.frustumCulled = false;
         o.userData.noMerge = true;         // 不进 mergeStatics
-        if (Array.isArray(o.material)) o.material.forEach(m => { tintMaterial(m, def.tint); dyeMaterial(m, def.dye); });
-        else { tintMaterial(o.material, def.tint); dyeMaterial(o.material, def.dye); }
+        if (Array.isArray(o.material)) o.material.forEach(m => { tintMaterial(m, def.tint); dyeMaterial(m, def.dye, def.layerRange); });
+        else { tintMaterial(o.material, def.tint); dyeMaterial(o.material, def.dye, def.layerRange); }
       });
 
       const bones = {};
@@ -1001,6 +1063,8 @@ function loadActor(def){
         placeT: 0, placeN: 0, placeWait: 1.5 + det(def.idle.phase) * 4,
         teaT: 0, teaN: 0, teaWait: 1.5 + det(def.idle.phase) * 6, sipW: 0, cup: null,
         brushT: 0, brushN: 0, brushWait: 2.5 + det(def.idle.phase + 2.3) * 5, brushW: 0, brush: null,
+        /* 马夫杂役状态机（只有 def.chores 的 groom 会推进；其余人恒为 'idle'） */
+        chore: 'idle', choreT: 5 + det(def.idle.phase + 1.7) * 6, hayHeld: false, grabT: 0, grabW: 0,
         scrollT: 0, scrollN: 0, scrollPhase: 0, scrollW: 0, scroll: null,
         scrollHold: SCROLL.hold[0] + (SCROLL.hold[1] - SCROLL.hold[0]) * det(def.idle.phase + 4.1),
         hay: null,
@@ -1066,7 +1130,13 @@ function seatedDefs(){
   const out = [];
   /* 2026-10-27：原来的淡紫/淡蓝（0xBBA9C4 / 0xA7B7D2）乘在白模上读作"灰扑扑的粗布"。
      改成两身深色绸衣：靛青 / 松绿（深色才压得住"大户人家"的分量）。 */
-  [[0, 'go1', 0x3F5A7A], [2, 'go2', 0x4E6B58]].forEach(([si, id, tint]) => {
+  /* 2026-10-28 老黄："肤色、脸、头发、手掌和衣服一个颜色，黑黢黢的"。
+     根因：tint 是**乘**在整张 1K 图集上的（tintMaterial 里 m.color）——
+     深色 tint（0x3F5A7A/0x4E6B58）把脸、手、头发连同袍子一起压黑。
+     修法：tint 只留近白（同 guest 的口径），袍色全部交给 dye —— dye 按
+     "袍子蓝色相带"重染，肤色(hue≈0.07)/头发在带外、亮皮肤又被 uDyeVMax 挡住，
+     天然不染（laborer 撤染那条注释同源）。 */
+  [[0, 'go1', 0xEDE7DC], [2, 'go2', 0xE8E2D8]].forEach(([si, id, tint]) => {
     const st = SEAT_SPOTS[si];
     if (!st) return;
     /* 往桌心挪 0.24m：坐在凳子的**最前沿**（真人在石凳上下棋也是这样），
@@ -1085,11 +1155,20 @@ function seatedDefs(){
       spot: { x: +(st.x + dx / dl * push).toFixed(4), z: +(st.z + dz / dl * push).toFixed(4),
               y: st.y, yaw: st.yaw },
       /* 2026-10-27 老黄："给两人换成不同的衣服，现在这个衣服太素了"。
-         袍子原色是蓝（hue≈0.58 的窄带），按色相带整体重染：一位石青偏绿、一位赭红，
-         饱和度/明度一起抬，避免又落回"两件灰蓝"。 */
+         袍子原色是蓝（hue≈0.58 的窄带），按色相带整体重染：一位石青偏绿、一位赭红。
+         ⚠️ 2026-10-28 撤深 tint 后底色变亮一档，val 相应收（0.92/1.00），否则两件袍子发飘。 */
       dye: si === 0
-        ? { hue: 0.58, w: 0.13, shift: -0.24, sat: 1.20, val: 1.02 }
-        : { hue: 0.58, w: 0.13, shift: 0.40, sat: 1.34, val: 1.12 },
+        ? { hue: 0.58, w: 0.13, shift: -0.24, sat: 1.20, val: 0.92 }
+        : { hue: 0.58, w: 0.13, shift: 0.40, sat: 1.34, val: 1.00 },
+      /* 2026-10-27 分段式视觉：衣领/腰带暗色分层 */
+      layerRange: {
+        waistStart: 0.55,
+        waistEnd: 0.72,
+        waistDark: 0.15,
+        neckStart: 0.85,
+        neckEnd: 0.95,
+        neckDark: 0.20
+      },
       pose: 'sit',
       fixedY: true,          // 凳面高度是绝对量，不跟地形
       route: null,
@@ -2378,8 +2457,9 @@ function advance(dt){
       if (a.scrollW <= 1e-3){ a.scrollPhase = 0; a.scrollT = 0; }
     }
     /* 手持草料：只动**左肘**（肩保持垂手），手指松松地扣着草把 —— 见 HAY_ARM。
-       马车版到访时马夫在驾车/系马，草把收起（否则一手草一手缰）。 */
-    if (o.hay && a.coachW < 0.05 && a.tieW < 0.05){
+       马车版到访时马夫在驾车/系马，草把收起（否则一手草一手缰）。
+       2026-10-28 杂役状态机：a.hayHeld（抓到草 → 喂完）才持把，去草料堆的路上空手。 */
+    if (o.hay && a.hayHeld && a.coachW < 0.05 && a.tieW < 0.05){
       /* 递草的慢摆（2026-10-27 老黄："没有任何动作"）：前臂 ±0.10rad、约 5.7s 一个来回，
          草把跟着手腕上下 ~7cm —— 远看是"把草往马嘴前送一送"，不是端着一动不动。 */
       set('LeftLowerArm', HAY_ARM.ex + 0.10 * Math.sin(_t * 1.1 + a.phase), 0, 0);
@@ -2470,6 +2550,49 @@ function advance(dt){
     } else if (o.tea){
       a.sipW = 0; a.teaT = 0;      // 双手占着卷轴：不端盏、也不留上一杯的低头角
     }
+    /* ── 马夫杂役状态机（2026-10-28）：拿草喂马的行程，与上面的刷马循环互补 ──────
+       ⚠️ 配置在 **def.chores**（不是 o=idle——这层的 o 是 def.idle，第一版写成
+          o.chores 恒 undefined，状态机静默不跑：与 GO_ARM 键名拼错同族的坑）。
+       行走用 giveRoute（mode once），到站看 a.arrived —— 与迎客导演层同一套机制，
+       探针快进走同一条路径。 */
+    if (a.def.chores){
+      const C = a.def.chores;
+      a.choreT -= dt;
+      a.grabW = approach(a.grabW, a.chore === 'grab' ? 1 : 0, dt / 0.45);
+      if (a.chore === 'idle'){
+        /* 开程要等刷马收工（brushT 归零、权重落定），否则他一边刷马一边迈步 */
+        if (a.choreT <= 0 && a.brushT <= 0 && a.brushW < 0.05){
+          a.chore = 'toHay';
+          a.hayHeld = false;                       // 空手去拿草
+          giveRoute(a, [[a.pos.x, a.pos.z], C.hayPt], C.speed, 0);
+        }
+      } else if (a.chore === 'toHay'){
+        if (a.arrived){ a.chore = 'grab'; a.grabT = C.grabDur; }
+      } else if (a.chore === 'grab'){
+        a.grabT -= dt;                             // ⚠️ 抓草有自己的计时（choreT 是 idle/feed 的）
+        turnToward(a, C.hayYaw, dt);               // 面向草堆再抓
+        /* 左臂往堆里够 + 小幅扒拉（同喂草的慢摆口径），前俯由 grabW 抬升 lean */
+        set('LeftUpperArm', -0.62, 0, 0.18);
+        set('LeftLowerArm', 0.40 + 0.10 * Math.sin(_t * 2.2), 0, 0);
+        if (a.grabT <= 0){                         // 抓完：草把入手，转身回马头
+          a.chore = 'back';
+          a.hayHeld = true;
+          giveRoute(a, [[a.pos.x, a.pos.z], C.homePt], C.speed, 0);
+        }
+      } else if (a.chore === 'back'){
+        if (a.arrived){
+          a.chore = 'feed';
+          a.choreT = C.feed[0] + (C.feed[1] - C.feed[0]) * det(a.placeN++ + a.phase * 3.7);
+        }
+      } else if (a.chore === 'feed'){
+        turnToward(a, C.homeYaw, dt);              // 面向马嘴递草
+        if (a.choreT <= 0){                        // 喂完：收工回去站着等下一轮
+          a.chore = 'idle';
+          a.hayHeld = false;
+          a.choreT = C.wait[0] + (C.wait[1] - C.wait[0]) * det(a.stopN++ + a.phase * 5.9);
+        }
+      }
+    }
     /* ── 刷马（P3）：站起来、抬前臂、来回刷 —— **只动肘/腕** ──────────────────
        · 只在站着（w<0.3）时开始，走路自然打断；
        · 一轮 9.2s：0.9s 抬 / 7.4s 刷 / 0.9s 收，间歇 7~12s（其间继续前俯看马吃草）；
@@ -2481,8 +2604,8 @@ function advance(dt){
       const nextWait = () => ev[0] + (ev[1] - ev[0]) * det(a.brushN++ + a.phase * 11.3);
       if (a.brushT <= 0){
         a.brushWait -= dt;
-        /* 被马车载着 / 在驾车 / 系马时不开始新一轮刷马（否则马夫一边拉缰一边刷空气） */
-        if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05) a.brushT = 1e-4;
+        /* 被马车载着 / 在驾车 / 系马 / 拿草喂马的行程中不开新一轮刷马（否则马夫一边拉缰一边刷空气） */
+        if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05 && a.chore === 'idle') a.brushT = 1e-4;
       }
       let bw2 = 0;
       if (a.brushT > 0){
@@ -2594,9 +2717,9 @@ function advance(dt){
        品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。
        刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。
        作揖再叠一层前俯（BOW.lean）：这是"礼"的主体，手臂只是配合。 */
-    const lean = (o.lean || 0) * (1 - a.brushW) * (1 - a.coachW) + BOW.lean * bw;
+    const lean = (o.lean || 0) * (1 - a.brushW) * (1 - a.coachW) + BOW.lean * bw + 0.42 * a.grabW;
     const hd = (o.headDown || 0) * (1 - a.brushW) * (1 - a.coachW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
-             + SCROLL.headDown * a.scrollW + BOW.head * bw;
+             + SCROLL.headDown * a.scrollW + BOW.head * bw + 0.22 * a.grabW;
     set('Chest', o.breath * b + 0.02 * w + lean + cs.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
@@ -2741,7 +2864,7 @@ function advance(dt){
       const wl = a.bones.LeftHand;
       // ④ 马夫驾车时手握缰绳，不应再抱着草料（VISCAR 驾车段 + 任何 ride 状态）
       const driving = !!a.ride || (a.tieW && a.tieW > 0.05) || (a.coachW && a.coachW > 0.05);
-      a.hay.visible = !!wl && !driving;
+      a.hay.visible = !!wl && !driving && a.hayHeld;
       if (wl){
         a.holder.updateMatrixWorld(true);
         wl.getWorldPosition(_hyE);
@@ -2855,6 +2978,7 @@ export function actorState(){
       sipW: +a.sipW.toFixed(3),
       brushT: +a.brushT.toFixed(2),
       brushW: +a.brushW.toFixed(3),
+      chore: a.chore, hayHeld: !!a.hayHeld,      // 马夫杂役状态机（喂草行程排障用）
       scrollPhase: a.scrollPhase,
       scrollW: +a.scrollW.toFixed(3),
       moveW: +a.moveW.toFixed(3),

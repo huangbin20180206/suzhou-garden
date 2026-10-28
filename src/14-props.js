@@ -239,13 +239,30 @@ export function makeStoneTableSet(x, z, yaw = 0){
      noMerge 的代价是 2 个 draw call，换"雨里真的能把棋子收起来"。 */
   /* 2026-10-27：两只钵原来都在棋盘**远侧** —— 等于两个人的棋子盒都放在 go1 手边，
      go2 想"伸手探钵"够不到。改成一人一只：go1 那只留在远侧，go2 那只放到**他左手指尖**
-     正下方（反解结果 世界 (6.556,−5.74) ⇒ 桌面局部 (−0.514,−0.010)，钵心半径 0.514 < 桌面 0.60）。 */
-  for (const [bx, bz] of [[0.34, 0.10], [-0.514, -0.010]]){
+     正下方（反解结果 世界 (6.556,−5.74) ⇒ 桌面局部 (−0.514,−0.010)，钵心半径 0.514 < 桌面 0.60）。
+     2026-10-28（老黄："下棋的时候盒子盖应该是打开状态的"）：钵口给一圈深色内腔 +
+     盖子取下来**斜搁在钵边** —— 盖着的钵读作"封着口的罐子"，不像棋盒。
+     盖子一律搁在**棋盘外侧**（远侧那只往 +x 搁、近侧那只往 −x 搁），都不与棋盘互穿；
+     盖/内腔也进 GO_PIECE_MESHES —— 暴雨收棋时一起消失，不然"子收了盖还开着"。 */
+  for (const [bx, bz, lx, lz] of [[0.34, 0.10, 0.16, 0.24], [-0.514, -0.010, -0.15, -0.10]]){
     const bowl = mesh(new THREE.CylinderGeometry(0.072, 0.060, 0.062, 14), MAT.celadon, { name:'propGoBowl', cast:false });
     bowl.position.set(bx, 0.751, bz);
     bowl.userData.noMerge = true;
     g.add(bowl);
     GO_PIECE_MESHES.push(bowl);
+    /* 钵口内腔：深色圆片凹进钵口 3mm，读出"里面有子/空的腔" */
+    const inner = mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.004, 14), MAT.woodDark, { name:'propGoBowlInner', cast:false });
+    inner.position.set(bx, 0.779, bz);
+    inner.userData.noMerge = true;
+    g.add(inner);
+    GO_PIECE_MESHES.push(inner);
+    /* 盖子：薄圆片，斜搁在钵边的桌面上（rotation 立起 70°读作"随手靠放"） */
+    const lid = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.014, 14), MAT.celadon, { name:'propGoBowlLid', cast:false });
+    lid.position.set(bx + lx, 0.784, bz + lz);
+    lid.rotation.set(0.30, 0.5, 1.15);
+    lid.userData.noMerge = true;
+    g.add(lid);
+    GO_PIECE_MESHES.push(lid);
   }
 
   /* ── 棋子：19 路盘面上的一局**中盘**（黑 25 / 白 21），每颗都压在交叉点上 ─────────
@@ -316,7 +333,10 @@ export function makeStoneTableSet(x, z, yaw = 0){
 
   /* 茶具：一壶两盏（青白瓷）。棋盘占 x∈[−0.37,0.09]、z∈[−0.20,0.24]，棋钵占 x≈0.23~0.41；
      所以茶具整体摆到棋盘**外侧的前缘空位**（z < −0.20），与棋盘/棋钵都不互穿。
-     桌面面高 0.72 ⇒ 壶心 0.790、盏心 0.752（骑在盏托 0.724 上）。 */
+     桌面面高 0.72 ⇒ 壶心 0.790、盏心 0.752（骑在盏托 0.724 上）。
+     2026-10-28（老黄："为啥两个杯子都在一个人这边"）：第二盏从壶边挪到**对面棋手那侧**
+     （局部 (0.42,−0.30)：r=0.516<桌面 0.60、距棋钵 (0.34,0.10) 0.41m，互不穿插），
+     壶留在中缝偏 go2 侧 —— 两人各有一盏。 */
   const pot = mesh(new THREE.SphereGeometry(0.085, 14, 10), MAT.porcelain, { name:'propTeapot', cast:false });
   pot.scale.set(1.0, 0.82, 1.0);
   pot.position.set(-0.30, 0.790, -0.34); g.add(pot);
@@ -326,7 +346,7 @@ export function makeStoneTableSet(x, z, yaw = 0){
   spout.position.set(-0.385, 0.812, -0.34);
   spout.rotation.z = Math.PI / 2 - 0.42;
   g.add(spout);
-  for (const [cx, cz] of [[-0.06, -0.44], [-0.44, -0.20]]){
+  for (const [cx, cz] of [[-0.06, -0.44], [0.42, -0.30]]){
     const cup = mesh(new THREE.CylinderGeometry(0.043, 0.032, 0.048, 12), MAT.porcelain, { name:'propTeaCup', cast:false });
     cup.position.set(cx, 0.752, cz); g.add(cup);
     const saucer = mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.008, 12), MAT.porcelain, { name:'propTeaSaucer', cast:false });
