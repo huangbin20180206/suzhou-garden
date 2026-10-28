@@ -44,7 +44,10 @@ let _envRefWarned = false;      // ENV_REF.env 缺失只喊一次（否则每帧
 const STEP_LEN = 0.42;
 const GAIT = {
   amp: 0.27,        // 大腿前后摆（≈15.5°；测试到 0.38 裙面仍干净，留余量）
-  knee: 0.40,       // 摆动期屈膝（负号 = 小腿往后勾）
+  /* ⚠️ 2026-10-28 屈膝 0.40 → 0.32：后勾把胫骨/鞋送到髋后约 0.25m，正好压在袍摆
+     （半径 0.25~0.28）上 ⇒ 后腿从袍面**正面**戳出来（老黄："主人走路时脚和长袍有穿模"）。
+     收小后勾 + 走路时裙摆半径放大（radE 的 0.22 那一项），两者一起给脚让位。 */
+  knee: 0.32,       // 摆动期屈膝（负号 = 小腿往后勾）
   foot: 0.12,       // 踝：跟落/趾离的小幅补偿
   bob: 0.022,       // 重心起伏（比散步者 0.028 小一号 —— 人物脚是真的在动）
   hipYaw: 0.055,    // 骨盆扭转
@@ -144,13 +147,22 @@ const GO_ARM = {
          上臂抬高、肘大弯让小臂落回桌面，腕角与落子手同款（掌心朝下）。
          ⚠️ 左右骨架不对称：go1.Left 与 go2.Right 各自扫出的值不同，不镜像。 */
     Right: { sx: -1.930, sy: -0.500, sz: -0.150, ex: 0.20, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.85, mid: 0.55, thumb: -0.60, place: 1 },
-    Left:  { sx: -1.950, sy: 0.000, sz: 0.300, ex: 1.10, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.45, mid: 0.35, thumb: -0.45, place: 0 },
+    /* ⚠️ 2026-10-28 老黄："对弈的两个人各有一只手看不见手掌的位置，做的明显一些"。
+       量出来的真因不是"藏在袖子里"，是**闲手垂在桌面以下**：腕 y=0.735，而桌面顶面
+       0.80~0.86 ⇒ 从任何机位看，那只手都在桌沿轮廓下面、读作"少了一条胳膊"。
+       现在把闲手**抬到桌面高度**（腕 y≈0.92，落在棋盘外沿的桌面上），掌心朝下、
+       手指半张（curl 0.55 / mid 0.35）。扫出来的这组角：肩 sx −1.40、**肘 −1.00**
+       —— 负角才是"前臂往前上方抬"（正角把手压到腿边，这正是原来手垂到桌下的原因）。
+       ⚠️ 落子手（place:1）那一侧不动：它本来就压在盘面上、读得清。 */
+    Left:  { sx: -1.400, sy: 0.000, sz: 0.000, ex: -1.00, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.55, mid: 0.35, thumb: -0.45, place: 0 },
   },
   go2: {
     /* go2：左右各自反解，不镜像（理由同抚琴）。落子手（Left）腕角与 go1.Right 同款
        —— 两侧骨rest不对称，但这组恰好两侧都读作"掌心朝下"（出图各验过）。 */
     Left:  { sx: -1.700, sy: 0.460, sz: -0.180, ex: 0.12, hx: -0.45, hy: -1.20, hz: -0.30, curl: 0.85, mid: 0.55, thumb: -0.60, place: 1 },
-    Right: { sx: -1.850, sy: 0.000, sz: -0.320, ex: 1.05, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.45, mid: 0.35, thumb: -0.45, place: 0 },
+    /* 同上（2026-10-28）：闲手抬到桌沿、掌心朝下指放松。go2 这只手的肩解与 go1 不同 ——
+       这套骨架左右不对称，两边各自扫描，不镜像。 */
+    Right: { sx: -1.400, sy: 0.000, sz: 0.000, ex: -1.00, hx: 0.93, hy: -1.20, hz: -0.30, curl: 0.55, mid: 0.35, thumb: -0.45, place: 0 },
   },
 };
 
@@ -164,8 +176,14 @@ const GO_ARM = {
    ⚠️ 左右两组**各自求解**、不镜像（这套骨架的左右骨骼朝向本来就不对称，
       照 armDown 那样乘 −1 会让右手肘朝外翻）。 */
 const QIN_ARM = {
-  Left:  { sx: -1.125, sy: 0.125, sz: -0.125, ex: 0.65, pluck: 0.035, rate: 0.9 },
-  Right: { sx: -0.700, sy: -0.675, sz: 0.250, ex: 0.65, pluck: 0.080, rate: 1.9 },
+  /* ⚠️ 2026-10-28 老黄："抚琴的人手臂弯曲的地方要重做，现在看起来像断掉了"。
+     原值肘 0.65（≈37°）在宽袖管上折出一道硬棱 —— 出图看就是"袖子断成两截"。
+     现在把肘收直（0.40），肩三轴重新解过（页内扫描：给定"腕仍落在原位置"这个约束，
+     扫描肩 sx/sy/sz 使腕误差最小；实测腕误差 L 1.0cm / R 1.1cm）。
+     ⇒ 手臂变成近乎伸直的下探，袖管是一整条，不再有折棱。
+     ⚠️ 这两组与 QIN_HAND 是一套：**改案高 / 坐距 / lean 必须重跑**（腕到弦的触达链没变）。 */
+  Left:  { sx: -1.000, sy: 0.100, sz: -0.150, ex: 0.40, pluck: 0.035, rate: 0.9 },
+  Right: { sx: -0.400, sy: -0.800, sz: 0.450, ex: 0.40, pluck: 0.080, rate: 1.9 },
 };
 
 /* 腕骨与手指（同样是**量出来的**，不是照"掌屈"这个名字填的 → actor-qin-hand3.mjs）
@@ -536,7 +554,8 @@ const DEFS = [
       homePt: [38.95, 1.90], homeYaw: -1.800,
       hayPt: [43.60, 1.42],  hayYaw: 1.671,
       speed: 0.55, grabDur: 2.2,
-      wait: [9, 16], feed: [7, 11],
+      /* 2026-10-28：等客的间隙从 9~16s 收到 6~10s —— 看一眼就更容易赶上"正在拿草"。 */
+      wait: [6, 10], feed: [7, 11],
     },
   },
   /* 两个书童（08b 的 'child' 一对，半围在先生两侧）。一件资产、两次 parse：
@@ -1824,6 +1843,23 @@ function tickVisit(dt){
   const host = actorRef(v.hostId), guest = actorRef(v.guestId);
   if (!host || !guest) return;
   tickCarriage(dt);
+  /* 场上永远只有一个马夫 —— 但"有人"比"没人"重要（2026-10-28 老黄："马夫依旧只是
+     站立不动，看不到喂马和刷毛这两个动作"）。真因不是动作没写，而是 startVisit 一开演
+     就把常驻马夫**整段藏起来**（场上只剩一个干站着的车夫），而到访演出几乎一直在循环
+     ⇒ 用户看到的永远是那个不动的车夫。
+     现在改成逐帧按"车夫要不要用"决定显示谁：
+       · 车在进场 / 正在系马 / 正在上车离场 ⇒ 显示车夫、收起常驻马夫；
+       · 其余时段（马拴好、客人在园里）⇒ 显示常驻马夫去喂马刷马、收起车夫。
+     两个人始终不同框，"场上只留一个马夫"的约定不变。 */
+  {
+    const coach = actorRef(VISIT.coachId), gm = actorRef('groom');
+    if (coach && gm){
+      const needCoach = VISCAR.state === 'drivein' || VISCAR.state === 'board' ||
+                        (VISCAR.state === 'wait' && !VISCAR.tieOn);
+      coach.holder.visible = needCoach;
+      gm.holder.visible = !needCoach;
+    }
+  }
 
   /* 客人已走到马车边 → 开始上车（这一步与主人回堂并行，放在所有相位之前） */
   if (v.guestSent && VISCAR.state === 'wait' && guest.arrived && !guest.trip && !guest.ride){
@@ -2727,7 +2763,8 @@ function advance(dt){
        品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。
        刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。
        作揖再叠一层前俯（BOW.lean）：这是"礼"的主体，手臂只是配合。 */
-    const lean = (o.lean || 0) * (1 - a.brushW) * (1 - a.coachW) + BOW.lean * bw + 0.42 * a.grabW;
+    const lean = (o.lean || 0) * (1 - a.brushW) * (1 - a.coachW) + BOW.lean * bw + 0.42 * a.grabW
+               + 0.10 * a.brushW;   // 刷马时整个人往前靠一点：只动小臂看不出动作，躯干跟随才读得出来
     const hd = (o.headDown || 0) * (1 - a.brushW) * (1 - a.coachW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
              + SCROLL.headDown * a.scrollW + BOW.head * bw + 0.22 * a.grabW;
     set('Chest', o.breath * b + 0.02 * w + lean + cs.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
@@ -2760,13 +2797,19 @@ function advance(dt){
          放大后能看到一条肉色的小腿）。改成：每片按它所在的那一侧跟着**同侧腿**的相位摆，
          前片跟得多、后片跟得少；同时裙摆加长 5%、放宽 8%（长袍走路本来就会被腿撑开）。 */
       const lenE = (1 + (sq(KNEEL.skirtLen) - 1) * k) * (1 + (sq(cs.skirtLen) - 1) * st2) * (1 + 0.05 * w);
-      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (cs.skirtRad - 1) * st2) * (1 + 0.08 * w);
+      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (cs.skirtRad - 1) * st2) * (1 + 0.22 * w);
       /* 下段的翻转方向：跪坐 0.96（几乎对折回去）、坐凳 1.00（回到竖直、垂在膝前） */
       const swap = k + st2 > 1e-4 ? (k * KNEEL.kneeSwap + st2 * cs.kneeSwap) / (k + st2) : 1;
       for (const sk of a.skirt){
         const front = Math.cos(sk.ang);                       // 0° = 正前 ⇒ 1
         const legSw = Math.sin(sk.ang) >= 0 ? sw : -sw;        // 跟同侧的腿（Left=+amp·sw）
-        const sway = w * a.amp * 1.15 * legSw * (0.55 + 0.45 * front);
+        /* ⚠️ 2026-10-28 老黄："主人走路时脚和长袍有穿模"。量出来的真因是**后片几乎不摆**：
+           原式 (0.55 + 0.45·front) 在后片（front=−1）只剩 **0.10 倍** ⇒ 摆动 0.03rad，
+           而腿在同一时刻往后摆 0.27rad、脚在髋下 0.85m 处要挪 0.23m ⇒ 后腿直接把袍面顶穿
+           （出图里那只黑鞋是从蓝袍背面戳出来的）。改成 (0.78 + 0.22·front)：
+           前片 1.0、后片 0.56，前后都跟着腿走；总系数 1.15 → 1.35 让摆幅略大于腿摆幅。
+           同时在走路时把裙摆半径放大到 1.14 倍（见下面 radE），给脚让出余量。 */
+        const sway = w * a.amp * 1.35 * legSw * (0.78 + 0.22 * front);
         /* 跪坐：前襟整片前翻（0.55+0.55·front）。
            坐凳：前襟要**压在平放的大腿上**（1.0·front），后片只轻带一点（0.18）——
                  后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。 */

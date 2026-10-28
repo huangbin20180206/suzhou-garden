@@ -802,9 +802,14 @@ const D_SCHEDULES = [
     // 坐标与两书童的朝向表达式绑死（童子的 atan2 参数就是按这个点算的），挪位必须同步改。
     h0: 7.5, h1: 12.0,
     stroll: null },
-  { pose:'tea',   skin:'moss',    x: 15.3, z: 5.4, y: PAV_FLOOR_Y, yaw: Math.atan2(-15.3, -2.4), s: 1.02,   // 面朝池心赏鱼（水榭平台，非草坪 → 可用绿色系）
-    h0: 12.0, h1: 18.0,                                                          // ⚠️ 站在**水榭台基**上 ⇒ 脚底抬到台基顶面
-    stroll: null },
+  /* ⚠️ 2026-10-28 老黄（截图红框："低模人物去掉"）：这位程序化"品茗"站像与水榭里
+     搬进来的 AI 抚琴人重复了 —— 同一间亭子里一个能看出五官、一个是空脸低模，
+     并排站着反而把低模的短板放大了。整位下线（不是藏起来），水榭只留抚琴一人。
+     ⚠️ 等量燃烧：makeScholar 每次固定消耗 1 次 jr()（breathPhase），跳过建人必须补回
+     那一次，否则其后所有人物与延迟批的抽样整体错位（见循环里的 `void jr()`）。 */
+  { pose:'tea',   skin:'moss',    x: 15.3, z: 5.4, y: PAV_FLOOR_Y, yaw: Math.atan2(-15.3, -2.4), s: 1.02,
+    h0: 12.0, h1: 18.0,
+    skip: true, stroll: null },
   /* ⚠️ 夜步路线的 z 区间原来写 [1.3, −3.8]，而游廊这条腿只到 z=−1.8（折线顶点
      (13.2,−9.6)→(13.2,−1.8)→(24,−1.8)）⇒ 他有 **2.5m 是在池面上走的**。
      实测（outputs/_diag/walk-lane.mjs / fig-foot.mjs / fig-path.mjs）：x=13.4 上
@@ -867,6 +872,10 @@ const D_SCHEDULES = [
     h0: 7.5, h1: 18.0, stroll: null, feed: true },
 ];
 D_SCHEDULES.forEach((d, i)=>{
+  /* 下线的人物（skip）不建人，但必须**等量燃烧**那一份 jr()：
+     makeScholar 内部固定消耗 1 次（breathPhase），跳过时不补就会让后面所有人的
+     breathPhase 与延迟批的抽样整体前移（铁律 1：等量且同序）。 */
+  if (d.skip){ void jr(); return; }
   const fg = makeScholar({ x: d.x, z: d.z, y: d.y, yaw: d.yaw, s: d.s, pose: d.pose, skin: d.skin,
                            lady: d.lady, leanX: d.leanX, headDown: d.headDown });
   fg.userData.slot = { h0: d.h0, h1: d.h1, stroll: d.stroll };
