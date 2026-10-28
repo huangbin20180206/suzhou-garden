@@ -1,0 +1,51 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>GLB bind-pose viewer</title>
+<style>html,body{margin:0;height:100%;background:#262a30;overflow:hidden}canvas{display:block}</style>
+<script type="module">
+/* 独立的 GLB 绑定姿态查看器（2026-10-28，判"凸起是资产还是我们摆的"用）。
+   用法：/outputs/_diag/glbview.html?m=/assets/fig-laborer.glb
+   ⚠️ 只渲染 gltf.scene 的**绑定姿态**（不套任何骨骼姿态）—— 这样凸起若在，
+      就是网格本身的问题；若不在，就是我们 JS 姿态写出来的。 */
+import { THREE, GLTFLoader } from '../../vendor.js';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(1);
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x262a30);
+const cam = new THREE.PerspectiveCamera(30, window.innerWidth / window.innerHeight, 0.02, 200);
+scene.add(new THREE.HemisphereLight(0xffffff, 0x555a5f, 2.4));
+const d1 = new THREE.DirectionalLight(0xffffff, 1.8); d1.position.set(4, 6, 6); scene.add(d1);
+const d2 = new THREE.DirectionalLight(0xffffff, 0.9); d2.position.set(-5, 3, -4); scene.add(d2);
+
+const q = new URLSearchParams(location.search);
+const url = q.get('m') || '../../assets/fig-laborer.glb';
+
+new GLTFLoader().load(url, (g) => {
+  const o = g.scene;
+  const box = new THREE.Box3().setFromObject(o);
+  const size = box.getSize(new THREE.Vector3());
+  const s = 1.70 / size.y;
+  o.scale.setScalar(s);
+  o.updateMatrixWorld(true);
+  const b2 = new THREE.Box3().setFromObject(o);
+  o.position.y -= b2.min.y;              // 脚底贴 y=0
+  o.updateMatrixWorld(true);
+  scene.add(o);
+  window.__glb = { raw: size.toArray(), scale: s, height: b2.max.y - b2.min.y };
+  window.__setCam(Math.PI, 0.95, 2.4);
+  renderer.setAnimationLoop(() => renderer.render(scene, cam));
+});
+
+/* theta：绕 Y 的方位角（0 = 正前方 +Z 看向 −Z），y 高度，dist 距离 */
+window.__setCam = (theta, y, dist) => {
+  cam.position.set(Math.sin(theta) * dist, y, Math.cos(theta) * dist);
+  cam.lookAt(0, y, 0);
+  cam.updateMatrixWorld(true);
+  renderer.render(scene, cam);
+};
+window.__ready = () => !!window.__glb;
+</script>
