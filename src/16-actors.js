@@ -37,6 +37,10 @@ const ACTORS = [];
 let _built = false;
 let _t = 0;
 let _envRefWarned = false;      // ENV_REF.env 缺失只喊一次（否则每帧刷屏）
+/* 右手自然垂放时补半圈：绑定姿势的右手掌朝外（2026-10-29 老黄侧面截图），
+   左手的 −90° 基准是对的，只翻右手。只在"没有端茶/抚琴/下棋/刷马/驾车"时生效，
+   不碰那些已经反解过手位的动作。 */
+const _palmFixR = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
 /* ── 步态常数（口径对齐 08d 的 WALK_STRIDE=0.42 / WALK_BOB=0.028）────────────
    相位的推进按**走过的距离**算，不按时间：站下/转身/上坡都不会出现"脚在原地划"。
@@ -100,6 +104,16 @@ const HALL_SIT = {
   drop: 0.12, thigh: 1.44, knee: 1.50, foot: 0.0, lean: 0.18, headDown: 0.18,
   skirtLen: 0.72, skirtRad: 1.20, lift: 0.90, kneeSwap: 1.00,
 };
+/* ⚠️ 2026-10-29 老黄侧面截图："两个人坐在椅子上"——实际两个人都悬在椅面上方。
+   根因两层：① 入座时 floorRay 把**椅面 1.755 当成地面**，整个人先站到了椅子上；
+   ② 主人与客人腿长不同，同一 drop 不可能都落到椅面。
+   修正：入座时脚底压回堂内地面 SEAT.floor=1.30（见 seatOne / gy），
+   再按各自实测把髋落到"椅面 + 0.10m"：
+     主人本地髋高 0.817 → drop 0.382 ⇒ 髋 1.855、踝 1.360；
+     客人本地髋高 0.753 → drop 0.318 ⇒ 髋 1.855、踝 1.396。
+   椅面顶点 1.755，两脚也回到地面附近；这组数与 SEAT.floor / 椅面高是一套，别单改。 */
+const HALL_SIT_SCHOLAR = Object.assign({}, HALL_SIT, { drop: 0.382 });
+const HALL_SIT_GUEST   = Object.assign({}, HALL_SIT, { drop: 0.318 });
 /* ── 车夫坐姿（2026-10-27 老黄："马夫依旧是缩成一团"）──────────────────────────
    车夫用的是 SIT（给石桌对弈反解的 lean 0.52）：坐在高高的车夫座上再深弓 0.52，
    读作"缩成一团"。车夫要直腰拉缰，只需轻微低头看马；腿仍沿用 SIT 的坐姿角度
@@ -116,7 +130,9 @@ function curSit(a){
      只认 ride 会在起跳瞬间把 drop 从 0.395 切回 HALL_SIT 的 0.12（整个人弹起 0.27m）。
      所以 trip 期间仍算"坐在车上"（客人一生只在车厢上下车用 trip）。 */
   if (a.def.id === VISIT.guestId && (a.ride || a.trip)) return CARRIAGE_SIT;
-  return (a.def.id === 'scholar' || a.def.id === 'guest') ? HALL_SIT : SIT;
+  if (a.def.id === 'scholar') return HALL_SIT_SCHOLAR;
+  if (a.def.id === 'guest') return HALL_SIT_GUEST;
+  return SIT;
 }
 
 /* ── 对弈（坐凳 + 一只手落到盘面）────────────────────────────────────────────
@@ -391,6 +407,7 @@ const SEAT = {
   host: [-1.35, -13.6],
   guest: [1.35, -13.6],
   frontZ: -12.55,               // 站定（还没转身）的位置
+  floor: 1.30,                  // 堂内地坪（椅面顶 1.755；入座时脚底必须压回这里）
 };
 const ENTER_PTS = {
   host: [[1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -6.95], [-0.45, -7.6],
@@ -1154,6 +1171,7 @@ function loadActor(def){
         step: 0, moveW: 0, moved: 0, stopN: 0,
         hopT: 0, hopDur: 0.62, hopN: 0, hopWait: def.idle.hopEvery ? 3 + det(def.idle.phase) * 6 : 0,
         floorY: null, floorTries: 0, sampleT: 0, floorDone: false,   // 只有 floorRay 的才会去点
+        seatY: undefined,        // 入座时脚底钉住的堂内地坪（见 seatOne / gy）
         kneelW: 0, kneelTarget: def.pose === 'kneel' ? 1 : 0,
         sitW: 0, sitTarget: def.pose === 'sit' ? 1 : 0,
         placeT: 0, placeN: 0, placeWait: 1.5 + det(def.idle.phase) * 4,
@@ -1470,8 +1488,14 @@ function seatOne(a, sxy, dt){
     a.moved = 0;
     a.moveW = approach(a.moveW, 0, dt / 0.3);
   }
-  /* ② 离座面 0.22m 以内才开始落座（sitW 自己 2.2/s 缓动 ≈0.45s） */
-  if (dist < 0.22) a.sitTarget = 1;
+  /* ② 离座面 0.22m 以内才开始落座（sitW 自己 2.2/s 缓动 ≈0.45s）。
+     同时把脚底高度钉回**堂内地坪**：floorRay 在椅心向上取最高面会命中椅面 1.755，
+     不钉住的话整副人物是"站在椅子上再坐"，屁股/脚都悬空（2026-10-29 截图）。 */
+  if (dist < 0.22){
+    a.sitTarget = 1;
+    a.seatY = SEAT.floor;
+    a.floorY = SEAT.floor;      // 报告/兜底也保持地坪，不再显示椅面 1.755
+  }
   return a.sitW >= 0.98 && dist < 0.06;
 }
 
@@ -1845,7 +1869,7 @@ function resetVisit(){
   VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0; VISCAR.backYaw0 = null;
   if (guest){
     guest.ride = null; guest.trip = null;
-    guest.sitTarget = 0; guest.sitW = 0; guest.offerW = 0;
+    guest.sitTarget = 0; guest.sitW = 0; guest.offerW = 0; guest.seatY = undefined;
     guest.def.route = null; guest.walkOff = true; guest.arrived = false; guest.moveW = 0;
     guest.pos.x = guest.def.spot.x; guest.pos.z = guest.def.spot.z;
     guest.y = groundHeight(guest.pos.x, guest.pos.z);
@@ -1896,6 +1920,7 @@ function resetVisit(){
     host.y = groundHeight(host.pos.x, host.pos.z);
     host.yaw = 0.42;
     host.sitTarget = 0; host.sitW = 0; host.offerW = 0; host.moveW = 0; host.arrived = false;
+    host.seatY = undefined;
     host.scrollW = 0; host.scrollPhase = 0; host.scrollT = 0; host.teaT = 0; host.sipW = 0;
     host.def.stepUp = 0.42; host.def.floorMax = 2.45;
     host.def.route = { pts: HOST_GREET_PTS, speed: 0.86, pause: [0, 0], mode: 'once' };
@@ -2107,6 +2132,11 @@ function tickVisit(dt){
     if (v.t > 10){
       v.phase = 'rise'; v.t = 0;
       host.sitTarget = guest.sitTarget = 0;
+      /* 起身时把"脚底钉在地坪"交还给踏面采样：先写 floorY=地坪，
+         否则 seatY 一清空、floorY 还停在椅面 1.755 ⇒ 人会被抬起来约 45cm。 */
+      for (const a of [host, guest]){
+        a.floorY = SEAT.floor; a.floorDone = true; a.seatY = undefined;
+      }
       /* 出堂一路向下（唯一的上坎是门槛 +0.24，默认窗口 0.42 够），
          把 S4 进门临时放宽的 stepUp 收回。 */
       host.def.stepUp = guest.def.stepUp = 0.42;
@@ -2349,8 +2379,9 @@ function advance(dt){
        fixedY = 钉在 spot.y（= 凳子所在的地面高，14-props 给的）。
        被马车载着 / 上下车过渡中：高度由 ride/trip 直接给，不取踏面（否则会被拉回地面）。 */
     const gy = (a.ride || a.trip) ? a.y
+      : (a.seatY !== undefined ? a.seatY
       : (a.def.fixedY ? a.def.spot.y
-      : (a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z)));
+      : (a.def.floorRay ? (a.floorY === null ? a.y : a.floorY) : groundHeight(a.pos.x, a.pos.z))));
     if (!a.ride && !a.trip){
       /* 位置：先落地点，再叠步态起伏。groundHeight 是缓坡，直接跟即可。
          跟随型（走长路的人）收敛快一点，起伏路面上不至于"慢半拍"地悬空。
@@ -2851,6 +2882,14 @@ function advance(dt){
         set(sd + 'ThumbIntermediate', BOW.thumb * 0.9 * wb, 0, 0);
         set(sd + 'ThumbDistal', BOW.thumb * 0.6 * wb, 0, 0);
       }
+    }
+    /* 自然垂放的右手：掌心转回身体一侧。只在右手**没有在做事**时覆盖；
+       这些动作的手位都是按原基准反解的，不能一起翻（抚琴会变成手背压弦）。 */
+    const rightBusy = o.qin || o.go || a.scrollW > 0.001 || (a.offerW || 0) > 0.001
+      || (a.sipW || 0) > 0.001 || a.brushW > 0.05 || a.hayHeld
+      || (a.coachW || 0) > 0.05 || (a.tieW || 0) > 0.05 || bw > 0.001;
+    if (!rightBusy && a.bones.RightHand && a.base.RightHand){
+      a.bones.RightHand.quaternion.copy(a.base.RightHand).premultiply(_palmFixR);
     }
     /* lean / headDown：马夫"看着马吃草"那种前俯，只动躯干和头（手臂不动）。
        品茶时头跟着低一点（a.sipW 是抬盏的权重，0~1）—— 人把盏送到嘴边时一定会低头。
