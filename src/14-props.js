@@ -161,9 +161,11 @@ const STOOL_PROF = [
   [0.221, 0.310], [0.204, 0.385], [0.196, 0.425], [0.212, 0.445],
   [0.150, 0.452], [0.000, 0.452],
 ].map(([r, h]) => new THREE.Vector2(r, h));
-export function makeStoneTableSet(x, z, yaw = 0){
+export function makeStoneTableSet(x, z, yaw = 0, baseY){
   const g = new THREE.Group();
-  const y = groundHeight(x, z);
+  /* 默认仍按地形落地（草坪/月台以外的调用不受影响）；
+     搬进水榭这类"浮在地形上的台基"时必须显式给台面高，否则整桌会沉到台基下面。 */
+  const y = baseY === undefined ? groundHeight(x, z) : baseY;
   g.position.set(x, y, z);
   g.rotation.y = yaw;
 
@@ -1136,12 +1138,12 @@ export function makeFlowerLane(x, z, y, len, wid, yaw = 0){
    ⚠️ 本表同时是门禁的**唯一真值源**：probe/props-guard.mjs 直接 import 本模块读它，
    再去场景里射线复核"每件是不是真坐落在它该在的面上"。 */
 export const PROP_SPOTS = {
-  /* 堂前东草坪（2026-10-27 定案）：原 (6.6,−5.4) 距迎客主干道仅 1.07m，客人并排偏移会踩石凳；
-     2026-10-26 挪到 (4.2,−7.8) 又落进远香堂月台铺地（实测顶面 y=1.3，而本函数按 groundHeight
-     y≈−0.11 落地 ⇒ 整桌/两位棋手被埋到铺地以下，画面上"空空如也"）。
-     现在改到 (7.0,−6.0)：实测桌心 ground y=0.08、距迎客路径 ≈2.5m、不在月台/铺地上，
-     四张凳子的占地也不碰路径。⚠️ 改这里必须重跑 props-guard 并出图看两人是否露头。 */
-  stoneTable: { x: 7.0,  z: -6.0,  yaw: 0.55 },
+  /* 石桌石凳原在东草坪 (7.0,−6.0)；2026-10-29 老黄："把下棋的两个人和石凳石桌
+     全部移到右侧亭子里面去，放在抚琴的人旁边"。
+     水榭台基面 0.62（不是地形）；中心 (15.4,7.0) 在抚琴低案 (13.4,8.2) 东南侧约 2.3m，
+     桌凳外缘 1.3m ⇒ 离东墙 0.65m、离南北坐槛最小 1.75m、离两盆兰花最近 1.65m，
+     不碰四角柱（最近 (17.35,10.05)，中心距 3.64m）。yaw 0.55 保持原来的错位摆法。 */
+  stoneTable: { x: 15.4, z: 7.0, yaw: 0.55, y: 0.62 },
   /* 水榭台基顶面 (13.4,8.2) 那套**高琴案 + 鼓凳**已于 2026-10-25 撤掉：
      改成"低案 + 跪坐"（AI 人物），见下面的 qinLow。留档：原来那套的落点与朝向就是
      qinLow 现在用的这一对坐标（同一处台面，只是换了案型与人）。 */
@@ -1203,8 +1205,8 @@ export function buildProps(){
   g.name = 'props';
 
   const st = PROP_SPOTS.stoneTable;
-  g.add(makeStoneTableSet(st.x, st.z, st.yaw));
-  reg('石桌石凳', st.x, groundHeight(st.x, st.z), st.z, 1.30, 0.78);
+  g.add(makeStoneTableSet(st.x, st.z, st.yaw, st.y));
+  reg('石桌石凳', st.x, st.y, st.z, 1.30, 0.78);
 
   /* 古琴琴桌（高案 + 鼓凳）已于 2026-10-25 撤下：水榭改用"低案 + 跪坐"，
      由下面的 qinLow 一处承担（老黄："抚琴人应该在右侧凉亭里面，替代原有的低模"）。 */
