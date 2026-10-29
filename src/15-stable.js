@@ -8,7 +8,7 @@
 //    名叫 "" 的导出，于是**每个文件**都被判成「用到 15-stable.js 导出的 （空名）但没 import」——
 //    实测一次炸出 61 条假红。
 import { decorateHorseGeometry, horseWeights, horsePivots, bakeHorseShading } from './15b-horse-rig.js';
-import { horseLifeDebug, horseLifeState, tinkerPoseDebug, horseBreathMesh, tickStableLife, loadStableHorses, makeHorse } from './15c-horse-life.js';
+import { horseLifeDebug, horseLifeState, holdHorse, tinkerPoseDebug, horseBreathMesh, tickStableLife, loadStableHorses, makeHorse } from './15c-horse-life.js';
 import { stableTravel, travelCarriagePlace, travelCarriagePark, travelCarriageVisible, travelCarriageTied, makeCarriage, makeFeedBale } from './15d-carriage.js';
 import { STABLE_ROAD_PTS, makeStableRoad, makeStable, STABLE_EXIT_PTS, makeStableExitRoad } from './15e-stable.js';
 
@@ -19,6 +19,7 @@ export {
   bakeHorseShading,
   horseLifeDebug,
   horseLifeState,
+  holdHorse,
   tinkerPoseDebug,
   horseBreathMesh,
   tickStableLife,

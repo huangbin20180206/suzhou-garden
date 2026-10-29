@@ -85,6 +85,7 @@ const check = (name, ok, detail = '') => {
     let guestDropFrames = 0, coachDropFrames = 0;
     let odoMaxJump = 0, odoJumpAt = '', lastOdo = null, lastLeg = '';
     let nan = 0, floorBad = 0, simT = 0;
+    let coachBusyFrames = 0, coachHidden = 0, outFrames = 0, outHidden = 0;
     /* 2026-10-29 新契约：门外见面/送客、挥手、回水榭听琴 */
     let faceOut = null, wavePeak = 0, waveWristMax = -Infinity, waveMinDistHead = Infinity;
     const R = G.actorRig ? G.actorRig('scholar') : null;
@@ -109,6 +110,17 @@ const check = (name, ok, detail = '') => {
         lastCar = v.car.state + '/' + v.car.leg;
       }
       for (const A of [v.host, v.guest, v.coach]) if (A && !A.pos.every(Number.isFinite)) nan++;
+
+      /* ⑧ 车夫在岗（2026-10-29 老黄："马车走的时候没有马夫在驾车"）。
+         真因：tickVisit 里那张"该显示车夫还是常驻马夫"的白名单漏了 driveout
+         （倒车/调头/驶离）与 stop/tie/alight，车一动车夫就被藏起来。
+         这里逐状态断：车夫有活的每一个子状态，他都必须 visible。 */
+      const BUSY = ['drivein', 'stop', 'tiewalk', 'tie', 'alight', 'board', 'driveout'];
+      if (BUSY.includes(v.car.state) && v.coach){
+        coachBusyFrames++;
+        if (!v.coach.visible) coachHidden++;
+        if (v.car.state === 'driveout') { outFrames++; if (!v.coach.visible) outHidden++; }
+      }
 
       /* ③ 上车/在车上：人已上车、不在过渡插值里 ⇒ 必须坐在座面高度上。
          ⚠️ 取样窗必须含 driveout：马夫跨上车与"两人都到齐"几乎同一帧，只在 board 里取样
@@ -156,6 +168,7 @@ const check = (name, ok, detail = '') => {
     return { phases, cars, simT: +simT.toFixed(1), boardFrames, coachFrames, guestMinGap, coachMinGap,
              guestDropFrames, coachDropFrames, odoMaxJump: +odoMaxJump.toFixed(3), odoJumpAt,
              nan, floorBad, faceOut, wavePeak: +wavePeak.toFixed(3),
+             coachBusyFrames, coachHidden, outFrames, outHidden,
              waveWristMax: Number.isFinite(waveWristMax) ? +waveWristMax.toFixed(3) : null,
              waveMinDistHead: Number.isFinite(waveMinDistHead) ? +waveMinDistHead.toFixed(3) : null,
              qinDist, hostEnd, end: G.actorVisit() };
@@ -195,6 +208,12 @@ const check = (name, ok, detail = '') => {
     r.odoMaxJump <= 0.60, `最大跳变 ${r.odoMaxJump}m @ ${r.odoJumpAt || '-'}`);
   check('⑤ 走路段贴地（|y − floorY| ≤ 0.25m）', r.floorBad === 0, `越限 ${r.floorBad} 帧`);
   check('⑤b 无 NaN 位置', r.nan === 0, `NaN ${r.nan}`);
+  /* ⑧ 2026-10-29 老黄："马车走的时候没有马夫在驾车" —— 那次是显隐白名单漏了 driveout。
+     判据必须在**车夫有活的每一段**都取样（含 driveout，光看 drivein 会漏），
+     且要有样本量下限（防"一帧都没取到"的空判据）。 */
+  check('⑧ 车夫在岗：车在动/系马/上车的每一段他都在场上（含 driveout）',
+    r.coachBusyFrames >= 20 && r.coachHidden === 0 && r.outFrames >= 3 && r.outHidden === 0,
+    `在岗帧 ${r.coachBusyFrames} / 缺席 ${r.coachHidden}；其中驶离段 ${r.outFrames} 帧、缺席 ${r.outHidden}`);
   check('零 pageerror', errs.length === 0, errs.slice(0, 2).join(' | '));
 
   await browser.close();

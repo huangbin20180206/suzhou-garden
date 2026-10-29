@@ -23,7 +23,8 @@ import { markCasterBoxDirty } from './09-lights.js';
 import { figures } from './08b-figures.js';
 import { PROP_SPOTS, QIN_LOW_SEAT, SEAT_SPOTS } from './14-props.js';
 import { STABLE_ROAD_PTS, stableTravel, travelCarriagePlace, travelCarriagePark,
-         travelCarriageVisible, travelCarriageTied } from './15-stable.js';
+         travelCarriageVisible, travelCarriageTied,
+         horseLifeDebug, holdHorse } from './15-stable.js';
 /* ⚠️ WALK_ROUTE（08d-tour）与 ENV（12-env）**不能静态 import**（2026-10-24 审核）：
    那两条各多出一个环 —— 16-actors → 12-env → 08-assemble → 16-actors，
    以及 16-actors → 08d-tour → 12-env → 08-assemble → 16-actors。
@@ -106,7 +107,15 @@ const SIT = {
    裙摆压缩收小（0.60→0.72，长椅腿不压短），lean/headDown 收成端坐（0.18）。 */
 const HALL_SIT = {
   drop: 0.12, thigh: 1.44, knee: 1.50, foot: 0.0, lean: 0.18, headDown: 0.18,
-  skirtLen: 0.72, skirtRad: 1.20, lift: 0.90, kneeSwap: 1.00,
+  /* ⚠️ 2026-10-29 老黄："进入主堂坐下后直接从凳子坐到地面（穿模）"。
+     实测（outputs/_diag/body-2026-10-29，入座后读骨骼世界高度 + 出图）：
+       · 髋 1.855 是在椅面（1.755）**上方 0.10m** —— 高度本身是对的；
+       · 但**脚底浮空 6cm**（人家 origin 钉在 SEAT.floor=1.30，而椅心那块真实地面是
+         **1.24**，多算了 6cm）⇒ 整个人离地、再加上裙摆被径向撑到 1.20 倍、前襟
+         掀起 0.90rad，袍子像一大块摊在地上 —— 画面上就读成"坐在了地上"。
+     修法：floor 改回实测的 1.24、drop 各减 0.02 把髋保持在椅面上方 0.06m；
+           裙摆的径向撑开 1.20→1.06、前襟掀起 0.90→0.72（不再把袍子摊到椅子外/地上）。 */
+  skirtLen: 0.72, skirtRad: 1.06, lift: 0.72, kneeSwap: 1.00,
 };
 /* ⚠️ 2026-10-29 老黄侧面截图："两个人坐在椅子上"——实际两个人都悬在椅面上方。
    根因两层：① 入座时 floorRay 把**椅面 1.755 当成地面**，整个人先站到了椅子上；
@@ -116,8 +125,8 @@ const HALL_SIT = {
      主人本地髋高 0.817 → drop 0.382 ⇒ 髋 1.855、踝 1.360；
      客人本地髋高 0.753 → drop 0.318 ⇒ 髋 1.855、踝 1.396。
    椅面顶点 1.755，两脚也回到地面附近；这组数与 SEAT.floor / 椅面高是一套，别单改。 */
-const HALL_SIT_SCHOLAR = Object.assign({}, HALL_SIT, { drop: 0.382 });
-const HALL_SIT_GUEST   = Object.assign({}, HALL_SIT, { drop: 0.318 });
+const HALL_SIT_SCHOLAR = Object.assign({}, HALL_SIT, { drop: 0.362 });
+const HALL_SIT_GUEST   = Object.assign({}, HALL_SIT, { drop: 0.298 });
 /* ── 车夫坐姿（2026-10-27 老黄："马夫依旧是缩成一团"）──────────────────────────
    车夫用的是 SIT（给石桌对弈反解的 lean 0.52）：坐在高高的车夫座上再深弓 0.52，
    读作"缩成一团"。车夫要直腰拉缰，只需轻微低头看马；腿仍沿用 SIT 的坐姿角度
@@ -453,7 +462,10 @@ const SEAT = {
   host: [-1.35, -13.6],
   guest: [1.35, -13.6],
   frontZ: -12.55,               // 站定（还没转身）的位置
-  floor: 1.30,                  // 堂内地坪（椅面顶 1.755；入座时脚底必须压回这里）
+  /* ⚠️ 2026-10-29：实测椅心那块真实地面是 **1.24**（射线，outputs/_diag/body-2026-10-29）。
+     原来写 1.30（把门槛/铺地砖那一层的高）⇒ 坐着的人整体离地 6cm、脚也踩不到地。
+     "入座时脚底必须压回这里"的口径不变，只是数值改成实测值。 */
+  floor: 1.24,
 };
 const ENTER_PTS = {
   host: [[1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -6.95], [-0.45, -7.6],
@@ -595,8 +607,8 @@ const DEFS = [
     hidePose: 'pointDown',
     tint: 0xD8D2C2,
     /* 2026-10-28 二次重排：喂草与刷马**不再共用一个站位**。
-       喂草点在马头前外侧，朝向实测马嘴（约 38.49,0.91,1.64）；草梢斜伸到嘴前，
-       不再把竖直草捆塞进马颈。刷马则走到 chores.brushPt 的颈侧站位。 */
+       ⚠️ 2026-10-29：这两个站位现在**全部相对那匹会走的白马现算**（见 groomGoals），
+          spot 只作为"还没开工时站哪儿"的初始落点。 */
     spot: { x: 39.21, z: 1.92, yaw: -2.066 },
     floorRay: true,
     route: null,
@@ -608,12 +620,26 @@ const DEFS = [
        idle → toHay（走到草料堆）→ grab（抓一把，草把此刻才出现在手里）
        → back（走回马头旁）→ feed（递草摆臂 7~11s）→ idle。
        草料堆：15e 的 hayBale 组（局部 −4.30,−3.35、组 (40,−2) 朝 π ⇒ 世界 ≈(44.30,1.35)），
-       站位退到堆前 ~0.75m；homePt/homeYaw = 原站位与朝马嘴的 yaw（与 spot 相同口径）。
+       站位退到堆前 ~0.75m。
+       ⚠️ 2026-10-29：这里的站位/朝向**不再写死**——作业对象是院场里那匹会走的白马，
+          马身边的三个站位（feed/brush/stand）与马嘴点每帧按马的实时位姿现算，
+          走线还会绕开马体（routeToHorse），人在马边上时马被按住（holdHorse）。
        ⚠️ 与刷马互斥：行程/喂草期间刷马不开新一轮，反之亦然（见两处的门）。 */
     chores: {
-      homePt: [39.21, 1.92], homeYaw: -2.066,
-      /* 刷马回颈侧：这是 P3 用 26 方向射线验过的贴面站位（刷尖距马身 42~74mm）。 */
-      brushPt: [38.00, 1.30], brushYaw: Math.PI * 0.5,
+      /* ⚠️⚠️ 2026-10-29：**不再写死站位坐标**。老黄把作业对象改成"马厩最左边那匹白马"，
+         而那匹马会沿自身朝向前后走（lane 0.75）。四个站位全部相对**马此刻的世界位姿**
+         现算（见 groomGoals / horseOffset），马走开一步，站位自己跟着走。
+         数值口径（马体：长 1.9、最宽半宽 0.295、鼻端 +0.95、肩颈 +0.30）：
+           feedFwd/Lat  站在马嘴**前外侧**：到嘴 0.78m（草把 + 手臂实测够到 0.75m 左右）；
+           brushFwd/Lat 站在颈肩**外侧**：离马身外表面 0.24m（刷子伸出 0.10+0.07）；
+           standFwd/Lat 干活间隙退到旁边看马（不再贴着马站）。
+         ⚠️ lat 的符号 = 马身**右侧**（yaw=0 朝 +z 时右侧是 −x）。这匹马朝 +x，
+            右侧是 −z；所以三个站位都用**负值**站到 +z（院子这一侧，实测那侧 1.9m 内无遮挡，
+            −z 侧 1.46m 处有栅栏/草槽）。 */
+      feedFwd: 1.45, feedLat: -0.60,
+      brushFwd: 0.34, brushLat: -0.56,
+      standFwd: 0.55, standLat: -0.95,
+      muzzleFwd: 0.95,
       hayPt: [43.60, 1.42],  hayYaw: 1.671,
       speed: 0.55, grabDur: 2.2,
       /* 2026-10-28：等客的间隙从 9~16s 收到 6~10s —— 看一眼就更容易赶上"正在拿草"。 */
@@ -893,6 +919,90 @@ function dyeMaterial(m, dye, layerRange){
   m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|dye-layers'; };
   m.needsUpdate = true;
 }
+
+/* ── 马夫的号衣（2026-10-29 老黄："马夫的衣服太破烂了，重新设计一套衣服"）──────────
+   先查清"破烂"在哪：把 fig-laborer.glb 的 baseColor 直接取出来看
+   （outputs/_diag/laborer-tex-1.jpg）——几何是**完整**的单网格（8464 面，没有洞、没有
+   破损边），那张贴图却是一整幅**补丁拼贴**（土黄 / 灰蓝 / 砖红 / 米白混在一起）。
+   UV 铺到人身上，就成了"打满补丁、一块深一块浅的破衣"。
+   ⇒ 重新设计 = 换配色（不动网格、不动骨骼、不动动作）：
+     · 只重染"衣料明度带"（vMax 0.50）：皮肤/白布比衣料亮，天然不染
+       （与 dyeMaterial 的 uDyeVMax 同一条经验：这个项目靠它挡住"绿脸/蓝脸"）；
+     · 色相与饱和度统一成号衣的深靛，**明度沿用贴图**（褶皱、织纹、法线贴图全保留）；
+     · 明度先按 0.16~0.62 压成 0.88~1.15 的乘子 —— 补丁之间原来的明暗差（0.3~0.7）
+       直接乘颜色会变成"深一块浅一块"，压一压才读成同一件衣服。
+   另加一条**皮腰带**（程序化）：原贴图上那条白布带是"破布"读感的一半来源，
+   换成深皮 + 铜扣，一眼就是"有主家的号衣"。 */
+const LIVERY_DECL =
+  'uniform vec3 uLivColor; uniform float uLivVMax; uniform float uLivAmt;\n' +
+  'vec3 livRgb2Hsv(vec3 c){\n' +
+  '  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n' +
+  '  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n' +
+  '  vec4 q = mix(vec4(p.xyw, c.r), vec4(c.r, p.yzx), step(p.x, c.r));\n' +
+  '  float d = q.x - min(q.w, q.y);\n' +
+  '  float e = 1.0e-10;\n' +
+  '  return vec3(abs(q.z + (q.w - q.y) / (6.0 * d + e)), d / (q.x + e), q.x);\n' +
+  '}\n';
+const LIVERY_BODY =
+  'if (uLivAmt > 0.001){\n' +
+  '  vec3 lh_ = livRgb2Hsv(diffuseColor.rgb);\n' +
+  '  float lvm_ = 1.0 - smoothstep(uLivVMax - 0.10, uLivVMax, lh_.z);\n' +
+  /* 近白（白布带/白里布）不染：饱和度低于 0.05 的一律保留原色 */
+  '  float lsa_ = smoothstep(0.045, 0.14, lh_.y);\n' +
+  '  float lk_ = mix(0.88, 1.15, smoothstep(0.16, 0.62, lh_.z));\n' +
+  '  vec3 lt_ = uLivColor * lk_;\n' +
+  '  diffuseColor.rgb = mix(diffuseColor.rgb, lt_, lvm_ * lsa_ * uLivAmt);\n' +
+  '}\n';
+function liveryMaterial(m, opt){
+  if (!m) return;
+  const U = {
+    uLivColor: { value: new THREE.Color(opt.color === undefined ? 0x4A6488 : opt.color) },
+    uLivVMax:  { value: opt.vMax === undefined ? 0.50 : opt.vMax },
+    uLivAmt:   { value: opt.amt === undefined ? 1 : opt.amt },
+  };
+  m.userData.livU = U;                     // 供探针页内 A/B（调 vMax 看脸变不变成蓝的）
+  const prevCB = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
+  m.onBeforeCompile = function (shader, renderer){
+    if (prevCB) prevCB.call(this, shader, renderer);
+    Object.assign(shader.uniforms, U);
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\n' + LIVERY_DECL)
+      .replace('#include <color_fragment>', '#include <color_fragment>\n' + LIVERY_BODY);
+  };
+  m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|livery'; };
+  m.needsUpdate = true;
+}
+/* 腰带：跟着 Hips 骨走（每帧只搬到骨骼的世界位置，朝向沿用人物 —— 腰带本来就是水平的）。
+   尺寸按 GLB 体形实测（outputs/_diag/body-size.mjs，按 1.70m 归一）：
+   腰围 x ±0.205、z ±0.185（那个 ±0.34 是**垂着的手臂**，不是腰）。 */
+function makeGroomBelt(holder){
+  const g = new THREE.Group();
+  g.name = 'actorBelt';
+  const leather = new THREE.MeshStandardMaterial({ color: 0x4A3324, roughness: 0.74, metalness: 0.05 });
+  leather.side = THREE.DoubleSide;
+  const band = new THREE.Mesh(new THREE.CylinderGeometry(0.206, 0.202, 0.070, 22, 1, true), leather);
+  band.scale.set(1, 1, 0.92);              // 前后压扁：人体是扁的
+  band.castShadow = false; band.receiveShadow = true;
+  g.add(band);
+  const brass = new THREE.MeshStandardMaterial({ color: 0xB08A46, roughness: 0.42, metalness: 0.55 });
+  const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.072, 0.056, 0.020), brass);
+  buckle.position.set(0, 0, 0.192);
+  buckle.castShadow = false; buckle.receiveShadow = true;
+  g.add(buckle);
+  g.traverse(o => { if (o.isMesh){ o.userData.noMerge = true; } });
+  g.userData.noMerge = true;
+  holder.add(g);
+  return g;
+}
+function updateGroomBelt(a){
+  const b = a.belt, hb = a.bones['Hips'];
+  if (!b || !hb) return;
+  hb.getWorldPosition(_beltV);
+  const dx = _beltV.x - a.holder.position.x, dz = _beltV.z - a.holder.position.z;
+  const cy = Math.cos(-a.yaw), sy = Math.sin(-a.yaw);
+  b.position.set(dx * cy + dz * sy, _beltV.y - a.holder.position.y + 0.075, -dx * sy + dz * cy);
+}
+const _beltV = new THREE.Vector3();
 
 function tintMaterial(m, tint){
   if (!m) return;
@@ -1263,6 +1373,15 @@ function loadActor(def){
       aNew.blob = blob;
       aNew.meshes = [];
       inner.traverse((o) => { if (o.isMesh) aNew.meshes.push(o); });
+      /* 马夫（车夫 + 常驻马夫，同一件 GLB）换一套号衣：只重染色 + 加皮腰带，不动网格
+         （理由与色值见文件上方的 liveryMaterial 注释） */
+      if (def.id === 'laborer' || def.id === 'groom'){
+        for (const o of aNew.meshes){
+          const ms = Array.isArray(o.material) ? o.material : [o.material];
+          for (const m of ms) liveryMaterial(m, { color: 0x4A6488 });
+        }
+        aNew.belt = makeGroomBelt(holder);
+      }
       aNew.shadowCast = true;
       markCasterBoxDirty();
       renderer.shadowMap.needsUpdate = true;   // 静态阴影图补一次，人物有影子
@@ -1625,6 +1744,108 @@ function startTrip(a, to, dur, onDone){
              onDone: onDone || null };
 }
 
+/* ══ 马夫的作业对象：院场里那匹**会走的白马**（2026-10-29 老黄）══════════════════
+   "马夫喂马和刷毛还是会从马的身体中间穿过（穿模），你要设计一条线路让马夫正常行走，
+    为了方便，你就让马夫去喂马厩最左边那匹白色的马，刷毛也刷这匹白色的马，但是这匹
+    白马会左右（前后）移动，你要注意算法。"
+   实测（outputs/_diag/meas-2026-10-29、stable2-2026-10-29）：
+     · 这匹马 = HORSE_LIFE 里唯一带 gait 的一匹（role 'graze'，Camargue 白马），
+       lane 0.75 ⇒ 沿自身朝向前后走 0~0.75m；
+     · 马体现在世界 (36.0, 1.9)、朝 +x；马体长 1.9m（尾 −0.95 → 鼻端 +0.95）、
+       最宽处半宽 0.295（按 z 切片的顶点剖面量的）。
+   ⇒ 三条算法：
+     ① 站位/朝向一律按**马此刻的世界位姿**现算（group.position 是马厩组的局部坐标，
+        不能直接当世界坐标用）；
+     ② 走线用胶囊避让：路线若从马体 1.9×0.42 的胶囊里穿过，就在旁边插一个绕行点；
+     ③ 人在马边上就把马按住（holdHorse）—— 现实里人贴着马刷毛马不会走开，而且不按住
+        的话马一迈步，按旧坐标算的站位立刻变成"站在马身里"（这就是老黄看到的穿模）。 */
+const HORSE_CAP = { half: 0.95, rad: 0.42 };
+const GROOM_H = { horse: null, held: false };
+function groomHorse(){
+  if (GROOM_H.horse && GROOM_H.horse.group) return GROOM_H.horse;
+  try {
+    const l = horseLifeDebug();
+    GROOM_H.horse = (l || []).find(h => h && h.gait && h.group) || null;
+  } catch (e){ GROOM_H.horse = null; }
+  return GROOM_H.horse;
+}
+const _hq = new THREE.Quaternion(), _hv = new THREE.Vector3(), _hf = new THREE.Vector3();
+const _hPose = { x: 0, y: 0, z: 0, fx: 0, fz: 1 };
+function horsePose(h){
+  const g = h.group;
+  g.getWorldPosition(_hv);
+  g.getWorldQuaternion(_hq);
+  _hf.set(0, 0, 1).applyQuaternion(_hq);
+  _hPose.x = _hv.x; _hPose.y = _hv.y; _hPose.z = _hv.z;
+  _hPose.fx = _hf.x; _hPose.fz = _hf.z;
+  return _hPose;
+}
+/* 马身边的世界点：fwd 沿马头方向（+ = 鼻端更远），lat 沿马身**右手侧**
+   （yaw=0 朝 +z 时右手是 −x ⇒ 要让开 +z 那一侧就传负值）。 */
+function horseOffset(h, fwd, lat, out){
+  const P = horsePose(h);
+  const rx = P.fz, rz = -P.fx;
+  out.x = P.x + P.fx * fwd + rx * lat;
+  out.z = P.z + P.fz * fwd + rz * lat;
+  return out;
+}
+const _gA = { x: 0, z: 0 }, _gB = { x: 0, z: 0 };
+/* 点到线段最近距离（2D），最近点写进 out */
+function segClosest(px, pz, ax, az, bx, bz, out){
+  const dx = bx - ax, dz = bz - az;
+  const l2 = dx * dx + dz * dz || 1;
+  let t = ((px - ax) * dx + (pz - az) * dz) / l2;
+  t = Math.max(0, Math.min(1, t));
+  out.x = ax + dx * t; out.z = az + dz * t;
+  return Math.hypot(px - out.x, pz - out.z);
+}
+/* 路线（from→to 直线）离马体胶囊最近多远；返回 {d, cx, cz}（cx/cz = 马体上的最近点） */
+function routeVsHorse(from, to, h){
+  const P = horsePose(h);
+  const ax = P.x - P.fx * HORSE_CAP.half, az = P.z - P.fz * HORSE_CAP.half;
+  const bx = P.x + P.fx * HORSE_CAP.half, bz = P.z + P.fz * HORSE_CAP.half;
+  let best = 1e9, px = 0, pz = 0;
+  for (let i = 0; i <= 6; i++){
+    const t = i / 6;
+    const sx = ax + (bx - ax) * t, sz = az + (bz - az) * t;
+    const d = segClosest(sx, sz, from[0], from[1], to[0], to[1], _gB);
+    if (d < best){ best = d; px = sx; pz = sz; }
+  }
+  return { d: best, cx: px, cz: pz };
+}
+/* 走向"马身边某点"：路线穿马身就插一个绕行点（从马体最近点朝起点那侧推开） */
+function routeToHorse(a, goal, h, speed){
+  const from = [a.pos.x, a.pos.z];
+  const pts = [from];
+  if (h){
+    const hit = routeVsHorse(from, goal, h);
+    if (hit.d < HORSE_CAP.rad + 0.04){
+      let nx = from[0] - hit.cx, nz = from[1] - hit.cz;
+      const nl = Math.hypot(nx, nz) || 1;
+      nx /= nl; nz /= nl;
+      pts.push([hit.cx + nx * (HORSE_CAP.rad + 0.30), hit.cz + nz * (HORSE_CAP.rad + 0.30)]);
+    }
+  }
+  pts.push(goal);
+  giveRoute(a, pts, speed, 0);
+}
+/* 四个"实时站位"（全部相对马此刻的位置）；没有马就是 null（退回原来站桩） */
+const _gGoal = { feed: [0, 0], brush: [0, 0], idle: [0, 0], muzzle: [0, 0] };
+function groomGoals(C){
+  const H = groomHorse();
+  if (!H) return null;
+  const p = horseOffset(H, C.feedFwd, C.feedLat, _gA);
+  _gGoal.feed[0] = p.x; _gGoal.feed[1] = p.z;
+  const b = horseOffset(H, C.brushFwd, C.brushLat, _gA);
+  _gGoal.brush[0] = b.x; _gGoal.brush[1] = b.z;
+  const i = horseOffset(H, C.standFwd, C.standLat, _gA);
+  _gGoal.idle[0] = i.x; _gGoal.idle[1] = i.z;
+  const m = horseOffset(H, C.muzzleFwd, 0, _gA);
+  _gGoal.muzzle[0] = m.x; _gGoal.muzzle[1] = m.z;
+  _gGoal.H = H;
+  return _gGoal;
+}
+
 /* 给访客路线（马车版）：
    下车点在东侧草地 → 绕过停在门口的马车 → 并回石板路 → 门内。
    ⚠️ 不能直接用 STABLE_ROAD_PTS[0]=(40,4.2)：那一点正好被停着的车占住。 */
@@ -1984,16 +2205,23 @@ function tickVisit(dt){
      就把常驻马夫**整段藏起来**（场上只剩一个干站着的车夫），而到访演出几乎一直在循环
      ⇒ 用户看到的永远是那个不动的车夫。
      现在改成逐帧按"车夫要不要用"决定显示谁：
-       · 车在进场 / 正在系马 / 正在上车离场 ⇒ 显示车夫、收起常驻马夫；
+       · 车在进场 / 正在系马 / 正在上车 / **正在驶离** ⇒ 显示车夫、收起常驻马夫；
        · 其余时段（马拴好、客人在园里）⇒ 显示常驻马夫去喂马刷马、收起车夫。
-     两个人始终不同框，"场上只留一个马夫"的约定不变。 */
+     两个人始终不同框，"场上只留一个马夫"的约定不变。
+     ⚠️⚠️ 2026-10-29 老黄："马车走的时候没有马夫在驾车"——真因就是这张表**漏了
+     driveout**（倒车/调头/驶离三段），车一动 `needCoach` 就变 false ⇒ 车夫被藏起来。
+     同批还把 stop/tiewalk/tie/alight 与 parked 一起纳进来：那几段他正在系缰、跳下车，
+     藏起来等于"缰绳自己系好了"。改成**白名单**（只有"马拴好、客人还在园里"这一段
+     才换成常驻马夫），以后再加子状态时默认显示车夫 —— 漏显示比漏隐藏危害小。 */
   {
     const coach = actorRef(VISIT.coachId), gm = actorRef('groom');
     if (coach && gm){
-      const needCoach = VISCAR.state === 'drivein' || VISCAR.state === 'board' ||
-                        (VISCAR.state === 'wait' && !VISCAR.tieOn);
-      coach.holder.visible = needCoach;
-      gm.holder.visible = !needCoach;
+      const ST = VISCAR.state;
+      const coachBusy = ST === 'drivein' || ST === 'stop' || ST === 'tiewalk' || ST === 'tie' ||
+                        ST === 'alight' || ST === 'board' || ST === 'driveout' ||
+                        (ST === 'wait' && !VISCAR.tieOn);
+      coach.holder.visible = coachBusy;
+      gm.holder.visible = !coachBusy;
     }
   }
 
@@ -2759,10 +2987,33 @@ function advance(dt){
        探针快进走同一条路径。 */
     if (a.def.chores){
       const C = a.def.chores;
+      const G3 = groomGoals(C);              // 实时站位（null = 马还没装好 ⇒ 原地待着）
+      const H3 = G3 ? G3.H : null;
       a.choreT -= dt;
       a.grabW = approach(a.grabW, a.chore === 'grab' ? 1 : 0, dt / 0.45);
+      /* 人在马边上（≤1.95m）且不是在跑腿 ⇒ 把马按住（刷毛/喂草时马站着不动） */
+      if (H3){
+        const P3 = horsePose(H3);
+        const near = Math.hypot(a.pos.x - P3.x, a.pos.z - P3.z) < 1.95 &&
+                     a.chore !== 'toHay' && a.chore !== 'grab';
+        if (near !== GROOM_H.held){ GROOM_H.held = near; holdHorse(H3, near); }
+      }
+      const distTo = (g) => (g ? Math.hypot(a.pos.x - g[0], a.pos.z - g[1]) : 0);
+      const faceTo = (g) => { if (g) turnToward(a, Math.atan2(g[0] - a.pos.x, g[1] - a.pos.z), dt); };
+      /* 走向一个"会动的目标"：目标漂开 >0.12m 才重新给一次路线（每帧重给会把路径
+         反复从当前位置重建、把 detour 点抖掉）；走满 8s 还没到就认了 —— 别让状态机
+         静默卡死（本项目"相位卡在终态前"那类坑）。 */
+      const goTo = (g, spd, tol) => {
+        if (!g) return false;
+        a._goalT = (a._goalT || 0) + dt;
+        if (distTo(g) <= tol || a._goalT > 8){ a._goalKey = null; a._goalT = 0; return true; }
+        const key = g[0].toFixed(2) + ',' + g[1].toFixed(2);
+        if (a._goalKey !== key){ a._goalKey = key; a._goalT = 0; routeToHorse(a, g, H3, spd); }
+        return false;
+      };
       if (a.chore === 'idle'){
-        turnToward(a, C.homeYaw, dt);
+        faceTo(G3 ? G3.muzzle : null);
+        if (G3 && distTo(G3.idle) > 0.55 && a.brushW < 0.05 && a.moveW < 0.1) goTo(G3.idle, C.speed, 0.45);
         /* 开程要等刷马收工（brushT 归零、权重落定），否则他一边刷马一边迈步 */
         if (a.choreT <= 0 && a.brushT <= 0 && a.brushW < 0.05){
           a.chore = 'toHay';
@@ -2777,33 +3028,38 @@ function advance(dt){
         /* 左臂往堆里够 + 小幅扒拉（同喂草的慢摆口径），前俯由 grabW 抬升 lean */
         set('LeftUpperArm', -0.62, 0, 0.18);
         set('LeftLowerArm', 0.40 + 0.10 * Math.sin(_t * 2.2), 0, 0);
-        if (a.grabT <= 0){                         // 抓完：草把入手，转身回马头
+        if (a.grabT <= 0){                         // 抓完：草把入手，走回马嘴边
           a.chore = 'back';
           a.hayHeld = true;
-          giveRoute(a, [[a.pos.x, a.pos.z], C.homePt], C.speed, 0);
+          a._goalKey = null;
+          if (!G3){ a.chore = 'idle'; a.hayHeld = false; }
         }
       } else if (a.chore === 'back'){
-        if (a.arrived){
+        /* 马可能在他去拿草这段时间里走了 —— 每帧对一次新站位，别按旧点硬走 */
+        if (!G3){ a.chore = 'idle'; a.hayHeld = false; a.choreT = 2; }
+        else if (goTo(G3.feed, C.speed, 0.30)){
           a.chore = 'feed';
           a.choreT = C.feed[0] + (C.feed[1] - C.feed[0]) * det(a.placeN++ + a.phase * 3.7);
         }
       } else if (a.chore === 'feed'){
-        turnToward(a, C.homeYaw, dt);              // 面向马嘴递草
+        faceTo(G3 ? G3.muzzle : null);             // 面向**此刻**的马嘴递草
         if (a.choreT <= 0){                        // 喂完：收工回去站着等下一轮
           a.chore = 'idle';
           a.hayHeld = false;
+          a._goalKey = null;
           a.choreT = C.wait[0] + (C.wait[1] - C.wait[0]) * det(a.stopN++ + a.phase * 5.9);
         }
       } else if (a.chore === 'toBrush'){
-        if (a.arrived){ a.chore = 'brush'; a.brushT = 1e-4; }
+        if (!G3){ a.chore = 'idle'; }
+        else if (goTo(G3.brush, C.speed, 0.26)){ a.chore = 'brush'; a.brushT = 1e-4; }
       } else if (a.chore === 'brush'){
-        turnToward(a, C.brushYaw, dt);
-        if (a.brushT <= 0){                        // 一轮刷完，回喂草点，不在马头前原地刷空气
+        if (G3) turnToward(a, Math.atan2(horsePose(H3).x - a.pos.x, horsePose(H3).z - a.pos.z), dt);
+        if (a.brushT <= 0){                        // 一轮刷完，退回看马的站位，不在马身边干站着
           a.chore = 'brushBack';
-          giveRoute(a, [[a.pos.x, a.pos.z], C.homePt], C.speed, 0);
+          a._goalKey = null;
         }
       } else if (a.chore === 'brushBack'){
-        if (a.arrived){
+        if (!G3 || goTo(G3.idle, C.speed, 0.30)){
           a.chore = 'idle';
           /* 刷完立刻轮到喂草。两侧各自计时会让"间歇较短的那一项"反复抢先
              （实测喂草整整 200 秒轮不到）⇒ 这里显式把下一个杂役让给喂草；
@@ -2823,13 +3079,15 @@ function advance(dt){
       const nextWait = () => ev[0] + (ev[1] - ev[0]) * det(a.brushN++ + a.phase * 11.3);
       if (a.brushT <= 0){
         a.brushWait -= dt;
-        /* 被马车载着 / 在驾车 / 系马 / 拿草喂马的行程中不开新一轮刷马。
-           喂草点与刷马点分开：先到颈侧站位，再由上面的 chore 状态机启动 brushT。 */
+        /* 被马车载着 / 在驾车 / 系马 / 拿草喂草的行程中不开新一轮刷马。
+           刷马站位是**马此刻身侧**（groomGoals），不再写死坐标。 */
         if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05 && a.chore === 'idle'){
-          if (a.def.chores && a.def.chores.brushPt){
-            const C = a.def.chores;
-            a.chore = 'toBrush';
-            giveRoute(a, [[a.pos.x, a.pos.z], C.brushPt], C.speed, 0);
+          if (a.def.chores){
+            const G4 = groomGoals(a.def.chores);
+            if (G4){
+              a.chore = 'toBrush';
+              routeToHorse(a, G4.brush, G4.H, a.def.chores.speed);
+            }
           } else a.brushT = 1e-4;
         }
       }
@@ -3003,8 +3261,18 @@ function advance(dt){
          放大后能看到一条肉色的小腿）。改成：每片按它所在的那一侧跟着**同侧腿**的相位摆，
          前片跟得多、后片跟得少；同时裙摆加长 5%、放宽 8%（长袍走路本来就会被腿撑开）。 */
       const lenE = (1 + (sq(KNEEL.skirtLen) - 1) * k) * (1 + (sq(cs.skirtLen) - 1) * st2) * (1 + 0.05 * w);
-      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (cs.skirtRad - 1) * st2) * (1 + 0.22 * w);
-      /* 下段的翻转方向：跪坐 0.96（几乎对折回去）、坐凳 1.00（回到竖直、垂在膝前） */
+      /* ⚠️ 2026-10-29 第三次加大走路时的撑开量：0.22 → 0.30。
+         量的结果（outputs/_diag/body-2026-10-29：160 帧走姿、511 个"腿 vs 裙摆"样本）：
+         **60% 的样本里小腿比最近的裙摆点还靠后，最深 0.106m** —— 也就是老黄看到的
+         "袍背小腿位置穿模、露出黑影"（那不是影子，是深色**绑腿/鞋**从袍面里顶出来）。
+         腿摆是 ±amp·L（≈0.20m），裙摆原来只跟到 0.76×amp ⇒ 差出来的那 5~10cm 就是窗口。 */
+      const radE = (1 + (KNEEL.skirtRad - 1) * k) * (1 + (cs.skirtRad - 1) * st2) * (1 + 0.30 * w);
+      /* 下段的翻转方向：跪坐 0.96（几乎对折回去）、坐凳 1.00（回到竖直、垂在膝前）
+         ⚠️ 2026-10-29 试过"走路时让下段只回摆三成（swap→0.30）"，量出来**没有差别**
+            （CPU 蒙皮逐顶点：最深顶出 4.4cm → 3.9cm，属相位噪声），但它会让下摆真的
+            荡起来、把袍背的开衩撕得更开（出图里那道黑缝更高）⇒ **撤回**，保持原口径。
+            这一条的真因见上面对 sway 的注释：能加的力臂只有髋→膝那 0.4m，
+            再往上加只能换"改裙骨权重 / 改抬腿幅度"，不是调系数能解决的。 */
       const swap = k + st2 > 1e-4 ? (k * KNEEL.kneeSwap + st2 * cs.kneeSwap) / (k + st2) : 1;
       for (const sk of a.skirt){
         const front = Math.cos(sk.ang);                       // 0° = 正前 ⇒ 1
@@ -3013,9 +3281,16 @@ function advance(dt){
            原式 (0.55 + 0.45·front) 在后片（front=−1）只剩 **0.10 倍** ⇒ 摆动 0.03rad，
            而腿在同一时刻往后摆 0.27rad、脚在髋下 0.85m 处要挪 0.23m ⇒ 后腿直接把袍面顶穿
            （出图里那只黑鞋是从蓝袍背面戳出来的）。改成 (0.78 + 0.22·front)：
-           前片 1.0、后片 0.56，前后都跟着腿走；总系数 1.15 → 1.35 让摆幅略大于腿摆幅。
-           同时在走路时把裙摆半径放大到 1.14 倍（见下面 radE），给脚让出余量。 */
-        const sway = w * a.amp * 1.35 * legSw * (0.78 + 0.22 * front);
+           前片 1.0、后片 0.56，前后都跟着腿走；总系数 1.35 让摆幅略大于腿摆幅。
+           ⚠️ 2026-10-29 老黄再报"袍背小腿位置穿模、黑影，右脚比左脚明显"。
+              换了正确的量法（outputs/_diag/skirt-skin-2026-10-29：CPU 蒙皮逐顶点、按
+              主导骨分"腿/裙摆"、按 (x,y) 分箱比 z）才看清：**残余只有 1 个顶点、4.4cm**
+              （在鞋后跟那一角），并不是"一大块黑"。把它压到 3.9cm 靠的是这两处：
+              后片权重 0.56→0.88（(0.94+0.06·front)）、总系数 1.35→1.44、走路径向
+              1.22→1.30（见 radE）。再往上加没有意义 —— 两段裙的下段按 −th 回摆、
+              能加的力臂只有髋→膝 0.4m，而脚同一时刻要走 0.24m（实测把下段改成只回摆
+              三成也几乎不变）。要根治得改裙骨权重或抬腿幅度，不在这条式子上了。 */
+        const sway = w * a.amp * 1.44 * legSw * (0.94 + 0.06 * front);
         /* 跪坐：前襟整片前翻（0.55+0.55·front）。
            坐凳：前襟要**压在平放的大腿上**（1.0·front），后片只轻带一点（0.18）——
                  后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。 */
@@ -3038,6 +3313,8 @@ function advance(dt){
         }
       }
     }
+    /* 号衣腰带跟髋骨（同下面几件道具：先刷一次矩阵再摆） */
+    if (a.belt) updateGroomBelt(a);
     /* 茶盏跟手：位置 = 腕 + 人物正前方 9cm + 上 2cm（摆到袖口之外，否则被长袖吞掉），
        姿态恒竖直（盏里的水面不斜）。
        ⚠️ 必须先 updateMatrixWorld —— 上面刚写完骨骼四元数，矩阵还是上一帧的

@@ -170,12 +170,19 @@ export function gaitPose(mode, phase){
   }
   return out;
 }
+/* 2026-10-29：把人（马夫）贴在马身边作业的那段时间把马按住。
+   "喂草/刷毛的时候马自己走开"在现实里不会发生，而在本项目里更严重：站位是按马的
+   实时位置算的，马一迈步人就站进马身里（老黄报的"从马的身体中间穿过"）。
+   hold 只冻结**位置与步态**，低头吃草/甩尾/抬蹄那些姿态照旧（所以画面不僵）。 */
+export function holdHorse(h, on){ if (h) h.hold = !!on; }
 export function updateHorseGait(h, dt){
   const G = h.gait;
   /* 被套在行驶中的马车上时，位置与腿相位由 travelCarriagePlace 统一写
      （口径 = 车的里程，不是马自己的状态机）—— 这里必须整个让开，否则两边每帧打架。 */
   if (h.driving) return;
   if (!G || !h.home || !h.groundY) return;
+  /* 被按住的马：钉在吃草状态、计时不往下走 ⇒ 不切到 move、位置原地不动 */
+  if (h.hold){ G.state = 'graze'; if (G.timer < 0.8) G.timer = 0.8; }
   G.timer -= dt;
   if (G.state === 'graze'){
     if (G.timer <= 0){
