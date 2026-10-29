@@ -128,15 +128,28 @@ export function travelCarriagePlace(x, z, yaw, dist){
     const L = s.life;
     if (L){
       L.driving = true;
-      L.gaitW = 1; L.grazeW = 0;
-      // ⑥ 马腿核验：拉车为**快步（trot）**，对角两拍（FL+HR / FR+HL），速度 1.1~2.6 与 trot 的 1.85m/s 匹配；
-      // 旧版用 walk（四拍 0/0.25/0.5/0.75，摆幅 0.28）读作"散步拉车"，步频也对不上车速。
-      const stride = 1.24; // HORSE_GAIT.trot.stride（走 trot 时的真实步幅）
-      const ph = ((dist / stride) + (s.travelPh || 0)) % 1;
-      L.gaitLegs = gaitPose('trot', ph < 0 ? ph + 1 : ph);
-      L.gaitBob = Math.sin(ph * Math.PI * 4) * 0.024;
+      /* 停车姿态（2026-10-30 第 0 周热修，老黄"辕马停车改回站姿"）：
+         这里原来无条件 gaitW=1、按**里程**写 trot 腿相位 —— 车一停 dist 不再变，
+         四条腿就冻在半步姿势上（driving 又挡住 updateHorseGait 接管），读作"雕塑马"。
+         现在：车动 ⇒ trot 照旧；车停 ⇒ gaitW 缓落到 0、腿回绑定站姿（gaitLegs=null）。
+         grazeW 恒 0：套着辕的马不低头吃草（那是院里散养马的事）。
+         缓落系数按调用次数给（place 每帧一次，0.12 ≈ 半秒收稳），起步反向缓起不跳变。 */
+      const moving = V._lastDist !== undefined && Math.abs(dist - V._lastDist) > 1e-4;
+      L.gaitW += ((moving ? 1 : 0) - L.gaitW) * 0.12;
+      L.grazeW = 0;
+      if (L.gaitW > 0.003){
+        // ⑥ 马腿核验：拉车为**快步（trot）**，对角两拍（FL+HR / FR+HL），速度 1.1~2.6 与 trot 的 1.85m/s 匹配；
+        // 旧版用 walk（四拍 0/0.25/0.5/0.75，摆幅 0.28）读作"散步拉车"，步频也对不上车速。
+        const stride = 1.24; // HORSE_GAIT.trot.stride（走 trot 时的真实步幅）
+        const ph = ((dist / stride) + (s.travelPh || 0)) % 1;
+        L.gaitLegs = gaitPose('trot', ph < 0 ? ph + 1 : ph);
+        L.gaitBob = Math.sin(ph * Math.PI * 4) * 0.024;
+      } else {
+        L.gaitLegs = null; L.gaitBob = 0;    // 站姿
+      }
     }
   }
+  V._lastDist = dist;
   if (V.blob){
     V.blob.position.copy(V.group.worldToLocal(_travV.set(x, y + 0.10, z)));
     V.blob.rotation.y = yaw - V.stableYaw;

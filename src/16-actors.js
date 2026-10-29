@@ -17,7 +17,7 @@
 
 import { THREE, GLTFLoader } from '../vendor.js';
 import { makeSoftAlphaTex } from './15a-shared.js';
-import { scene, renderer } from './02-scene.js';
+import { scene, renderer, camera } from './02-scene.js';
 import { groundHeight } from './05-water.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { figures } from './08b-figures.js';
@@ -592,6 +592,10 @@ const DEFS = [
           z=2.3 那条线是 stableGateSill（门槛面 0.213），站进去会半埋。 */
     spot: { x: 38.0, z: 1.30, yaw: Math.PI * 0.5 },
     floorRay: true,          // 台基/院子面不是地形：groundHeight 会让他陷 6cm
+    /* followFloor（2026-10-30 第 0 周热修"马夫走路贴地"）：floorRay 单独用是"头 4 秒
+       采样然后冻结"（给站着不动的人）；车夫到访要走 石板路→院门 一长路，
+       冻结高度让他一路悬空/入土。开车=true 才会边走边采样（同 guest）。 */
+    followFloor: true,
     route: null,
     /* 车夫：站立时不再抱草/刷马（那是 groom 的活），只保留呼吸与轻微低头。 */
     idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.06, headDown: 0.10 },
@@ -614,6 +618,9 @@ const DEFS = [
        车一到人就站在两匹辕马中间（老黄截图里那一幕）。挪到白马身边、厩前廊下。 */
     spot: { x: 36.2, z: 2.95, yaw: -2.49 },
     floorRay: true,
+    /* followFloor（2026-10-30 同上）：喂草行程 idle→toHay→back 一来一回要走院子，
+       冻结式采样让他走动时高度不跟地面（老黄"马夫走路贴地"）。 */
+    followFloor: true,
     route: null,
     idle: { breath: 0.012, head: 0.035, sway: 0.006, phase: 3.1, lean: 0.07, headDown: 0.14,
             brush: true, brushEvery: BRUSH.every, hay: true },
@@ -1186,6 +1193,12 @@ function sampleFloor(x, z){
       "最近"永远选草 ⇒ 整段从廊道底下、桥底下穿过去（实测 floorY 读到 −0.99 = 桥下地面）。
    窗口 [当前−0.60, 当前+0.42]：42cm 是普通台阶上限、60cm 是下台阶上限。
    ⚠️ 别把上界放大到 +0.8：廊下檐口、桥栏杆都在 1.5~1.8m，开大了人会"踩上屋顶"。 */
+/* ── 踏面射线不给植被场交（2026-10-30 第 0 周热修）────────────────────────────
+   原来 sampleFloorNear 对整棵场景树 intersectObject(scene, true)：竹林/柳叶是
+   InstancedMesh，raycast 逐实例×逐三角形试，每个走路的演员每帧一条射线把整片
+   植被全试一遍 —— 而高度窗口（±0.42/0.60）本来就不会选树冠，纯开销。
+   修法：>100 实例的 InstancedMesh 一律不试（汀步/栏杆这类小实例场照常参与，
+   不用枚举"哪些能踩"，零漏踩风险）。 */
 function sampleFloorNear(x, z, nearY, stepUp){
   _rc.set(_hitP.set(x, 3.6, z), _down);
   _rc.far = 7.0;
@@ -1193,6 +1206,7 @@ function sampleFloorNear(x, z, nearY, stepUp){
   const upLim = nearY + (stepUp || 0.42), loLim = nearY - 0.60;
   for (const h of _rc.intersectObject(scene, true)){
     if (!h.object.isMesh) continue;
+    if (h.object.isInstancedMesh && h.object.count > 100) continue;   // 植被场，见上
     /* 排除人物 GLB（actor_*）、程序化替身（userData.poseName）、真马（horseXxx） */
     let p = h.object, skip = false;
     while (p){
@@ -2364,8 +2378,30 @@ function startVisit(){
 }
 
 /* 复位（重播前）：把人、车、马夫都放回原位，客人重新藏起来等下一场。 */
+/* 重播复位的"避镜头"名单（2026-10-30 第 0 周热修）：done 冷却 45s 后 resetVisit 把
+   主人从水榭、马车从路上**瞬移**回起点 —— 镜头恰在近处时用户看到的就是"人/车闪现"。
+   复位前量相机距离，近于 24m（约等于默认俯视全景的读屏下限，再远闪现缩成几个像素）
+   的先藏起来，0.9s 后在起点"走开场"式地亮回来。探针快进走的是同一条 tickVisit 路径。 */
+const _avoidReveal = [];                       // { o, t }：藏起来等复亮的对象
+const _AVOID_DIST = 24, _AVOID_WAIT = 0.9;
+const _avV = new THREE.Vector3();
+function avoidCameraReveal(o){
+  /* 复位前调用：此刻对象还在"终态位置"，量它到相机的距离即可 */
+  if (o.visible && camera.position.distanceTo(o.getWorldPosition(_avV)) < _AVOID_DIST){
+    o.visible = false;
+    _avoidReveal.push({ o, t: _AVOID_WAIT });
+  }
+}
+
 function resetVisit(){
   const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId), host = actorRef(VISIT.hostId);
+  /* 避镜头（见上）：主人与马车在**移动前**先量、先藏 */
+  if (host) avoidCameraReveal(host.holder);
+  {
+    const V = stableTravel();
+    if (V.ready) avoidCameraReveal(V.group);
+  }
+  VISIT.age = 0;
   travelCarriagePark();
   travelCarriageVisible(true);
   travelCarriageTied(false);
@@ -2442,6 +2478,27 @@ function tickVisit(dt){
   const v = VISIT;
   const host = actorRef(v.hostId), guest = actorRef(v.guestId);
   if (!host || !guest) return;
+  /* 复位避镜头的复亮计时（resetVisit 藏掉的主人/马车到点亮回来） */
+  for (let i = _avoidReveal.length - 1; i >= 0; i--){
+    const r = _avoidReveal[i];
+    r.t -= dt;
+    if (r.t <= 0){ r.o.visible = true; _avoidReveal.splice(i, 1); }
+  }
+  /* 全场看门狗（2026-10-30 第 0 周热修"等待超时会自动收尾"）：wrap 的 180s 强制
+     收尾要求 hostAtQin —— 若主人自己卡在路上（航点被挡、踏面采样抖动），那个条件
+     永远不成立，180s 兜底形同虚设，整场戏停在半路再也不重播。这里补全场闸：
+     开场累计 1500s（正常全场 ~804s；guard 快进 1280s 内到 done）仍未 done ⇒
+     强制复位重播。每 60s 报一条卡在哪，可诊断。 */
+  if (v.phase !== 'idle' && v.phase !== 'done'){
+    v.age = (v.age || 0) + dt;
+    if (v.age > 1500){
+      console.warn('[visit] 全场 ' + v.age.toFixed(0) + 's 未收尾 ⇒ 强制复位重播（phase=' +
+                   v.phase + ' car=' + VISCAR.state + '/' + (VISCAR.leg || '-') + '）');
+      v.age = 0;
+      resetVisit();
+      return;
+    }
+  }
   tickCarriage(dt);
   /* 场上永远只有一个马夫 —— 但"有人"比"没人"重要（2026-10-28 老黄："马夫依旧只是
      站立不动，看不到喂马和刷毛这两个动作"）。真因不是动作没写，而是 startVisit 一开演
@@ -2817,7 +2874,9 @@ function tickVisit(dt){
                    ' guestOn=' + !!VISCAR.guestOn + ' coachOn=' + !!VISCAR.coachOn +
                    ' guestArrived=' + !!guest.arrived);
     }
-    if (v.t > 180 && v.hostAtQin){
+    if (v.t > 180 && (v.hostAtQin || v.t > 240)){
+      /* 2026-10-30：240s 后不再要求 hostAtQin —— 主人自己卡死的场合也要能收尾
+         （见 tickVisit 顶部的全场看门狗注释；这里把 wrap 自己的兜底补全）。 */
       console.warn('[visit] wrap 超 180s 仍未见到车离场 ⇒ 强制进入 done（复位后重演）');
       v.phase = 'done'; v.t = 0;
     }
@@ -3560,7 +3619,14 @@ function advance(dt){
               1.22→1.30（见 radE）。再往上加没有意义 —— 两段裙的下段按 −th 回摆、
               能加的力臂只有髋→膝 0.4m，而脚同一时刻要走 0.24m（实测把下段改成只回摆
               三成也几乎不变）。要根治得改裙骨权重或抬腿幅度，不在这条式子上了。 */
-        const sway = w * a.amp * 1.44 * legSw * (0.94 + 0.06 * front);
+        /* 侧片少跟（2026-10-30 第 0 周热修"裙摆不再侧翻"）：±号按 sin(ang) 分边 ⇒
+           两片侧片互为**反相**，而 10-28 之后它们的跟随权重被提到 0.94（几乎全幅）——
+           三片向前、一片向后的下摆每步拧一次，走起来读作"裙摆往一边翻"。
+           修法只动侧片：系数乘 (1 − 0.45·(1−|front|))，前/后片（|front|≈1）**原样保留**
+           （0.94±0.06·front 是 10-29 按袍背穿模实测定的数，不能动），侧片压到 0.55 倍
+           —— 侧片本来只该给腿让位，不需要跟着腿前后荡。 */
+        const panelW = (0.94 + 0.06 * front) * (1 - 0.45 * (1 - Math.abs(front)));
+        const sway = w * a.amp * 1.44 * legSw * panelW;
         /* 跪坐：前襟整片前翻（0.55+0.55·front）。
            坐凳：前襟要**压在平放的大腿上**（1.0·front），后片只轻带一点（0.18）——
                  后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。 */
