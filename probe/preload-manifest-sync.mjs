@@ -54,6 +54,7 @@ const ASSET_DIR = 'assets';
 const ASSET_EXEMPT = new Map([
   ['thunder.mp3', '雷声：懒加载的点缀音效（闪电时才取），不在"开园前必须到位"的范畴'],
   ['HorseTinker.glb', 'Tinker 骨骼马：备选路径（HORSE_MODEL=tinker 才用），2026-10-28 起改懒加载，不在开园预载清单'],
+  ['boulder-hero.glb', '太湖石主峰 GLB：2026-10-30 起默认走程序化立峰（省 5.46MB 开园下载）；?heroSrc=glb 才按需懒取（对比档），HorseTinker 同形态'],
 ]);
 
 const norm = (p) => String(p).replace(/^\.\//, '');

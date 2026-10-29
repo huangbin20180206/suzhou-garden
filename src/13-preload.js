@@ -175,10 +175,11 @@ export const PRELOAD_MANIFEST = [
      虽然有点假但是至少能看"——撤空版他判"荷花还是没有修好"）。与 sw.js 的 GLBS 同步。
      required: false —— GLB 拉不到时页面不该停在加载页，荷花丛缺位即缺位。 */
   { url: 'assets/koi.glb',         bytes: 208000, stage: '取', label: '锦鲤', required: true  },
-  /* 2026-10-14 试水批次：太湖石主峰替换件（Poly Haven boulder_01 → Blender GLB，改浅灰重导后 5.46MB），
-     与 sw.js GLBS 同步登记（preload-manifest-sync 门盯着）。required:false——
-     GLB 拉不到时按既有回退：heroSrc=proc 一致即可对齐（试水期间程序化档保留）。 */
-  { url: 'assets/boulder-hero.glb', bytes: 5462812, stage: '取', label: '太湖石', required: false },
+  /* 2026-10-14 试水批次：太湖石主峰替换件（Poly Haven boulder_01 → Blender GLB，改浅灰重导后 5.46MB）。
+     ⚠️⚠️ 2026-10-30 **撤出预载**（第 0 周热修）：主峰默认走程序化立峰（08-assemble 的
+     heroSrc='proc'），省 5.46MB 开园下载；?heroSrc=glb 时由 loadAssetOnce **按需懒取**。
+     与 sw.js GLBS 同步撤下，白名单理由登记在 preload-manifest-sync 的 ASSET_EXEMPT
+     （与 HorseTinker.glb 同一形态：备选路径、懒加载、不上开园清单）。 */
   /* 2026-10-14 石灯笼（DIY L0 首件 · 纯接线）：research/diy-lantern/stone-lantern.glb 原样拷入。
      186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙；2026-10-18 起路旁 8 盏每盏配真 PointLight（2026-10-19 南门口一对撤掉））。
      摆位依据 research/diy-first-target.md §4 主位 (4.0,-3.8) y=0.053（岸距 1.62m、最近物 8.8m）。 */

@@ -436,15 +436,15 @@ deferBootFirst('立峰·云根', function heroStones(){
     markUnderwater(shelf);
     world.add(shelf);
     validateGeometry(shelf.geometry, 'taihuShelf');
-    /* ── 太湖石主峰·源选择（2026-10-14 · 试水单）──
-       默认走 CC0 试水件：assets/boulder-hero.glb（Poly Haven boulder_01 → Blender GLB，
-       5.94MB / 66122 面 / 立姿 1.27×1.00×1.83m，选型批次见 research/cc0-scout/SHORTLIST.md #1）。
-       · `?heroSrc=proc` 露程序化原始峰（对比截图用）——探针惯例的显式覆盖，不吃全局随机。
-       · 原程序化主峰**原样保留**在这条 if 里，一键回滚 = 下面参数锁回 'proc'；**不要 commit，等用户看图点头**。
-       · GLB 走 loadAssetOnce 的归一化模板（最大维=targetSize、底部 y=0），holder 摆位/朝向按原主峰同口径
-         （hx/hz 同位、-sink 入池底、ry 同 0.62、markUnderwater + noMerge 同标注）；
-         targetSize 4.5 与原 height 同值 → 顶高 ≈ 3.32m，与原峰水上水下覆盖一致。 */
-    const heroSrc = (()=>{ try { return new URLSearchParams(location.search).get('heroSrc') === 'proc' ? 'proc' : 'glb'; } catch { return 'glb'; } })();
+    /* ── 太湖石主峰·源选择（2026-10-14 试水 → 2026-10-30 翻默认）──
+       **默认走程序化立峰**（makeTaihuHeroGeo，seed 11 一族）：省掉 boulder-hero.glb
+       的 5.46MB 开园下载（第 0 周热修"主峰：默认用程序化太湖石，少下载 5.46MB"；
+       两份预载清单已同步撤下，见 13-preload / sw.js / preload-manifest-sync 白名单）。
+       · `?heroSrc=glb` 显式走 CC0 试水件 assets/boulder-hero.glb（Poly Haven boulder_01，
+         66122 面 / 立姿 1.27×1.00×1.83m，选型见 research/cc0-scout/SHORTLIST.md #1）——
+         按需懒加载（loadAssetOnce 自带 fetch），对比截图用，不吃全局随机。
+       · 程序化分支就是当年那版原样（2026-10-14"一键回滚"的预案反过来用了）。 */
+    const heroSrc = (()=>{ try { return new URLSearchParams(location.search).get('heroSrc') === 'glb' ? 'glb' : 'proc'; } catch { return 'proc'; } })();
     if (heroSrc === 'proc'){
       /* ── 原程序化主峰（回滚档，一字未动） ── */
       const hero = mesh(makeTaihuHeroGeo({

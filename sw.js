@@ -118,7 +118,7 @@ const CACHE = 'suzhou-garden-v43';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
-const ASSET_CACHE = 'suzhou-garden-assets-v20';  // 2026-10-28 HorseTinker.glb 移出预缓存（备选路径改懒加载）⇒ 升桶
+const ASSET_CACHE = 'suzhou-garden-assets-v21';  // 2026-10-30 boulder-hero.glb 移出预缓存（主峰默认程序化，?heroSrc=glb 才懒取）⇒ 升桶
 const SHELL = [
   './',
   './index.html',
@@ -150,9 +150,9 @@ const GLBS = [
   './assets/horse-criollo-saddle.glb',
   /* 2026-10-23：第五个角色「客人」（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
   './assets/fig-guest.glb',
-  /* 2026-10-14 试水批次：太湖石主峰替换件（改浅灰重导后 5.46MB ⇒ 资产桶现为 assets-v3；
-     与 13-preload 的 PRELOAD_MANIFEST 同步（preload-manifest-sync 门盯着）。 */
-  './assets/boulder-hero.glb',
+  /* 2026-10-30 太湖石主峰 GLB **撤出预缓存**（第 0 周热修）：主峰默认走程序化立峰，
+     省 5.46MB；?heroSrc=glb 时由 loadAssetOnce 按需懒取（在线时 SW 运行时缓存兜着）。
+     白名单理由登记在 preload-manifest-sync 的 ASSET_EXEMPT（HorseTinker 同形态）。 */
   /* 2026-10-14 石灯笼 L0 首件（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
   './assets/stone-lantern.glb',
   /* 2026-10-18 石狮一对（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
