@@ -28,7 +28,7 @@ import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STEP = 0.4;                 // 快进步长（秒）
-const MAX_STEPS = 2400;           // 上限 960s（整场戏实测 ~584s，留 1.6 倍余量）
+const MAX_STEPS = 3200;           // 上限 1280s（2026-10-29 起整场 ~804s：多了门外迎/送与回水榭两段路）
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
                '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg',
                '.webmanifest': 'application/manifest+json', '.ktx2': 'image/ktx2' };
@@ -85,11 +85,24 @@ const check = (name, ok, detail = '') => {
     let guestDropFrames = 0, coachDropFrames = 0;
     let odoMaxJump = 0, odoJumpAt = '', lastOdo = null, lastLeg = '';
     let nan = 0, floorBad = 0, simT = 0;
-    const seatY = 0.615, coachY = 0.785;
+    /* 2026-10-29 新契约：门外见面/送客、挥手、回水榭听琴 */
+    let faceOut = null, wavePeak = 0, waveWristMax = -Infinity, waveMinDistHead = Infinity;
+    const R = G.actorRig ? G.actorRig('scholar') : null;
+    const _w = new G.THREE.Vector3(), _h = new G.THREE.Vector3();
     for (let k = 0; k < MAX_STEPS; k++){
       G.actorStep(STEP);
       simT += STEP;
       const v = G.actorVisit();
+      if (v.phase === 'face' && !faceOut) faceOut = { host: v.host.pos.slice(), guest: v.guest.pos.slice() };
+      if (v.phase === 'wave' && v.waveW > wavePeak) wavePeak = v.waveW;
+      if (R && v.phase === 'wave' && v.waveW > 0.9){
+        R.holder.updateMatrixWorld(true);
+        R.holder.worldToLocal(R.bones.RightHand.getWorldPosition(_w));
+        R.holder.worldToLocal(R.bones.Head.getWorldPosition(_h));
+        if (_w.y > waveWristMax) waveWristMax = _w.y;
+        const dh = Math.hypot(_w.x - _h.x, _w.y - _h.y, _w.z - _h.z);
+        if (dh < waveMinDistHead) waveMinDistHead = dh;
+      }
       if (v.phase !== lastPhase){ phases.push([+simT.toFixed(1), v.phase]); lastPhase = v.phase; }
       if (v.car.state + '/' + v.car.leg !== lastCar){
         cars.push([+simT.toFixed(1), v.car.state + (v.car.leg ? '/' + v.car.leg : '')]);
@@ -123,16 +136,29 @@ const check = (name, ok, detail = '') => {
         }
         lastOdo = odo; lastLeg = v.car.leg;
       }
-      /* ⑤ 走路段贴地（骑在车上/过渡插值的帧跳过） */
-      for (const A of [v.guest, v.coach]){
-        if (!A || !A.visible || A.ride || A.trip || A.floorY === null) continue;
+      /* ⑤ 走路段贴地（骑在车上/过渡插值的帧跳过）。2026-10-29：主人也加了长距离步行
+         （门外 → 水榭南门四级台阶），一并纳入贴地判据。 */
+      for (const A of [v.host, v.guest, v.coach]){
+        if (!A || !A.visible || A.ride || A.trip || A.sitW > 0.1 || A.floorY === null) continue;
         if (Math.abs(A.pos[1] - A.floorY) > 0.25) floorBad++;
       }
       if (v.phase === 'done') break;
     }
+    /* 终态：主人应当站在水榭里、抚琴人旁边 */
+    let qinDist = null, hostEnd = null;
+    const q = G.scene.getObjectByName('actor_qin'), hs = G.scene.getObjectByName('actor_scholar');
+    if (q && hs){
+      const a = q.getWorldPosition(new G.THREE.Vector3());
+      const b = hs.getWorldPosition(new G.THREE.Vector3());
+      qinDist = +Math.hypot(a.x - b.x, a.z - b.z).toFixed(3);
+      hostEnd = [b.x, b.y, b.z].map(n => +n.toFixed(3));
+    }
     return { phases, cars, simT: +simT.toFixed(1), boardFrames, coachFrames, guestMinGap, coachMinGap,
              guestDropFrames, coachDropFrames, odoMaxJump: +odoMaxJump.toFixed(3), odoJumpAt,
-             nan, floorBad, end: G.actorVisit() };
+             nan, floorBad, faceOut, wavePeak: +wavePeak.toFixed(3),
+             waveWristMax: Number.isFinite(waveWristMax) ? +waveWristMax.toFixed(3) : null,
+             waveMinDistHead: Number.isFinite(waveMinDistHead) ? +waveMinDistHead.toFixed(3) : null,
+             qinDist, hostEnd, end: G.actorVisit() };
   }, { STEP, MAX_STEPS });
 
   console.log('  相位：' + r.phases.map(p => p[0] + 's ' + p[1]).join(' → '));
@@ -141,8 +167,19 @@ const check = (name, ok, detail = '') => {
   const names = r.phases.map(p => p[1]);
   check('① 相位链走到 done', names.includes('done'),
     `${r.simT}s 内到 ${names[names.length - 1]}（共 ${names.length} 段）`);
-  for (const need of ['carIn', 'stow', 'bow', 'pair', 'enter', 'seat', 'tea', 'tour', 'ebow'])
+  for (const need of ['carIn', 'stow', 'bow', 'pair', 'enter', 'seat', 'tea', 'tour', 'ebow', 'wave', 'topav', 'listen'])
     check(`① 相位包含 ${need}`, names.includes(need));
+  /* 2026-10-29 老黄：门外见面、门外送客 + 挥手 + 回水榭听琴 */
+  const fo = r.faceOut;
+  check('①b 见面在院门外（石狮旁，z>23）', !!fo && fo.host[2] > 23.0 && fo.guest[2] > 23.0,
+    fo ? `主人 z=${fo.host[2]} / 客人 z=${fo.guest[2]}` : '未取到 face 相位');
+  check('①c 挥手权重到 1', r.wavePeak >= 0.95, `峰值 ${r.wavePeak}`);
+  check('①d 挥手时右手举过头顶（腕高 ≥1.68、离头 ≥0.28）',
+    r.waveWristMax !== null && r.waveWristMax >= 1.68 && r.waveMinDistHead >= 0.28,
+    `腕高 ${r.waveWristMax} / 离头 ${r.waveMinDistHead}`);
+  check('①e 终态站在抚琴人旁边（≤1.6m）',
+    r.qinDist !== null && r.qinDist <= 1.6 && !!r.end.hostAtQin,
+    `距抚琴人 ${r.qinDist}m / hostAtQin=${r.end.hostAtQin} / 主人 ${JSON.stringify(r.hostEnd)}`);
   check('② 马车状态机走到 gone', r.cars.some(c => c[1].startsWith('gone')),
     r.cars.map(c => c[1]).slice(-4).join(' → '));
 

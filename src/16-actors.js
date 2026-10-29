@@ -60,6 +60,10 @@ const GAIT = {
   turn: 2.1,        // 原地转身角速度 rad/s（比散步者 4.0 慢：真人不甩头）
 };
 const TURN_GATE = 0.55;   // 朝向偏差超过这个就"站住转身"，不再平移
+/* 2026-10-29 老黄："把主人和客人的移动（步行）速度提高到 1.5 倍"。
+   只乘**步行**速度（路线 speed / 并排 / 游园），不碰车马、不碰转身角速度 ——
+   步态相位本来就是按走过的距离推进的（a.step += moved），走快一步自然迈得快，不会滑步。 */
+const WALK_K = 1.5;
 
 /* ── 跪坐（P2 坐姿）参数：与 research/characters/README.md §12.2 的出图一致 ─────────
    drop  = 髋部骨骼下沉量（**不动 holder**，动 Hips 骨：holder 原点在地面，移它整只人下沉）；
@@ -261,29 +265,40 @@ const BOW = {
   curl: 0.75, mid: 0.55, thumb: -0.55,
 };
 
+/* ── 挥别（2026-10-29 · 老黄："右手举过头顶做再见的动作"）────────────────────
+   角度由页内扫描解出（outputs/_diag/wave-solve.mjs，口径与产品 set() 一致：
+   bone = base × Euler(x,y,z,'XYZ')）：
+     · 肩 sx −3.30 / sz +0.20、肘 0.25 ⇒ 腕落在人物局部 (−0.185, 1.78, −0.07)，
+       比头骨(1.453) 高 0.33m、离头心 0.38m（不穿头，也确实是"举过头顶"）；
+     · 摆动：肩 sz ±0.22 让手腕横摆 ±11.8cm、肘 y ±0.18 再添 ±6cm
+       ⇒ 合起来约 ±13cm（20~40m 外看得出在摆手）；
+     · 频率 5.2rad/s（0.83Hz）—— 24fps 下每帧 0.22rad，远低于"每帧 <0.8rad"的走样线。 */
+const WAVE = { sx: -3.30, sz: 0.20, ex: 0.25, ampZ: 0.22, ampY: 0.18, hz: 0.15, freq: 5.2 };
+
 /* ── 客人到访 · 导演层（S2 出迎+作揖 / S3 并排同行）──────────────────────────
    极小的状态机。**所有推进都读演员自己的状态**（arrived / 朝向差），
    不用墙钟：掉帧、软件渲染、探针的 actorStep 快进走的都是同一条路径。
-     idle   → 客人走到门内（guest.arrived）
-     stow   → 主人先把卷轴放下（0.55s）
-     walk   → 放主人出门（scholar 沿 HOST_GREET_PTS 走一趟），等他到站
+     carIn  → 车到、马夫系马、客人下车
+     stow   → 主人先把卷轴放下（0.55s），**客人一下车主人就出发去门外**
+     gwalk  → 主客各自走向院门外（石狮旁）；先到的站着等
      face   → 两人站住互指（2.1rad/s 站转，不平移），≥1.2s
      bow    → 同时作揖一次（BOW 的时序）
      line   → 各自走到"并排线"的起点（横向 ±gap，见 PAIR）
-     pair   → 并排走完门 → 桥 → 堂前（各自的偏移航点，见 PAIR）
+     pair   → 并排走完门外 → 月洞门 → 桥 → 堂前（各自的偏移航点，见 PAIR）
      hall   → 到堂前站定（S4 入座奉茶从这里接）
-     sit    → 端坐；S5 送客接在其后：rise → exit → eline/epair（并排回门内）
-              → eface/ebow（门内送客揖）→ watch（目送）→ hostback → reenter/reseat
-              （主人回座）→ done（终态，见 ESCORT 注释）
+     sit    → 端坐；S5 送客接在其后：rise → exit → （马车版）tourgo → tour（游园一圈）
+              → eface/ebow（**院门外**石狮旁作揖）→ wave（主人举右手过头顶挥手送别，
+              同帧客人沿石板路回马车）→ topav（主人走回水榭）→ listen（站在抚琴人旁听琴）
+              → wrap → done
    文士的日常捧卷/端茶在整个过程中**保持关闭**（否则客人还站着、他已经读起书来）。
    ⚠️ 文士的 scroll/tea 是互斥手位状态机，必须在这里退出 —— 否则他会"边走边端着茶盏"。 */
 const VISIT = {
   phase: 'idle', t: 0, bowW: 0,
   hostId: 'scholar', guestId: 'guest', coachId: 'laborer',
-  greetPt: [0, 19.75],      // 门内 1.15m：两人面对面站定的位置（客人停在 0,20.9）居中过月洞门
+  greetPt: [0, 19.75],      // 门内 1.15m（并排段起点；门外见面点在 MEET_*）
   path: null, s: 0,            // 并排段的参数化航点（弧长驱动，见 pathTable）
   tourS: 0, tourPath: null,
-  guestSent: false, hostSeated: false,
+  guestSent: false, hostAtQin: false, waveW: 0,
   /* 2026-10-23：马车版到访是默认；?visit=walk 保留旧的"客人自己走进来 + 走回去"分支。
      默认要求**白昼 + 不下雨不下雪**（见 visitWeatherOK），不满足时客人不出现。 */
   mode: (typeof location !== 'undefined' && new URLSearchParams(location.search).get('visit') === 'walk')
@@ -295,11 +310,12 @@ const VISIT = {
    马夫驾车，马夫系马，客人下马，然后接客人步行通过石板路入园"。
    编排（全部由 sim 时钟推进，探针 actorStep 快进走同一条路径）：
      马夫在车夫位驾车 → 车从石板路驶到马厩院门外停稳 → 马夫跳下车、走到马头前
-     把缰绳拴好（抬手 + 可见的引绳）→ 客人起身下车 → 客人沿石板路走向园门 →
-     （S2~S4：主人出迎、作揖、并排入堂、奉茶、叙话）
+     把缰绳拴好（抬手 + 可见的引绳）→ 客人起身下车 → **主人同时从堂门口出发** →
+     两人在**院门外石狮旁**见面作揖 → 并排入堂（S3/S4：奉茶、叙话）
      → 两人起身出堂 → **单列游园一圈**（池南岸→山脊→桥头，复用 WALK_ROUTE 的闭合环线）
-     → 园门内作揖 → 客人回马厩、上车 → 马夫解绳、上车 → 马车倒出、调头、南下离开
-     → 主人回堂落座 → done（冷却后自动重播）。
+     → 走出月洞门到石狮旁作揖 → 主人举右手过头顶挥手送别、客人回马厩上车
+     → 马夫解绳、上车 → 马车倒出、调头、南下离开
+     → 主人走回水榭、站在抚琴人旁边听琴 → done（冷却后自动重播）。
    ⚠️ 马车停在院门外、**头朝院里**（马头正好够到院内横杆）。离开时先**倒车 3.4m** 出到
       空旷处再原地调头 —— 六米长的车马在 3.6m 院门里直接掉头会扫到门柱。
    ⚠️ 车轮/马腿的相位由**里程**驱动（travelCarriagePlace 的 dist），不是墙钟。 */
@@ -348,11 +364,13 @@ function buildTourPath(){
   const k = 15;                                  // WALK_ROUTE[15] = (8.05, 9.75) 桥南平台
   const loop = [];
   for (let i = 1; i <= L; i++) loop.push(WALK_ROUTE[(k + i) % L]);
+  /* 2026-10-29：末段再走出月洞门、到石狮旁（TOUR_OUT_PTS）——
+     送客礼改在院门外（老黄："送客的时候也改到主人送到院子正门外（石狮子旁边）"）。 */
   _tourPath = pathTable([...HOST_GREET_PTS.slice(0, 11), [8.05, 9.75], ...loop,
-                         ...HOST_GREET_PTS.slice(11)]);
+                         ...HOST_GREET_PTS.slice(11), ...TOUR_OUT_PTS]);
   return _tourPath;
 }
-const TOUR = { speed: 0.62, gap: 0.95 };
+const TOUR = { speed: 0.62 * WALK_K, gap: 0.95 };
 
 /* 马车/马夫的子状态机（与 VISIT.phase 并行：主人回堂与客人上车是两件事）。 */
 const VISCAR = {
@@ -386,9 +404,37 @@ const HOST_GREET_PTS = [
    ⚠️ gap 0.45 ⇒ 两人中心距 0.90m。再宽就出桥面（2.9m 宽减去两侧栏杆各 0.5m），
       再窄两条长袍下摆会互相穿（下摆半宽 ≈0.35m）。 */
 const PAIR = {
-  speed: 0.62, gap: 0.45,
+  speed: 0.62 * WALK_K, gap: 0.45,
   pts: [...HOST_GREET_PTS].reverse(),
 };
+
+/* ── 院门外迎客 / 送客（2026-10-29 · 老黄）──────────────────────────────────────
+   "客人在下车的同时主人就从主堂门口走到院子的正门外（石狮子旁边）恭候客人，
+    两人见面作揖后继续原来的设计路线；送客也送到院子正门外，作揖并挥手，
+    最后主人返回凉亭站在抚琴人旁边听琴。"
+   石狮在 (±2.55, 23.25)、门前铺装平台 x∈[−2,2] / z∈[23.10,24.55]（实测台面 −0.36~−0.28），
+   所以两个见面点都落在平台上、狮子内侧，不会踩到狮子或挡在门洞正中。 */
+const MEET_HOST = [-0.75, 23.60];        // 主人在门外恭候（西侧、雌狮内侧）
+const MEET_GUEST = [0.75, 24.35];        // 客人下车后走到的位置（东侧、雄狮内侧）
+/* 主人出迎：原 S2 路线 + 穿月洞门（洞口半径 1.62、门槛顶 0.22）到门外 */
+const HOST_GREET_OUT_PTS = [...HOST_GREET_PTS, [0, 21.2], [0, 22.5], MEET_HOST];
+/* 门外作揖后并排进园：从平台起步穿月洞门，再并回原并排线（PAIR.pts 起点 = 门内 (0,19.75)） */
+const MEET_PAIR_PTS = [[0, 23.90], [0, 22.50], [0, 21.10], ...PAIR.pts];
+/* 游园末段：从门内走到门外平台（主人在前、客人跟 0.95m）—— 送客礼改在石狮旁 */
+const TOUR_OUT_PTS = [[0, 21.2], [0, 22.6], [0, 23.9], [-0.85, 24.55]];
+/* 送走客人：从门外平台沿石板路回马车（原 GUEST_HOME 是从门内出发的） */
+const GUEST_BACK_PTS = [[1.30, 24.40], [0.60, 25.60],
+  [3.0, 26.0], [10.0, 26.4], [22.0, 27.2], [30.0, 26.2], [34.4, 21.8],
+  [37.4, 16.5], [39.2, 10.5], [39.80, 8.60], [40.90, 6.60], [41.50, 5.40], [41.20, 4.20]];
+/* 送走客人后回水榭听琴：门外 → 月洞门 → 池南/假山东侧 → 廊道南端 →
+   水榭南侧新建的门洞（04-buildings 的 DOOR）→ 抚琴人旁边。
+   ⚠️ 水榭台面 0.62、门外地面约 −0.19 ⇒ 台阶四级（0.49/0.33/0.17/0.01），
+      航点按**每级踏面中心**排，踏面采样才取得到真实高度。 */
+const QIN_STAND = [14.60, 9.05];
+const HOST_PAVILION_PTS = [[0, 23.40], [0, 22.50], [0, 21.20], [2.0, 19.9], [5.0, 19.8],
+  [9.0, 19.6], [12.5, 18.8], [13.5, 17.0], [13.3, 15.0], [12.5, 13.8],
+  [13.6, 13.5], [14.2, 12.48], [14.2, 12.22], [14.2, 11.96], [14.2, 11.70],
+  [14.2, 11.25], [14.2, 10.6], [14.2, 9.95], [14.45, 9.30], QIN_STAND];
 
 /* ── 入座（S4 · 2026-10-23）──────────────────────────────────────────────────
    两把太师椅实测（outputs/_diag/hall-seat-layers.mjs，按 04-buildings 的
@@ -416,34 +462,32 @@ const ENTER_PTS = {
           [0.45, -8.9], [0.9, -10.3], [1.35, -11.7], [1.35, -12.55]],
 };
 
-/* ── 送客（S5 · 2026-10-23）──────────────────────────────────────────────────
-   喝完茶起身送客，把 S2~S4 的路线全部倒着走一遍（同一条线已逐点验过能走）：
+/* ── 送客（S5 · 2026-10-23 / 院门外版 2026-10-29）─────────────────────────────
+   喝完茶起身送客，把 S2~S4 的路线倒着走一遍，**一直送到院门外石狮旁**：
      rise       起身（sitTarget=0，坐姿自己缓下来）
      exit       倒走出堂（ENTER_PTS 反向）
-     eline/epair 并排回门内：航点 = HOST_GREET_PTS（S2 迎客路线本身方向）
-     eface/ebow 门内再作揖一次（送客礼，复用 BOW 全套）
-     watch      目送 3.5s；客人沿石板路回马厩（STABLE_ROAD_PTS 反向 = S1 的逆）
-     hostback   主人沿 S2 路线反向回堂前 → reenter/reseat 重进堂坐回太师椅 → done
+     eline/epair 并排回门：航点 = HOST_GREET_PTS + 穿月洞门到门外平台（ESCORT.pts）
+     eface/ebow 门外再作揖一次（送客礼，复用 BOW 全套）
+     wave       主人举右手过头顶挥手；同一帧客人沿石板路回马车（GUEST_BACK_PTS）
+     topav      主人走回水榭，从南侧门洞进亭 → listen 站在抚琴人旁边听琴 → done
    ⚠️ 并排偏移号与 S3 **相反**（host +gap / guest −gap）：出堂时主人在西 (−1.35)、
       客人在东 (+1.35)，并排线起点必须接得上各自的出口位置 —— host=+gap 时主人
       恰落在 (1.14,−5.25) 原地、客人只挪 0.9m；沿用 S3 的符号两人会交换位置、
       从对方身上穿过去（S3 的'line'相位就是这么防"各追各的点"的）。
    ⚠️ 终态是 'done'（不是 'idle'）：visiting 门控靠 phase!=='idle' 压住文士的
-      捧卷/端茶 —— 坐回椅子的人不该突然捧起卷轴；也防 'idle' 里 guest.arrived
-      的早退把整场戏立即重播（"可重播"与否还没拍板，先不做）。 */
+      捧卷/端茶；也防 'idle' 里 guest.arrived 的早退把整场戏立即重播。 */
 const EXIT_PTS = {
   host: [...ENTER_PTS.host].reverse(),
   guest: [...ENTER_PTS.guest].reverse(),
 };
-const GUEST_HOME_PTS = [[0, 20.9], [0, 23.55], ...[...STABLE_ROAD_PTS].reverse()];
-const HOST_RETURN_PTS = [...HOST_GREET_PTS].reverse();       // 门内 → 堂前（S2 反向）
 const ESCORT = {
   /* ⚠️ 从第 2 个点起排（去掉堂前 [1.2,−5.7]）：它的 ±0.45 偏移点里客人那个
      (1.26,−6.15) 落在月台踏跺带内（踏跺 z −6.0~−6.4、一级顶 0.31），而
      0.31 − 草地(−0.2) = 0.51 超出"一步"窗口 0.42 ⇒ 走上去会陷进台阶里。
      从 [3.5,−5.4] 起排后，并排线起点 (3.44/3.56, −4.95/−5.85) 与两个出口位置
      (1.14/1.26, −5.25) 之间全程是草地，无台阶；并排段比 S3 少这 1.3m 堂前浅草。 */
-  pts: HOST_GREET_PTS.slice(1),
+  /* 2026-10-29：末段补到**院门外**（送客礼改在石狮旁，与马车版一致） */
+  pts: [...HOST_GREET_PTS.slice(1), [0, 21.2], [0, 22.6], [-0.85, 23.90]],
   hostLat: PAIR.gap, guestLat: -PAIR.gap,       // 与 S3 相反，理由见上
 };
 
@@ -482,7 +526,7 @@ const DEFS = [
     floorRay: true,
     followFloor: true,
     floorMax: 2.45,
-    route: { pts: HOST_GREET_PTS, speed: 0.86, pause: [0, 0], mode: 'once' },
+    route: { pts: HOST_GREET_PTS, speed: 0.86 * WALK_K, pause: [0, 0], mode: 'once' },
     /* armDown：生成件是 A 姿势（手臂抬 40°），站桩像展示人偶。
        实测 LeftUpperArm Y=+0.8 / RightUpperArm Y=-0.8 能把两臂放下来、手掌朝内。
        scroll：双手捧卷轴读（P2 最后一件，见 SCROLL）；tea：间歇喝茶（见 TEA_ARM）。
@@ -1584,13 +1628,11 @@ function startTrip(a, to, dur, onDone){
 /* 给访客路线（马车版）：
    下车点在东侧草地 → 绕过停在门口的马车 → 并回石板路 → 门内。
    ⚠️ 不能直接用 STABLE_ROAD_PTS[0]=(40,4.2)：那一点正好被停着的车占住。 */
+/* 2026-10-29：终点改到**院门外**（石狮旁的平台）——主人到那里迎他。
+   原来最后一截 [0,23.55]→[0,20.90] 是穿月洞门走到门内，现在不进门了。 */
 const GUEST_ALIGHT = [[41.20, 4.20], [41.50, 5.40], [40.90, 6.60], [39.80, 8.60],
-                      ...STABLE_ROAD_PTS.slice(1), [0, 23.55], [0, 20.90]];
-const GUEST_HOME2 = (() => {
-  const road = [...GUEST_HOME_PTS];
-  road.pop();                                  // 去掉 (40,4.2)（被车占住，改走东侧草地）
-  return [...road, [39.80, 8.60], [40.90, 6.60], [41.50, 5.40], [41.20, 4.20]];
-})();
+                      ...STABLE_ROAD_PTS.slice(1), MEET_GUEST];
+/* 2026-10-29：GUEST_BACK_PTS 取代旧的 GUEST_HOME2（旧表从门内出发；见文件上方的路线常量）。 */
 
 /* ── 马车/马夫的子状态机 ─────────────────────────────────────────────────────
    与 VISIT.phase 并行：主人回堂与客人上车是两件事，串成一条会互相等。
@@ -1923,13 +1965,13 @@ function resetVisit(){
     host.seatY = undefined;
     host.scrollW = 0; host.scrollPhase = 0; host.scrollT = 0; host.teaT = 0; host.sipW = 0;
     host.def.stepUp = 0.42; host.def.floorMax = 2.45;
-    host.def.route = { pts: HOST_GREET_PTS, speed: 0.86, pause: [0, 0], mode: 'once' };
+    host.def.route = { pts: HOST_GREET_PTS, speed: 0.86 * WALK_K, pause: [0, 0], mode: 'once' };
     host.target = 1; host.walkOff = true; host.waitT = 0;
     host.floorY = null; host.floorDone = false; host.floorTries = 0;
     host.holder.visible = true;
   }
   VISIT.phase = 'idle'; VISIT.t = 0; VISIT.bowW = 0;
-  VISIT.tourS = 0; VISIT.guestSent = false; VISIT.hostSeated = false;
+  VISIT.tourS = 0; VISIT.guestSent = false; VISIT.hostAtQin = false; VISIT.waveW = 0;
 }
 
 function tickVisit(dt){
@@ -1972,8 +2014,9 @@ function tickVisit(dt){
     if (v.mode === 'walk'){
       guest.holder.visible = true;
       guest.def.stepUp = 0.70;
-      giveRoute(guest, [...STABLE_ROAD_PTS, [0, 23.55], [0, 20.9]], 0.58, 2.0, 1.20);
-      v.phase = 'gwalk'; v.t = 0;
+      /* 2026-10-29：步行版也走到**院门外**与主人见面（终点同 MEET_GUEST） */
+      giveRoute(guest, [...STABLE_ROAD_PTS, [0.60, 25.60], MEET_GUEST], 0.58 * WALK_K, 0.55, 1.20);
+      v.phase = 'stow'; v.t = 0;
       return;
     }
     if (!startVisit()) return;
@@ -1988,14 +2031,12 @@ function tickVisit(dt){
          （tickVisit 顶部那段）。少了这一行，客人下车后状态永远停在 alighted ⇒
          上车/倒车/离场全都不发生 ⇒ wrap 一直等 VISCAR==='gone'，整场戏卡死。 */
       VISCAR.state = 'wait'; VISCAR.t = 0;
-      v.phase = 'gwalk'; v.t = 0;
+      /* 2026-10-29 老黄："客人在下车的同时主人就从主堂门口走到院子的正门外
+         （石狮子旁边）恭候客人" —— 不再等客人走到门内，两个人同时出发。 */
+      v.phase = 'stow'; v.t = 0;
       guest.def.stepUp = 0.70;
-      giveRoute(guest, GUEST_ALIGHT, 0.58, 0.9, 1.20);
+      giveRoute(guest, GUEST_ALIGHT, 0.58 * WALK_K, 0.55, 1.20);
     }
-    return;
-  }
-  if (v.phase === 'gwalk'){
-    if (guest.arrived){ v.phase = 'stow'; v.t = 0; }
     return;
   }
   if (v.phase === 'stow'){
@@ -2003,14 +2044,16 @@ function tickVisit(dt){
        0.55s 是 SCROLL "放下"那一段的时长量级（卷轴在这里线性收到 0）。 */
     v.t += dt;
     if (v.t > 0.55){
-      v.phase = 'walk'; v.t = 0;
+      v.phase = 'gwalk'; v.t = 0;
       host.walkOff = false;
-      host.waitT = 0.3;               // 起步前再站一下（"我从堂前出来"）
+      host.waitT = 0.25;              // 起步前站一下（"我从堂前出来"）
       /* 桥北踏步一级实测 0.69m（docs §6），超出默认"一步"窗口 0.42 ⇒ 上坡方向
          取面窗口会拒绝台阶顶、"最近面"回落到地面 ⇒ 人从台阶里穿过去、沿桥底
          洼地走（S5 探针实测 floorY 一路 −0.5~−1.0）。迎客上坡与 S5 送客回程
-         同一条路，这里放宽到 0.80，到门口'face'收回。 */
+         同一条路，这里放宽到 1.35（月洞门槛 0.22 也比门内地面高 0.64）。 */
       host.def.stepUp = 1.35;
+      host.def.floorMax = 2.45;
+      giveRoute(host, HOST_GREET_OUT_PTS, 0.86 * WALK_K, 0.15, 2.45);
       /* 两书童随主人离席，跑向井边与仕女玩（2026-10-26 缺陷3；
          2026-10-27 重定路径 — 用户："两个小孩子是直接趟着池子边缘过去的"）。
          旧路 z≈−5.2/−5.8 在池的**左瓣下缘**（池局部 y≈−8.2，世界 z≈−5.2）穿过水面。
@@ -2045,8 +2088,16 @@ function tickVisit(dt){
     }
     return;
   }
-  if (v.phase === 'walk'){
-    if (host.arrived){ v.phase = 'face'; v.t = 0; host.def.stepUp = 0.42; }
+  if (v.phase === 'gwalk'){
+    /* 两个人各自走同一段时间；先到的原地等。
+       主人先到 ⇒ 转身看着客人沿石板路走来（恭候的姿态）。 */
+    if (host.arrived && !guest.arrived) turnToward(host, yawToOther(host, guest), dt);
+    if (host.arrived && guest.arrived){
+      v.phase = 'face'; v.t = 0;
+      /* 并排进园要跨 0.22 的门槛（门外平台 −0.36 ⇒ 门槛 +0.22 = 0.58）
+         ⇒ "一步"窗口放到 0.80，到堂前 'hall' 再收回 0.42。 */
+      host.def.stepUp = guest.def.stepUp = 0.80;
+    }
     return;
   }
   if (v.phase === 'face'){
@@ -2066,10 +2117,11 @@ function tickVisit(dt){
     else {
       v.bowW = 0; v.phase = 'line'; v.t = 0;
       /* 礼毕立刻各自挪到"并排线"的起点：主人靠内（lat −gap）、客人靠外（+gap）。
-         起点只给一个点 ⇒ tickRoute 的 once 分支走到就 arrived（不用另写一套到位判定）。 */
-      v.ptsH = offsetPath(PAIR.pts, -PAIR.gap);
-      v.ptsG = offsetPath(PAIR.pts, PAIR.gap);
-      v.path = pathTable(PAIR.pts);
+         起点只给一个点 ⇒ tickRoute 的 once 分支走到就 arrived（不用另写一套到位判定）。
+         2026-10-29：并排线从**院门外**起步（穿月洞门），不再是门内的 PAIR.pts。 */
+      v.ptsH = offsetPath(MEET_PAIR_PTS, -PAIR.gap);
+      v.ptsG = offsetPath(MEET_PAIR_PTS, PAIR.gap);
+      v.path = pathTable(MEET_PAIR_PTS);
       giveRoute(host, [v.ptsH[0]], PAIR.speed, 0.25, 2.45);
       giveRoute(guest, [v.ptsG[0]], PAIR.speed, 0.55, 2.45);
     }
@@ -2101,8 +2153,8 @@ function tickVisit(dt){
     /* 上台阶：把"一步"的窗口临时放到 0.70（最后一级 0.62）；floorMax 抬到 2.0
        （堂内地坪/铺地 1.24~1.30，1.20 的旧上限会把月台当屋顶拒掉）。 */
     host.def.stepUp = guest.def.stepUp = 0.70;
-    giveRoute(host, ENTER_PTS.host, 0.52, 0.3, 2.0);
-    giveRoute(guest, ENTER_PTS.guest, 0.52, 0.45, 2.0);
+    giveRoute(host, ENTER_PTS.host, 0.52 * WALK_K, 0.3, 2.0);
+    giveRoute(guest, ENTER_PTS.guest, 0.52 * WALK_K, 0.45, 2.0);
     return;
   }
   if (v.phase === 'enter'){
@@ -2146,8 +2198,8 @@ function tickVisit(dt){
   if (v.phase === 'rise'){
     if (host.sitW <= 0.06 && guest.sitW <= 0.06){
       v.phase = 'exit'; v.t = 0;
-      giveRoute(host, EXIT_PTS.host, 0.52, 0.25, 2.0);
-      giveRoute(guest, EXIT_PTS.guest, 0.52, 0.45, 2.0);
+      giveRoute(host, EXIT_PTS.host, 0.52 * WALK_K, 0.25, 2.0);
+      giveRoute(guest, EXIT_PTS.guest, 0.52 * WALK_K, 0.45, 2.0);
     }
     return;
   }
@@ -2227,53 +2279,57 @@ function tickVisit(dt){
     else if (v.t < t2) v.bowW = 1;
     else if (v.t < t3) v.bowW = 1 - ease01((v.t - t2) / BOW.out);
     else {
-      v.bowW = 0; v.phase = 'watch'; v.t = 0;
-      /* 客人沿石板路回马厩：马车版一直走到车边（GUEST_HOME2），再上车离开；
-         walk 版只走回马厩门口（旧口径）。 */
+      v.bowW = 0; v.phase = 'wave'; v.t = 0; v.waveW = 0;
+      /* 作完揖就开始挥手送别：主人在门外举右手，客人同帧沿石板路回马车。 */
       v.guestSent = true;
       guest.def.stepUp = 0.70;
-      giveRoute(guest, v.mode === 'walk' ? GUEST_HOME_PTS : GUEST_HOME2, 0.58, 0.45, 1.20);
+      giveRoute(guest, GUEST_BACK_PTS, 0.58 * WALK_K, 0.45, 1.20);
     }
     turnToward(host, yawToOther(host, guest), dt);     // 转身没转完也继续对上
     turnToward(guest, yawToOther(guest, host), dt);
     return;
   }
-  if (v.phase === 'watch'){
-    /* 目送：主人站原地看客人走远一程（3.5s），自己再回堂。
-       客人在走（自己那条 once 路线），主人无路线 → tickRoute 早退、原地站着。 */
+  if (v.phase === 'wave'){
+    /* 挥手送别（2026-10-29 老黄："作揖并挥手（右手举过头顶做再见的动作）送别客人"）：
+       0.45s 举起来 → 摆 4 秒（WAVE.freq 5.2rad/s ≈ 0.83Hz，4 秒约 3.3 个来回）
+       → 0.55s 放下。客人这时已经在往马车走，主人原地小幅转身目送。 */
     v.t += dt;
-    if (v.t > 3.5){
-      v.phase = 'hostback'; v.t = 0;
-      /* 回程是**上坡**方向（廊道 0.38→1.30 逐级 + 桥拱）——同 stow/eline 的口径
-         放宽到 0.80，'reenter' 换 0.70（进门那级 0.62）、坐下收回。 */
+    v.waveW = v.t < 0.45 ? ease01(v.t / 0.45)
+             : (v.t > 4.60 ? Math.max(0, 1 - (v.t - 4.60) / 0.55) : 1);
+    if (guest.holder.visible && guest.pos) turnToward(host, yawToOther(host, guest), dt * 0.6);
+    if (v.t > 5.15){
+      v.waveW = 0;
+      v.phase = 'topav'; v.t = 0;
+      /* 回水榭：门外 → 月洞门 → 池南/假山东侧 → 廊道南端 → 水榭南门台阶（1.35 宽窗口） */
       host.def.stepUp = 1.35;
-      giveRoute(host, HOST_RETURN_PTS, 0.58, 0.2, 2.45);
+      host.def.floorMax = 2.45;
+      giveRoute(host, HOST_PAVILION_PTS, 0.86 * WALK_K, 0.15, 2.45);
     }
     return;
   }
-  if (v.phase === 'hostback'){
+  if (v.phase === 'topav'){
     if (host.arrived){
-      v.phase = 'reenter'; v.t = 0;
-      host.def.stepUp = 0.70;                       // 进门最后一级 0.62（同 S4 口径）
-      giveRoute(host, ENTER_PTS.host, 0.52, 0.3, 2.0);
+      /* 已经站在抚琴人旁边：转身面向他，然后一直听（不再动） */
+      v.phase = 'listen'; v.t = 0;
+      v.hostAtQin = true;
+      host.def.stepUp = 0.55;
+      host.def.floorMax = 2.0;
     }
     return;
   }
-  if (v.phase === 'reenter'){
-    if (host.arrived){ v.phase = 'reseat'; v.t = 0; }
-    return;
-  }
-  if (v.phase === 'reseat'){
-    if (seatOne(host, SEAT.host, dt)){
-      host.def.stepUp = 0.42;                       // 坐下了，收回
-      v.hostSeated = true;
+  if (v.phase === 'listen'){
+    v.t += dt;
+    const q = actorRef('qin');
+    if (q) turnToward(host, yawToOther(host, q), dt);
+    /* 站在那儿听到马车离场；车走了就收尾（'done' 里他继续站着听，不再移动） */
+    if (v.mode === 'walk' || VISCAR.state === 'gone'){
       v.phase = 'wrap'; v.t = 0; v.wrapWarned = 0;
     }
     return;
   }
-  /* wrap：主人坐回椅子、马车已离开（或 walk 版无马车）才收尾 */
+  /* wrap：主人站到抚琴人旁边、马车已离开（或 walk 版无马车）才收尾 */
   if (v.phase === 'wrap'){
-    if (v.hostSeated && (v.mode === 'walk' || VISCAR.state === 'gone')){
+    if (v.hostAtQin && (v.mode === 'walk' || VISCAR.state === 'gone')){
       v.phase = 'done'; v.t = 0;
       return;
     }
@@ -2285,12 +2341,12 @@ function tickVisit(dt){
     v.t += dt;
     if (!v.wrapWarned || v.t - v.wrapWarned > 30){
       v.wrapWarned = v.t;
-      console.warn('[visit] wrap 等待超时 ' + v.t.toFixed(0) + 's：hostSeated=' + !!v.hostSeated +
+      console.warn('[visit] wrap 等待超时 ' + v.t.toFixed(0) + 's：hostAtQin=' + !!v.hostAtQin +
                    ' car=' + VISCAR.state + '/leg=' + (VISCAR.leg || '-') +
                    ' guestOn=' + !!VISCAR.guestOn + ' coachOn=' + !!VISCAR.coachOn +
                    ' guestArrived=' + !!guest.arrived);
     }
-    if (v.t > 180 && v.hostSeated){
+    if (v.t > 180 && v.hostAtQin){
       console.warn('[visit] wrap 超 180s 仍未见到车离场 ⇒ 强制进入 done（复位后重演）');
       v.phase = 'done'; v.t = 0;
     }
@@ -2883,11 +2939,29 @@ function advance(dt){
         set(sd + 'ThumbDistal', BOW.thumb * 0.6 * wb, 0, 0);
       }
     }
+    /* ── 挥手送别：右手举过头顶、左右摆 ───────────────────────────────────────
+       权重 = 导演层的 waveW（0→1→0）；只对主人生效（见 WAVE 注释的角度来历）。 */
+    const ww = (a.def.id === VISIT.hostId) ? (VISIT.waveW || 0) : 0;
+    if (ww > 0.001){
+      const sw2 = Math.sin(_t * WAVE.freq) * ww;
+      const hbR = handBase('Right');
+      const exB = relaxed ? relaxed.ex : 0;
+      set('RightUpperArm', armBaseX() * (1 - ww) + WAVE.sx * ww, 0,
+          armBaseZ('Right') * (1 - ww) + (WAVE.sz + WAVE.ampZ * sw2) * ww);
+      set('RightLowerArm', exB * (1 - ww) + (WAVE.ex + WAVE.ampY * sw2) * ww, 0, 0);
+      set('RightHand', hbR[0] * (1 - ww) + WAVE.hz * ww, hbR[1] * (1 - ww), hbR[2] * (1 - ww));
+      /* 手掌摊开（垂手基准是半握）：挥手要能看出是一只张开的手 */
+      const F = [['IndexProximal', 0.45, 0.10], ['MiddleProximal', 0.45, 0.10],
+                 ['IndexIntermediate', 0.32, 0.05], ['MiddleIntermediate', 0.32, 0.05],
+                 ['ThumbProximal', -0.32, -0.10], ['ThumbIntermediate', -0.26, -0.08],
+                 ['ThumbDistal', -0.14, -0.05]];
+      for (const [n, from, to] of F) set('Right' + n, from + (to - from) * ww, 0, 0);
+    }
     /* 自然垂放的右手：掌心转回身体一侧。只在右手**没有在做事**时覆盖；
        这些动作的手位都是按原基准反解的，不能一起翻（抚琴会变成手背压弦）。 */
     const rightBusy = o.qin || o.go || a.scrollW > 0.001 || (a.offerW || 0) > 0.001
       || (a.sipW || 0) > 0.001 || a.brushW > 0.05 || a.hayHeld
-      || (a.coachW || 0) > 0.05 || (a.tieW || 0) > 0.05 || bw > 0.001;
+      || (a.coachW || 0) > 0.05 || (a.tieW || 0) > 0.05 || bw > 0.001 || ww > 0.001;
     if (!rightBusy && a.bones.RightHand && a.base.RightHand){
       a.bones.RightHand.quaternion.copy(a.base.RightHand).premultiply(_palmFixR);
     }
@@ -3140,6 +3214,7 @@ export function actorVisit(){
   const V = stableTravel();
   return { phase: VISIT.phase, t: +VISIT.t.toFixed(2), bowW: +VISIT.bowW.toFixed(3),
            mode: VISIT.mode,
+           waveW: +(VISIT.waveW || 0).toFixed(3), hostAtQin: !!VISIT.hostAtQin,
            car: { state: VISCAR.state, s: +VISCAR.s.toFixed(2), leg: VISCAR.leg,
                   odo: +VISCAR.odo.toFixed(3),          // 累计里程：门禁守"跨段连续、无跳变"
                   tieOn: !!VISCAR.tieOn, guestOn: !!VISCAR.guestOn, coachOn: !!VISCAR.coachOn,

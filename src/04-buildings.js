@@ -427,12 +427,28 @@ export function makeWaterPavilion(){
   back.position.set(0, 0.55 + 0.5 + panelH/2, D/2 - 0.35);
   g.add(back);
   // 左右侧
+  /* 2026-10-29 老黄："最后返回凉亭站在抚琴人旁边听抚琴人弹奏" ——
+     原先三面全是格窗 + 坐槛、只有临水一面敞开，从岸上根本走不进去（演出只能穿墙）。
+     这里在南侧（组局部 −X ⇒ 世界 +Z，靠岸那一侧）开一道 1.10m 的**落地门洞**：
+     两侧格窗各留 2.70m、坐槛同样断开，门洞里补一条门槛石；
+     门外再补四级石阶（台面 0.62、门外地面约 −0.19，每级 0.16m）。 */
+  const DOOR = 1.10;
   [1, -1].forEach(sx=>{
-    const s = makeLatticePanel(D - 0.5, panelH, 4, 4);
-    s.position.set(sx*(W/2 - 0.35), 0.55 + 0.5 + panelH/2, 0);
-    s.rotation.y = sx * Math.PI/2;
-    g.add(s);
-    // 格窗上方的墙板（到额枋）
+    if (sx === -1){
+      const rest = (D - 0.5 - DOOR) / 2;
+      for (const s of [1, -1]){
+        const p = makeLatticePanel(rest, panelH, 4, 4);
+        p.position.set(-(W/2 - 0.35), 0.55 + 0.5 + panelH/2, s * (DOOR/2 + rest/2));
+        p.rotation.y = -Math.PI/2;
+        g.add(p);
+      }
+    } else {
+      const s = makeLatticePanel(D - 0.5, panelH, 4, 4);
+      s.position.set(sx*(W/2 - 0.35), 0.55 + 0.5 + panelH/2, 0);
+      s.rotation.y = sx * Math.PI/2;
+      g.add(s);
+    }
+    // 格窗上方的墙板（到额枋）—— 南侧照旧通长，当门楣
     const band = mesh(box(0.26, colH - panelH - 0.52, D - 0.3), MAT.wall, { name:'pavBand' });
     band.position.set(sx*(W/2 - 0.35), 0.55 + 0.5 + panelH + (colH - panelH - 0.52)/2, 0);
     g.add(band);
@@ -440,13 +456,33 @@ export function makeWaterPavilion(){
   const bandB = mesh(box(W - 0.5, colH - panelH - 0.52, 0.26), MAT.wall, { name:'pavBandBack' });
   bandB.position.set(0, 0.55 + 0.5 + panelH + (colH - panelH - 0.52)/2, D/2 - 0.35);
   g.add(bandB);
-  // 坐槛（三面）
-  [1, -1].forEach(sx=>{
-    const seat = mesh(box(0.5, 0.16, D - 0.8), MAT.wood);
-    seat.position.set(sx*(W/2 - 0.35), 0.55 + 0.5, 0); g.add(seat);
-  });
+  // 坐槛（三面；南侧在门洞处断开）
+  {
+    const restSeat = (D - 0.8 - DOOR) / 2;
+    for (const s of [1, -1]){
+      const seat = mesh(box(0.5, 0.16, restSeat), MAT.wood);
+      seat.position.set(-(W/2 - 0.35), 0.55 + 0.5, s * (DOOR/2 + restSeat/2));
+      g.add(seat);
+    }
+    const seatN = mesh(box(0.5, 0.16, D - 0.8), MAT.wood);
+    seatN.position.set((W/2 - 0.35), 0.55 + 0.5, 0); g.add(seatN);
+  }
   const seatB = mesh(box(W - 0.8, 0.16, 0.5), MAT.wood);
   seatB.position.set(0, 0.55 + 0.5, D/2 - 0.35); g.add(seatB);
+  /* 南门洞：门槛石 + 门外四级石阶。
+     ⚠️ 台面 0.62、门外地面实测 −0.19 ⇒ 每级 0.16、踏面 0.26（1.04m 投影）。
+     石阶盒高 1.0、中心按"顶面 − 0.5"放 ⇒ 底部埋进坡里，不会在草上悬空。 */
+  {
+    const sill = mesh(box(0.62, 0.10, DOOR + 0.16), MAT.stoneDark);
+    sill.position.set(-(W/2 - 0.35), 0.62 + 0.05, 0);
+    g.add(sill);
+    const tops = [0.49, 0.33, 0.17, 0.01];
+    tops.forEach((top, i)=>{
+      const st = mesh(box(0.26, 1.0, 1.60), MAT.stone, { name: 'pavStep' + (i + 1) });
+      st.position.set(-(W + 2.2) / 2 - 0.20 - i * 0.26, top - 0.5, 0);
+      g.add(st);
+    });
+  }
 
   /* 四角歇山顶 */
   // 同上：正脊取面阔，端坡才与主坡同陡
