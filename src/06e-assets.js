@@ -34,7 +34,12 @@ function createGLTFLoaderWithDecoders(){
   // 启用 Draco 几何压缩
   if (DECODERS.DRACOLoader){
     const dracoLoader = new DECODERS.DRACOLoader();
-    dracoLoader.setDecoderPath('https://www.gstatic.com/draco/v1/decoders/');
+    /* 2026-10-30 本地化（第 0 周热修小尾巴）：解码器原来指向 gstatic —— 离线/门禁环境
+       拉不到 wasm 就 pageerror（13-preload 同一条教训）。三个文件（decoder.js / .wasm /
+       wasm_wrapper.js）从 three 自带的 examples/jsm/libs/draco/gltf/ 拷进 vendor/draco/，
+       与页面同源伺服。当前资产已全部无 Draco 压缩（Tinker 2026-10 转无Draco），
+       这是给"将来万一有 Draco 件"兜底的惰性依赖，不进 SW 预缓存。 */
+    dracoLoader.setDecoderPath('./vendor/draco/');
     loader.setDRACOLoader(dracoLoader);
   }
   // 启用 KTX2 纹理压缩
