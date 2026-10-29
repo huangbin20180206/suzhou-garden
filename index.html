@@ -1070,6 +1070,29 @@ addEventListener('unhandledrejection', (e) => {
 });
 setTimeout(() => { if (!window.__garden) bootFail('初始化超时（15 秒仍未就绪）'); }, 15000);
 
+/* ── 启动看门狗 · 第二级（2026-10-30 第 0 周热修）──
+   上面那个 15 秒兜底只护得住"主模块求值完成之前"：window.__garden 在 import 全部
+   落地时就赋上了（11-loop 末尾），之后第一级就**解除武装** —— 而启动真正的大头
+   （预载等待 preloadPhase / 暖机 10 桶 / 首帧 / 延迟装配 runDeferredBoot）全在那之后。
+   任何一环挂死（实测案例：bootDonePromise 永不兑现，延迟装配没收尾），用户依旧
+   盯着"营造中"看到天荒地老，第一级兜底却认为一切正常。
+   这里补一只**拴在 bootDonePromise 上**的 120 秒看门狗：
+     · 已开园（loading 层已收）就不弹卡 —— 延迟装配慢半拍不碍着用户看园子，
+       只往控制台报一声（探测用）；
+     · 120 秒还停在加载页才判"挂死"而不是"慢"：慢网有进度条播报和"先看基础版"
+       快捷入口两条出路，轮不到看门狗接手。 */
+{
+  const __bootWd = setTimeout(() => {
+    if (document.getElementById('loading')?.classList.contains('done')){
+      console.error('[启动看门狗] 已开园但 bootDone 120s 未兑现（延迟装配没收尾），仅记录不弹卡');
+      return;
+    }
+    bootFail('启动超时（120 秒仍未开园，装配阶段未完成）。'
+           + '点下方"重试"重新加载；若反复失败，请按 F12 打开控制台，把红色报错发给开发者。');
+  }, 120000);
+  bootDonePromise.then(() => clearTimeout(__bootWd), () => { /* promise 不 reject，兜一手 */ });
+}
+
 import { windClock, DIR_N, DIR_STEP, WIND_DIR, updateWindDir, FORCE_TIERS, WIND_FORCE, forceBand, windGain, updateWindForce, gust, updateWind } from './src/2b-wind.js';
 
 import { app, renderer, GPU_NAME, SOFTWARE_GL, PROBE_DRIVEN, QOS_IMMUNE, GPU_TIER, SUPERSAMPLE, RENDER_SCALE, scene, world, camera, controls, CAM_MIN_DIST, CAM_HOME, resetCamera, skyMesh, lumOf, ENV_BAKE_LUM } from './src/02-scene.js';
@@ -1078,7 +1101,7 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './src/04-bui
 import { POND_PTS, insidePond, POND_RADII, makePond, makeBankRocks, makeArchBridge, makeSteppingStones } from './src/05-water.js';
 import { makeReedBladeGeo, makeBamboo, makeWisteria, perchingAnchors, makeAquatic, KOI_ORBITS, rippleInst, spawnRipple, updateRipples, makeKoiGroup, assetFailures, loadAssetOnce, placeAssets, MIST_WHITE, MIST, makeMistField, makeTaihuHeroGeo, makeWillow, makeBananaPlant, makeLotusPod, makeRockChain, makeRockery, makeWaterGrass } from './src/06-vegetation.js';
 import { makeGround, makePaving, makeWalls, makeDistantHills, makeDragonfly } from './src/07-ground.js';
-import { runDeferredBoot, FIG_HAIR, FIG_PALETTE, figures, koiGroup, dragonflies, perchingDragonflies, PERCH_LIFT, perchShowOK, updatePerchingDragonflies, GLB_LOTUS_STEM_H, swimTurtles, HERO_POS, CAM_FLY, flyTo, updateCamFly, VIEWPOINTS, gotoViewpoint, TOUR, captionEl, showCaption, hideCaption, tourStop, tourStart, updateTour, tourUserTakeover } from './src/08-assemble.js';
+import { runDeferredBoot, bootDonePromise, FIG_HAIR, FIG_PALETTE, figures, koiGroup, dragonflies, perchingDragonflies, PERCH_LIFT, perchShowOK, updatePerchingDragonflies, GLB_LOTUS_STEM_H, swimTurtles, HERO_POS, CAM_FLY, flyTo, updateCamFly, VIEWPOINTS, gotoViewpoint, TOUR, captionEl, showCaption, hideCaption, tourStop, tourStart, updateTour, tourUserTakeover } from './src/08-assemble.js';
 
 import { sun, casterBox, casterBoxDirty, refreshCasterBox, fitShadowCamera, amb, fill, hemiLight } from './src/09-lights.js';
 
