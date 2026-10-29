@@ -215,7 +215,10 @@ scene.add(amb);
 
 // 补光：从水面方向反射的冷调反弹光，压暗部
 export const fill = new THREE.DirectionalLight(0xbcd2e0, 0.32);
-fill.position.set(-30, 14, -26);
+/* 家位：applyEnv 不写 fill 的位置 ⇒ 谁挪走了（烟花把它放到爆点方向）谁负责送回来。
+   烟花的收尾帧按这个常量归位（12b-sky.js）。 */
+export const FILL_HOME = new THREE.Vector3(-30, 14, -26);
+fill.position.copy(FILL_HOME);
 scene.add(fill);
 
 // 天光半球，柔化阴影
