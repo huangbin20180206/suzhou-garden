@@ -16,6 +16,11 @@ export const GPU_NAME = (()=>{
     return d ? String(gl.getParameter(d.UNMASKED_RENDERER_WEBGL)) : '';
   } catch { return ''; }
 })();
+/* ── 阴影贴图上限（2026-10-30 第 0 周热修）──
+   GPU 纹理最大边长。high 档要 6144，一批 GPU 的上限是 4096 —— 旧写法靠驱动悄悄钳
+   （声明 6144、实际分配 4096），QOS 的 applyShadow 看 mapSize.width 就再也不会改档。
+   显式封顶让"声明值 = 真实值"：09-lights 的初始化与 11-loop QOS 的降档都用它。 */
+export const SHADOW_CAP = (() => { try { return renderer.capabilities.maxTextureSize || 4096; } catch { return 4096; } })();
 /* 软渲染（无头探针 / 无 GPU 的虚拟机）：帧率不反映真实设备能力，
    QOS 自适应必须对它免疫，否则回归条件会随机器负载漂移（见 QOS 段说明）。 */
 export const SOFTWARE_GL = /SwiftShader|llvmpipe|Software|Mesa OffScreen|Microsoft Basic/i.test(GPU_NAME);
@@ -32,9 +37,21 @@ export const QOS_IMMUNE = SOFTWARE_GL || PROBE_DRIVEN;
    误判成 low，从而跳过体积光锥等高写实效果 —— 探针带 ?tier=high 即可拍到它们。
    2026-09-25：mid 从“能解析但等同 high”改成真正独立的均衡档。 */
 export const GPU_TIER_FORCED = (() => { try { return /[?&]tier=(low|mid|high)/.exec(location.search)?.[1] || null; } catch { return null; } })();
-const autoTier = /Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i.test(GPU_NAME)
-  ? 'low'
-  : (/Apple M[1-9]|Intel Arc|GTX\s*(1[06]\d{2}|20[567]\d{2})|Radeon RX\s*[56]\d{3}/i.test(GPU_NAME) ? 'mid' : 'high');
+const autoTier = (() => {
+  /* 低走量档：核显 / 软渲染（原行为不变） */
+  if (/Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i.test(GPU_NAME)) return 'low';
+  /* 手机 / 平板一律不超均衡档（2026-10-30 第 0 周热修）：原来不判移动端 ——
+     Adreno/Mali 旗舰哪个正则都不中，直接落"未知=high"（4K 预算 + 6144 阴影 +
+     1.25 超采样），手机发热降频反而更卡。iPadOS 13+ 的 UA 冒充 Macintosh，
+     用 maxTouchPoints>1 拦。探针要写实档带 ?tier=high 强开。 */
+  const mobile = /Android|iPhone|Mobi/i.test(navigator.userAgent)
+              || (/Macintosh/.test(navigator.userAgent) && (() => { try { return navigator.maxTouchPoints > 1; } catch { return false; } })());
+  if (mobile) return 'mid';
+  /* 独显认得出来 → 高档。正则从"GTX 10xx/20xx"扩到 GTX/RTX/RX 全系 ——
+     原来只认老卡，RTX 30/40/50 全靠"未知=high"蒙对（本机 RTX 4060 就是蒙的）。
+     真叫不出名字的（虚拟化 / 杂牌 / 陌生新卡）降均衡档，不再默认高档。 */
+  return /Apple M[1-9]|Intel Arc|GTX\s*\d{3,4}|RTX\s*\d{3,4}|Radeon RX\s*\d+/i.test(GPU_NAME) ? 'high' : 'mid';
+})();
 export const GPU_TIER = GPU_TIER_FORCED || autoTier;
 
 /* 电脑画质单一真值：分辨率、阴影、AO、反射、折射与粒子预算都从这里派生。

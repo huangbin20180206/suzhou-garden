@@ -6,7 +6,7 @@ import { THREE, mergeGeometries } from '../vendor.js';
    → 启动期 TDZ。放 02-scene 后依赖方向单纯：02 → 09 → 08。
    （world 在本模块只在函数体内用，见下方 refreshCasterBox。） */
 import { CFG } from './00-config.js';
-import { ACTIVE_QUALITY, scene, renderer, world } from './02-scene.js';
+import { ACTIVE_QUALITY, SHADOW_CAP, scene, renderer, world } from './02-scene.js';
 /* ══════════════════════════════════════════════════════════════
    9 · 灯光
    ══════════════════════════════════════════════════════════════ */
@@ -114,7 +114,10 @@ export const sun = new THREE.DirectionalLight(CFG.sun.color, CFG.sun.intensity);
 sun.position.set(...CFG.sun.pos);
 sun.castShadow = true;
 // 阴影精度由电脑画质档统一决定：性能 2048 / 均衡 4096 / 高 6144。
-sun.shadow.mapSize.set(ACTIVE_QUALITY.shadow, ACTIVE_QUALITY.shadow);
+// ⚠️ 再按 GPU 纹理上限封顶（SHADOW_CAP，2026-10-30）：旧写法要 6144 时一批 GPU
+//    驱动悄悄钳到 4096，声明值 ≠ 真实值，QOS 就再也不肯动这盏阴影。
+sun.shadow.mapSize.set(Math.min(ACTIVE_QUALITY.shadow, SHADOW_CAP),
+                       Math.min(ACTIVE_QUALITY.shadow, SHADOW_CAP));
 sun.shadow.camera.near = 1;
 sun.shadow.camera.far = 190;
 sun.shadow.bias = -0.0009;

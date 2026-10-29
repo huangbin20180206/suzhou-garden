@@ -1,7 +1,7 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
 import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
-         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState } from './02-scene.js';
+         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
@@ -625,6 +625,7 @@ const QOS = (()=>{
     });
   }
   function applyShadow(size){
+    size = Math.min(size, SHADOW_CAP);   // 2026-10-30：与 09-lights 初始化同一条封顶（声明值=真实值）
     if (sun.shadow.mapSize.width === size) return;
     sun.shadow.mapSize.set(size, size);
     if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
@@ -903,8 +904,35 @@ function stepSim(rawDt){
   advanceWindClock(advanced);         // 走 2b-wind 的推进函数：导入绑定只读，不能就地 +=
   return advanced;
 }
+/* 运行期错误账本（2026-10-30 第 0 周热修）：单帧兜错之后，子系统报错不再冒泡成
+   pageerror —— 门禁（与 smoke）要从"只看 pageerror"迁到 `__garden.loopErrors()`
+   才能继续看见循环内的病。账本记最近 20 条（满员挤最旧），count 单调累加。 */
+const _loopErrs = [];
+let _loopErrCount = 0;
+function recordLoopError(err){
+  const msg = String((err && (err.stack || err.message)) || err).slice(0, 400);
+  _loopErrCount++;
+  if (_loopErrs.length >= 20) _loopErrs.shift();
+  _loopErrs.push(msg);
+  /* 刷屏控制：第一条完整报，之后每 120 帧提醒一次计数（持续报错的子系统不刷屏） */
+  if (_loopErrCount === 1 || _loopErrCount % 120 === 0){
+    console.error(`[loop] 子系统报错 #${_loopErrCount}（画面继续，不再冻帧）：`, msg.split('\n')[0]);
+  }
+}
 function animate(){
   requestAnimationFrame(animate);
+  /* 单个子系统报错不再冻住画面（2026-10-30 第 0 周热修）：
+     帧循环靠 animate 第一行的 requestAnimationFrame(animate) 自续，所以任何一处抛错
+     循环本身不会停 —— 但抛错点**之后**的本体当帧全部跳过，且每帧都在同一处再抛：
+     抛错点若在 composer.render() 之前（几乎总在），画布永远停在最后一次成功呈现的
+     那一帧 ⇒ 用户看到的就是"画面冻死"，控制台只有一条报错，只能强刷。
+     现在把本体挪进 frameWork()，这里只负责排帧 + 兜错：报错记进上面的账本，
+     当帧丢的是出错那一个子系统，其余系统与渲染照常跑。
+     ⚠️ 门禁断言"零报错"请改看 loopErrors()（pageerror 从此抓不到循环内的病）。 */
+  try { frameWork(); }
+  catch (err){ recordLoopError(err); }
+}
+function frameWork(){
   timer.update();                        // 先 update，getDelta/getElapsed 同帧多次调用值不变
   const rawDt = timer.getDelta();        // 真实帧间隔 —— 统计必须用它
   const dt = stepSim(rawDt);             // 仿真时间（固定步长累加；60fps 下与 rawDt 同值）
@@ -1701,7 +1729,11 @@ async function warmBoot(){
     renderer.shadowMap.autoUpdate = prevAuto;
     renderer.shadowMap.needsUpdate = true;
     bloom.enabled = _prevBloom;
-    if (gtaoPass) gtaoPass.enabled = true;
+    /* GTAO 按档位还原（2026-10-30）：旧写法无脑 true —— 今天它恰好等价于 AO_ENABLED
+       （gtaoPass 只在 AO_ENABLED 时才创建），但这是"碰巧对"不是"写对了"：
+       哪天加档位/开关（比如 QOS 记忆档、?ao=0 诊断参数），这里就是第一个悄悄
+       把 AO 复活的地方。按档位写，谁改了开关这里都跟着走。 */
+    if (gtaoPass) gtaoPass.enabled = AO_ENABLED;
     if (waterSurface) waterSurface.onBeforeRender = prevWaterHook;
   };
   try {
@@ -1796,6 +1828,9 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      必须用 getter 函数读 —— 直接写 `bootDone` 会在建这个对象时把 false 定格，
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
                   bootDone: () => bootDone, bootDonePromise,
+                  /* 循环内错误账本（2026-10-30）：单帧兜错后 pageerror 不再是可靠信号，
+                     门禁断言"零报错"改看这里：`__garden.loopErrors().count === 0`。 */
+                  loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),
                   /* 反射按需更新（2026-09-24）：把"水面是否活跃"暴露给门禁 ——
                      门禁必须先**断言**这个前提（晴 + 无涟漪）才能测"观景态降频"，
                      否则测到的可能是"有涟漪/在下雨"下的满速（那是正确行为）。 */
