@@ -15,7 +15,7 @@
 // 幅度按 GAIT.amp=0.27 收着用（≈15.5°），比测试的 0.38 更保守。
 // 真正需要裙骨的是**极大幅度**（抬腿/坐/跪），那些动作继续押后。
 
-import { THREE, GLTFLoader } from '../vendor.js';
+import { THREE } from '../vendor.js';
 import { makeSoftAlphaTex } from './15a-shared.js';
 import { scene, renderer, camera } from './02-scene.js';
 import { groundHeight } from './05-water.js';
@@ -32,6 +32,7 @@ import { STABLE_ROAD_PTS, stableTravel, travelCarriagePlace, travelCarriagePark,
    一律走 00-config 的延迟绑定：ENV 由 12-env 发布进 ENV_REF.env，
    WALK_ROUTE 由 08d-tour 发布进 HOOKS.walkRoute。 */
 import { HOOKS, ENV_REF } from './00-config.js';
+import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ } from './16a-actor-props.js';
 
 const ACTORS = [];
@@ -1291,7 +1292,7 @@ function repairLaborerSkin(inner){
 }
 
 function loadActor(def){
-  const loader = new GLTFLoader();
+  const loader = createGLTFLoaderWithDecoders();
   loader.load(def.url,
     (gltf) => {
       const inner = gltf.scene;

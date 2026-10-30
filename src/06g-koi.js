@@ -10,10 +10,11 @@
 //    06-vegetation.js :184/:185 只是 import 转发与再 export，均非定义处。
 //    原句一字未动：它记录的是拆分当日的判断（当时确实还没搬），改写会使其失去凭据。
 //    先例：sw.js:80-84、probe/shadow-bake-guard.mjs:7、probe/verify-all.mjs:313 同为加注不改写。
-import { THREE, GLTFLoader } from '../vendor.js';
+import { THREE } from '../vendor.js';
 import { TAU, CFG, rr, HOOKS } from './00-config.js';
 import { POND_RADII, markUnderwater } from './05-water.js';
 import { assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
+import { createGLTFLoaderWithDecoders, dequantizeScene } from './06e-assets.js';
 
 
 /* 锦鲤/乌龟轨道：椭圆，全部经核算落在池形内。
@@ -438,7 +439,10 @@ export function makeKoiGroup(n = 11){
      settleAsset(false)。三个回调体一字未改：回调里只读 KOI_DRAW 的预抽值，
      绝不碰任何随机流（本函数开头的铁律，开了 CDN 也不放松）。 */
   const koiOnLoad = (gltf)=>{
-    const src = gltf.scene;
+    /* ⚠️ 2026-10-30：先反量化再量包围盒。meshopt 压缩版把顶点存成归一化整型，
+       直接 Box3 量出来是 32767 那套整数尺度 ⇒ 0.72/max 一除，鱼会缩成一个点。
+       （正因为自己是自建 loader，这条**必须**手动做，loadAssetOnce 里的那份帮不到它。） */
+    const src = dequantizeScene(gltf.scene);
     const b1 = new THREE.Box3().setFromObject(src);
     const s1 = b1.getSize(new THREE.Vector3());
     src.scale.setScalar(0.72 / Math.max(s1.x, s1.y, s1.z));
@@ -478,10 +482,10 @@ export function makeKoiGroup(n = 11){
   };
   if (ASSET_CDN.base){
     withCdnFallback('assets/koi.glb', (reqUrl)=>new Promise((resolve, reject)=>{
-      new GLTFLoader().load(reqUrl, resolve, koiOnProgress, reject);
+      createGLTFLoaderWithDecoders().load(reqUrl, resolve, koiOnProgress, reject);
     })).then(koiOnLoad, koiOnErr);
   } else {
-    new GLTFLoader().load(assetUrl('assets/koi.glb'), koiOnLoad, koiOnProgress, koiOnErr);
+    createGLTFLoaderWithDecoders().load(assetUrl('assets/koi.glb'), koiOnLoad, koiOnProgress, koiOnErr);
   }
   return g;
 }

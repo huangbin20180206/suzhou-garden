@@ -22,14 +22,59 @@ import { assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
 const rawCache = new Map();          // url → Promise<原始 scene>
 const assetCache = new Map();        // url|尺寸|材质 → 归一化模板
 export let assetFailures = 0;               // 供启动状态显示
-/* 组合式 GLTFLoader 实例：自动启用 Draco/KTX2/Meshopt 解码
+/* ── 反量化（2026-10-30 · 资产压缩批次）────────────────────────────────────
+   新一批 GLB 用 gltfpack `-cc` 重打过：几何走 EXT_meshopt_compression，属性改为
+   **归一化整型**（KHR_mesh_quantization，典型是 Int16/32767）。
+   画面本身没问题（GPU 认 normalized），但项目里有三处**在 CPU 上读顶点**的代码会坏：
+     · `mergeGeometries`（08 的静态合并）—— 实测直接抛
+       "BufferAttribute.array must be of consistent array types"，整片静态网因此合不上；
+     · `computeBoundingBox` / `Box3.setFromObject` —— 读的是原始整数（±32767），
+       包围盒大出 3 个数量级，归一化尺寸与"底部落地"全部算错；
+     · 踏面射线 `sampleFloorNear` —— 射线打在世界空间，顶点却是量化前的整数 ⇒ 打不中。
+   所以在**加载后立刻反量化回 Float32**，让下游看到的与原未压缩资产逐字节同构。
+   代价：显存/内存回到压缩前水平（下载体积的收益一分不少 —— 那是网络侧的账）。
+   ⚠️ 只处理 `normalized === true` 的属性；`-noq` 打出来的浮点资产原样跳过。 */
+const DENORM = new Map([
+  ['Int8Array', 127], ['Uint8Array', 255], ['Int16Array', 32767], ['Uint16Array', 65535],
+]);
+function dequantizeGeometry(geo){
+  for (const name of Object.keys(geo.attributes)){
+    const a = geo.attributes[name];
+    if (!a || !a.normalized) continue;
+    const div = DENORM.get(a.array.constructor.name);
+    if (!div) continue;
+    const src = a.array, out = new Float32Array(src.length);
+    for (let i = 0; i < src.length; i++) out[i] = Math.max(-1, src[i] / div);
+    geo.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+  }
+  geo.computeBoundingBox();
+  geo.computeBoundingSphere();
+}
+
+/* 对整个子树做反量化。**导出给自建 loader 的模块用**（06g 的锦鲤就是自己 new GLTFLoader
+   绕过了 loadAssetOnce —— 它不调这个的话，鱼的包围盒会大出三个数量级、尺寸算错）。 */
+export function dequantizeScene(root){
+  root.traverse(o => { if (o.isMesh && o.geometry) dequantizeGeometry(o.geometry); });
+  return root;
+}
+
+/* ── 组合式 GLTFLoader 实例：自动启用 Draco/KTX2/Meshopt 解码
    ⚠️ 解码器**必须直接用本模块的 import**，不能读 index.html 内联模块里的 `$解码器`：
    拆模块后 src 与内联模块不再共享词法世界，那个名字在 src 里压根不存在 → ReferenceError；
    而它是在 `new Promise` 的 executor 里抛的，被下游 `.catch(()=>{})` 静默吞掉 ——
    现象是 Turtle / BananaPlant / LotusPlant 三类 GLB **永远挂不上**，却零告警、零失败计数，
    全靠 smoke 的「四类 GLB 资产均已挂载」才看得见（2026-09-20 拆模块时实测）。 */
 const DECODERS = { DRACOLoader, KTX2Loader, MeshoptDecoder };
-function createGLTFLoaderWithDecoders(){
+/* ⚠️ **export 出去**（2026-10-30 资产压缩批次）：此前它是模块私有，于是自建 loader 的
+   模块（06g 锦鲤 / 15c 马 / 16 人物）各自 `new GLTFLoader()` —— **一个解码器都不挂**。
+   症状不是报错、是"静默缺席"：
+     · 2026-10-30 实测：koi.glb 换成 meshopt 压缩版后 `hasKoi:false`，而 pageerror = 0。
+       原因就是那个裸 loader 没有 MeshoptDecoder ⇒ 解压那一步抛出去被 `.catch` 吞了
+       （koi 那三处 catch 只 console.warn 一行，探针只收 error 级）。
+     · 同理：哪天真给马/人物上 Draco 或 KTX2，它们会**悄无声息地全体消失**。
+   ⇒ 所有自建 loader 一律走这里，别自己 `new GLTFLoader()`。
+   （15b 那处注释写着"导出件已无 Draco，不挂解码器"——那是当时的事实，不是规矩。） */
+export function createGLTFLoaderWithDecoders(){
   const loader = new GLTFLoader();
   // 启用 Draco 几何压缩
   if (DECODERS.DRACOLoader){
@@ -106,6 +151,7 @@ export function loadAssetOnce(url, targetSize, cb, overrideMat){
   }
   rawCache.get(url).then(raw=>{
     const src = raw.clone(true);                 // 几何/贴图与原始模板共享，只有变换是独立的
+    src.traverse(o => { if (o.isMesh && o.geometry) dequantizeGeometry(o.geometry); });
     const b1 = new THREE.Box3().setFromObject(src);
     const s1 = b1.getSize(new THREE.Vector3());
     src.scale.setScalar(targetSize / Math.max(s1.x, s1.y, s1.z));

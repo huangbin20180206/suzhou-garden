@@ -5,7 +5,8 @@
 //   · 姿态驱动（applyTinkerPose / applyRodinPose）
 //   · 补件与锚点量测、伪蒙皮权重/枢轴/着色烘焙、installHorseRig
 // 本文件只做「几何与材质」，不含行为状态机（那在 15c）。
-import { GLTFLoader, THREE, mergeGeometries } from '../vendor.js';
+import { THREE, mergeGeometries } from '../vendor.js';
+import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 import { mulberry32 } from './00-config.js';
 /* ── 真马模型（2026-10-10 · 老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行，
       然后再帮我绘制几种典型的马的颜色"）─────────────────────────────────────────
@@ -129,7 +130,10 @@ export function tinkerBuffer(){
   return _tinkerBuf;
 }
 export function tinkerLoader(){
-  if (!_tinkerLoader) _tinkerLoader = new GLTFLoader();   // 导出件已无 Draco，不挂解码器
+  /* 2026-10-30：改走带解码器的工厂。原来这里裸 new —— 当时 Tinker 导出件确实没有 Draco，
+     所以不挂解码器是**当时的事实**而不是规矩。但它意味着这批资产一旦改压缩格式
+     （本批就是 meshopt），马会**静默消失**（解压抛错 → 被 catch 吞掉 → 零报错）。 */
+  if (!_tinkerLoader) _tinkerLoader = createGLTFLoaderWithDecoders();
   return _tinkerLoader;
 }
 /* ⚠️⚠️ 预载握手（2026-10-19 · 踩过一次）：13-preload 的 PRELOAD_MANIFEST 会**等每个 GLB

@@ -118,7 +118,7 @@ const CACHE = 'suzhou-garden-v43';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
-const ASSET_CACHE = 'suzhou-garden-assets-v21';  // 2026-10-30 boulder-hero.glb 移出预缓存（主峰默认程序化，?heroSrc=glb 才懒取）⇒ 升桶
+const ASSET_CACHE = 'suzhou-garden-assets-v23';  // 2026-10-30 资产压缩批次：18 个 GLB 经 gltfpack -cc 重打（11.21→5.25MB，-53%）⇒ 升桶
 const SHELL = [
   './',
   './index.html',

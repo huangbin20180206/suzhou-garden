@@ -6,7 +6,7 @@
 // 仿真时钟 `_stT` 由 15b 持有，这里用 advanceStableTime(dt) 推进。
 import { mulberry32, HOOKS } from './00-config.js';
 import { _stT, advanceStableTime, applyTinkerPose, applyRodinPose, _tv, HORSE_GLB, installHorseRig, HORSE_TOTAL_H, tinkerBuffer, tinkerLoader, tinkerMaterial, markCoatPoints, slimNeck, TINKER_ANIM_BONES } from './15b-horse-rig.js';
-import { THREE, GLTFLoader, mergeGeometries } from '../vendor.js';
+import { THREE, mergeGeometries } from '../vendor.js';
 import { makeSoftAlphaTex, prRange } from './15a-shared.js';
 import { ENV } from './12-env.js';
 import { camera, scene, renderer } from './02-scene.js';
@@ -14,6 +14,7 @@ import { tubeRadiusRamp } from './06-vegetation.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { mesh, box } from './03-factory.js';
 import { MAT } from './01-materials.js';
+import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 
 /* Tinker 缺骨 / 找不到尾骨只警告一次 —— 拆分前它是与 15b 共用的模块级标志，
    实测只有本模块读写它（15b 里零引用），故随本模块搬来。 */
@@ -400,7 +401,7 @@ export let _horseSrc = null;
 export function horseSrcOnce(){
   if (_horseSrc) return _horseSrc;
   _horseSrc = new Promise((resolve, reject) => {
-    new GLTFLoader().load(HORSE_GLB,
+    createGLTFLoaderWithDecoders().load(HORSE_GLB,
       (gltf) => { HOOKS.settleAsset?.(HORSE_GLB, true); resolve(gltf.scene); },   // 成功：预载清单放行
       (e) => { HOOKS.reportAssetProgress?.(HORSE_GLB, e.loaded, e.total); },      // 真进度（第三槽）
       (err) => { HOOKS.settleAsset?.(HORSE_GLB, false, err); reject(err); });     // 失败也要回报（否则同样死等）
@@ -439,7 +440,7 @@ export function rodinSrcOnce(key){
   if (_rodinSrc.has(key)) return _rodinSrc.get(key);
   const url = RODIN_GLB[key];
   const p = new Promise((res, rej) => {
-    new GLTFLoader().load(url,
+    createGLTFLoaderWithDecoders().load(url,
       (gltf) => { settleRodin(key, true); res(gltf.scene); },
       (e) => { HOOKS.reportAssetProgress?.(url, e.loaded, e.total); },
       (err) => { settleRodin(key, false, err); rej(err); });

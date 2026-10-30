@@ -183,7 +183,7 @@ export const PRELOAD_MANIFEST = [
   /* 2026-10-14 石灯笼（DIY L0 首件 · 纯接线）：research/diy-lantern/stone-lantern.glb 原样拷入。
      186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙；2026-10-18 起路旁 8 盏每盏配真 PointLight（2026-10-19 南门口一对撤掉））。
      摆位依据 research/diy-first-target.md §4 主位 (4.0,-3.8) y=0.053（岸距 1.62m、最近物 8.8m）。 */
-  { url: 'assets/stone-lantern.glb', bytes: 190864, stage: '取', label: '石灯笼', required: false },
+  { url: 'assets/stone-lantern.glb', bytes: 162876, stage: '取', label: '石灯笼', required: false },
   /* 2026-10-18 石狮一对（**真实照片扫描**，替换掉此前 v5–v9 手工融球稿）。
      来源：BlenderKit「Weathered Stone Lion Statue - Photoscan」（作者 Dennis Scheucher，
      授权 Royalty Free，资产页 blenderkit:b80862b4-...；112k 面原始扫描，
@@ -191,23 +191,23 @@ export const PRELOAD_MANIFEST = [
      公 711648B / 母 643576B，高 1.076m（loadAssetOnce 归一化到 1.08m）。
      母狮：X 镜像 + 胸前伏一只同扫描体缩出的幼狮（0.20m）。
      required:false —— 拉不到时门口位置空着（由 probe/lion-guard 守"必须挂上"）。 */
-  { url: 'assets/stone-lion-male.glb', bytes: 711648, stage: '取', label: '石狮雄', required: false },
-  { url: 'assets/stone-lion-female.glb', bytes: 643576, stage: '取', label: '石狮雌', required: false },
-  { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
+  { url: 'assets/stone-lion-male.glb', bytes: 359604, stage: '取', label: '石狮雄', required: false },
+  { url: 'assets/stone-lion-female.glb', bytes: 344100, stage: '取', label: '石狮雌', required: false },
+  { url: 'assets/BananaPlant.glb', bytes: 168816, stage: '取', label: '芭蕉', required: false },
   /* 池边荷花三态（2026-10-24 · 老黄："荷花是低模、花瓣像刀片；没有含苞待放和
      花谢结蓬的状态，按春夏秋三季合理处理"）。
      旧件 assets/LotusPlant.glb（Hyper3D 单网格 267KB）**退役删除**（git 历史可回退）；
      新三件 = Rodin Gen-2.5-Medium 生成 + Blender 归一化（高 1.65m、脚底 y=0、1024 JPEG）。
      required:false —— 三件缺任何一件时该态不出现、页面照常（12f 状态机按存在的子节点跑）。 */
-  { url: 'assets/lotus-bloom.glb', bytes: 714356, stage: '取', label: '荷花·盛开', required: false },
-  { url: 'assets/lotus-bud.glb',   bytes: 425096, stage: '取', label: '荷花·花苞', required: false },
-  { url: 'assets/lotus-pod.glb',   bytes: 614412, stage: '取', label: '荷花·莲蓬', required: false },
-  { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
+  { url: 'assets/lotus-bloom.glb', bytes: 329964, stage: '取', label: '荷花·盛开', required: false },
+  { url: 'assets/lotus-bud.glb',   bytes: 195240, stage: '取', label: '荷花·花苞', required: false },
+  { url: 'assets/lotus-pod.glb',   bytes: 293752, stage: '取', label: '荷花·莲蓬', required: false },
+  { url: 'assets/Turtle.glb',      bytes: 266372, stage: '取', label: '池龟', required: true  },
   /* 金刚鹦鹉（2026-10-02 第九轮，老黄："草皮上和假山顶部的小鸟还是没有看到，
      要不你加几只金刚鹦鹉，我给你参考图，这个好像更显眼一点，3D 效果也挺好"）：
      AI 生成（rodin，text_to_3d，绿翅金刚鹦鹉），1.49MB。
      required:false —— 拉不到时页面正常，只是假山上没有鹦鹉。 */
-  { url: 'assets/Macaw.glb',       bytes: 1561572, stage: '取', label: '鹦鹉', required: false },
+  { url: 'assets/Macaw.glb',       bytes: 954840, stage: '取', label: '鹦鹉', required: false },
   /* 马厩的真马：**BlenderKit「Draft horse. Tinker, gypsy vanner breed」**
      （作者 Irena Aidlin Moonin，Royalty Free；Rigify **454 根骨骼** + 7 个蒙皮网格
      + 鬃毛/尾巴/眼睛/牙齿独立网格 + 4k baseColor/normal/roughness）。
@@ -222,22 +222,22 @@ export const PRELOAD_MANIFEST = [
      `preload-manifest-sync` 的 G6 守这条。 */
   /* 2026-10-23：马厩换 Rodin 三匹（无骨骼 + 1024 PBR 贴图，走 15-stable 的伪蒙皮）。
      三份在 15-stable 的**模块求值期**发起请求（_RODIN_BOOT），否则会死等到预载超时。 */
-  { url: 'assets/horse-camargue.glb',       bytes: 782052, stage: '取', label: '马·白', required: false },
-  { url: 'assets/horse-mongolian.glb',      bytes: 786484, stage: '取', label: '马·栗', required: false },
-  { url: 'assets/horse-criollo-saddle.glb', bytes: 861892, stage: '取', label: '马·鞍', required: false },
+  { url: 'assets/horse-camargue.glb',       bytes: 310912, stage: '取', label: '马·白', required: false },
+  { url: 'assets/horse-mongolian.glb',      bytes: 287396, stage: '取', label: '马·栗', required: false },
+  { url: 'assets/horse-criollo-saddle.glb', bytes: 337004, stage: '取', label: '马·鞍', required: false },
   /* 2026-10-21 P1 半写实人物（AI 生成 + UniRig 绑骨；16-actors 在模块求值期发起下载，
      settleAsset 回报；失败时程序化替身继续站）。
      2026-10-22：三件贴图全部重导成 JPEG q88（1K）—— PNG 版单件 1.76/2.56MB 越了 1.5MB 预算，
      JPEG 版 0.68/0.84MB，3m 机位看不出差别（render_views 对比图见 outputs/_diag/*-jpg）。 */
-  { url: 'assets/fig-scholar.glb', bytes: 682100,  stage: '取', label: '文士', required: false },
-  { url: 'assets/fig-lady.glb',    bytes: 844192,  stage: '取', label: '仕女', required: false },
+  { url: 'assets/fig-scholar.glb', bytes: 259428,  stage: '取', label: '文士', required: false },
+  { url: 'assets/fig-lady.glb',    bytes: 287864,  stage: '取', label: '仕女', required: false },
   /* 马夫（马厩喂马）。他的腰带带误权重 ⇒ 只做躯干前俯，不转肩（见 16-actors 的注释）。 */
-  { url: 'assets/fig-laborer.glb', bytes: 737256,  stage: '取', label: '马夫', required: false },
+  { url: 'assets/fig-laborer.glb', bytes: 345496,  stage: '取', label: '马夫', required: false },
   /* 书童（一位资产、两处实例：16-actors 的 child1/child2 各 parse 一份）。 */
-  { url: 'assets/fig-child.glb',   bytes: 648316,  stage: '取', label: '书童', required: false },
+  { url: 'assets/fig-child.glb',   bytes: 256240,  stage: '取', label: '书童', required: false },
   /* 2026-10-23 P4 第五个角色「客人」（Rodin 生成 + UniRig 绑骨 + 手部权重修复 + 6 根裙骨，
      1024 JPEG 贴图；材质是长袍 ⇒ 走路靠裙骨、不做坐姿）。 */
-  { url: 'assets/fig-guest.glb',   bytes: 667288,  stage: '取', label: '客人', required: false },
+  { url: 'assets/fig-guest.glb',   bytes: 243392,  stage: '取', label: '客人', required: false },
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */
