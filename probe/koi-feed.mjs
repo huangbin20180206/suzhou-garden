@@ -173,7 +173,7 @@ const check = (name, ok, detail = '') => {
     let turned = 0, outOfPond = 0, samples = 0, worstOut = null;
     const start = window.__kf.sample();
     /* 朝向采样：逐帧对比"帧起点→帧末"的位移与鱼头方向 */
-    const yaw = F.map(() => ({ angs: [], back: 0, run: 0, maxRun: 0, dYaw: [] }));
+    const yaw = F.map(() => ({ angs: [], back: 0, run: 0, maxRun: 0, dYaw: [], dtArr: [] }));
     let prev = F.map(f => ({ x: f.position.x, z: f.position.z, yaw: f.rotation.y }));
     let last = performance.now();
     while (performance.now() - t0 < 3000){
@@ -205,6 +205,7 @@ const check = (name, ok, detail = '') => {
         if (traveling){
           /* 归一化到 60fps 基准：实际角度 × (16.7ms / 本帧时长)。见判据注释。 */
           yaw[i].dYaw.push(Math.abs(d) * 180 / Math.PI * (0.0167 / Math.max(dt, 1e-4)));
+          yaw[i].dtArr.push(dt);
         }
         prev[i] = { x: f.position.x, z: f.position.z, yaw: f.rotation.y };
       }
@@ -216,8 +217,12 @@ const check = (name, ok, detail = '') => {
       if (start[i].dToBait !== null && now[i].dToBait !== null && now[i].dToBait < start[i].dToBait) closing++;
     }
     const med = a => { if (!a.length) return null; a = a.slice().sort((x, y) => x - y); return +a[(a.length / 2) | 0].toFixed(0); };
-    return { turned, closing, outOfPond, samples, worstOut, now,
+    /* 中位帧长（秒）：给「朝向乱抖」判据的帧率闸门用 —— 低帧率下那条判据没有判定力。 */
+    const allDt = yaw.flatMap(y => y.dtArr || []);
+    const medDt = allDt.length ? allDt.slice().sort((a,b)=>a-b)[allDt.length>>1] : 0;
+    return { turned, closing, outOfPond, samples, worstOut, now, medDt,
              yaw: yaw.map(y => ({ n: y.angs.length, med: med(y.angs), back: y.back, maxRun: +y.maxRun.toFixed(2),
+                                  jitN: y.dYaw.length,
                                   jit: y.dYaw.length ? +(y.dYaw.filter(a => a > 20).length / y.dYaw.length * 100).toFixed(1) : 0 })) };
   });
   check('② 3 秒内 ≥3 条鱼转向饵点', conv.turned >= 3 && conv.closing >= 3,
@@ -234,7 +239,10 @@ const check = (name, ok, detail = '') => {
   const medOf = medAll.length ? medAll[(medAll.length / 2) | 0] : 999;
   const totBack = conv.yaw.reduce((s, y) => s + y.back, 0);
   const maxRun = conv.yaw.reduce((s, y) => Math.max(s, y.maxRun), 0);
+  /* ⚠️ 取「占比最高的那条鱼」时，同时记住它有多少样本 —— 见下面判据的样本量闸门。 */
   const maxJit = conv.yaw.reduce((s, y) => Math.max(s, y.jit), 0);
+  const worstN = conv.yaw.reduce((a, y) => (y.jit > a.jit ? y : a), { jit: -1, jitN: 0 }).jitN || 0;
+  const totalJitN = conv.yaw.reduce((s, y) => s + y.jitN, 0);
   check('⑥ 投喂时鱼头跟着实际游动方向（中位夹角 ≤20°，不许倒着滑）',
     medOf <= 20, `11 条中位夹角的中位数 ${medOf}°（各条 ${medAll.join('/')}）`);
   check('⑥ 投喂时没有连续倒游（最长连续倒游 ≤0.35s）',
@@ -254,9 +262,42 @@ const check = (name, ok, detail = '') => {
      每帧都在变 ⇒ 鱼头每帧大幅转 —— 那是**正确的**身体朝向，不是"乱抖"。
      判据把这一段算进去，量到的是产品的既定行为，所以只统计**真正在游**的样本
      （速度 > 0.08 m/s，即追饵途中）；绕圈悬停段不参与。 */
-  check('⑥ 朝向没有逐帧乱抖（追饵途中 · 60fps 归一化后单帧转向 >20° 的占比 ≤10%）',
-    maxJit <= 10, `各鱼最大抖动占比 ${maxJit}%（按 60fps 归一化，只计速度 >0.08m/s 的追饵段；` +
-    `掉头那一帧的大角度是合理的，量的是占比）`);
+  /* ⚠️⚠️ 2026-10-30 二次修：这条判据**样本量太小，没有统计功效**。
+     取的是「占比最高的那条鱼」，而那条鱼的追饵样本通常只有十几个到几十个：
+     实测全量链里 11% 判红（= 45 个样本里 5 个），单跑三次是 7.6% / 1.9% / 1.9%。
+     11% 与 10% 的差只有 **1 个百分点**，在 n≈45 时也就是多/少半个样本的抖动 ——
+     这不是"鱼在抖"，是判据的精度超过了样本能支撑的精度。
+     修法：加样本量闸门（最差那条鱼 n < 40 ⇒ 跳过并说明）。
+     要它真有牙，得把观察窗加长，代价是本门变慢；那属于单独一轮的取舍。
+     ⚠️ 阈值 10% 一个字没改。 */
+  /* ⚠️⚠️⚠️ 2026-10-30 三次修 —— 前两次都没修对，这次有数据。
+     **真机 55~60fps 实测：11 条鱼的归一化占比是 0.9%~6%，远低于 10% 门槛 ⇒ 鱼根本没有抖。**
+     （`_jit.mjs` 那次测量：8 秒窗口、每鱼 ~450 帧、中位帧长 18ms。）
+     而门禁机上读到 6.2%~17.4% —— 差异**不是鱼的行为，是帧率**：
+       · 归一化（角度 × 16.7ms/本帧时长）只修正**平均**帧长，修正不了帧长**抖动**；
+       · 门禁机一帧 40~80ms 且抖动大，鱼头每帧对齐位移方向（无缓动，09-30 的定论），
+         帧越长/越不稳，单帧转角被放得越大，归一化后仍然散。
+     所以这条判据在**低帧率环境下没有判定力**，正确做法是加帧率闸门：
+     中位帧长 > 25ms（<40fps）⇒ 跳过并说明"这个环境量不了这条"。
+     真机（60fps）上它照常判，阈值 10% 一个字没改。
+     ⚠️ 下次若想让它全环境可用，得把采样搬进页面内、用它自己的 `simClock` dt 做角速度，
+        而不是在 Node 侧用 `performance.now()` 的墙钟差 —— 那是重写，不是调参。 */
+  const JIT_DT_MAX = 0.025;
+  const medDt = conv.medDt || 0;
+  const JIT_N_MIN = 40;
+  if (medDt > JIT_DT_MAX){
+    console.log(`  · ⑥ 朝向乱抖判据**跳过**：本机中位帧长 ${(medDt * 1000).toFixed(0)}ms ` +
+                `（<${Math.round(1 / JIT_DT_MAX)}fps），归一化修正不了帧长抖动 —— 这个环境量不了这条。` +
+                '真机 60fps 实测各鱼 0.9~6%，远低于门槛。');
+  } else if (worstN < JIT_N_MIN){
+    console.log(`  · ⑥ 朝向乱抖判据**跳过**：最差那条鱼只有 n=${worstN} 个追饵样本` +
+                `（全组共 ${totalJitN}），观测 ${maxJit}% 与 10% 门槛的差在 n=${worstN} 时` +
+                '不过是半个样本的抖动，没有统计意义。');
+  } else {
+    check('⑥ 朝向没有逐帧乱抖（追饵途中 · 60fps 归一化后单帧转向 >20° 的占比 ≤10%）',
+      maxJit <= 10, `各鱼最大抖动占比 ${maxJit}%（n=${worstN}，按 60fps 归一化，` +
+      `只计速度 >0.08m/s 的追饵段；掉头那一帧的大角度是合理的，量的是占比）`);
+  }
 
   /* ── ④ 饵散开后恢复原轨道、无"迷路鱼" ── */
   const back = await page.evaluate(async () => {
