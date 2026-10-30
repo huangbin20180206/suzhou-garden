@@ -675,7 +675,6 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
          阈值 0.25/0.34 恰好落在该量纲里 —— 与原版一致，阈值一位不改。 */
     const X_HALF = 0.40;
     const isQuantized = !(pos.array instanceof Float32Array);
-    let k = 1;
     if (isQuantized){
       let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity,
           mnz = Infinity, mxz = -Infinity;
