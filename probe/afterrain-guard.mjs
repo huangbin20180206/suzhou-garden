@@ -318,6 +318,10 @@ const check = (name, ok, detail = '') => {
     return +(changed / total * 100).toFixed(2);
   }, { rowFrac: SKY_ROW_FRAC, thr: SKY_THR, bright: bright == null ? null : bright });
 
+  /* ⚠️ 下面这三条判据**同属一个前置**：它们都读 `ctxAlive` 块里量到的 skyA / skyB。
+     2026-10-30 踩过一次：加 `ctxAlive` 保护时只把前两条圈进了 else，
+     §4 自检留在外面 ⇒ 上下文一挂就 `ReferenceError: skyA is not defined`（整个探针崩掉，
+     比报红更糟 —— 报红还能看见读数，崩溃只剩一行栈）。三条一起圈。 */
   await settle();          // 环境过渡走完（本门既有 helper）
   await cameraStill();     // 相机阻尼走完：旧版直接沿用 §3 的固定 900ms 睡眠就采样
   const skyA = await skyCover(null);
@@ -326,7 +330,6 @@ const check = (name, ok, detail = '') => {
     skyA > SKY_MIN && skyA < SKY_CAP && skyB > SKY_MIN && skyB < SKY_CAP,
     `可见受影响天空像素 ${skyA}% / ${skyB}%（新口径 ΣΔ>${SKY_THR} × 上 ${SKY_ROW_FRAC * 100}% 行；` +
     `2026-10-12 标定：正常 21.9%、b3.20 下界 32.1%；旧口径 1.79%→52.38%）`);
-  }   // ← 结束上面 ctxAlive 的 else（两条像素判据都受同一条前置约束）
   check('§4 抖动自检：同状态连测两次的覆盖率差 ≤2 点（旧版贴阈值随机红绿的直接原因）',
     Math.abs(skyA - skyB) <= 2.0, `${skyA}% vs ${skyB}%（差 ${Math.abs(skyA - skyB).toFixed(2)} 点，上限 2）`);
   /* 负例自检（**实测**，不是我的预测）：把 uBright 拨到 3.20 —— 产品作者记的"糊满整片天"
@@ -334,7 +337,7 @@ const check = (name, ok, detail = '') => {
   const skyBad = await skyCover(3.20);
   check('负例自检：uBright=3.20（糊满整片天那档）在新口径下必须报红',
     skyBad >= SKY_CAP, `b=3.20 实测 ${skyBad}% ≥ 上限 ${SKY_CAP}%？（预测下界 32.1%）`);
-
+  }   // ← 结束 ctxAlive 的块（三条像素判据共用同一前置）
   /* ⚠️⚠️ 第九轮新增"拱形落位"三条（老黄："弧度太低了，角度不对，做得弧度再大一些，高一些"）。
      这三条把"弧度"变成**可量化、可回归**的东西：球面环方案里矢高被几何锁死在 4~6°
      （屏幕占比 <10%），改成世界空间大拱后实测跨度 90.7%、矢高 34%、拱顶 9%。
