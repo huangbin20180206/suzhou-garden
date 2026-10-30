@@ -67,6 +67,45 @@ function onResize(){
 }
 addEventListener('resize', onResize);
 
+/* ── WebGL 上下文丢失/恢复（2026-10-30 · 架构收口）──────────────────────────
+   ⚠️ 此前**一行都没有**。浏览器会在显存耗尽时丢掉上下文（驱动重置、开太多标签页、
+   或**跑完一整套 89 道门禁之后**的这台机器），而 three 的默认行为是：
+     · `webglcontextlost` 之后所有 GL 调用静默失败；
+     · **rAF 循环照常跑**（它不是 GL 调用）、`renderer.info` 的 draw calls 照常累加、
+       stats 照常显示 27fps；
+     · 画布停在**最后一次成功呈现的那一帧**或干脆全黑。
+   2026-10-30 的真实观测：全量 verify 跑到第 26 道时 pageerror-guard 拍到一张全黑的
+   正午截图（luma 16，正常 125），而同一次运行的 stats 显示 `27 fps / draw calls 856`；
+   同一道门单独跑则 18/18 全绿。这正是"状态全对、计数全对、只有画面不动"的形状。
+   ── 做了两件事 ──
+   ① `webglcontextlost` ⇒ preventDefault（**不 preventDefault 浏览器永远不会再给回上下文**）
+      + 置位 `_ctxLost`，循环改为跳过渲染但继续排程（保留状态，恢复后接着跑）；
+   ② `webglcontextrestored` ⇒ 把 renderer/composer 的尺寸与像素比重新下发一遍
+      （RT 与贴图由 three 自己重建；`setSize` 是让 composer 的 RT 按当前视口重建）。
+   ⚠️ 如实声明边界：three 能自动重建**它自己创建的** GPU 资源；但本项目里有若干
+     手写的 RenderTarget / CanvasTexture / PMREM 环境图，**没有逐个验证**它们在恢复后
+     是否都还活着。真要在生产里抗住上下文丢失，还需要按资源类型逐个重烘 ——
+     那是另一件事（本轮不做，写在这里免得下一个人以为"已经处理了"）。 */
+let _ctxLost = false;
+try {
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();                 // ← 必须：不拦就再也不会收到 restored
+    _ctxLost = true;
+    console.warn('[渲染] WebGL 上下文丢失（显存耗尽 / 驱动重置）。画面会停在最后一帧，' +
+                 '等浏览器给回上下文后自动恢复。');
+  }, false);
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    _ctxLost = false;
+    try {
+      renderer.setPixelRatio(renderer.getPixelRatio());
+      renderer.setSize(innerWidth, innerHeight);
+      composer.setPixelRatio(renderer.getPixelRatio());
+      composer.setSize(innerWidth, innerHeight);
+    } catch (err) { console.warn('[渲染] 上下文恢复后重设尺寸失败：', err); }
+    console.info('[渲染] WebGL 上下文已恢复。');
+  }, false);
+} catch (err) { console.warn('[渲染] 上下文丢失监听挂不上（不影响正常渲染）：', err); }
+
 const _swimmerWorld = new THREE.Vector3();   // 鱼/龟起涟漪要世界坐标（holder 是 koiGroup 的子节点）
 
 /* ══ 氛围粒子（2026-09-20）══
@@ -940,6 +979,10 @@ function frameWork(){
   const t = timer.getElapsed();
   frameT = t;
   if (pageHidden) return;                // 后台：不推进仿真、不渲染（发热主因）
+  /* 上下文丢失期间：状态照推（仿真/风/人物都不该冻住），但**不碰 GL**。
+     见文件顶部 webglcontextlost 那段 —— 少了这一条，丢失后每帧仍是几百笔静默失败的
+     GL 调用，控制台刷屏且恢复后状态错乱。 */
+  if (_ctxLost) return;
 
   /* 风：风钟已由 stepSim 随仿真一起推进（同一时间线），这里只把相位刷进材质并跑调度。
      ⚠️ 必须吃**累加的 dt**，不能吃墙钟 t：软渲染一帧 8.4 秒，用墙钟会让所有相位每帧
