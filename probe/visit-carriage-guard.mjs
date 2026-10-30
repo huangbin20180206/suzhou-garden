@@ -216,6 +216,36 @@ const check = (name, ok, detail = '') => {
     `在岗帧 ${r.coachBusyFrames} / 缺席 ${r.coachHidden}；其中驶离段 ${r.outFrames} 帧、缺席 ${r.outHidden}`);
   check('零 pageerror', errs.length === 0, errs.slice(0, 2).join(' | '));
 
+  /* ── ①f 相位名静态一致性（2026-10-30 · 架构收口 · 纯读文本，零浏览器开销）──
+     到访导演层有 26 个相位、28 处赋值。此前相位名全是散落的字符串字面量，
+     拼错一个字母（'wrap' 写成 'warpp'）= 那一相位**永不执行**，整场戏静默停在那里：
+     无报错、无告警、状态全对，只有盯 13 分钟画面才看得见。
+     判据三条（任一红都说明相位机与声明表对不上）：
+       · 赋值/比较里出现的相位名，必须都在 `VISIT_PHASES` 表里；
+       · 表里的名字必须都被真正用到（否则是僵尸名，读代码的人会以为它有用）；
+       · 表里不得有重复（重复 = 抄漏一个还看不出来）。 */
+  {
+    const fs2 = await import('node:fs');
+    /* ⚠️ 先剥注释：不剥的话，本文档里那句示例写法里的占位相位名会被当成真相位名。
+       只去块注释与行注释，保留字符串 —— 相位名本来就住在字符串里。 */
+    const raw = fs2.readFileSync(new URL('../src/16-actors.js', import.meta.url), 'utf8');
+    const src = raw.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/[^\n]*/g, '$1');
+    const tblBody = (src.match(/VISIT_PHASES = Object\.freeze\(\[([\s\S]*?)\]\)/) || [])[1];
+    const declaredRaw = tblBody ? [...tblBody.matchAll(/'([a-zA-Z]+)'/g)].map(m => m[1]) : [];
+    const declared = new Set(declaredRaw);
+    const used = new Set();
+    for (const m of src.matchAll(/(?:v|VISIT)\.phase\s*=\s*'([a-zA-Z]+)'/g)) used.add(m[1]);
+    for (const m of src.matchAll(/\.phase\s*===\s*'([a-zA-Z]+)'/g)) used.add(m[1]);
+    const undeclared = [...used].filter(x => !declared.has(x));
+    const unused = [...declared].filter(x => !used.has(x));
+    const dup = declaredRaw.filter((x, i) => declaredRaw.indexOf(x) !== i);
+    check('①f 相位名与声明表一致（拼错 / 僵尸名 / 重复 任一即红）',
+      !!tblBody && undeclared.length === 0 && unused.length === 0 && dup.length === 0,
+      !tblBody ? 'src/16-actors.js 里找不到 VISIT_PHASES 表'
+        : `声明 ${declared.size} / 使用 ${used.size}｜未声明：${undeclared.join(',') || '无'}` +
+          `｜僵尸：${unused.join(',') || '无'}｜重复：${dup.join(',') || '无'}`);
+  }
+
   await browser.close();
   server.close();
   const fails = results.filter(x => !x.ok).length;

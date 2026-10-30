@@ -2394,6 +2394,34 @@ function avoidCameraReveal(o){
   }
 }
 
+/* ── 到访导演层的相位名（2026-10-30 · 架构收口）──────────────────────────────
+   ⚠️ 这是一张**纯声明表**，不是重构：分派逻辑仍然是一串 `if (v.phase === 'x')`。
+   收进来的唯一目的，是让"相位名"从散落各处的字符串字面量变成**可被检查的东西**：
+     · 26 个分支 × 28 处赋值，此前全靠人工对齐 —— 拼错一个字母（`'wrap'` 写成
+       `'warpp'`）= 那一相位**永不执行**，整场戏静默停在那里，无报错、无告警，
+       只有盯 13 分钟的画面才看得见（正是本项目反复踩的"状态全对、门禁全绿"形状）。
+     · 现在 `visit-carriage-guard` 有一条断言：所有出现在赋值右侧的相位名都必须
+       在这张表里（见 probe/visit-carriage-guard.mjs 的 ①f）。
+   表里顺序 = 正常主线的先后（不是强制的状态图，有几个相位可跳过/可重入：
+   例如 `tour` 在 wrap 前可反复回到 eface，`done` 之后等 resetVisit 回 idle）。
+   改相位机时：**先加名字进这张表，再写分支**。 */
+export const VISIT_PHASES = Object.freeze([
+  'idle',                                  // 等条件（白昼、无雨雪、车马就位）
+  'carIn',                                 // 马车进场 → 停稳 → 系马 → 客人下车
+  'stow',                                  // 客人走向主人（步行版从这里直接开始）
+  'gwalk', 'face', 'bow', 'line', 'pair',  // 走到位上 → 对视 → 作揖 → 并肩 → 同行
+  'hall',                                  // 进厅
+  'enter', 'seat', 'tea', 'sit',           // 入座 → 奉茶 → 品茶 → 对坐
+  'rise',                                  // 起身
+  'exit', 'eline', 'epair',                // 出厅 → 排成一列 → 并肩
+  'tourgo', 'tour',                        // 去巡游起点 → 巡游中（可重入）
+  'eface', 'ebow', 'wave',                 // 院门外对视 → 作揖 → 挥手道别
+  'topav',                                 // 走到马车旁
+  'listen',                                // 回水榭听琴
+  'wrap',                                  // 收尾（等客人上车驶离）
+  'done',                                  // 收场，等 resetVisit
+]);
+
 function resetVisit(){
   const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId), host = actorRef(VISIT.hostId);
   /* 避镜头（见上）：主人与马车在**移动前**先量、先藏 */
