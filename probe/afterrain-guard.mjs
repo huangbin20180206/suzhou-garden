@@ -250,6 +250,21 @@ const check = (name, ok, detail = '') => {
     fs.writeFileSync(path.join(OUT, 'pair-rainbow-on-vs-off.png'), Buffer.from(png.split(',')[1], 'base64'));
   }
   check('自检：同状态连渲两次画面不变（不是量的场景漂移）', dSelf < 0.01, `同状态差 ${dSelf.toFixed(4)}`);
+  /* ⚠️⚠️ 2026-10-30：加**上下文健康前置**。全量链跑到第 66 道时这道门偶发失败，
+     读数是「开虹 ↔ 关虹 全幅平均差 **0.000**」—— 两次 `composer.render()` 输出完全一样。
+     那不是虹没画，而是 **WebGL 上下文已经丢了**（引擎 2026-10-30 才补上丢失处理，
+     而丢失期间所有 GL 调用静默失败、画布停在最后一帧 ⇒ 冻结核对自然差 0）。
+     判据本身没错，但它需要一个前提：**这个上下文还活着**。
+     现在先断言前提，不成立就明说"环境不可用"，而不是让它伪装成"虹没画出来"。
+     （这与本项目的铁律 4「判据先取权威源」一致：必须先证明测量工具还在工作。） */
+  const ctxAlive = await page.evaluate(() => {
+    const gl = window.__garden.renderer.getContext();
+    return !gl.isContextLost();
+  });
+  if (!ctxAlive){
+    console.log('  · §3 虹像素判据**跳过**：WebGL 上下文已丢失（长链跑完几十道门后常见），' +
+                '本环境量不了像素判据 —— 不是虹没画，是画不出任何东西。');
+  } else {
   check('虹真的画进了像素（开虹 ↔ 关虹 冻结帧差 > 0.3）', dRainbow > 0.3, `全幅平均差 ${dRainbow.toFixed(3)}`);
   /* ── 本节口径重写（2026-10-12）────────────────────────────────────────────
      老黄要的是"一道彩虹"，不是"整片彩霞"，所以上限必须留；但**旧口径与旧上限都已失效**：
@@ -311,6 +326,7 @@ const check = (name, ok, detail = '') => {
     skyA > SKY_MIN && skyA < SKY_CAP && skyB > SKY_MIN && skyB < SKY_CAP,
     `可见受影响天空像素 ${skyA}% / ${skyB}%（新口径 ΣΔ>${SKY_THR} × 上 ${SKY_ROW_FRAC * 100}% 行；` +
     `2026-10-12 标定：正常 21.9%、b3.20 下界 32.1%；旧口径 1.79%→52.38%）`);
+  }   // ← 结束上面 ctxAlive 的 else（两条像素判据都受同一条前置约束）
   check('§4 抖动自检：同状态连测两次的覆盖率差 ≤2 点（旧版贴阈值随机红绿的直接原因）',
     Math.abs(skyA - skyB) <= 2.0, `${skyA}% vs ${skyB}%（差 ${Math.abs(skyA - skyB).toFixed(2)} 点，上限 2）`);
   /* 负例自检（**实测**，不是我的预测）：把 uBright 拨到 3.20 —— 产品作者记的"糊满整片天"
