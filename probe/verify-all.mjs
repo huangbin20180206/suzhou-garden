@@ -137,6 +137,13 @@ const SUITES = [
      危害分场景静默：在线首开一切正常，**装成 PWA 后断网首开则少了鹦鹉**。
      自带 4 条负例自检（探针自证能红），不入浏览器、不依赖 GPU。 */
   ['预载清单一致性 preload-manifest-sync', 'probe/preload-manifest-sync.mjs'],
+  /* ── 2026-10-30 · 门数一致性（纯 node / <0.3s，第 0 周热修 CI 收尾④）──
+     README 里「全部 N 道门」「探针 M 个 .mjs」这类**指代总数**的数字，真值只有一处：
+     本文件上面那张 SUITES 表（quick 则是 QUICK 集合）。此前两者之间没有任何东西把守，
+     于是 README 一路漂 77 → 79 → 81 → 84，而实际已 88（差 4 道 —— 没人知道差哪 4 道）。
+     本门：C1 全量门数 / C2 quick 门数 / C3 探针文件数 / C1b 门名笔误（SUITES 里写了磁盘上
+     不存在的脚本 ⇒ verify-all 会静默少跑一道），外加 3 条负例自检 + 阳性对照。 */
+  ['门数一致性 gate-count-sync', 'probe/gate-count-sync.mjs'],
   ['拆分守卫 import-audit',   'probe/import-audit.mjs'],
   ['风场轨迹 wind-trajectory','probe/wind-trajectory.mjs'],
   /* ⚠️ 2026-10-13 新增 · 烘焙产物前提门（纯 node 快门）

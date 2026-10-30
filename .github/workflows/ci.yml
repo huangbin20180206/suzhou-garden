@@ -72,25 +72,35 @@ jobs:
         env:
           GARDEN_SOFT: '1'
 
-  # ── 发布前把关（2026-10-14 加）：master 分支 push 时，在静态门禁之上再跑 6 道纯 node 门 ──
+  # ── 纯 node 门（2026-10-14 加，2026-10-30 放开到全分支）──
   # 为什么只跑纯 node：CI runner 无 GPU，浏览器门走软渲染（实测约 2.4s/帧）。
   #   2026-10-13 首次真跑时，smoke 作业就是这样跑了 15 分 30 秒才失败 —— 浏览器门在云上
   #   既慢又脆（固定 sleep / 等待上限在低帧率下成批碎）。所以这道 job 刻意避开浏览器：
   #   把「合并进 master 才发现结构性错误」这条风险用**零 GPU 依赖**的方式兜住。
-  # 6 道门的来历：probe/verify-all.mjs 的 SUITES 共 79 道，其中**不起浏览器**的只有这 6 道
+  #
+  # ⚠️ 2026-10-30 改动（第 0 周热修 · CI 收尾②）：原来 `if: github.ref == 'refs/heads/master'`
+  #   ⇒ 特性分支上的 push **一道纯 node 门都不跑**，要等并进 master 才发现 preload 清单
+  #   对不上/vendor 过期/单元测试红。而这些门加起来 <5 秒、零 GPU —— 没有理由只在 master 跑。
+  #   现在 `needs: static` 之后无条件跑（static 已经替它挡掉语法错误，不会白烧 runner）。
+  #   代价：每个分支每推一次多花约 40 秒（npm ci 是大头，门本身不到 5 秒）。
+  #
+  # 7 道门的来历：probe/verify-all.mjs 的 SUITES 共 88 道，其中**不起浏览器**的只有这几道
   #   （check / codeonly-unit / import-audit 已由 static job 跑，这里用 --gates 补齐另外几道
   #   并复用既有脚本，不新增测试脚本、不改任何门的判定逻辑）：
   #     probe/preload-manifest-sync.mjs  预载清单 vs sw.js GLBS 一致性（纯 node <1s）
   #     probe/wind-trajectory.mjs        风场位移轨迹（纯数学 <1s）
   #     probe/shadow-product-gate.mjs    阴影烘焙前提（纯静态）
   #     probe/codeonly-unit.mjs          语法判定单元契约
-  #   （--gates 是 verify-all 既有参数，子串匹配，见 verify-all.mjs:598-636）
-  # 注：--gates 命中 0 道时 verify-all 会**主动报错退出**（L630），不会以「0 道全绿」收场。
-  release-gate:
-    name: 发布前把关（master · 6 道纯 node 门）
+  #     probe/unit-pure.mjs              纯函数单测（随机确定性 + 插值/互斥矩阵）
+  #     probe/vendor-fresh.mjs           构建物新鲜度（2026-10-30 修了换行导致的 Linux 误报）
+  #     probe/playwright-args-guard.mjs  静态扫 evaluate 实参个数（2026-10-13 云端 smoke 的真凶）
+  #   （--gates 是 verify-all 既有参数，子串匹配，见 verify-all.mjs:678-690）
+  # 注：--gates 命中 0 道时 verify-all 会**主动报错退出**（L686），不会以「0 道全绿」收场。
+  #   同理，门名写错一个字母不是"少跑一道"，是整条 job 红 —— 这是想要的。
+  node-gates:
+    name: 纯 node 门禁（全分支 · 不起浏览器）
     runs-on: ubuntu-latest
     needs: static
-    if: github.ref == 'refs/heads/master'
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
@@ -104,4 +114,4 @@ jobs:
         run: npm ci --include=dev
 
       - name: 纯 node 门禁子集（不起浏览器 · 无 GPU 依赖）
-        run: npm run verify -- --gates=preload-manifest-sync,wind-trajectory,shadow-product-gate,codeonly-unit,unit-pure,vendor-fresh
+        run: npm run verify -- --gates=preload-manifest-sync,wind-trajectory,shadow-product-gate,codeonly-unit,unit-pure,vendor-fresh,playwright-args-guard

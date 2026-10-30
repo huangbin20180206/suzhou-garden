@@ -20,12 +20,41 @@
 //  这个已在 index.html 侧改成"认 `navigator.webdriver`"（被自动化驱动就免疫），
 //  所以探针这边**不需要任何额外动作** —— 启动即免疫。
 //
+// ── 2026-10-30 平台感知（第 0 周热修 · CI 收尾③）────────────────────────
+// 原来这仨参数是写死的：`--use-angle=d3d11` 是 **Windows 专属后端**，拿到 Linux
+// runner 上 Chromium 会忽略它、静默回退 SwiftShader 软渲染（2.4s/帧）——
+// 不是报错、是**跑得极慢**，看起来像"卡死"。同一份代码在两种系统上语义不同的东西
+// 不该写死。现在按平台分流：
+//   · win32  → d3d11（原行为，一位不动）
+//   · linux  → vulkan（CI runner 上即便没 GPU 驱动，Chromium 也会落到
+//               SwiftShader-Vulkan；比默认 GL 路径报错少）
+//   · darwin → 什么都不加（Metal 是默认后端，加 ANGLE 参数反而把它顶掉）
+// 软渲染回退仍是 `GARDEN_SOFT=1`（原有开关，语义不变）；新增 `GARDEN_GL=swiftshader`
+// 强制软渲染，便于在**有 GPU 的机器上**复现云端的慢速基线。
+export const CHROMIUM_ARGS = (() => {
+  if (process.env.GARDEN_SOFT === '1') return [];
+  const mode = (process.env.GARDEN_GL || '').toLowerCase();
+  if (mode === 'swiftshader' || mode === 'soft') return ['--use-gl=swiftshader'];
+  if (mode === 'vulkan') return ['--use-angle=vulkan', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  if (process.platform === 'linux')
+    return ['--use-angle=vulkan', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  if (process.platform === 'darwin') return ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  return [
+    '--use-angle=d3d11',
+    '--ignore-gpu-blocklist',
+    '--enable-gpu-rasterization',
+  ];
+})();
+//
 // 用法：
 //   import { launchChromium } from './_harness.mjs';
 //   const browser = await launchChromium(chromium);
 //
 // 回退到旧的软渲染 harness（复现历史基线用）：
 //   GARDEN_SOFT=1 node probe/xxx.mjs
+// 强制走某个后端（见下方平台分流）：
+//   GARDEN_GL=swiftshader node probe/xxx.mjs   # 在有 GPU 的机器上复现云端慢速基线
+//   GARDEN_GL=vulkan     node probe/xxx.mjs   # 指定 ANGLE 后端
 export const CHROMIUM_ARGS = process.env.GARDEN_SOFT === '1' ? [] : [
   '--use-angle=d3d11',
   '--ignore-gpu-blocklist',
