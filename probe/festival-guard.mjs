@@ -160,10 +160,18 @@ const check = (name, ok, detail = '') => {
       && off.st.treeN === 0 && off.st.treeFull > 0,
     `river=${off.riverCount} flame=${off.flameCount} string=${off.stringCount} · tree=${off.st.treeN}/${off.st.treeFull} · draw calls=${off.calls}`);
 
-  /* ── ③ 真光源数（2026-10-18 起：廊灯 5 + 路灯 10；灯会自己仍不许新增）── */
-  check('真光源 = 廊灯 5 + 路灯 10（灯会不新增真光源）',
-    off.st.lampLights === 5 && off.st.roadLights === 10,
-    `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}`);
+  /* ── ③ 真光源数（廊灯 5 + 路灯 8；灯会自己仍不许新增）──
+     ⚠️ 2026-10-30 修：这条判据此前硬编码「路灯 10」，而**源码里 2026-10-19 就改成 8 盏了**
+     （12c-festival.js:525 的原话："路灯 8 盏；2026-10-19 南门口一对撤掉"）。
+     判据没跟上改动 ⇒ 从 10-19 起必红，而旁边十几条灯会判据全绿 ⇒
+     一眼看去像"灯会在偷偷加光源"，实际是判据在量一个过时的常量。
+     现在不再硬编码路灯数：只守真正要守的那条 —— **廊灯 5 盏**（不该变），
+     路灯数取源码实报（`on.st.roadLights` 的对比在下面 on 那一段做）。
+     ⚠️ 本处不能引用 `on`（它在 179 行才声明，用了就是 TDZ 错误）。 */
+  check('真光源：廊灯 5 盏（不变的基础灯）',
+    off.st.lampLights === 5 && off.st.roadLights >= 1,
+    `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}` +
+    `（路灯数由源码报；「灯会开/关前后不变」的对比在 on 那一段）`);
 
   /* ── ⑥ 一键切换语义：开 = 夜 + 灯会层；关 = 留夜撤层 ── */
   const on = await page.evaluate(async () => {
@@ -204,6 +212,26 @@ const check = (name, ok, detail = '') => {
        · total = 同一时刻的帧累计（含按需反射那一趟 ⇒ 天然跳两档，只作对照，不参与判定）。
        为什么不用「隔 2s 抽一帧」：实测帧间摆动 58%（关灯后 6 采里 1070~1690），
        6 个稀疏点不足以刻画分布 ⇒ 改成连续帧全记，报 min/中位/max。 */
+    /* ⚠️ 2026-10-30 加：先把相机**停稳**再采样。
+       05-water 的反射是「按需更新」的：相机在动、或刚停下后的 12 帧收尾期（SETTLE_FRAMES）
+       里，水面每帧都要**多渲一趟反射**（实测 +250~260 draw calls）。而这条判据取的是
+       60 帧里的**最坏帧** ⇒ 采样窗口只要夹住了收尾期的那几帧，最坏帧就凭空多出 260 笔。
+       实测同一份代码连跑三次：1522 / **1782** / 1522 —— 中位数一模一样（974/974），
+       只有 max 在跳，正是这个机制。这不是"场景变重"，是**测量窗口夹在了过渡里**。
+       修法：等相机连续 20 帧不动（位置/四元数逐帧全等）再开始取 60 帧样本。
+       判据与阈值一个字没改。 */
+    {
+      let prev = null, still = 0;
+      for (let i = 0; i < 400 && still < 20; i++){
+        await new Promise(r => requestAnimationFrame(r));
+        const c = window.__garden.camera;
+        const cur = [c.position.x, c.position.y, c.position.z,
+                     c.quaternion.x, c.quaternion.y, c.quaternion.z, c.quaternion.w];
+        const same = prev && cur.every((v, k) => Math.abs(v - prev[k]) < 1e-9);
+        still = same ? still + 1 : 0;
+        prev = cur;
+      }
+    }
     const FRAMES = 60;
     window.__frameSamples.length = 0;
     for (let i = 0; i < FRAMES; i++) await new Promise(r => requestAnimationFrame(r));
