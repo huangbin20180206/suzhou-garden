@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mulberry32 } from '../src/00-config.js';
+import { pickTier, isMobileUA } from '../src/00a-quality.js';
 import {
   mixInto, paramsAtHour, nearestTimeKey, fmtHour, weatherMutexReason,
 } from '../src/12a-presets.js';
@@ -67,4 +68,40 @@ test('fmtHour：整点/半点/进位', () => {
   assert.equal(fmtHour(12), '12:00');
   assert.equal(fmtHour(23.99), '23:59');
   assert.equal(fmtHour(23.999), '00:00');
+});
+
+/* ── 画质档位判定（2026-10-30 · 架构收口：从 02-scene 提成纯函数后才有测试网）──
+   这条判据此前**没有任何测试**，而它错了也不报错：判高 ⇒ 手机按 4K 预算跑、发热降频
+   更卡；判低 ⇒ 独显用户白吃低画质。两边都只在"换台机器"时才现形。 */
+test('pickTier：核显/软渲染 → low（词表来自实测 UNMASKED_RENDERER_WEBGL）', () => {
+  assert.equal(pickTier({ gpuName: 'ANGLE (Intel, Intel(R) Iris(R) Xe Graphics, D3D11)' }), 'low');
+  assert.equal(pickTier({ gpuName: 'ANGLE (Google, Vulkan 1.0 (SwiftShader Device (Subzero)))' }), 'low');
+  assert.equal(pickTier({ gpuName: 'Mesa/X.org llvmpipe (LLVM 15.0.6, 256 bits)' }), 'low');
+});
+
+test('pickTier：独显全系列（含本机 RTX 4060）→ high', () => {
+  assert.equal(pickTier({ gpuName: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Laptop GPU, D3D11)' }), 'high');
+  assert.equal(pickTier({ gpuName: 'ANGLE (NVIDIA, NVIDIA GeForce GTX 1060, D3D11)' }), 'high');
+  assert.equal(pickTier({ gpuName: 'ANGLE (AMD, Radeon RX 6800 XT Direct3D11)' }), 'high');
+  assert.equal(pickTier({ gpuName: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro)' }), 'high');
+});
+
+test('pickTier：手机/平板一律不超 mid（Adreno/Mali 哪个正则都不中，只能看 UA）', () => {
+  assert.equal(pickTier({ gpuName: 'ANGLE (Qualcomm, Adreno (TM) 740, Vulkan)' }), 'mid');
+  assert.equal(pickTier({ gpuName: 'Mali-G78 MP14' }), 'mid');
+  // UA 命中移动端时，即便 GPU 名是独显词也不给 high
+  assert.equal(pickTier({ gpuName: 'ANGLE (NVIDIA, NVIDIA GeForce RTX 4060)', userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)' }), 'mid');
+});
+
+test('pickTier：iPadOS 13+ 冒充 Macintosh，靠 maxTouchPoints>1 拦住', () => {
+  const ipadUA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15';
+  assert.equal(isMobileUA(ipadUA, 5), true);
+  assert.equal(isMobileUA(ipadUA, 0), false);            // 真 Mac（触控板不会让这个值 >1）
+  assert.equal(pickTier({ gpuName: 'ANGLE (Apple, Apple M1)', userAgent: ipadUA, maxTouchPoints: 5 }), 'mid');
+});
+
+test('pickTier：叫不出名字的 GPU 落 mid，不再默认 high', () => {
+  assert.equal(pickTier({ gpuName: '' }), 'mid');
+  assert.equal(pickTier({ gpuName: 'ANGLE (VMware, SVGA3D; bare-metal)' }), 'mid');
+  assert.equal(pickTier({}), 'mid');
 });

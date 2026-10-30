@@ -1,6 +1,7 @@
 // 02-scene: from index.html inline 615..854
 import { THREE, OrbitControls } from '../vendor.js';
 import { CFG, bootMark } from './00-config.js';
+import { pickTier } from './00a-quality.js';
 /* ══════════════════════════════════════════════════════════════
    2 · 渲染器 / 相机 / 控制器   ══════════════════════════════════════════════════════════════ */
 export const app = document.getElementById('app');
@@ -37,21 +38,15 @@ export const QOS_IMMUNE = SOFTWARE_GL || PROBE_DRIVEN;
    误判成 low，从而跳过体积光锥等高写实效果 —— 探针带 ?tier=high 即可拍到它们。
    2026-09-25：mid 从“能解析但等同 high”改成真正独立的均衡档。 */
 export const GPU_TIER_FORCED = (() => { try { return /[?&]tier=(low|mid|high)/.exec(location.search)?.[1] || null; } catch { return null; } })();
-const autoTier = (() => {
-  /* 低走量档：核显 / 软渲染（原行为不变） */
-  if (/Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i.test(GPU_NAME)) return 'low';
-  /* 手机 / 平板一律不超均衡档（2026-10-30 第 0 周热修）：原来不判移动端 ——
-     Adreno/Mali 旗舰哪个正则都不中，直接落"未知=high"（4K 预算 + 6144 阴影 +
-     1.25 超采样），手机发热降频反而更卡。iPadOS 13+ 的 UA 冒充 Macintosh，
-     用 maxTouchPoints>1 拦。探针要写实档带 ?tier=high 强开。 */
-  const mobile = /Android|iPhone|Mobi/i.test(navigator.userAgent)
-              || (/Macintosh/.test(navigator.userAgent) && (() => { try { return navigator.maxTouchPoints > 1; } catch { return false; } })());
-  if (mobile) return 'mid';
-  /* 独显认得出来 → 高档。正则从"GTX 10xx/20xx"扩到 GTX/RTX/RX 全系 ——
-     原来只认老卡，RTX 30/40/50 全靠"未知=high"蒙对（本机 RTX 4060 就是蒙的）。
-     真叫不出名字的（虚拟化 / 杂牌 / 陌生新卡）降均衡档，不再默认高档。 */
-  return /Apple M[1-9]|Intel Arc|GTX\s*\d{3,4}|RTX\s*\d{3,4}|Radeon RX\s*\d+/i.test(GPU_NAME) ? 'high' : 'mid';
-})();
+/* 档位判定本身挪到 00a-quality.js（纯函数、可在 node 里单测）：
+   这两条正则此前只活在本文件顶层，而本文件要 new WebGLRenderer ⇒ 它们**测不到**。
+   改错的方向两边都静默（判高 ⇒ 手机发热更卡；判低 ⇒ 独显白吃低画质），
+   2026-10-30 那次修就是在没有测试网的情况下改的。现在进 `npm run unit`。 */
+const autoTier = pickTier({
+  gpuName: GPU_NAME,
+  userAgent: (() => { try { return navigator.userAgent; } catch { return ''; } })(),
+  maxTouchPoints: (() => { try { return navigator.maxTouchPoints; } catch { return 0; } })(),
+});
 export const GPU_TIER = GPU_TIER_FORCED || autoTier;
 
 /* 电脑画质单一真值：分辨率、阴影、AO、反射、折射与粒子预算都从这里派生。
