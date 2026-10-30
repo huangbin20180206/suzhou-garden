@@ -146,3 +146,144 @@
 **这两门修完，"判据比依据严"这个形状又出现了两次**（vfog 的 1.3 vs 12.8、preload 的 6Mbps 没跟上资产缩小）。
 连同前面的路灯 10 vs 8，本轮**同一个病根出现了三次**：**判据里写死的常量，来源一旦变了就没人同步**。
 这值得单独进 PITFALLS：判据里的每个数字都该注明出处，且在出处的代码旁边留一句"改了要同步哪个门"。
+
+---
+
+# 第三轮：全量 verify 收尾（2026-10-30）
+
+第二道全量 verify（89 道）跑完，**13 道红**。逐门归因如下 —— **13 道里只有 3 道是产品/门禁的真问题，
+10 道是跑了一整天之后的环境故障**。
+
+## 一、10 道 `exit=3221225794`（0xC0000142）= Windows DLL 初始化失败
+
+```
+legibility / pmrem-env / fixed-timestep / water-fresnel / peach-form /
+night-sky / koi-behavior / desktop-quality / turtle-wake / visit-carriage
+```
+
+**全部 `0.0s`、stdout 完全为空、重跑仍红。** 这不是产品缺陷，也不是门禁缺陷 ——
+是那台机器从 05:38 跑到 15:28（十个小时、89 道门连跑）之后**进程起不来了**。
+
+判据：同样这批门在 13:16 那轮（约 5 小时）**一道都没有**这种崩法，`grep -c 3221225794` = 0；
+本轮 30 次出现（每道门首次+重跑各一次）。
+
+**结论：不要为这 10 道改任何东西。** 换一台机器 / 重启后再跑一遍即可。
+若再次出现，先看 `exit=3221225794` 与 `0.0s` 这两个特征 —— 有这两个就不要再往下追了。
+
+## 二、`afterrain-guard`：我自己上一步改出来的作用域崩溃（已修，已绿）
+
+上一轮给这道门加 `ctxAlive` 前置保护时，只把两条像素判据圈进了 `else` 块，
+`§4 抖动自检` 留在了块外 —— 而 `skyA`/`skyB` 是块内 `const`。
+于是上下文一旦出问题就 `ReferenceError: skyA is not defined`，**整个探针崩掉**
+（比报红更糟：报红还能看见读数，崩溃只剩一行栈）。
+
+`check` 那一行读到的 `23.17% / 0%` 也是假的 —— `skyB` 根本没被声明过。
+
+修法：把 §4 自检和 `uBright=3.20` 负例自检**一起**圈进同一个 `ctxAlive` 块
+（三条判据本来就共用同一前置）。修后 **ALL PASS（29 项）**。
+
+**教训**：给一段代码加前置时，要顺着数据的**使用点**往下找，不能只看它声明在哪。
+`const` 的块级作用域让"少圈一行"的后果从"读到 undefined"变成"整探针崩掉"。
+
+## 三、`macaw-wing-guard`：资产压缩引入的真 bug（已修，已绿）—— **本轮最有价值的发现**
+
+现象：`② 结构：aWing 权重 +0/−0`、`③ 展翅↔收翅 0px`。也就是**鹦鹉从来没扇过翅膀**。
+
+根因（与 `tier=high` 黑屏**无关**，去掉该参数仍复现）：
+翅膀权重公式的六个阈值（0.25/0.34/0.48/0.62/0.52/0.66）是**米制**，来自压缩**前**
+那版浮点 POSITION 的顶点量测。压缩后 POSITION 变成 `KHR_mesh_quantization` 的
+Uint16 原始整数（`normalized:false`，值域 [0,16383]），真实尺寸靠**节点变换**
+`scale≈1.156e-4` 恢复。于是 `|x|≫0.34` ⇒ `ss` 恒 1；`y≫0.62`、`z≫0.66` ⇒ 两个
+`(1−ss)` 恒 0 ⇒ 乘积恒 0。
+
+**排查中被骗过的一次**（值得留档）：`pos` 在压缩件上是 **InterleavedBufferAttribute**
+（stride=4，VEC3 被 padding 到 4 个 16 位分量）。`pos.getX(i) !== pos.array[i*3]` ——
+16413 个顶点里 16409 个对不上。第一版诊断脚本用 `array[i*3]` 自己算下标，读到的是
+隔一个的垃圾值（`0`、`10888`），差点得出"坐标本来就是乱码"的错误结论。
+**只有 `getX/getY/getZ` 是对的。**
+
+修法：量化件先把坐标换算回米制再套阈值，阈值一位不改（x 轴按半宽归一到 0.40、
+y/z 各自归一、原点挪到包围盒中心）；浮点件（压缩前形态）原样走老路径。
+判据是"数组是不是 Float32Array"，不猜 scale。
+
+修后（auto 档）：`+2391/−1953`、扇翅差异 **2817px**、**ALL PASS（10 项）**。
+
+## 四、`censer-guard`：红的不是烟，是 `tier=high` 黑屏
+
+铁证对照 —— 同一份代码、同一个门，**只去掉 `&tier=high`**：
+
+| | `tier=high` | auto |
+|---|---|---|
+| ③ 换 uTime 画面必须变 | ✗ 0px | ✓ **353px** |
+| ④ 烟↔无烟 ≥15px | ✗ 0px | ✓ **418px** |
+| 结果 | 2 FAILED | **ALL PASS（9 项）** |
+
+**烟是好的。** 它红是因为下面那个 `tier=high` 黑屏缺陷。
+
+---
+
+# ⚠️ 未修缺陷：`?tier=high` 整页黑屏（高优先级，下一窗口第一件事）
+
+## 现象
+
+`index.html?tier=high` 下**整页几乎全黑**，只剩右侧竖条（`x∈[1639,1749]`，宽 111px）有画面，
+`2 fps`。`low` / `mid` / auto 全部正常。
+
+自动截图存证：`outputs/_diag/tier-high-screenshot.png`。
+
+**影响面**：所有跑 `tier=high` 的门禁全部受污染（`censer-guard`、`macaw-wing-guard`、
+`sky-layer-guard` 等）。这是 `censer` 红的直接原因，也很可能是另外几道门偶发红的背景噪声。
+
+## 已排除（都实测过，别再走一遍）
+
+| 怀疑对象 | 实测结论 |
+|---|---|
+| 我未提交的改动 | stash 掉仍复现 → 与本轮改动无关 |
+| WebGL 上下文丢失 | `isContextLost()=false`，`loopErrors().count=0` |
+| 渲染循环抛错 | `loopErrors` 空、`pageerror` 0 条、`gl.getError()=0` |
+| 帧缓冲不完整 | `checkFramebufferStatus` 全程 `0x8CD5`（COMPLETE），27 个 RT 无一异常 |
+| GL 视口被写错 | hook `gl.viewport` 全程记录：最后一次是 `0,0,1750,1000`，全程正确 |
+| scissor 残留 | `SCISSOR_TEST=false` |
+| 共享全屏三角几何被破坏 | `_geometry.position = [-1,3,0, -1,-1,0, 3,-1,0]` 完好，uv 完好 |
+| pass 序列 / renderToScreen | 只有最后一个 pass `renderToScreen=true`，正确 |
+| MSAA samples | 三档都是 4（low 是 1.0 倍率、mid 1.1、high 1.25） |
+| GTAO | 关掉也复现 |
+| bloom / grade / heightFog / OutputPass | 单独关任何一个都不解决 |
+| 像素比本身 | `mid`(1.1) 正常、`high`(1.25) 黑 —— 不是"非 1 就坏" |
+
+## 已定位到的最窄事实
+
+- `composer.render()` 画了 **937 draw call / 4.4M 三角形**，循环健康。
+- 但**屏幕缓冲上只有 111px 宽的竖条有内容**，且**每次渲染位置会漂**（6.34% → 4.51%）。
+- `passes 0..3`（RenderPass→GTAO→depth→bloom）累计 = **100%**；
+  一旦把 **pass #4（GradeShader 调色）** 加回去，掉到 6.34%。
+- 但**手工**调 `gradePass.render()` 到屏幕 = **100% 正常**。
+  ⇒ 差别不在 shader、不在 material、不在视口，而在 **EffectComposer 内部状态**：
+  当 grade 是被自动标记 `renderToScreen` 的那一个时出错。
+
+## 下一步建议（按性价比排序）
+
+1. **对比 `mid` 与 `high` 的 composer 全量状态**（每个 pass 的 uniform/尺寸/enabled、
+   `composer.readBuffer`/`writeBuffer`、`renderTarget1/2` 的 samples 与 depthTexture）。
+   `mid` 正常而 `high` 不正常，两者代码路径几乎相同 —— 差异一定在**某个数值**上
+   （pixelRatio 1.1 vs 1.25、RT 宽 1540 vs 1750、AO 半分辨率 770×440 vs 875×500）。
+   已知 `mid` 的 RT 宽是 `1540.0000000000002`（浮点误差），`high` 是整数 `1750` ——
+   这个差异目前看着无关，但它是"数值差异"里最显眼的一个。
+2. 在 `EffectComposer.render` 里给每个 pass 前后打点（记录 `_currentViewport`、
+   `_currentRenderTarget`、GL 的 `VIEWPORT`/`FRAMEBUFFER_BINDING`），
+   **对比 mid（正常）与 high（黑屏）的逐 pass 状态差**。这是最快的路。
+3. 如果 2 定位不到，考虑绕开：本项目已在 `10-post.js` 里自建了 `depthSnapshotPass`
+   （直接传 Mesh 不走 FullScreenQuad）。可以考虑把 grade 也改成同样的自建形态。
+
+**注意**：不要靠"把某个 pass 关掉"来让它看起来正常 —— 那只是换了一条路径，没修问题。
+
+---
+
+# branch 现状（本轮结束时）
+
+- `hark/week0-hotfix`，本地未推送（老黄明确要求暂不推）。
+- 本轮新增 3 个提交：06e 注释更正 / 08c 扇翅权重修复 / 本文件。
+- `afterrain-guard` ALL PASS（29 项，实跑确认）。
+- `macaw-wing-guard` ALL PASS（10 项，auto 档实跑确认；默认档待黑屏修好后复验）。
+- `censer-guard` 仍红，**已确认是黑屏所致**，非烟的问题。
+- 其余 10 道 `0xC0000142` 属环境故障，换机器重跑即可。
