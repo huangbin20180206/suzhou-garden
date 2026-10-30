@@ -642,7 +642,22 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
      ⚠️ 2026-10-26 修"跳起时爪子瞬间变大"：旧阈值 0.18,0.32 把外侧脚趾(|x|≈0.20)算进翅膀，
      跳起时的两次扇翅(0.22rad)把脚趾拉开，近景下读作"爪子张开且变大"（outputs/_diag/
      macaw-close-*.png 对比：u=0.27 时脚掌展开宽度比静止时大一倍）。改 0.25,0.34 后
-     脚趾权重归零(1417 个脚部顶点中 |w|>0.01 从 45→0)，翅根仍有 1414 顶点>0.5。 */
+     脚趾权重归零(1417 个脚部顶点中 |w|>0.01 从 45→0)，翅根仍有 1414 顶点>0.5。
+     ⚠️⚠️ 2026-10-30（**资产压缩批次引入的真 bug，macaw-wing-guard 报 `+0/−0`**）：
+     上面那些阈值（0.25/0.34/0.48/0.62/0.52/0.66）是**米制**——它们来自压缩**前**那版
+     浮点 POSITION 的顶点量测（`macaw-wing-map.mjs`）。压缩后 Macaw.glb 的 POSITION 变成
+     了 `KHR_mesh_quantization` 的 **Uint16 原始整数**（accessor `normalized:false`，
+     磁盘值域 [0,16383]，语义值域 [0,6908]），真实尺寸靠**节点变换**
+     `translation + scale≈1.156e-4` 恢复。于是 `pos.getX(i)` 拿到的是 1164 这种数，
+     `|x| ≫ 0.34` ⇒ `ss` 恒 1；而 `y≈848 ≫ 0.62`、`z≈10946 ≫ 0.66` ⇒ 两个
+     `(1 - ss(...))` 恒 0 ⇒ **三者相乘恒为 0**（实测 16413 个顶点权重全 0，
+     `+0/−0`，扇翅注入 0px 差异）。
+     ⚠️ 注意 `pos` 在压缩件上是 **InterleavedBufferAttribute**（stride=4，VEC3 被 padding
+     到 4 个 16 位分量）——所以只有 `pos.getX/getY/getZ` 是对的，**绝不能**用
+     `pos.array[i*3]` 自己算下标（那会读到隔一个的垃圾值）。
+     修法：**先把坐标换算回米制再套阈值**。不用节点变换（几何是共享的、变换在 clone 上），
+     直接按几何自身的包围盒归一 —— 以模型原始米制尺寸为目标尺度，
+     等价于"把几何缩回压缩前那版浮点的量纲"，阈值一位不改。 */
   src.traverse(o => {
     if (!o.isMesh || o.geometry.userData.aWingDone) return;
     const geo = o.geometry, pos = geo.attributes.position;
@@ -650,6 +665,44 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
       const t = Math.min(1, Math.max(0, (v - a) / (b - a)));
       return t * t * (3 - 2 * t);
     };
+    /* 量纲对齐：量化件是 Uint16 原始整数，浮点件本来就是米制。
+       用**数组类型**这一个判据（不猜 scale），浮点件原样跳过 —— 与 06e 的
+       dequantizeGeometry 同一条思路：判据来自"数组到底是什么类型"，不来自猜测。
+       ⚠️ 归一化基准取 **x 轴半宽**，不是最长边：三个 `ss` 里只有 `ss(|x|,…)` 是
+         主轴判据（另两个是 `1−ss` 的"排除头颈/腿"），把最长边（这里是 y）当基准会
+         把 x 轴压得过小 ⇒ 权重又全落到 0（实测 k=4.88e-5、16413 顶点仍全 0）。
+         选定目标值 `X_HALF = 0.40`：这是压缩前浮点件实测的 |x| 上界（翅尖），
+         阈值 0.25/0.34 恰好落在该量纲里 —— 与原版一致，阈值一位不改。 */
+    const X_HALF = 0.40;
+    const isQuantized = !(pos.array instanceof Float32Array);
+    let k = 1;
+    if (isQuantized){
+      let mnx = Infinity, mxx = -Infinity, mny = Infinity, mxy = -Infinity,
+          mnz = Infinity, mxz = -Infinity;
+      for (let i = 0; i < pos.count; i++){
+        const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
+        if (x < mnx) mnx = x; if (x > mxx) mxx = x;
+        if (y < mny) mny = y; if (y > mxy) mxy = y;
+        if (z < mnz) mnz = z; if (z > mxz) mxz = z;
+      }
+      /* x 与 y 分别归一（不共用 k）：压缩件的 y 轴量程是 x 的 2.4 倍，
+         共用 k 会让 y 落在 [0,2.4×X_HALF] 而 ss(y,0.48,0.62) 判错。 */
+      const kx = (mxx - mnx) > 0 ? X_HALF / ((mxx - mnx) / 2) : 1;
+      const ky = (mxy - mny) > 0 ? (X_HALF * 2.4) / (mxy - mny) : 1;
+      const kz = (mxz - mnz) > 0 ? (X_HALF * 2.2) / (mxz - mnz) : 1;
+      const cx = (mnx + mxx) / 2, cy = (mny + mxy) / 2, cz = (mnz + mxz) / 2;
+      const arr = new Float32Array(pos.count);
+      for (let i = 0; i < pos.count; i++){
+        const x = (pos.getX(i) - cx) * kx, y = (pos.getY(i) - cy) * ky, z = (pos.getZ(i) - cz) * kz;
+        arr[i] = ss(Math.abs(x), 0.25, 0.34)
+               * (1 - ss(y, 0.48, 0.62)) * (1 - ss(z, 0.52, 0.66))
+               * (x >= 0 ? 1 : -1);
+      }
+      geo.setAttribute('aWing', new THREE.BufferAttribute(arr, 1));
+      geo.userData.aWingDone = true;
+      return;
+    }
+    /* 浮点件（压缩前的资产形态）：坐标本来就是米制，原样套阈值。 */
     const arr = new Float32Array(pos.count);
     for (let i = 0; i < pos.count; i++){
       const x = pos.getX(i), y = pos.getY(i), z = pos.getZ(i);
