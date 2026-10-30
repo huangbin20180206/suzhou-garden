@@ -33,7 +33,19 @@ export let assetFailures = 0;               // 供启动状态显示
      · 踏面射线 `sampleFloorNear` —— 射线打在世界空间，顶点却是量化前的整数 ⇒ 打不中。
    所以在**加载后立刻反量化回 Float32**，让下游看到的与原未压缩资产逐字节同构。
    代价：显存/内存回到压缩前水平（下载体积的收益一分不少 —— 那是网络侧的账）。
-   ⚠️ 只处理 `normalized === true` 的属性；`-noq` 打出来的浮点资产原样跳过。 */
+   ⚠️ 只处理 `normalized === true` 的属性；`-noq` 打出来的浮点资产原样跳过。
+   ⚠️⚠️ 试过、**已回滚**（2026-10-30，留档免得下一个人再试一遍）：
+   想把判据从 `normalized` 放宽成"底层数组是整型就按满量程折回"，
+   理由是 `KHR_mesh_quantization` 的 POSITION 走 offset+scale 那条路，
+   accessor 是 Uint16 但 `normalized === false`，看着像是漏判。
+   **实测立刻翻车**：three 的 GLTFLoader 对 offset/scale 型 POSITION 已经把它还原成
+   **Float32Array**（offset/scale 烘进去了），所以放宽后这条分支根本进不去，
+   真正被多除一次的是别的整型属性 ⇒ 坐标塌成 ~1e-5 ⇒ `computeBoundingBox` 直接 NaN
+   （macaw-wing-guard 当场报 "position attribute is likely to have NaN values"）。
+   ⇒ **判据只有 `normalized` 这一个是对的**：它才代表"这个数组的数值需要折回 [-1,1]"。
+   macaw-wing-guard 报的 `+0/−0`（16413 个顶点扇翅权重全 0）是**另一个根因**，尚未查明；
+   不要靠放宽这一条去猜它。 */
+/* 各整型数组的满量程（把整数折回 [-1,1]）。 */
 const DENORM = new Map([
   ['Int8Array', 127], ['Uint8Array', 255], ['Int16Array', 32767], ['Uint16Array', 65535],
 ]);
