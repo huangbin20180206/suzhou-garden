@@ -40,6 +40,7 @@ import { tickGroomFeed } from './08-assemble.js';
    写的是 08b 新加的 pivot（肩/髋/跳），与循环里写 root 的那几行互不重叠。 */
 import { tickFigureAction } from './08b-figures.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
+import { isDebugSurface } from './00a-quality.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
 import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL, enterBasic as preloadEnterBasic, assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
@@ -1821,7 +1822,9 @@ warmBoot().then(startAfterWarm, (err) => {
 });
 
 // 供外部检查使用（smoke 测试与采集脚本都从这里驱动）
-window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, setEnv, applyEnv,
+/* ⚠️ 名字带 __GARDEN_FULL：本块只是**构造**，最终挂到 window 上的是文件末尾那段
+   GARDEN_DEBUG 分流（生产环境只挂只读快照）。不要在这里直接 window.__garden = ... */
+const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV, setEnv, applyEnv,
                   MAT,   // 材质表：门禁要按材质身份断言（如冬季紫藤花穗 count=0），别让探针靠启发式猜
                   WIND, PRECIP, weatherAllowed, effectiveWeather, weatherMutexReason, resetCamera,
                   /* T0：装配完成信号（2026-09-23）。⚠️ bootDone 是 08-assemble 的 `let` 活绑定，
@@ -2009,6 +2012,39 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      门禁与诊断只能伸手去抠 heightFogPass 内部 —— 而抠 pass 正是本项目反对的
                      做法：探针里重调会被下一帧的参数覆盖。 */
                   setHFogEnabled };
+
+/* ── 生产环境收起调试接口（2026-10-30 · 架构收口）────────────────────────────
+   `__garden` 现在挂着 100+ 个内部对象（scene / 材质表 / 导演状态 / 各种 setXxx 后门），
+   它是**门禁与诊断的唯一驱动面**，不能删 —— 84 道浏览器门都靠它。但它也是：
+     · 每个访问者都能在控制台改场景状态（含 setKoiBreachConfig 这类权威开关）；
+     · 一个把内部实现暴露成事实标准的 API 面（改内部就得改它，谁都不敢动）。
+   所以按"是不是在被人驱动"分流：
+     · **在**被驱动（`navigator.webdriver` / `?debug=1` / localhost）⇒ 全量暴露，行为一位不变；
+     · **不在** ⇒ 只留**只读快照**：版本号 + bootDone + loopErrors。够用户报障时说
+       "它卡在营造中，loopErrors 有 3 条"，够不着任何改状态的后门。
+   ⚠️ 判据用 `navigator.webdriver`（直接信号），不用 UA 猜 —— 与 QOS 免疫判据同一个理由
+      （见 02-scene 的 PROBE_DRIVEN 注释：代理判据会随环境变化失效）。
+   ⚠️ 本机 `file://` 打开时 `location.hostname` 为空，算 localhost —— 老黄本机始终全量。 */
+const GARDEN_DEBUG = isDebugSurface({
+  search: (() => { try { return location.search; } catch { return ''; } })(),
+  webdriver: (() => { try { return navigator.webdriver === true; } catch { return false; } })(),
+  hostname: (() => { try { return location.hostname; } catch { return ''; } })(),
+});
+if (GARDEN_DEBUG){
+  window.__garden = __GARDEN_FULL;
+} else {
+  /* 只读快照：**每次读都现算**（getter），不是建对象时定格。
+     `bootDone` 尤其必须这样 —— 它是个 `let` 活绑定，定格成 false 会让外部的
+     "等它变 true"永远等不到（教训见 __GARDEN_FULL 里那段同名注释）。 */
+  window.__garden = Object.freeze({
+    version: 'suzhou-garden',
+    bootDone: () => bootDone,
+    bootDonePromise,
+    loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),
+  });
+  /* 让控制台里的探索者知道去哪找：不是错误，是一行提示 */
+  console.info('[园林] 已开园。调试接口在生产模式下收起；本机打开或加 ?debug=1 可用。');
+}
 
 /* ══ 首次引导（P2-7）══
    三步：转视角 → 换天时 → 巡游/留影。只在**第一次**进来时出现（localStorage 记账）。

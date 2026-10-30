@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mulberry32 } from '../src/00-config.js';
-import { pickTier, isMobileUA } from '../src/00a-quality.js';
+import { pickTier, isMobileUA, isDebugSurface } from '../src/00a-quality.js';
 import {
   mixInto, paramsAtHour, nearestTimeKey, fmtHour, weatherMutexReason,
 } from '../src/12a-presets.js';
@@ -104,4 +104,22 @@ test('pickTier：叫不出名字的 GPU 落 mid，不再默认 high', () => {
   assert.equal(pickTier({ gpuName: '' }), 'mid');
   assert.equal(pickTier({ gpuName: 'ANGLE (VMware, SVGA3D; bare-metal)' }), 'mid');
   assert.equal(pickTier({}), 'mid');
+});
+
+/* ── 调试接口收起（2026-10-30 · 架构收口）──
+   本机永远走不到"生产分支"，不抽成纯函数就只能靠读代码觉得对。 */
+test('isDebugSurface：生产域收起、本机与门禁环境展开', () => {
+  // 生产：真域名的普通访问 ⇒ 收起
+  assert.equal(isDebugSurface({ hostname: 'garden.example.com' }), false);
+  assert.equal(isDebugSurface({ hostname: 'suzhou-garden.vercel.app' }), false);
+  // 本机（老黄的日常）⇒ 展开，体验一位不变
+  assert.equal(isDebugSurface({ hostname: 'localhost' }), true);
+  assert.equal(isDebugSurface({ hostname: '127.0.0.1' }), true);
+  assert.equal(isDebugSurface({ hostname: 'garden.localhost' }), true);
+  assert.equal(isDebugSurface({ hostname: '' }), true);              // file://
+  // 门禁/诊断
+  assert.equal(isDebugSurface({ webdriver: true, hostname: 'garden.example.com' }), true);
+  assert.equal(isDebugSurface({ search: '?debug=1', hostname: 'garden.example.com' }), true);
+  // 反例：光有 ?debug=0 不算
+  assert.equal(isDebugSurface({ search: '?debug=0', hostname: 'garden.example.com' }), false);
 });

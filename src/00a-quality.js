@@ -40,3 +40,18 @@ export function pickTier({ gpuName = '', userAgent = '', maxTouchPoints = 0 } = 
   if (isMobileUA(userAgent, maxTouchPoints)) return 'mid';
   return HIGH_RE.test(String(gpuName || '')) ? 'high' : 'mid';
 }
+
+/* ── 调试接口是否展开（2026-10-30 · 架构收口）───────────────────────────────
+   `window.__garden` 挂着 100+ 个内部对象与后门（setXxx），是门禁的唯一驱动面，
+   不能删；但线上不该让任何人从控制台改场景状态。
+   判据：`?debug=1` 显式要求 / 被自动化驱动（navigator.webdriver）/ 本机打开。
+   ⚠️ **本机一律算调试态**：localhost、127.0.0.1、`*.localhost`、以及 `file://`
+      （hostname 为空）—— 老黄始终本机打开，他的体验一位不变。
+   ⚠️ 提成纯函数是为了让**生产分支**有测试网：本机永远走不到那条分支，
+      不抽出来就只能靠"读代码觉得对"（本项目最不信任的验证方式）。 */
+export function isDebugSurface({ search = '', webdriver = false, hostname = '' } = {}){
+  if (String(search).includes('debug=1')) return true;
+  if (webdriver === true) return true;
+  const h = String(hostname || '');
+  return h === '' || h === 'localhost' || h === '127.0.0.1' || h.endsWith('.localhost');
+}
