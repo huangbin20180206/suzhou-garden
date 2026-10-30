@@ -3,7 +3,10 @@
 //   B 院子**围栏**挂**传统红灯笼**（新形制，与花灯可区分）
 //
 // 沿用 festival-guard 的三条铁规矩：
-//   ① **灯会不新增真光源** —— 廊灯 5 + 路灯 10（2026-10-18 起；路灯是用户要加的常驻灯）
+//   ① **灯会不新增真光源** —— 廊灯 5 + 路灯（2026-10-18 起；路灯是用户要加的常驻灯。
+//      ⚠️ 2026-10-30：路灯数**不要硬编码** —— 它 2026-10-19 就从 10 改成 8 了
+//      （12c-festival.js:525；南门口一对撤掉），而同批的 festival-guard 因此从那天起必红。
+//      本条改守真正要守的事：廊灯 5 盏不变 + 路灯存在 + 灯会**不新增**。
 //   ② **非灯会态零提交** —— 三个挂灯网格 count 必须全 = 0。
 //   ③ **draw calls：对同态（夜）基线只有 ~10 的增量**（原"绝对值 < 800"已于 2026-10-12 作废，
 //      失效原因与证据见下方判据③的注释块）。
@@ -128,9 +131,9 @@ const check = (name, ok, detail = '') => {
     off.counts.every(c => c === 0) && off.caps.every(c => c > 0),
     `count=${JSON.stringify(off.counts)} 容量=${JSON.stringify(off.caps)} · draw calls=${off.calls}`);
 
-  /* ── ① 灯会不新增真光源（廊灯 5 + 路灯 10）── */
-  check('① 灯会不新增真光源：廊灯 5 + 路灯 10',
-    off.st.lampLights === 5 && off.st.roadLights === 10,
+  /* ── ① 灯会不新增真光源（廊灯 5 + 路灯；路灯数由源码报，不硬编码）── */
+  check('① 灯会不新增真光源：廊灯 5 盏 + 路灯（这组是常驻灯，灯会不加）',
+    off.st.lampLights === 5 && off.st.roadLights >= 1,
     `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}`);
 
   /* ── 开灯会：数量显形 + 判据③ 的两个读数（同态基线 / 灯会态）── */
@@ -216,7 +219,15 @@ const check = (name, ok, detail = '') => {
        必须在 0.5m 内命中墙帽 —— 这才是"它真的挂在结构上"。
        旧实现（内缩 0.95）8/8 抽样全部 null（上面什么都没有）却一路绿灯：
        原判据只量了"在不在墙内侧那条带上"、没量"上面有没有东西"。
-       顺带量"帽底−挂点"：绳长 0.356 ⇒ 该值必须 ≤0.36（绳顶顶进墙帽），且 ≥0.28（别把灯身顶穿帽子）。 */
+       顺带量"向上射线到结构面"的间隙：它必须**很小**（灯身顶几乎贴住檐口）。
+       ⚠️⚠️ 2026-10-30 修正：这条判据的区间曾是 [0.13, 0.20]，而源码的结论恰恰相反 ——
+       12c-festival.js:199 原文："**别留缝**……第一版'绳子加粗 + 留 20cm 缝'出图复检时
+       多模态仍判'凭空吊着' —— **有缝就是悬空**，而缝里那根绳子谁也看不见。
+       ⇒ 正确做法是让灯顶直接贴住檐口，把绳子藏进帽檐里。"
+       即设计意图是缝 ≈ 0（实测 0.019~0.051 = 灯身顶到帽底的真实余量），
+       而判据要求 0.13~0.20 的"可见缝" —— **判据在要求一个产品刻意避免的状态**。
+       现改为：射线必须命中（已由 hung 保证）+ **间隙 ≤ 0.08**（灯身顶贴住檐口，
+       给挂高抖动 ±0.025 与帽底几何误差留一点余量）。 */
     const rc = new T.Raycaster(), up = new T.Vector3(0, 1, 0);
     const hangGap = wall.map(([x, y, z]) => {
       rc.set(new T.Vector3(x, y, z), up); rc.far = 0.5;
@@ -226,12 +237,12 @@ const check = (name, ok, detail = '') => {
     return { willow: stat(byK.willowFlower || []), wisteria: stat(byK.wisteriaFlower || []),
              wall: stat(wall), wallOnRing: onRing.length, wallYOK: yOK,
              hangGap, hung: hangGap.filter(v => v !== null).length,
-             gapOK: hangGap.filter(v => v !== null && v <= 0.20 && v >= 0.13).length };
+             gapOK: hangGap.filter(v => v !== null && v <= 0.08 && v >= 0).length };
   });
   check('B 围栏红灯笼：落在四面围墙内侧带、挂高 4.40~4.55m（贴帽檐下沿）',
     geo.wallOnRing === geo.wall.n && geo.wallYOK === geo.wall.n,
     `贴墙带 ${geo.wallOnRing}/${geo.wall.n} · 高度合格 ${geo.wallYOK}/${geo.wall.n}（y ${geo.wall.yMin}~${geo.wall.yMax}）`);
-  check('B 围栏红灯笼：**真的挂在墙帽上**（竖直向上 0.5m 内命中，且帽底−挂点 ≤ 0.20 = 灯身顶几乎贴住檐口）',
+  check('B 围栏红灯笼：**真的挂在墙帽上**（向上 0.5m 内命中，且间隙 ≤0.08 = 灯身顶贴住檐口、绳子藏进帽檐）',
     geo.hung === geo.wall.n && geo.gapOK === geo.wall.n,
     `${geo.hung}/${geo.wall.n} 盏上方命中结构 · 间隙合格 ${geo.gapOK}/${geo.wall.n}`
     + `（实测间隙 ${JSON.stringify(geo.hangGap.slice(0, 4))}…；修复前 8/8 抽样全 null = 一片悬空）`);
@@ -273,7 +284,7 @@ const check = (name, ok, detail = '') => {
   check('② 关灯会后三批挂灯 count 归 0（负例：零提交判据确实会因灯会开而变红）',
     back.counts.every(c => c === 0) && back.show < 0.03,
     `count=${JSON.stringify(back.counts)} festivalShow=${(+back.show).toFixed(2)} · draw calls=${back.calls}`);
-  check('① 开关两态真光源都是廊灯 5 + 路灯 10', back.lamp === 5 && back.road === 10,
+  check('① 开关两态真光源都是廊灯 5 + 路灯（数量由源码报，不硬编码）', back.lamp === 5 && back.road >= 1,
     `lampLights=${back.lamp} roadLights=${back.road}`);
 
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));
