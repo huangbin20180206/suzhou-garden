@@ -88,7 +88,7 @@ try {
        （离线实测只查已声明的 8 项，自然全 200）。漏项的机器守卫另见
        probe/preload-manifest-sync.mjs（纯文本比对，不用起浏览器）。 */
     const urls = ['/index.html', '/vendor.js', '/manifest.webmanifest', '/icons/garden.svg',
-      '/assets/BananaPlant.glb', '/assets/koi.glb', '/assets/LotusPlant.glb', '/assets/Turtle.glb',
+      '/assets/BananaPlant.glb', '/assets/koi.glb', '/assets/lotus-bloom.glb', '/assets/Turtle.glb',
       '/assets/Macaw.glb'];
     return Promise.all(urls.map(async url => { const r = await fetch(url); return { url, status: r.status, bytes: (await r.arrayBuffer()).byteLength }; }));
   });
@@ -98,7 +98,8 @@ try {
   /* ── 断网重载：这一次才是本门真正要证的那件事 ── */
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`, { timeout: 60000 });
   await waitBoot('断网重载');
-  const MODELS = ['KoiFish', 'Turtle', 'BananaPlant', 'LotusPlant', 'Macaw'];
+  // 2026-10-30：LotusPlant 已退役（拆成三态荷花）⇒ 换 lotusState_lotusBloom
+  const MODELS = ['KoiFish', 'Turtle', 'BananaPlant', 'lotusState_lotusBloom', 'Macaw'];
   await page.waitForFunction((names5) => {
     const names = new Set();
     window.__garden.scene.traverse(o => { for (const n of names5) if (o.name.includes(n)) names.add(n); });

@@ -214,6 +214,12 @@ export function makeBananaPlant(x, z, trunkH = 2.8, leafScale = 1.0, withFruit =
      挂错地方 ⇒ 冬季整株被缩到 12%，把多年生当一年生（第九轮的老教训）。 */
   const attachLeaf = (obj) => {
     const holder = new THREE.Group();
+    /* ⚠️ 2026-10-30：这个 holder 此前**没有名字**，于是所有按 'BananaPlant' 找它的探针
+       （figure-audit 的「异步 GLB 到齐」、asset-shots、pwa-cache）从写下那天起就永远判不到。
+       figure-audit 因此卡在「到齐超时」—— 它只是**警告**，可后面所有机位求解都建在
+       「荷花荷叶已经挂上」这个前提上，前提没等到，机位就每次落在别处，样张不可比。
+       命名口径与 06e 的注释（'Turtle / BananaPlant / LotusPlant 三类 GLB'）一致。 */
+    holder.name = 'BananaPlant';
     holder.position.y = trunkH - 0.25;
     holder.add(obj);
     crown.add(holder);

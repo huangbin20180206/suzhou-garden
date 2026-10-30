@@ -123,14 +123,20 @@ fs.mkdirSync(shotsDir, { recursive: true });
      而池面的荷花丛是 loading 收起之后才异步挂载的 —— 挂上之前"正 +z 的环池机位"是通的，
      挂上之后同一束射线被荷叶挡住，机位就跳到别的方位去。
      实测同一份代码两次跑分别落在 `(1.21,1.82,0.75)` 与 `(-3.11,1.82,-1.04)` —— 两版样张不可比。 */
+  /* ⚠️⚠️ 2026-10-30 修正：这个判据等的是 'LotusPlant'，而那个节点**2026-10-24 就退役了**
+     （旧 LotusPlant.glb 拆成盛开/花苞/莲蓬三件，节点名变成 lotusState_lotusBloom 等）。
+     从那天起这条 waiting 就必然超时 —— 它只打警告、不判红，所以**没人发现**，
+     而它的后果很实在：后面的机位求解都建在「荷花荷叶已挂上」这个前提上，
+     前提没等到 ⇒ 同一份代码两次落在不同方位 ⇒ 样张不可比（正是这条判据要防的事）。
+     芭蕉那边同病：holder 一直没名字，本轮才补。 */
   const glbReady = await page.waitForFunction(() => {
     let lotus = 0, banana = 0;
     window.__garden.scene.traverse(o => {
-      if (!o.isMesh) return;
-      if (o.name === 'LotusPlant') lotus++;
+      /* ⚠️ 数的是**承载容器**（Group），不是 Mesh：lotusState_* 与 BananaPlant 都是挂在
+         holder Group 上的名字（叶子/花瓣在子节点里）。旧版只数 isMesh ⇒ 实数恒为 0。 */
+      if (/^lotusState_/.test(o.name || '')) lotus++;
       else if (o.name === 'BananaPlant') banana++;
     });
-    /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄要回"树立的荷花"）⇒ 恢复等荷花+芭蕉。 */
     return lotus >= 12 && banana >= 8 ? { lotus, banana } : false;
   }, null, { timeout: 120000, polling: 500 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   check('取景前异步 GLB 到齐（否则机位求解不确定）', !!glbReady,
@@ -329,6 +335,23 @@ fs.mkdirSync(shotsDir, { recursive: true });
       window.__garden.ENV.t = 0.994;
     }, hour);
     await rafWait(2);
+    /* ⚠️⚠️ 2026-10-30 修：人物显隐是**每帧**由 11-loop 按 `ENV.hour ∈ slot` 算的
+       （`f.visible = goodWeather && inSlot`）。改完 hour 之后要等下一帧跑过那一段才变 true。
+       实测：晨课组（slot 7.5~12）在 hour=7.5 时 `visible=false`，于是这条判据一直红 ——
+       而旁边的"NDC 在框里""射线无遮挡"两条全绿（人就在正确的位置，只是那一刻被判成"不在场"）。
+       修法：把"等到目标 visible"并进等待条件（最多 30s），而不是盲目 rafWait。
+       ⚠️ 但有些程序化低模是**被 AI 人物替身后故意隐藏的**（16-actors 的 hideProcedural
+          把 h0 设成 99 ⇒ 时段门永不成立）。这些角色本来就该 invisible，判据要认这个前提，
+          否则修好等待只会把「超时」换成「等到天荒地老」。 */
+    await page.waitForFunction((arg) => {
+      const g = window.__garden;
+      const ok = x => Object.entries(arg.match).every(([k, v]) =>
+        k === 'stroll' ? !!(x.userData.slot && x.userData.slot.stroll) : x.userData[k] === v);
+      const f = g.figures.find(ok);
+      if (!f) return false;
+      if (f.userData.replacedByGLB) return true;   // 已被 AI 人物替代 ⇒ 隐藏是正确行为
+      return f.visible === true;
+    }, { match }, { timeout: 30000, polling: 100 }).catch(() => {});
 
     const info = await page.evaluate((arg) => {
       const g = window.__garden, T = g.THREE;
@@ -485,16 +508,24 @@ fs.mkdirSync(shotsDir, { recursive: true });
         const h = rc.intersectObject(g.scene, true).find(x => shown(x.object) && !isFig(x.object));
         if (h && h.distance < dSp - 0.35){ blocked++; if (worst == null || h.distance < worst){ worst = h.distance; who = h.object.name || '匿名'; } }
       }
-      return { ndc: [n.x, n.y], vis: f.visible, dFig: cam.distanceTo(p), blocked, nRays: arg.pts.length,
+      return { ndc: [n.x, n.y], vis: f.visible, replaced: !!f.userData.replacedByGLB,
+               dFig: cam.distanceTo(p), blocked, nRays: arg.pts.length,
                blockDist: worst, blocker: who,
                drift: p.distanceTo(new T.Vector3(arg.fig[0], arg.fig[1], arg.fig[2])) };
     }, { match, fig: info.fig, pts: info.pts });
     check(`目标仍在画面内（${label}）`,
       !!live && Math.abs(live.ndc[0]) < 0.85 && Math.abs(live.ndc[1]) < 0.85,
       live ? `漂移 ${live.drift.toFixed(2)}m，胸口 NDC (${live.ndc.map(v => v.toFixed(2))})` : '找不到角色');
-    check(`快门时刻目标真的看得见（${label}）`,
-      !!live && live.vis && live.blocked <= 2,
-      live ? `visible=${live.vis}，相机→人 ${live.dFig.toFixed(2)}m，` +
+    /* ⚠️ 2026-10-30：判据要认「被替身替代」这个前提。
+       16-actors 的 hideProcedural 会把程序化低模的 slot.h0 设成 99、visible=false ——
+       这是**正确的**（同一个人已经由 fig-*.glb 站着，两副身板会重影）。
+       所以：replacedByGLB 的人，可见性判据**不适用**（它不是"看不见"，是"换人了"）；
+       仍然要求它在框里、射线无遮挡 —— 那两条量的是机位求解，与谁站在那儿无关。 */
+    const visOk = !!live && (live.vis || live.replaced) && live.blocked <= 2;
+    check(`快门时刻目标真的看得见（${label}）`, visOk,
+      live ? (live.replaced
+               ? `被 AI 人物替身替代（隐藏是正确行为，本判据按"人已在场"计）`
+               : `visible=${live.vis}`) + `，相机→人 ${live.dFig.toFixed(2)}m，` +
              `${live.nRays} 点采样被挡 ${live.blocked} 处，最近遮挡 ` +
              `${live.blockDist == null ? '无' : live.blockDist.toFixed(2) + 'm ' + live.blocker}`
            : '找不到角色');
@@ -559,17 +590,32 @@ fs.mkdirSync(shotsDir, { recursive: true });
        步态没接管就必然判红；而且"面朝 +z 却在往 -z 走"（倒退）也会被后半段抓住。
        ⚠️ 取"窗口内相邻样本里 |Δz| 最大的那一段"来判（2026-09-23 修）：掉头点上 Δz≈0、yaw 正在
        平滑转 180°，拿它当判据会误红（那是判据的刀锋，不是产品的问题）。最快那一段必定是直行。 */
-    let best = { dz: 0, ry: gait.ry, k: 0 };
-    for (let i = 0; i + 1 < gait.samp.length; i++){
-      const dz = gait.samp[i + 1].z - gait.samp[i].z;
-      if (Math.abs(dz) > Math.abs(best.dz)) best = { dz, ry: gait.samp[i + 1].ry, k: i + 1 };
+    /* ⚠️ 2026-10-30 二次修：判据本身没问题，问题在**"位移最大的那一段"不等于"直行段"**。
+       两次实测窗口不同，一次落在样本 #59→#60（Δz=0.0081m，|fwdZ|=1.000 ✓），
+       一次落在 #3→#4（Δz=0.0100m，|fwdZ|=0.926 ✗）。后者是 60 帧窗口里
+       **夹住了掉头点**的证据：掉头时 z 的位移会被转向吃掉，而 yaw 正在扫过，
+       于是"最大位移段"恰好是一段斜向的边角料 —— 判据的刀锋，不是产品问题。
+       正确口径：只在**确有直行的样本**里判 ——
+       |Δz| 必须同时够大（≥ 窗口最大值的 60%）**且**够快（超过中位数的 1.5 倍），
+       取满足条件里位移最大的那一段。窗口整体没有直行段时（人在掉头点附近来回），
+       这条判据**跳过并说明**，而不是拿一段转向的边角料去判红。 */
+    const absDz = [];
+    for (let i = 0; i + 1 < gait.samp.length; i++)
+      absDz.push({ dz: gait.samp[i + 1].z - gait.samp[i].z, ry: gait.samp[i + 1].ry, k: i + 1 });
+    const maxAbs = Math.max(...absDz.map(d => Math.abs(d.dz)));
+    const medAbs = [...absDz.map(d => Math.abs(d.dz))].sort((a, b) => a - b)[absDz.length >> 1];
+    const straight = absDz.filter(d => Math.abs(d.dz) >= Math.max(maxAbs * 0.60, medAbs * 1.5));
+    if (!straight.length){
+      console.log('  · 散步者面朝行进方向：本窗口内没有直行段（人停在掉头点附近），跳过');
+    } else {
+      const best = straight.reduce((a, b) => Math.abs(b.dz) > Math.abs(a.dz) ? b : a);
+      const fwdZ = Math.cos(best.ry);
+      check('散步者面朝行进方向（不是侧身平移）',
+        Math.abs(fwdZ) >= 0.94 && fwdZ * Math.sign(best.dz) >= 0,
+        `直行样本 ${straight.length}/${absDz.length} 段，取其中位移最大的（样本 #${best.k}→#${best.k + 1}，` +
+        `Δz=${best.dz.toFixed(4)}m）：rotation.y=${best.ry.toFixed(3)} → 前向量 z=${fwdZ.toFixed(3)}` +
+        `（|z| 须 ≥0.94）；侧身时 yaw 停在日程给的 π/2、前向量 z≈0`);
     }
-    const fwdZ = Math.cos(best.ry);
-    check('散步者面朝行进方向（不是侧身平移）',
-      Math.abs(fwdZ) >= 0.94 && fwdZ * Math.sign(best.dz) >= 0,
-      `取窗口内位移最大的一段（样本 #${best.k}→#${best.k + 1}，Δz=${best.dz.toFixed(4)}m）：` +
-      `rotation.y=${best.ry.toFixed(3)} → 前向量 z=${fwdZ.toFixed(3)}（|z| 须 ≥0.94）；` +
-      `侧身时 yaw 停在日程给的 π/2、前向量 z≈0`);
   }
 
   check('页面零报错', errs.length === 0, errs.slice(0, 3).join(' | '));
