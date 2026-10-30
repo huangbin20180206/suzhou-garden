@@ -123,3 +123,20 @@ test('isDebugSurface：生产域收起、本机与门禁环境展开', () => {
   // 反例：光有 ?debug=0 不算
   assert.equal(isDebugSurface({ search: '?debug=0', hostname: 'garden.example.com' }), false);
 });
+
+/* ── 写意标注表（2026-10-30 · 内容批次）──
+   表本身是数据，但它有两条会被悄悄破坏的性质：每条都要有 label 与 text（漏了
+   导览会显示 "undefined"），且 id 必须与机位 id 对得上（对不上=注永远不出现）。 */
+test('ARTISTIC_NOTES：每条都有 label/text，且 key 与机位 id 对得上', async () => {
+  const { ARTISTIC_NOTES, artisticNoteFor } = await import('../src/16b-artistic-note.js');
+  const ids = Object.keys(ARTISTIC_NOTES);
+  assert.ok(ids.length >= 3, '标注表不该空');
+  for (const id of ids){
+    const n = ARTISTIC_NOTES[id];
+    assert.ok(n && typeof n.label === 'string' && n.label.length, `${id} 缺 label`);
+    assert.ok(typeof n.text === 'string' && n.text.length > 20, `${id} 的 text 太短或缺失`);
+  }
+  // 机位 id 的真实来源：08d 的 VIEWPOINTS。这里只校验几个确定存在的
+  for (const id of ['lantern', 'stable']) assert.ok(ARTISTIC_NOTES[id], `缺 ${id} 的注`);
+  assert.equal(artisticNoteFor('no-such-id'), null);   // 未登记 ⇒ null，不加也不兜底
+});

@@ -6,6 +6,7 @@ import { CFG, HOOKS } from './00-config.js';
 import { world, camera, controls, renderer, CAM_MIN_DIST, CAM_HOME, PROBE_DRIVEN } from './02-scene.js';
 import { groundHeight } from './05-water.js';
 import { envEl } from './12-env.js';
+import { artisticNoteFor } from './16b-artistic-note.js';
 
 /* ══ 巡游观鱼者的闭合步行路径（2026-10-06 · 老黄反馈 B）═════════════════════════
    老黄："巡游观鱼的主人身体倾斜也很厉害 ⇒ 收小倾斜，让他沿『草皮 → 池岸 → 汀步/拱桥
@@ -575,7 +576,7 @@ const TOUR_CAPTIONS = {
      (4.0,·,−3.8) 是搬迁前的锚点，已作废。
      文案贴既有设定：火袋四面开窗、火袋材质 lantern_glow 的 emissive 由模型自带
      （12d 灯火体系之外第一件自带发光的实体）⇒「入夜不必点烛」是事实，不是修辞。 */
-  lantern:  { title: '石灯笼', text: '院外石板路两侧一路石灯，隔七八米一对，笠下火袋四面开窗。入夜不必点烛 —— 火袋里那膛暖光自己亮着，照着进出马厩的夜路。' },
+  lantern:  { title: '石灯笼', text: '院外石板路两侧一路石灯，隔七八米一对，笠下火袋四面开窗。入夜不必点烛 —— 火袋里那膛暖光自己亮着，照着进出马厩的夜路。', note: '石灯笼在日本庭园里更常见；此处按江南园林的石灯意象放置，形制是写意的。' },
   /* 「主峰近观」站：与 hero 站互为远近两档。文案里的"水线与苔痕的层理"指 GLB 浅灰重导
      （3639b6f）后的石皮；"孔洞里存着雨"接 P0-4 的漏透率口径（±z 17.4% / +x 21.5%）。 */
   heroPeak: { title: '主峰近观', text: '贴近了看 —— 灰白的石皮上有水线与苔痕的层理，孔洞里存着雨。池南这一峰，越近越见骨。' },
@@ -621,17 +622,37 @@ export function tourPlan(){
 export const TOUR = { on: false, idx: 0, dwell: 6.0, wait: 0 };
 let captionOwner = '';
 export const captionEl = () => document.getElementById('caption');
+/* ── 写意标注（2026-10-30 · 内容批次）────────────────────────────────────────
+   有些件是**凭想象补的**（金刚鹦鹉产自中南美、三匹外国马种、石灯笼更近日本庭园），
+   留着是对的（场景要生气），但没人回答过"它哪来的"。
+   这里在字幕末尾补一行「写意处理：……」，**只在 `?notes=1` 时加** ——
+   首次访问不该被考据说明打扰，懂行的人想看得自己开口要。
+   文案的真值在 src/16b-artistic-note.js（那张表同时是可读的出处文档）。 */
+let artisticNotesOn = null;
+function showArtisticNotes(){
+  if (artisticNotesOn === null){
+    try { artisticNotesOn = /[?&]notes=1/.test(location.search); } catch { artisticNotesOn = false; }
+  }
+  return artisticNotesOn;
+}
 function setCaption(c, owner){
   const el = captionEl();
   if (!el || !c) return false;
   el.querySelector('b').textContent = c.title;
-  el.querySelector('span').textContent = c.text;
+  let text = c.text;
+  if (showArtisticNotes() && c.note) text += '\n写意处理：' + c.note;
+  el.querySelector('span').textContent = text;
   captionOwner = owner;
   el.classList.add('show');
   return true;
 }
 export function showCaption(id, owner = 'manual'){
-  return setCaption(TOUR_CAPTIONS[id], owner);
+  /* 写意标注只在 `?notes=1` 时附在字幕末尾（见 setCaption 上方的说明）。
+     注文案按机位 id 从 16b 那张表取；没登记就返回 null，不加也不兜底。 */
+  const base = TOUR_CAPTIONS[id];
+  if (!base) return setCaption(base, owner);
+  const n = artisticNoteFor(id);
+  return setCaption(n ? { ...base, note: n.text } : base, owner);
 }
 export function showSeasonCaption(season){
   return setCaption(SEASON_CAPTIONS[season], 'season-demo');
