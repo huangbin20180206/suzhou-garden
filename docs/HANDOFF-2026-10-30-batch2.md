@@ -355,3 +355,20 @@ y/z 各自归一、原点挪到包围盒中心）；浮点件（压缩前形态�
 2. **HDR + 泛光管线对 NaN 极其敏感**：1 个坏像素就足以让全屏变黑（模糊会扩散）。
    任何"只在某些档位才出现"的全屏黑，先用"NaN 标品红"的诊断着色器数一遍，
    比逐 pass 对比状态快一个数量级（本轮的 `cause10`/`cause14` 就是现成脚本）。
+
+
+## 提交与推送（2026-10-31）
+
+- **提交**：`bd33d8d 修正 ?tier=high 整页黑屏：水面被反射贴图里的非有限像素污染，经泛光扩散成整屏 NaN`
+  （2 文件 +97/−1：`src/01-materials.js`、本文件）
+- **推送**：已推到 `origin/hark/week0-hotfix`（`dcfa0a9..bd33d8d`）；
+  **master 未动、未开 PR**（按既有约定）。
+- ⚠️ push 时会打印一行 `git-credential-manager.exe store: ... No such file or directory` ——
+  这是本机 credential helper 指到了旧的 WorkBuddy 路径，**推送本身成功**（紧随其后的
+  `dcfa0a9..bd33d8d hark/week0-hotfix -> hark/week0-hotfix` 就是证据）。要消掉这行告警，
+  执行 `git config --global credential.helper manager`（或指向现存的 exe）。
+- **分支状态**：推送后本地 = 远端；工作区只剩未跟踪的一次性诊断脚本
+  （`outputs/` 已在 .gitignore 里）。
+- 本轮诊断脚本（不入库，需要复查时直接跑）：`outputs/_diag/tier-high-strip-cause{,2..15}.mjs`
+  （逐 pass 复演 / 泛光内部 / NaN 标品红 / 逐图层二分）、`outputs/_diag/tier-strip-fix.mjs`
+  （修复前后复验，`TIER=high|mid`）、`outputs/_diag/bloom-repro*.html|mjs`（独立最小复现）。
