@@ -36,11 +36,11 @@ const check = (label, ok, extra) => { results.push({ label, ok, extra }); consol
 const N = 600;                 // 样本量：比例类判据（夜间天气偏置）要压到 ~6σ，120 抽只够 ~2σ，会偶发假红
 const TIMES = ['morning', 'noon', 'dusk', 'night'];
 const SEASONS = ['spring', 'summer', 'autumn', 'winter'];
-/* 随机池里的合法值清单（与 ENV_WEATHER 里"没有 hidden:true"的键一一对应）：
-   · overcast  2026-09-28 收起（老黄："和薄雾感官太一致"）
-   · thunder   2026-09-30 并入 storm（老黄："这两个场景可以合并，空出一个格子"）
-   · afterrain 2026-09-30 新增（雨后初晴，随机池权重 1.6） */
-const WEATHERS = ['clear', 'storm', 'snow', 'mist', 'afterrain'];
+/* ⚠️ 可见天气清单**不在门禁里维护**：运行时从产品的 `ENV_WEATHER`
+   （12a-presets.js，去掉 hidden 的那些）读，见下面 page.evaluate 里的 presets import。
+   2026-10-31（batch3）加 drizzle/snowclear 时这里曾有一份手写副本没跟上 ⇒ 报红且
+   首例看着完全正常，极难判读。本项目已有三次「判据常量与来源脱节」的实例，
+   索性改成同源 —— 产品加天气，门禁自动跟上。 */
 
 (async () => {
   const port = await listenEphemeral(server);
@@ -70,6 +70,13 @@ const WEATHERS = ['clear', 'storm', 'snow', 'mist', 'afterrain'];
        （ESM 单例，不复制逻辑）。 */
     const solar = await import('/src/12h-solar.js');
     const phen = await import('/src/12g-phenology.js');
+    /* ⚠️ 可见天气清单也**从产品读**，不在门禁里维护一份副本。
+       2026-10-31（batch3）加 drizzle/snowclear 时，本文件里那份手写清单没跟上，
+       「全部返回完整结构」就报红 —— 而首例看着完全正常（morning/spring/clear），
+       极容易误判成随机流漂了。这是本项目的老病根（判据常量与来源脱节，见交接文档
+       三次实例），这里索性改成同源：`ENV_WEATHER` 里没有 hidden 的键就是随机池的合法值。 */
+    const presets = await import('/src/12a-presets.js');
+    const visibleWeathers = Object.keys(presets.ENV_WEATHER).filter(k => !presets.ENV_WEATHER[k].hidden);
     const rows = [];
     for (let i = 0; i < n; i++){
       const r = g.randomScene();
@@ -80,14 +87,17 @@ const WEATHERS = ['clear', 'storm', 'snow', 'mist', 'afterrain'];
         anchors: solar.SOLAR.enabled ? solar.timeAnchorsFor(phen.SEASON_DOY[r.season]) : solar.TIME_ANCHORS,
       });
     }
-    return { rows, before };
+    return { rows, before, visibleWeathers };
   }, N);
 
   const rows = data.rows;
+  /* 与产品同源：清单来自 ENV_WEATHER 的运行时实测，不在门禁里手写一份。 */
+  const WEATHERS_LIVE = data.visibleWeathers;
   check(`抽取 ${N} 次全部返回完整结构（time/season/weather/hour/label）`,
     rows.every(r => TIMES.includes(r.time) && SEASONS.includes(r.season)
-                 && WEATHERS.includes(r.weather) && typeof r.hour === 'number' && typeof r.label === 'string'),
-    `首例=${JSON.stringify({ time: rows[0].time, season: rows[0].season, weather: rows[0].weather })}`);
+                 && WEATHERS_LIVE.includes(r.weather) && typeof r.hour === 'number' && typeof r.label === 'string'),
+    `首例=${JSON.stringify({ time: rows[0].time, season: rows[0].season, weather: rows[0].weather })}` +
+    ` · 产品可见天气 ${WEATHERS_LIVE.length} 种（${WEATHERS_LIVE.join('/')}）`);
 
   /* ① 合法性 —— 本门最核心。非法组合会被 enforceWeather 静默降级，标签与实际不符 */
   const illegal = rows.filter(r => r.mutex);
