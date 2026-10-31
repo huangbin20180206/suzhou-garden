@@ -118,6 +118,19 @@ function releaseDetached(objs, stats){
 /* 每次合并的统计（启动时 world 一次、延迟批 deferRoot 一次），供 __garden.drawStats / 探针读。 */
 export const MERGE_STATS = [];
 
+/* ── 合批台账（2026-10-31 · batch3 静态合批引入的探针可见性缺口）──────────
+   为什么要留这份：合批的 ② bake 路径会把小件 InstancedMesh **展开成普通几何**并进材质桶，
+   原件随即 remove + 几何 dispose。于是"按 isInstancedMesh + geometry.parameters 去找某个实例网格"
+   的门禁全部失效 —— smoke 的檐口三条当场报 "没找到瓦当/椽头实例网格"。
+   ⚠️ 几何数据没丢（顶点都并进 mergedStatic 了），但**从合并后的顶点逆推"哪个实例是哪件、
+      朝向如何"是不可靠的** —— 那等于把 bake 的变换反过来解一遍，任何一侧改动都会静默错。
+   ⇒ 正确做法：合批**当场**把"这件是谁、原来在哪、多少实例"记下来，供门禁查证。
+      只加数据、不改任何渲染行为（下面 push 的那几行不参与任何几何/材质计算）。
+   ⚠️ 记录的是**世界矩阵**（已预乘各自 matrixWorld），与门禁原先读
+      `o.getMatrixAt(j)` + `o.matrixWorld` 的口径一致。 */
+export const MERGE_LEDGER = [];
+function recordLedger(entry){ MERGE_LEDGER.push(entry); }
+
 export function mergeStatics(root){
   root.updateMatrixWorld(true);
   const stats = { root: root === world ? 'world' : (root.name || 'deferRoot'),
@@ -170,6 +183,24 @@ export function mergeStatics(root){
     im.instanceMatrix.needsUpdate = true;
     if (im.instanceColor) im.instanceColor.needsUpdate = true;
     root.add(im);
+    /* 台账（group 路径）：合并后的 `im.geometry` 是"内容相同的几何"里的某一份，
+       但 `geometry.parameters` 常常是 null（BufferGeometry 合并/克隆后就没有参数了），
+       门禁再想按 `radiusTop` 之类去找就不成立。这里按**每个成员**记下它原来的
+       参数与实例世界矩阵 —— 与 bake 那张表同一口径，门禁只读这一处。 */
+    for (const o of members){
+      const pr = (o.geometry && o.geometry.parameters) || {};
+      const worlds = [];
+      _mw.multiplyMatrices(rootInv, o.matrixWorld);
+      for (let i = 0; i < o.count; i++){
+        o.getMatrixAt(i, _mi);
+        worlds.push(_mi.clone().premultiply(_mw).toArray());
+      }
+      recordLedger({ kind: 'group', name: o.name || '', mergedInto: im.name,
+                     count: o.count, worldMatrices: worlds,
+                     radiusTop: pr.radiusTop == null ? null : pr.radiusTop,
+                     radiusBottom: pr.radiusBottom == null ? null : pr.radiusBottom,
+                     height: pr.height == null ? null : pr.height });
+    }
     for (const o of members){ if (o.parent) o.parent.remove(o); detached.push(o); }
     stats.instGroups++; stats.instGrouped += members.length;
   }
@@ -178,6 +209,18 @@ export function mergeStatics(root){
   const bakeItems = [];
   for (const i of plan.bakes){
     const o = ims[i];
+    /* 台账：这件 InstancedMesh 的全部实例世界矩阵（合批后原件会被 remove，
+       门禁再想按几何参数找它就找不到了 —— 见 MERGE_LEDGER 的注释）。 */
+    const worlds = [];
+    for (let j = 0; j < o.count; j++){
+      o.getMatrixAt(j, _mi);
+      worlds.push(_mi.clone().premultiply(o.matrixWorld).toArray());
+    }
+    recordLedger({ kind: 'bake', name: o.name || '', count: o.count,
+                   worldMatrices: worlds,
+                   radiusTop: o.geometry && o.geometry.parameters ? o.geometry.parameters.radiusTop : null,
+                   radiusBottom: o.geometry && o.geometry.parameters ? o.geometry.parameters.radiusBottom : null,
+                   height: o.geometry && o.geometry.parameters ? o.geometry.parameters.height : null });
     for (let j = 0; j < o.count; j++){
       o.getMatrixAt(j, _mi);
       bakeItems.push({ geometry: o.geometry, material: o.material, castShadow: o.castShadow,

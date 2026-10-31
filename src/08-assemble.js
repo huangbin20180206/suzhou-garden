@@ -1,6 +1,6 @@
 // 08-assemble: from index.html inline 495..1746
 import { THREE } from '../vendor.js';
-import { validateGeometry, mergeStatics, fitShadowCamera, drawStats, MERGE_STATS } from './09-lights.js';
+import { validateGeometry, mergeStatics, fitShadowCamera, drawStats, MERGE_STATS, MERGE_LEDGER } from './09-lights.js';
 import { collectAOSkip } from './10-post.js';
 import { applyEnv, collectSeasonCaches, ENV, initEnvScene } from './12-env.js';
 /* 2026-10-15 W1/W2/W3 拆分收尾：controls / CAM_MIN_DIST / CAM_HOME / PROBE_DRIVEN 的用法
@@ -882,6 +882,9 @@ bootDonePromise.then(() => {
     if (typeof window !== 'undefined' && window.__garden){
       window.__garden.drawStats = drawStats;
       window.__garden.mergeStats = MERGE_STATS;
+      /* 合批台账：bake 掉的实例网格原件已 remove、几何已 dispose，
+         门禁再想按 geometry.parameters 找它就找不到了 —— 这里是唯一的可查凭据。 */
+      window.__garden.mergeLedger = MERGE_LEDGER;
     }
   } catch { /* 统计入口挂不上不影响园子 */ }
 });

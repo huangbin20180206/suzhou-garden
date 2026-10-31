@@ -471,7 +471,18 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     slider: parseFloat(document.getElementById('hourSlider').value),
   }));
   check('时段按钮：把连续时辰拉回锚点 12:30',
-        Math.abs(backNoon.hour - 12.5) < 0.01 && Math.abs(backNoon.slider - 12.5) < 0.01);
+        /* ⚠️ 2026-10-31（batch3 · 真实日轨 12h-solar）：`ENV.hour` 不再恰好是 12.5。
+           换日轨前 `setEnv('time','noon')` 是"把 hour 赋成锚点常量 12.5"；换日轨后
+           noon 表示"太阳正午"，由 12h-solar 按日期/纬度算出真值 —— 实测
+           2026-10-31 苏州得 12.5448（与锚点差 0.045h ≈ 2.7min，即真太阳时与
+           平太阳时的时差）。
+           ⚠️ 判据口径也跟着改：**slider（按钮位置）仍必须是 12.5**（那是 UI 的锚点，
+              一点没变）；`hour` 只要求"落在正午附近"，容差 0.15h ≈ 9min —— 够容纳
+              全年时差变化（最大约 ±16min，取 9min 是保守值，因为本项目固定夏/冬日）。
+           这不是放宽判据求绿：原来那条断言的是**旧模型的实现细节**，新模型下它
+           测的东西已经不存在了。真正要守的是"按钮能把时辰拉回正午"，两个量都守住了。 */
+        Math.abs(backNoon.slider - 12.5) < 0.01 && Math.abs(backNoon.hour - 12.5) < 0.15,
+        `hour=${backNoon.hour.toFixed(4)} slider=${backNoon.slider}`);
 
   const card = await page.evaluate(() => {
     const url = window.__garden.postcardData();
@@ -691,18 +702,53 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
           局部 +z 变换后的世界朝向做**确定性**判定；旧值南檐对、北檐反（34/34）。 */
   const eave = await page.evaluate(() => {
     const G = window.__garden, T = G.THREE;
+    /* ⚠️ 2026-10-31（batch3 · 静态合批）：原先只从**活着的 InstancedMesh** 里按
+       `geometry.parameters` 找瓦当(radiusTop 0.105)/椽头(radiusTop 0.09 + height 1.3)。
+       合批的 bake 路径会把这些小件**展开成普通几何**并进材质桶、原件 remove + 几何 dispose
+       ⇒ 本判据当场报 "没找到瓦当/椽头实例网格"（三条一起红）。
+       ⚠️ 几何数据没丢，但从合并后的顶点**逆推**"哪个实例是哪件、朝向如何"等于把 bake 的
+          变换反解一遍，任何一侧改动都会静默出错 —— 所以不这么干。
+       改为**优先读合批台账** `__garden.mergeLedger`（合批当场记下的 name/参数/世界矩阵）。
+       仍保留原来的活体扫描作为兜底：没走 bake 的件（例如 `?batch=0` 或将来改回 keep）
+       照旧能被找到，两条路径的读数口径完全一致（都取实例的原点世界坐标）。 */
     const tiles = [], raft = [];
+    /* 台账两条路都要读：
+       · kind='bake'  —— 小件被展开进材质桶（原件 remove + 几何 dispose）
+       · kind='group' —— 内容相同的多个 InstancedMesh 拼成一个（合并后 geometry.parameters
+         常为 null，所以也找不到） */
+    const ledger = (G.mergeLedger || []).filter(e => e.worldMatrices && e.count);
+    const posOf = (mArr) => [mArr[12], mArr[13], mArr[14]];   // 列主序：平移在第 4 列
+    const isTile = e => e.radiusTop != null && Math.abs(e.radiusTop - 0.105) < 1e-6;
+    const isRaft = e => e.radiusTop != null && Math.abs(e.radiusTop - 0.09) < 1e-6
+                     && e.height != null && Math.abs(e.height - 1.3) < 1e-6;
+    const ledC = ledger.filter(isTile).flatMap(e => e.worldMatrices.map(posOf));
+    const ledR = ledger.filter(isRaft).flatMap(e => e.worldMatrices.map(posOf));
+    /* 椽头的**完整世界矩阵**（斜削朝向要用到旋转，光有平移点不够）——
+       台账直接给矩阵；活体件要现算 `matrixWorld · instanceMatrix`。 */
+    const raftWorld = ledger.filter(isRaft).flatMap(e => e.worldMatrices.slice());
+    /* 活体兜底（未走 bake 的件） */
     G.scene.traverse(o => {
       if (!o.isInstancedMesh || !o.geometry || !o.geometry.parameters) return;
       const pr = o.geometry.parameters;
       if (Math.abs((pr.radiusTop || 0) - 0.105) < 1e-6) tiles.push(o);
       if (Math.abs((pr.radiusTop || 0) - 0.09) < 1e-6 && Math.abs((pr.height || 0) - 1.3) < 1e-6) raft.push(o);
     });
-    if (!tiles.length || !raft.length) return { err: '没找到瓦当/椽头实例网格' };
     const dump = (im) => { const out = [], m = new T.Matrix4(), v = new T.Vector3();
       for (let i = 0; i < im.count; i++){ im.getMatrixAt(i, m); v.setFromMatrixPosition(m).applyMatrix4(im.matrixWorld);
         out.push([v.x, v.y, v.z]); } return out; };
-    const C = tiles.flatMap(dump), R = raft.flatMap(dump);
+    /* 活体椽头的世界矩阵（补进 raftWorld，与台账同一形态） */
+    {
+      const m = new T.Matrix4();
+      for (const im of raft){
+        for (let i = 0; i < im.count; i++){
+          im.getMatrixAt(i, m);
+          raftWorld.push(m.clone().premultiply(im.matrixWorld).toArray());
+        }
+      }
+    }
+    const C = ledC.concat(tiles.flatMap(dump)), R = ledR.concat(raft.flatMap(dump));
+    if (!C.length || !R.length) return { err: '没找到瓦当/椽头实例（台账与活体扫描均为空）',
+                                         ledger: ledger.length, liveTiles: tiles.length, liveRaft: raft.length };
     const d3 = (a, b) => Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
     let minPair = 1e9;
     for (const r of R){ let best = 1e9; for (const c of C){ const d = d3(r, c); if (d < best) best = d; } if (best < minPair) minPair = best; }
@@ -716,14 +762,20 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     const capZ = Math.max(...hallC.map(p => p[2]));
     const rafZSouth = Math.max(...hallR.map(p => p[2]));
     const rafTipZ = rafZSouth + 0.65;
-    /* 斜削朝向：局部 +z 经实例矩阵变换后的世界 z 分量，应与"该椽相对中心的方向"同号 */
+    /* 斜削朝向：局部 +z 经实例矩阵变换后的世界 z 分量，应与"该椽相对中心的方向"同号。
+       ⚠️ 2026-10-31（batch3 · 静态合批）：原先这里直接拿 `raft[0]` 这个活体 InstancedMesh
+          逐个 `getMatrixAt`。合批后椽头全走 bake 路径（活体扫描 raft=0）⇒ 这一行抛
+          "Cannot read properties of undefined (reading 'count')"，整个 smoke 崩掉。
+          改为**统一从世界矩阵数组读**：台账与活体两条来源在下面被归一成同一种形态
+          （每项 = 一个实例的世界矩阵），斜削朝向只跟矩阵有关，与来源无关。 */
     const centerZ = -12.8;
     let bevelOut = 0, bevelIn = 0;
-    const im = raft[0], m = new T.Matrix4(), pos = new T.Vector3(), dir = new T.Vector3();
-    for (let i = 0; i < im.count; i++){
-      im.getMatrixAt(i, m);
-      pos.setFromMatrixPosition(m).applyMatrix4(im.matrixWorld);
-      dir.set(0, 0, 1).transformDirection(new T.Matrix4().multiplyMatrices(im.matrixWorld, m));
+    const dirM = new T.Matrix4(), dir = new T.Vector3(), pos = new T.Vector3();
+    for (const mArr of raftWorld){
+      dirM.fromArray(mArr);
+      pos.setFromMatrixPosition(dirM);
+      /* 斜削方向 = 该实例局部 +z 轴在世界空间的方向 */
+      dir.set(0, 0, 1).transformDirection(dirM);
       if (Math.sign(dir.z) === Math.sign(pos.z - centerZ)) bevelOut++; else bevelIn++;
     }
     return { capN: C.length, rafN: R.length, hallCapN: hallC.length, minPair: +minPair.toFixed(3),
