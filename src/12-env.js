@@ -1154,6 +1154,7 @@ export function advanceReel(dt){
   if (ENV.t < 1){
     ENV.to = target;
     syncEnvMap(target);                         // 跨锚点 / 天气类变了 ⇒ 排队，过渡落地那帧换
+    reelUiTick(dt);                             // 2026-10-31：过渡期也刷滑杆读数（原先提前 return ⇒ 读数冻结约 2.8s）
     return;
   }
   if (key !== _reelMapKey){ _reelMapKey = key; syncEnvMap(target, true); }   // M2：流转跨时段也换反射
@@ -1169,7 +1170,11 @@ export function advanceReel(dt){
      ⚠️ 2026-10-29（M7）：applyEnv 流转时只记 fitDirty，拟合在这里随 4Hz 一起做。 */
   reelShadowAcc += dt;
   if (reelShadowAcc >= 0.25){ reelShadowAcc = 0; flushShadowFit(); renderer.shadowMap.needsUpdate = true; }
-  /* 滑杆 / 读数每帧写 DOM 太重，节流到 0.2s（滑杆 step=0.1，跟 60fps 也没意义） */
+  reelUiTick(dt);
+}
+/* 滑杆 / 读数每帧写 DOM 太重，节流到 0.2s（滑杆 step=0.1，跟 60fps 也没意义）。
+   落位分支与过渡分支都调：过渡期 hour 照走，读数不能停。 */
+function reelUiTick(dt){
   reelUiAcc += dt;
   if (reelUiAcc >= 0.2){
     reelUiAcc = 0;
