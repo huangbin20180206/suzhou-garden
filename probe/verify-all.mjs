@@ -127,6 +127,10 @@ const SUITES = [
      守 00-config 的随机确定性 + 12a 的插值/边界/互斥矩阵（2b-wind 因顶层建 Canvas
      纹理进不来 node，见 unit-pure.mjs 头注释）。 */
   ['纯函数单测 unit-pure', 'probe/unit-pure.mjs'],
+  /* 环境单测（2026-10-31）：花历 12g（春无荷 / 秋无梅 / 夏秋无紫藤花 / 秋无桃）+ 日轨月相 12h
+     （冬夏至日落与正午高度、中秋望 / 除夕朔）。node:test，零浏览器，<0.2s。 */
+  ['花历单测 env-phenology-unit', 'probe/env-phenology-unit.mjs'],
+  ['日轨月相单测 env-solar-unit', 'probe/env-solar-unit.mjs'],
   /* vendor 新鲜度 vendor-fresh（2026-10-15）：vendor.js 入库但为构建产物，
      build-entry.js/依赖版本变而 vendor 未重打时红。修：build + --record。 */
   ['构建物新鲜度 vendor-fresh', 'probe/vendor-fresh.mjs'],
@@ -649,6 +653,7 @@ const SELFTEST = process.env.VERIFY_SELFTEST;
 const QUICK = new Set([
   'probe/check.mjs', 'probe/codeonly-unit.mjs', 'probe/import-audit.mjs',
   'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
+  'probe/env-phenology-unit.mjs', 'probe/env-solar-unit.mjs',   // 纯 node 单测 <0.2s
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
   'probe/figure-foot-guard.mjs',       // 纯射线 ~17s + 零覆盖的缺陷类（人物陷进台基/走在水上）
