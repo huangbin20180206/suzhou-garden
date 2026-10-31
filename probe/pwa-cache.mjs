@@ -56,7 +56,7 @@ try {
      于是断网后：
        · `index.html` 从预缓存取到 ✓（它在 SHELL 里）
        · 它 import 的 16 个 `src/*.js` 全部落空 ✗（`caches.match` 未命中 →
-         `Response.error()`）⇒ 内联主模块加载失败 ⇒ `window.__garden` 永不出现
+         `Response.error()`）⇒ 主模块（当时内联在 index.html，2026-10-31 起为 src/main.js）加载失败 ⇒ `window.__garden` 永不出现
          ⇒ `#loading` 永远拿不到 `.done` ⇒ 卡到 90s 超时。
      ⇒ 先在线把真页面加载一次（SW 装好 + src 进缓存），再断网重载。
        这也正是 `pwa-cold-restart.mjs` 一直在做、而本门漏掉的那一步，
@@ -104,13 +104,14 @@ try {
        也不在这份清单里 ⇒ 这个"离线首开"门禁**从定义上看不见少了鹦鹉**
        （离线实测只查已声明的 8 项，自然全 200）。漏项的机器守卫另见
        probe/preload-manifest-sync.mjs（纯文本比对，不用起浏览器）。 */
-    const urls = ['/index.html', '/vendor.js', '/manifest.webmanifest', '/icons/garden.svg',
+    /* 2026-10-31：补 /src/main.js —— 页面唯一模块入口（原 index.html 内联主模块），已进 sw.js SHELL */
+    const urls = ['/index.html', '/src/main.js', '/vendor.js', '/manifest.webmanifest', '/icons/garden.svg',
       '/assets/BananaPlant.glb', '/assets/koi.glb', '/assets/lotus-bloom.glb', '/assets/Turtle.glb',
       '/assets/Macaw.glb'];
     return Promise.all(urls.map(async url => { const r = await fetch(url); return { url, status: r.status, bytes: (await r.arrayBuffer()).byteLength }; }));
   });
   assert.ok(offline.every(r => r.status === 200 && r.bytes > 0), 'All offline resources must be present');
-  console.log('PASS: nine offline resources available ' + JSON.stringify(offline));
+  console.log('PASS: ten offline resources available ' + JSON.stringify(offline));
 
   /* ── 断网重载：这一次才是本门真正要证的那件事 ── */
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`, { timeout: 60000 });

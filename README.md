@@ -47,7 +47,7 @@ npm run serve        # 静态服务器 → http://127.0.0.1:8935
 npm run check        # 语法门禁（src/*.js 逐个 node --check，1 秒）
 npm run audit        # 拆分守卫：漏 import / 给 import 绑定赋值 / 引用内联专有名（3 秒）
 npm test             # 无头回归 56 项（Playwright 加载真实页面做断言）
-npm run verify       # **一条命令串行跑全部 89 道门**（≈90m，交付前必跑；2026-10-13 实测 91 分钟）
+npm run verify       # **一条命令串行跑全部 91 道门**（≈90m，交付前必跑；2026-10-13 实测 91 分钟）
 
 npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 ```
@@ -154,7 +154,7 @@ npm run build:vendor # 重新打包 vendor.js（three + addons → 本地 ESM）
 **工程侧**
 启动失败兜底 UI · 几何合并前机器校验（属性计数 / 索引越界 / 非有限坐标）·
 WebGL 上下文恢复 · 移动端 320px 布局与 `aria-pressed` · `window.__garden` 调试口（供采集脚本与测试驱动）·
-无头回归门禁 **89 道**（`npm run verify` 串行跑通，≈90m+；其中 `npm test` = smoke 单门 **56 项断言全绿**）。2026-10-18 新增三道：巡游端到端 tour-guard / 院门口石狮 lion-guard / 控制台噪声 gl-warning-guard。
+无头回归门禁 **91 道**（`npm run verify` 串行跑通，≈90m+；其中 `npm test` = smoke 单门 **56 项断言全绿**）。2026-10-18 新增三道：巡游端到端 tour-guard / 院门口石狮 lion-guard / 控制台噪声 gl-warning-guard。
 （口径基准：**2026-10-04**。门数以 `verify-all.mjs` 的 `SUITES` 表为唯一真值 —— 想拿准数就数它，
 别信本文里的数字：这段话自己就漂过七次，30 → 52 → 56 → 57 → 58 → 59 → 67。）
 **2026-10-04 本批收口**：把 8 道"**有牙、能跑、却一直不在链上**"的结论门收回 `SUITES`
@@ -163,7 +163,7 @@ WebGL 上下文恢复 · 移动端 320px 布局与 `aria-pressed` · `window.__g
 `peach-form`（桃的四季形态）· `night-sky`（月轮仰角/月相/星点）· `koi-behavior`（行为层
 偏移不破轨道域）· `desktop-quality`（画质档单一真值）· `turtle-wake`（泳龟尾迹水位 12~24 次/分）。
 全部先单跑复核通过（本机 Intel Iris Xe / low 档）：8/8 · 6/6 · 7/7 · 26/26 · 14/14 · 26/26 · 10/10 · 16/16。
-其中三道 <30s 的（PMREM / 定步长 / Fresnel）同时并进 `verify:quick`（现在 **12 道**）。
+其中三道 <30s 的（PMREM / 定步长 / Fresnel）同时并进 `verify:quick`（现在 **14 道**）。
 ⚠️ **同批明确"不入链"**：`probe/willow-audit.mjs` —— 它只打印柳冠覆盖率统计，**没有任何阈值判据**
 （源码里只有两处 `process.exit`，都是"找不到柳树组/探针炸了"），跑 4 分钟也不会失败。
 没有牙的门进链只会拖长链、并制造"我有覆盖"的错觉；要它入链得先给它定判据（另立一项）。
@@ -269,7 +269,8 @@ RenderPass → GTAO(仅独显档) → UnrealBloom → GradeShader(对比/分离�
 
 ```
 suzhou-garden/
-├─ index.html            559 行壳：CSS + DOM + `import` 装配 + 启动兜底（场景代码全在 src/，见「单文件拆模块」）
+├─ index.html            壳：CSS + DOM + 一行模块入口 `<script type="module" src="./src/main.js">`（场景代码全在 src/，见「单文件拆模块」）
+├─ src/main.js           页面唯一模块入口（2026-10-31 由 index.html 内联主模块逐行迁出）：`import` 装配（顺序 = 全站求值顺序）+ 抽屉接线 + 启动兜底/看门狗
 ├─ src/                  场景代码 26 个模块 / 25047 行（含空行；非空 24345），按原节号命名（00-config … 13-preload + 14-props + 2b-wind + app）
 │                        ⚠️ 模块**顶层**代码在 import 时就会跑 —— 加东西前先读 README 里那两条破环通则
 │                        ⚠️ 14-props（园林陈设）模块**顶层**建材质/贴图时**不得消耗全局随机流**
@@ -281,15 +282,15 @@ suzhou-garden/
 ├─ build-entry.js        vendor 打包入口（新增 addon 时在这里补一行）
 ├─ assets/               约 2.7 MB · 5 个 GLB（贴图已重编码压缩）：锦鲤 / 龟 / 荷 / 芭蕉 / 金刚鹦鹉
 │                        ＋ thunder.mp3（懒加载的点缀音效）。其余全部程序化生成
-├─ probe/                探针 157 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
+├─ probe/                探针 164 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
 │                        ⚙️ 一次性诊断脚本归档在 `probe/_attic/<日期>/`（不入库，搬回原路径即复原）
-│  ├─ verify-all.mjs     **一条命令串行跑全部 89 道门**（`npm run verify`，≈90m，2026-10-13 实测 91 分钟；门数以它的 SUITES 表为准）
-│  ├─ check.mjs          语法门禁：src/*.js 逐个 node --check
+│  ├─ verify-all.mjs     **一条命令串行跑全部 91 道门**（`npm run verify`，≈90m，2026-10-13 实测 91 分钟；门数以它的 SUITES 表为准）
+│  ├─ check.mjs          语法门禁：index.html 只许一行入口 src/main.js + src/*.js 逐个 node --check + no-undef
 │  ├─ codeonly-unit.mjs  语法判定单元门禁：`_codeonly.mjs` 的"什么算引用"契约（判宽=假红、判窄=假绿，两个方向都静默）
 │  ├─ import-audit.mjs   拆分守卫（4 条判据，见「单文件拆模块」）：漏 import / 给 import 绑定赋值 /
-│  │                     引用内联模块专有名字 —— 后两类都是**运行期才炸或完全静默**的
+│  │                     引用入口 src/main.js 专有名字 —— 后两类都是**运行期才炸或完全静默**的
 │  ├─ _codeonly.mjs      ⚙️ 工具：check / import-audit / _extract-section 共用的"语法判定"单点（改它必跑 codeonly-unit）
-│  ├─ _extract-section.mjs ⚙️ 工具：按原节号把内联模块的一段抽成 src/NN-*.js（含依赖检测 / --auto 补 import / --trim）
+│  ├─ _extract-section.mjs ⚙️ 工具（2026-10-31 起退役，已无内联模块）：按原节号把内联模块的一段抽成 src/NN-*.js
 │  ├─ preload-manifest-sync.mjs **预载清单一致性（7 项判据 + 4 条负例自检）**：sw.js 的 GLBS
 │  │                     与 13-preload 的 PRELOAD_MANIFEST 必须**同一批**（双向差集 + bytes
 │  │                     对磁盘 + SHELL 完整性）。纯 node、<1s。守的是一条写在两个文件注释里、
@@ -448,8 +449,8 @@ suzhou-garden/
 | 拆分 | `npm run audit` | `import-audit.mjs` 四条判据（漏 import / 给 import 绑定赋值 / 引用内联专有名），3 秒 |
 | 拆分 | `node probe/codeonly-unit.mjs` | `_codeonly.mjs` 的"什么算引用"契约单元测试，0.2 秒 |
 | 回归 | `npm test` | Playwright 无头加载真实页面，**56 项断言**，退出码即结论 |
-| 全量 | `npm run verify` | **一条命令串行跑全部 89 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。**门数口径**：`verify-all.mjs` 的 `SUITES.length`（2026-10-12 实测 **77**，2026-10-13 新增烘焙产物前提门与 playwright-args-guard 后为 **79**，2026-10-15 新增 unit-pure 与 vendor-fresh 后为 **81**，2026-10-18 新增 tour-guard / lion-guard / gl-warning-guard 后为 **84**，2026-10-24 新增 viewpoint-visibility 与 visit-carriage-guard 及门数一致性 gate-count-sync 后为 **89**；`verify:quick` = 12）。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
-| 分层 | `npm run verify:quick` | 12 道快门（≈3 分钟）：check / codeonly-unit / preload-manifest-sync / import-audit / smoke / pageerror / **figure-foot-guard** / layout-fingerprint / random / **pmrem-env** / **fixed-timestep** / **water-fresnel** —— 日常改动后的兜底 |
+| 全量 | `npm run verify` | **一条命令串行跑全部 91 道门**（check → codeonly-unit → **preload-manifest-sync** → import-audit → wind-trajectory → shadow-cover → smoke → pageerror-guard → reel-guard → lamp-guard → mist-guard → … → **pwa-cache** → … → legibility-guard），任何一个红整体非零退出。**门数口径**：`verify-all.mjs` 的 `SUITES.length`（2026-10-12 实测 **77**，2026-10-13 新增烘焙产物前提门与 playwright-args-guard 后为 **79**，2026-10-15 新增 unit-pure 与 vendor-fresh 后为 **81**，2026-10-18 新增 tour-guard / lion-guard / gl-warning-guard 后为 **84**，2026-10-24 新增 viewpoint-visibility 与 visit-carriage-guard 及门数一致性 gate-count-sync 后为 **89**，2026-10-31 新增花历 env-phenology-unit / 日轨月相 env-solar-unit 后为 **91**；`verify:quick` = 14）。⚠️ 完整清单以 `verify-all.mjs` 的 `SUITES` 表为准（下面这张表也已不是全量） |
+| 分层 | `npm run verify:quick` | 14 道快门（≈3 分钟）：check / codeonly-unit / preload-manifest-sync / import-audit / **env-phenology-unit** / **env-solar-unit** / smoke / pageerror / **figure-foot-guard** / layout-fingerprint / random / **pmrem-env** / **fixed-timestep** / **water-fresnel** —— 日常改动后的兜底 |
 | 分层 | `node probe/verify-all.mjs --gates=mist-guard,hill-guard` | 只跑指定门（对 path 与 label 做子串匹配；**匹配不到就响亮报错**，不许"0 道门全绿"） |
 | 视觉 | 截图比对 | 新截图命名带版本号（`-v2`），与 `outputs/shots-*` 基线对比 |
 | 专项 | `node probe/willow-audit.mjs` | 柳冠俯视覆盖率（扇区 × 环带射线求交，不依赖软渲染像素） |
@@ -490,7 +491,7 @@ suzhou-garden/
 **历史基线：`npm run verify` 三十道门全绿（2026-09-22 复验，12m14s；mist-guard 单门 185~390s 波动）—— `check` PASS（`index.html` 559 行壳 + `src` 15 模块 / 11639 行）｜`codeonly-unit` PASS｜`import-audit` PASS｜`wind-trajectory` 6/6｜`shadow-cover` 16/16｜`smoke` 52/52（draw calls 296 / 三角形 1.51M）｜`pageerror-guard` 17/17｜`reel-guard` 16/16｜`lamp-guard` 11/11｜`mist-guard` 25/25｜`postcard-guard` 7/7｜`longexposure-guard` 6/6｜`peach-guard` 12/12｜`sound-guard` 22/22｜`guide-guard` 18/18｜`wind-audit` 25/25｜`wisteria-color` 5/5｜`koi-orbit` 9/9｜`perch-dragonfly` 14/14｜`stone-audit` 16/16｜`stele-legibility` 8/8｜`figure-audit` 45/45｜`refract-guard` 11/11｜`refract-coverage` 5/5｜`weather-coverage` 14/14｜`intro-guard` 22/22｜`loading-guard` 18/18｜`warmboot-guard` 9/9（首帧 46ms vs 老路径 4780ms）｜`random-guard` 14/14（600 抽）｜`lampvol-guard` 28/28（阳性对照 6.2σ）。**
 
 > 回到这一轮的五道新门：单门耗时 21.7s / 10.1s / 25.6s / 9.5s / 44.1s，合计 **+1m51s**。
-> ⚠️ 跑链期间**别做观感/帧率测试**：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。（该段的门数为 **2026-09-22 当日值**；现为 **89 道**，以「验证体系」表的 `SUITES.length` 口径为准。）
+> ⚠️ 跑链期间**别做观感/帧率测试**：30 门各起一个真实 GPU 的 Chromium，会抢显存与 CPU。（该段的门数为 **2026-09-22 当日值**；现为 **91 道**，以「验证体系」表的 `SUITES.length` 口径为准。）
 
 `npm test` 覆盖：启动零 console error · 几何合并零校验告警 · 四类 GLB 到齐 · draw calls <800 ·
 三角形 <420 万 · 锦鲤在游动 · 切夜过渡收敛与光强下调 · 暴雨雨量/底值风（审计 B03 回归）·
@@ -585,7 +586,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
   （纯 node，各 <3s，紧跟 check 之后 —— 拆模块的错误在浏览器里要么"加载即炸"、要么更坏的静默）。
 - **验证**：`npm run verify` 二十一门全绿；smoke **50/50**；draw calls **693 < 800**（该项由性能优化 A 拿下，
   原 869 红已解除，见下）。
-  ⚠️ 以上是**当日**基线；门禁链其后长到 **89 道**、smoke 到 **56 项**，draw calls 现读 **383**
+  ⚠️ 以上是**当日**基线；门禁链其后长到 **91 道**、smoke 到 **56 项**，draw calls 现读 **383**
   （2026-10-13 实测：draw calls 383 / 三角形 1,815,188 / geos 696 / tex 65。693 → 383 的差额未完全归因：smoke 视口在 2026-09-20 15:55 改过，跨视口不可直接比）。
 
 **拆模块暴露出的四类缺陷（都已修，且都已固化成门禁）** —— 这是本次最有价值的部分，
@@ -783,7 +784,7 @@ PWA 三件套可取且注册不报错 · 导览巡游启停与字幕联动 · QO
 
 - 改动只允许落在 `index.html` / `build-entry.js` / `package.json` / `probe/*` / `src/*`；`vendor.js` 由 `npm run build:vendor` 重新生成，**不手改**。
 - 每次交付前必须自己先跑通 `npm run check` + `npm run audit` + `npm test`（当前基线：**smoke 52/52 ALL PASS**）；
-  凡动到跨模块引用 / 启动时序 / 资产 / `sw.js`，再加 `npm run verify`（89 道门）。
+  凡动到跨模块引用 / 启动时序 / 资产 / `sw.js`，再加 `npm run verify`（91 道门）。
 - 任何新增依赖或资源必须本地化，禁止外部 CDN（国内网络为前提）。
 - 视觉改动用 `outputs/shots-*` 版本化截图做前后对比；新截图带 `-vN` 后缀。
 

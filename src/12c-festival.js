@@ -3,7 +3,7 @@
    第 4 层 look），与 12-env 的时段/季节/天气状态机 + 环境面板 UI 是两件事。原块 ~500 行，
    混在一起让 12-env 逼近 3300 行（改一处很难看清周围还有什么 —— 本批拆分的唯一理由）。
    ⚠️ 本文件**不能** import './12-env.js'：12-env 反过来 import 本文件，成环 = 启动期 TDZ
-   （项目多次前科，见 index.html 内联主模块顶部、00-config 的 HOOKS / ENV_REF 注释）。
+   （项目多次前科，见 src/main.js（原 index.html 内联主模块）顶部、00-config 的 HOOKS / ENV_REF 注释）。
    它需要 12-env 的 6 样东西，全部由 12-env 在自己 body 里调 bindFestival(ENV, host) 注入，
    且**刻意沿用原名字** ⇒ 下面搬来的代码一行都不用改：
      · ENV                 环境状态机（tickFestival 读 ENV.cur.festivalShow；festivalState / toggleFestival 读写）

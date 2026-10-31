@@ -25,9 +25,9 @@
 //  引用内联模块专有名字）在浏览器里表现为"页面加载即炸"或更坏的**静默**（见下），
 //  能在这一步拦住就没必要等 7 分钟。
 //  · codeonly-unit 钉住 `_codeonly.mjs` 的"什么算引用"契约 —— 它判宽=假红、判窄=假绿，两个方向都静默。
-//  · import-audit 四条判据：①内联→src 漏 import ②src→src 漏 import
+//  · import-audit 判据：①入口 src/main.js（原 index.html 内联主模块）→src 漏 import ②src→src 漏 import
 //    ③给 import 进来的绑定赋值（导入绑定只读 → Assignment to constant variable）
-//    ④src 引用内联模块专有的名字（src 里没有该绑定 → ReferenceError）。
+//    ④src 引用入口专有的名字（别的模块里没有该绑定 → ReferenceError）⑤import 的名字对面必须真导出。
 //    ⚠️ ④ 抓到过一个**静默**事故：06-vegetation 读内联的 `$解码器`，而它是在 `new Promise` 的
 //    executor 里抛、被下游 `.catch(()=>{})` 吞掉 → 三类 GLB 资产永远挂不上，零告警、零失败计数，
 //    只有 smoke 的「四类 GLB 资产均已挂载」看得见。
