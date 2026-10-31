@@ -28,7 +28,9 @@ import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STEP = 0.4;                 // 快进步长（秒）
-const MAX_STEPS = 3200;           // 上限 1280s（2026-10-29 起整场 ~804s：多了门外迎/送与回水榭两段路）
+const MAX_STEPS = 3200;           // 上限 1280s。首场到 done：礼仪全关 436.8s（相位链 22 段）/ 礼仪全开（默认）512.8s（27 段）
+                                  // （出处：probe/_actor-sim 纯 node 仿真，baseline/carriage-2 与 carriage-rite，2026-10-31；
+                                  //  浏览器里本探针以 ?tier=low&intro=0 起页 = 礼仪默认开）。1280s 仍留 2.5 倍余量。
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
                '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg',
                '.webmanifest': 'application/manifest+json', '.ktx2': 'image/ktx2' };
@@ -117,7 +119,7 @@ const check = (name, ok, detail = '') => {
          真因：tickVisit 里那张"该显示车夫还是常驻马夫"的白名单漏了 driveout
          （倒车/调头/驶离）与 stop/tie/alight，车一动车夫就被藏起来。
          这里逐状态断：车夫有活的每一个子状态，他都必须 visible。 */
-      const BUSY = ['drivein', 'stop', 'tiewalk', 'tie', 'alight', 'board', 'driveout'];
+      const BUSY = ['drivein', 'stop', 'take', 'tiewalk', 'tie', 'alight', 'board', 'driveout'];   // take：礼仪·马夫接马（车夫在车夫位等接缰）
       if (BUSY.includes(v.car.state) && v.coach){
         coachBusyFrames++;
         if (!v.coach.visible) coachHidden++;
@@ -182,7 +184,9 @@ const check = (name, ok, detail = '') => {
   const names = r.phases.map(p => p[1]);
   check('① 相位链走到 done', names.includes('done'),
     `${r.simT}s 内到 ${names[names.length - 1]}（共 ${names.length} 段）`);
-  for (const need of ['carIn', 'stow', 'bow', 'pair', 'enter', 'seat', 'tea', 'tour', 'ebow', 'wave', 'topav', 'listen'])
+  /* 2026-10-31 礼仪三段（默认开）：门房通报 await/usher/announce、奉茶 serve/offer（出处同 MAX_STEPS 注释） */
+  for (const need of ['carIn', 'await', 'usher', 'announce', 'stow', 'bow', 'pair', 'enter', 'seat', 'serve', 'offer',
+                      'tea', 'tour', 'ebow', 'wave', 'topav', 'listen'])
     check(`① 相位包含 ${need}`, names.includes(need));
   /* 2026-10-29 老黄：门外见面、门外送客 + 挥手 + 回水榭听琴 */
   const fo = r.faceOut;
@@ -219,7 +223,8 @@ const check = (name, ok, detail = '') => {
   check('零 pageerror', errs.length === 0, errs.slice(0, 2).join(' | '));
 
   /* ── ①f 相位名静态一致性（2026-10-30 · 架构收口 · 纯读文本，零浏览器开销）──
-     到访导演层有 26 个相位、28 处赋值。此前相位名全是散落的字符串字面量，
+     到访导演层有 31 个相位、36 处赋值（2026-10-31 礼仪三段 +5 相位：await/usher/announce/serve/offer；
+     此前 26 / 29）。此前相位名全是散落的字符串字面量，
      拼错一个字母（'wrap' 写成 'warpp'）= 那一相位**永不执行**，整场戏静默停在那里：
      无报错、无告警、状态全对，只有盯 13 分钟画面才看得见。
      判据三条（任一红都说明相位机与声明表对不上）：

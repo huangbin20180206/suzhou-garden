@@ -1,5 +1,7 @@
 // 纯 node 跑到访导演层（不起浏览器、不装 GLB）：逐步快照全部演员 + 导演层状态。
-// 用法：node --import ./probe/_actor-sim/register.mjs probe/_actor-sim/sim.mjs <carriage|walk> [场数] [输出.json] [最多步数]
+// 用法：node --import ./probe/_actor-sim/register.mjs probe/_actor-sim/sim.mjs <carriage|walk|carriage-rite> [场数] [输出.json] [最多步数]
+//   carriage / walk 带 `?etiquette=0` 跑（礼仪三段全关 = 2026-10-31 之前的行为，锁原基线）；
+//   carriage-rite 不带参数 = 产品默认（礼仪三段全开），锁 baseline/carriage-rite.json.gz。
 //   场数 = 跑到第几次 'done' 为止（马车版 2 = 首场 + 冷却 45s 复位 + 重播一场）。
 // 为什么要它：visit-carriage-guard 要起浏览器 + 软件渲染跑十几分钟；改导演层/相位机时
 //   需要"逐帧与基线一致"的证据 —— 导演层只读演员状态推进、与渲染无关，桩掉场景即可逐帧比对。
@@ -92,6 +94,9 @@ function addProps(a, P){
 
 const N6 = (v) => (typeof v === 'number' ? v.toPrecision(15) : String(v));
 export function snapshot(A, VISIT, VISCAR){
+  /* 礼仪开着的场次多记几项（接马子状态、水桶显隐/落点、两书童的作揖权重与盏）；
+     全关的场次不加 ⇒ 原基线的帧串一个字符都不变。 */
+  const rite = A.etiquette && A.RITE ? riteParts(A) : null;
   const parts = [VISIT.phase, N6(VISIT.t), N6(VISIT.bowW), N6(VISIT.waveW || 0), N6(VISIT.s), N6(VISIT.tourS),
                  VISCAR.state, N6(VISCAR.s), N6(VISCAR.odo), VISCAR.leg, SIM_CAR.visible, SIM_CAR.tied];
   for (const a of A.ACTORS){
@@ -99,7 +104,17 @@ export function snapshot(A, VISIT, VISCAR){
                N6(a.step), !!a.arrived, a.target, a.holder.visible, N6(a.floorY), !!a.ride, !!a.trip,
                N6(a.offerW || 0), N6(a.coachW), N6(a.tieW), N6(boneSum(a)), a.chore);
   }
+  if (rite) parts.push(...rite);
   return parts.join('|');
+}
+function riteParts(A){
+  const R = A.RITE, b = R.bucket;
+  const out = ['rite', R.g, b ? b.visible : '-', b ? N6(b.position.x) : '-', b ? N6(b.position.z) : '-'];
+  for (const a of A.ACTORS){
+    if (a.def.id !== 'child1' && a.def.id !== 'child2' && a.def.id !== 'groom') continue;
+    out.push(N6(a.riteBowW || 0), N6(a.riteStoopW || 0), !!a.riteBusy, !!a.riteCupOn);
+  }
+  return out;
 }
 
 /* 跑 visits 场：每步 dt=0.4s 走一次 actorStep（内部 quantum 1/60，与 visit-carriage-guard 同口径）。
@@ -124,15 +139,16 @@ export async function runVisit(A, { visits = 1, dt = 0.4, maxSteps = 20000, onSt
     if (onStep) onStep(A, simT);
     if (doneAt.length >= visits) break;
   }
-  return { mode: A.VISIT.mode, dt, frames, phases, cars, simT: +simT.toFixed(1), doneAt };
+  return { mode: A.VISIT.mode, etiquette: !!A.etiquette, dt, frames, phases, cars, simT: +simT.toFixed(1), doneAt };
 }
 
 /* 进程内装载：先按模式设好 location，再 import（模式是模块求值期读的） */
 export async function loadSim(mode){
-  globalThis.location = { search: mode === 'walk' ? '?visit=walk' : '' };
+  const etiquette = mode === 'carriage-rite';
+  globalThis.location = { search: mode === 'walk' ? '?visit=walk&etiquette=0' : (etiquette ? '' : '?etiquette=0') };
   const quiet = console.log, qi = console.info, qw = console.warn;
   console.log = () => {}; console.info = () => {}; console.warn = () => {};
-  try { return await (await import('./adapter.mjs')).load(); }
+  try { return { ...(await (await import('./adapter.mjs')).load()), etiquette }; }
   finally { console.log = quiet; console.info = qi; console.warn = qw; }
 }
 
