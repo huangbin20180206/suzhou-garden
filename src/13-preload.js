@@ -17,8 +17,9 @@
    ── 单一真值：bytes 是开发期写入的常量 ─────────────────────────────────
    运行时不发 HEAD 去问大小（慢网上那多一个 RTT 会直接变成几百毫秒的等待，
    而且 Content-Length 缺失时还会让进度条跳变）。清单里的 bytes 由
-   `outputs/_diag/gen-manifest-bytes.mjs` 从磁盘实测写入，改资产后重跑该脚本即可。
-   ⚠️ 改 GLB 之后**必须**重跑，否则清单的总量与真实下载量不符（进度条会卡在 90% 之类的怪数）。
+   `node tools/gen-asset-manifest.mjs --write` 从磁盘实测写入（2026-10-31 起，源头是 assets/manifest.json）。
+   ⚠️ 改 GLB 之后**必须**重跑，否则清单的总量与真实下载量不符（进度条会卡在 90% 之类的怪数）；
+      preload-manifest-sync 门会红。
 
    ── required 的含义（决定失败后要不要替身）────────────────────────────
    `required: true`  = 失败后场景照常跑，只是少一点细节（**不接受**"缺失即穿帮"）。
@@ -165,79 +166,34 @@ const SLOW_WINDOW_MS = 5000;
    "网速不够"变成"**这条网络基本不可用**"，那时降级才是对的判断。 */
 const PRELOAD_TIMEOUT_MS = 180000;
 
-/* ══ 预载清单（单一真值）══════════════════════════════════════════════════
-   bytes  = 磁盘实测（2026-09-27），由 gen-manifest-bytes.mjs 写入
-   stage  = 进度文案里的那一个动词（"取"/"取"…），不是 WARM_STAGES 的值 ——
-            **下载段绝不能出现 `%`**，否则会被 loading-guard 的
-            /营 造 中 · (\S+) (\d+)%/ 误捕获成一个非法阶段名而报红。 */
+/* ══ 预载清单 ═════════════════════════════════════════════════════════════
+   2026-10-31 起**单一真值是 assets/manifest.json**（url / bytes / sha256 / phase / stage / label /
+   required / precache / note）。下面夹在标记之间的那段由 `node tools/gen-asset-manifest.mjs --write`
+   生成（bytes 磁盘实测），sw.js 的 GLBS 也由同一份 JSON 生成；门禁 preload-manifest-sync 校验三者一致。
+   每件的来历与取舍写在 manifest.json 的 note 里（原先散在这里的长注释已迁过去，完整沿革见 git 历史）。
+   stage = 进度文案里的那一个动词 —— **下载段绝不能出现 `%`**，否则会被 loading-guard 的
+   /营 造 中 · (\S+) (\d+)%/ 误捕获成一个非法阶段名而报红（生成器会拒绝含 % 的 stage）。 */
 export const PRELOAD_MANIFEST = [
-  /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄："之前有个版本有好多株树立的荷花，
-     虽然有点假但是至少能看"——撤空版他判"荷花还是没有修好"）。与 sw.js 的 GLBS 同步。
-     required: false —— GLB 拉不到时页面不该停在加载页，荷花丛缺位即缺位。 */
-  { url: 'assets/koi.glb',         bytes: 208000, stage: '取', label: '锦鲤', required: true  },
-  /* 2026-10-14 试水批次：太湖石主峰替换件（Poly Haven boulder_01 → Blender GLB，改浅灰重导后 5.46MB）。
-     ⚠️⚠️ 2026-10-30 **撤出预载**（第 0 周热修）：主峰默认走程序化立峰（08-assemble 的
-     heroSrc='proc'），省 5.46MB 开园下载；?heroSrc=glb 时由 loadAssetOnce **按需懒取**。
-     与 sw.js GLBS 同步撤下，白名单理由登记在 preload-manifest-sync 的 ASSET_EXEMPT
-     （与 HorseTinker.glb 同一形态：备选路径、懒加载、不上开园清单）。 */
-  /* 2026-10-14 石灯笼（DIY L0 首件 · 纯接线）：research/diy-lantern/stone-lantern.glb 原样拷入。
-     186KB/1000 面/高 1.05m · 2 材质（素石 + 火袋 emissive 暖橙；2026-10-18 起路旁 8 盏每盏配真 PointLight（2026-10-19 南门口一对撤掉））。
-     摆位依据 research/diy-first-target.md §4 主位 (4.0,-3.8) y=0.053（岸距 1.62m、最近物 8.8m）。 */
+  /* <asset-manifest:preload> 由 tools/gen-asset-manifest.mjs 从 assets/manifest.json 生成，勿手改（改 JSON 后跑 --write） */
+  { url: 'assets/koi.glb', bytes: 208000, stage: '取', label: '锦鲤', required: true },
   { url: 'assets/stone-lantern.glb', bytes: 162876, stage: '取', label: '石灯笼', required: false },
-  /* 2026-10-18 石狮一对（**真实照片扫描**，替换掉此前 v5–v9 手工融球稿）。
-     来源：BlenderKit「Weathered Stone Lion Statue - Photoscan」（作者 Dennis Scheucher，
-     授权 Royalty Free，资产页 blenderkit:b80862b4-...；112k 面原始扫描，
-     项目里减到 15k/12k 面 + 1024² WebP 贴图，法线/ORM 原样保留）。
-     公 711648B / 母 643576B，高 1.076m（loadAssetOnce 归一化到 1.08m）。
-     母狮：X 镜像 + 胸前伏一只同扫描体缩出的幼狮（0.20m）。
-     required:false —— 拉不到时门口位置空着（由 probe/lion-guard 守"必须挂上"）。 */
   { url: 'assets/stone-lion-male.glb', bytes: 359604, stage: '取', label: '石狮雄', required: false },
   { url: 'assets/stone-lion-female.glb', bytes: 344100, stage: '取', label: '石狮雌', required: false },
   { url: 'assets/BananaPlant.glb', bytes: 168816, stage: '取', label: '芭蕉', required: false },
-  /* 池边荷花三态（2026-10-24 · 老黄："荷花是低模、花瓣像刀片；没有含苞待放和
-     花谢结蓬的状态，按春夏秋三季合理处理"）。
-     旧件 assets/LotusPlant.glb（Hyper3D 单网格 267KB）**退役删除**（git 历史可回退）；
-     新三件 = Rodin Gen-2.5-Medium 生成 + Blender 归一化（高 1.65m、脚底 y=0、1024 JPEG）。
-     required:false —— 三件缺任何一件时该态不出现、页面照常（12f 状态机按存在的子节点跑）。 */
   { url: 'assets/lotus-bloom.glb', bytes: 329964, stage: '取', label: '荷花·盛开', required: false },
-  { url: 'assets/lotus-bud.glb',   bytes: 195240, stage: '取', label: '荷花·花苞', required: false },
-  { url: 'assets/lotus-pod.glb',   bytes: 293752, stage: '取', label: '荷花·莲蓬', required: false },
-  { url: 'assets/Turtle.glb',      bytes: 266372, stage: '取', label: '池龟', required: true  },
-  /* 金刚鹦鹉（2026-10-02 第九轮，老黄："草皮上和假山顶部的小鸟还是没有看到，
-     要不你加几只金刚鹦鹉，我给你参考图，这个好像更显眼一点，3D 效果也挺好"）：
-     AI 生成（rodin，text_to_3d，绿翅金刚鹦鹉），1.49MB。
-     required:false —— 拉不到时页面正常，只是假山上没有鹦鹉。 */
-  { url: 'assets/Macaw.glb',       bytes: 954840, stage: '取', label: '鹦鹉', required: false },
-  /* 马厩的真马：**BlenderKit「Draft horse. Tinker, gypsy vanner breed」**
-     （作者 Irena Aidlin Moonin，Royalty Free；Rigify **454 根骨骼** + 7 个蒙皮网格
-     + 鬃毛/尾巴/眼睛/牙齿独立网格 + 4k baseColor/normal/roughness）。
-     历史：2026-10-10 起用 Rodin 生成的静态灰模 Horse.glb；2026-10-19 老黄
-     "这个可是有真实模型的…换成带毛发的模型吧" ⇒ 换成本件，骨骼动作见 15-stable。
-     旧 Rodin 件移出 assets 作回退：research/diy-horses/horse-rodin-fallback.glb。
-     required:false —— 拉不到时马厩里站的是**程序化替身**（15-stable 的 makeHorse）。
-     ⚠️ 本件已转成**无 Draco**（research/diy-horses/export_web.py，1.96MB，4k WebP）：
-     DRACOLoader 会去 gstatic 拉 wasm，在门禁/离线环境里报 pageerror；项目其余资产也全无 Draco。
-     ⚠️⚠️ 下载必须**在模块求值期**发起（15-stable 的 tinkerBuffer + settleAsset 握手），
-     否则预载段会等一个永远不来的 settled ⇒ 进度条卡死（实测 120s）。
-     `preload-manifest-sync` 的 G6 守这条。 */
-  /* 2026-10-23：马厩换 Rodin 三匹（无骨骼 + 1024 PBR 贴图，走 15-stable 的伪蒙皮）。
-     三份在 15-stable 的**模块求值期**发起请求（_RODIN_BOOT），否则会死等到预载超时。 */
-  { url: 'assets/horse-camargue.glb',       bytes: 310912, stage: '取', label: '马·白', required: false },
-  { url: 'assets/horse-mongolian.glb',      bytes: 287396, stage: '取', label: '马·栗', required: false },
+  { url: 'assets/lotus-bud.glb', bytes: 195240, stage: '取', label: '荷花·花苞', required: false },
+  { url: 'assets/lotus-pod.glb', bytes: 293752, stage: '取', label: '荷花·莲蓬', required: false },
+  { url: 'assets/Turtle.glb', bytes: 266372, stage: '取', label: '池龟', required: true },
+  { url: 'assets/Macaw.glb', bytes: 954840, stage: '取', label: '鹦鹉', required: false },
+  { url: 'assets/horse-camargue.glb', bytes: 310912, stage: '取', label: '马·白', required: false },
+  { url: 'assets/horse-mongolian.glb', bytes: 287396, stage: '取', label: '马·栗', required: false },
   { url: 'assets/horse-criollo-saddle.glb', bytes: 337004, stage: '取', label: '马·鞍', required: false },
-  /* 2026-10-21 P1 半写实人物（AI 生成 + UniRig 绑骨；16-actors 在模块求值期发起下载，
-     settleAsset 回报；失败时程序化替身继续站）。
-     2026-10-22：三件贴图全部重导成 JPEG q88（1K）—— PNG 版单件 1.76/2.56MB 越了 1.5MB 预算，
-     JPEG 版 0.68/0.84MB，3m 机位看不出差别（render_views 对比图见 outputs/_diag/*-jpg）。 */
-  { url: 'assets/fig-scholar.glb', bytes: 259428,  stage: '取', label: '文士', required: false },
-  { url: 'assets/fig-lady.glb',    bytes: 287864,  stage: '取', label: '仕女', required: false },
-  /* 马夫（马厩喂马）。他的腰带带误权重 ⇒ 只做躯干前俯，不转肩（见 16-actors 的注释）。 */
-  { url: 'assets/fig-laborer.glb', bytes: 345496,  stage: '取', label: '马夫', required: false },
-  /* 书童（一位资产、两处实例：16-actors 的 child1/child2 各 parse 一份）。 */
-  { url: 'assets/fig-child.glb',   bytes: 256240,  stage: '取', label: '书童', required: false },
-  /* 2026-10-23 P4 第五个角色「客人」（Rodin 生成 + UniRig 绑骨 + 手部权重修复 + 6 根裙骨，
-     1024 JPEG 贴图；材质是长袍 ⇒ 走路靠裙骨、不做坐姿）。 */
-  { url: 'assets/fig-guest.glb',   bytes: 243392,  stage: '取', label: '客人', required: false },
+  { url: 'assets/fig-scholar.glb', bytes: 259428, stage: '取', label: '文士', required: false },
+  { url: 'assets/fig-lady.glb', bytes: 287864, stage: '取', label: '仕女', required: false },
+  { url: 'assets/fig-laborer.glb', bytes: 345496, stage: '取', label: '马夫', required: false },
+  { url: 'assets/fig-child.glb', bytes: 256240, stage: '取', label: '书童', required: false },
+  { url: 'assets/fig-guest.glb', bytes: 243392, stage: '取', label: '客人', required: false },
+  /* </asset-manifest:preload> */
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */
@@ -311,6 +267,28 @@ export function settleAsset(url, ok, err){
       try { fn(err); } catch (e){ /* 替身失败不阻断开园：整页白屏才是最坏结果 */ }
     }
   }
+  /* 最后一件结算 ⇒ 请 SW 回填离线资产（见 requestAssetPrecache） */
+  if (aggregate().settled >= items.size) requestAssetPrecache();
+}
+
+/* ── SW 资产回填请求（2026-10-31）──────────────────────────────────────────
+   sw.js 的 install 不再下载 GLB（首访时 SW 在 load 后注册，与页面并行会把同一批下两遍）。
+   预载段**全部结算**（成功/失败/超时/「先用基础版进入」都算）的那一刻，给 SW 发一次
+   `precache-assets`，由 SW 用 force-cache 把资产桶缺的件串行补齐 —— 命中页面刚下过的
+   HTTP 缓存，不重复走网络。
+   · 本模块仍不发网络请求：这里只 postMessage；
+   · SW 还没注册/没激活时 `ready` 会等它激活后再发（注册在 load 事件后，常晚于预载完成）；
+   · 不支持 SW、file://、纯 Node 探针：navigator.serviceWorker 不存在 ⇒ 什么都不做；
+   · 只发一次（模块级闸）。 */
+let precacheAsked = false;
+function requestAssetPrecache(){
+  if (precacheAsked) return;
+  precacheAsked = true;
+  try {
+    const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : null;
+    if (!sw || !sw.ready) return;
+    sw.ready.then((reg) => { if (reg && reg.active) reg.active.postMessage({ type: 'precache-assets' }); }).catch(() => {});
+  } catch (e) { /* 回填只是离线兜底，任何异常都不影响开园 */ }
 }
 
 /* 订阅"某个 URL 的资产失败了"。返回退订函数（务必在不再需要时调用）。 */
@@ -458,7 +436,7 @@ export function describe(agg){
    同步返回 ⇒ 快照时序与改动前**逐帧一致** ⇒ 本地档/SW 预缓存档零行为变化。
    两种触发场景（都应当零等待）：
      · 本地不限速：1.1 MB 早已下完（实测 GLB 在 1645ms 就全到位，warmBoot 远在其后）；
-     · 装成 PWA 后：.glb 走 cache-first，install 期就预缓存好了，**从来没有网络发生**。
+     · 装成 PWA 后：.glb 走 cache-first，资产桶早已回填好（首访预载结算后由 SW 补齐），**从来没有网络发生**。
    ⚠️ 零等待时**不写** .ld-text / .ld-prog（`silent:true`）—— 让暖编译段从 45% 起
    自己的第一桶来铺满整条 bar，避免"0 → 45 跳一下 → 45 → 51…"这种无信息量的抖动。 */
 export function preloadPhase(onTick, timeoutMs, coalesceMs){

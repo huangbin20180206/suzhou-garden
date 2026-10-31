@@ -114,7 +114,11 @@
    outputs/_diag/panel-fit-scan.mjs；改后留 ~65px 余量）。 */
 /* 2026-10-21 bump v41→v42：GLBS 预载清单加入 fig-scholar.glb / fig-lady.glb。 */
 /* 2026-10-23 bump v42→v43：GLBS 预载清单加入 Rodin 三匹马。 */
-const CACHE = 'suzhou-garden-v43';
+/* 2026-10-31 bump v43→v44：导航分支修复（错误页/重定向/非入口页不再覆盖离线壳，入口页 5xx 回退缓存壳）
+   + install 不再下载 GLB（改由页面预载结算后发 precache-assets 回填）。旧版导航分支可能已把 404/500 页
+   存成 ./index.html ⇒ 升 CACHE 整桶换掉。ASSET_CACHE 不升：本批没有任何模型文件变化（资产桶内容仍有效）。
+   GLBS 改由 tools/gen-asset-manifest.mjs 从 assets/manifest.json 生成。 */
+const CACHE = 'suzhou-garden-v44';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
@@ -128,70 +132,43 @@ const SHELL = [
   './docs/cover.jpg',       // 水墨封面：loading 层要离线可见，归入应用壳
 ];
 const GLBS = [
-  /* 2026-09-30 三轮：LotusPlant.glb 回归（与 13-preload 同步；沿革见 08 的注释）。 */
+  /* <asset-manifest:precache> 由 tools/gen-asset-manifest.mjs 从 assets/manifest.json 生成，勿手改（改 JSON 后跑 --write） */
+  './assets/koi.glb',
+  './assets/stone-lantern.glb',
+  './assets/stone-lion-male.glb',
+  './assets/stone-lion-female.glb',
   './assets/BananaPlant.glb',
-  /* 2026-10-24：池边荷花换三态（盛开/花苞/莲蓬），旧 LotusPlant.glb 退役删除。
-     与 13-preload 的 PRELOAD_MANIFEST 同步（preload-manifest-sync 门盯着）。 */
   './assets/lotus-bloom.glb',
   './assets/lotus-bud.glb',
   './assets/lotus-pod.glb',
-  './assets/koi.glb',
   './assets/Turtle.glb',
-  /* 2026-10-03 补：金刚鹦鹉（2026-10-02 上峰顶时只改了 13-preload，漏了这里）。
-     这是"两份投影"里被漏掉的那一件 —— 见上方 CACHE 的 v15 沿革注释。 */
   './assets/Macaw.glb',
-  /* 2026-10-28：HorseTinker.glb 移出预缓存（默认 HORSE_MODEL=rodin，Tinker 是备选路径，
-     改为选用时才懒加载 —— 少预载 1.96MB；离线用到时走运行期缓存 + CDN 回退。
-     ⚠️ 本数组注释里不要出现成对引号 —— 清单同步门禁按引号提取条目，会被当成清单项）。 */
-  /* 2026-10-23：马厩换 Rodin 三匹（自带耳/眼/鼻孔/蹄形 + 1024 PBR 贴图；无骨骼走伪蒙皮）。
-     与 13-preload 的 PRELOAD_MANIFEST 同步（preload-manifest-sync 门盯着）。 */
   './assets/horse-camargue.glb',
   './assets/horse-mongolian.glb',
   './assets/horse-criollo-saddle.glb',
-  /* 2026-10-23：第五个角色「客人」（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
-  './assets/fig-guest.glb',
-  /* 2026-10-30 太湖石主峰 GLB **撤出预缓存**（第 0 周热修）：主峰默认走程序化立峰，
-     省 5.46MB；?heroSrc=glb 时由 loadAssetOnce 按需懒取（在线时 SW 运行时缓存兜着）。
-     白名单理由登记在 preload-manifest-sync 的 ASSET_EXEMPT（HorseTinker 同形态）。 */
-  /* 2026-10-14 石灯笼 L0 首件（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
-  './assets/stone-lantern.glb',
-  /* 2026-10-18 石狮一对（与 13-preload 的 PRELOAD_MANIFEST 同步）。 */
-  './assets/stone-lion-male.glb',
-  './assets/stone-lion-female.glb',
-  /* 2026-10-21 P1：AI 半写实人物（文士/仕女），与 13-preload 的 PRELOAD_MANIFEST 同步。 */
   './assets/fig-scholar.glb',
   './assets/fig-lady.glb',
   './assets/fig-laborer.glb',
   './assets/fig-child.glb',
+  './assets/fig-guest.glb',
+  /* </asset-manifest:precache> */
 ];
-/* ⚠️ 2026-09-27 · 高精资产批次：上面这份 GLBS 与 src/13-preload.js 的
-   PRELOAD_MANIFEST 是**同一批资产的两个投影**，加高精包时**两处都要改**。
-   不一致的后果是分方向的：
-     · 只加 sw.js 不加 13 → SW 装好后仍走网络，重复下载一遍；
-     · 只加 13 不加 sw.js → 用户装成 PWA 后首次开园**仍在下载 10MB**，
-       违背 PWA 的"装了就该能离线打开"，而且 13 的进度条会一直走网络
-       （本项目里"进度条有真进度"恰恰等价于"没装 PWA"）。
-   分流逻辑本身**不需要动**（.glb 仍是 cache-first = 版本内不变；
-   代码类仍 network-first = 改了即所见）。 ⚠️ 加完必须 bump 上面的 CACHE 版本号。 */
+/* GLBS 与 src/13-preload.js 的 PRELOAD_MANIFEST 是同一批资产的两个投影 —— 2026-10-31 起两段都由
+   tools/gen-asset-manifest.mjs 从 assets/manifest.json 生成（precache=true 的件进这里），
+   门禁 preload-manifest-sync 校验 清单 ↔ 磁盘 ↔ 生成段 三者一致；不要手改上面的生成段。
+   懒加载件（HorseTinker / boulder-hero / thunder.mp3）不进这里，离线用到时靠运行期缓存。
+   改了模型文件 ⇒ 升 ASSET_CACHE 后缀（check.mjs 盯着）。
+   （2026-09-27 起的"两处都要改"沿革：只加 sw.js 不加 13 ⇒ 重复下载；只加 13 不加 sw.js ⇒
+   PWA 断网首开缺件 —— 现在由生成器 + 门禁从结构上消掉。） */
 
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     /* ① 应用壳：整批预缓存（版本内不变，升版就是换这一桶） */
     await (await caches.open(CACHE)).addAll(SHELL);
-    /* ② 模型资产：**逐个"缺了才下"**，放进**不带版本号**的资产桶。
-       ⚠️⚠️ 2026-10-11 改（老黄："现在每次进项目前这个下载都要持续好久"）：
-       原来 GLBS 与 SHELL 混在同一个带版本号的桶里，而 activate 会删掉所有旧版本桶
-       ⇒ **我每改一行代码升一次版本，用户那 3.5 MB 模型就要重下一遍**
-       （一天里我从 v36 升到 v39 = 让他白下了 4 遍）。现在资产与版本脱钩：
-       升版只换应用壳，资产**只在缺的时候才发网络**。
-       ⚠️ 也不能用 addAll 预缓存资产：它遇到 404 会整批 reject，
-       而过去的写法是 `.catch(() => c.addAll(SHELL))` ⇒ 静默退化成"只缓存外壳"
-       ⇒ 资产每次重下（而且没人看得出来）。这里单件失败只影响那一件。 */
-    const ac = await caches.open(ASSET_CACHE);
-    await Promise.all(GLBS.map(async (u) => {
-      if (await ac.match(u)) return;                 // 已有 ⇒ 这一次网络都不发
-      try { await ac.add(u); } catch { /* 单件失败不拦安装；运行期 fetch 还有一次机会 */ }
-    }));
+    /* ② 模型资产**不在 install 里下载**（2026-10-31）：SW 在页面 load 事件后才注册，那时页面的 GLB
+       往往还在下载 ⇒ 旧版在这里逐个 `ac.add(GLBS)` 会让首访把同一批资产下两遍，慢网下还和页面抢带宽。
+       现改由页面预载段全部结算后发 `precache-assets` 消息，见下方 message 监听里的回填。
+       （2026-10-11 那条"资产桶与版本脱钩、缺了才下、单件失败不拦安装"的纪律原样保留在回填里。） */
     await self.skipWaiting();
   })());
 });
@@ -218,6 +195,35 @@ self.addEventListener('activate', (e) => {
   );
 });
 
+/* 资产回填（2026-10-31）：页面预载段全部结算后由 src/13-preload.js 发来 `precache-assets`。
+   · 只补资产桶里缺的件（已有 ⇒ 这一次网络都不发）；**串行**，不和页面后续请求抢带宽；
+   · `cache: 'force-cache'` ⇒ 优先用 HTTP 缓存里页面刚下过的那份（首访不再重复下载）；
+     HTTP 缓存没有时才真走网络（此时页面已开园，不影响首屏）；
+   · 只收 200（错误页/部分响应不进桶）；单件失败不影响其它件，运行期 fetch 还有机会补；
+   · 多个标签页同时发消息时共用同一轮回填。 */
+let backfilling = null;
+async function backfillAssets(){
+  const ac = await caches.open(ASSET_CACHE);
+  for (const u of GLBS){
+    try {
+      if (await ac.match(u)) continue;
+      const res = await fetch(new Request(u, { cache: 'force-cache' }));
+      if (res.ok && res.status === 200) await ac.put(u, res);
+    } catch { /* 离线/单件失败：跳过 */ }
+  }
+}
+self.addEventListener('message', (e) => {
+  if (!e.data || e.data.type !== 'precache-assets') return;
+  if (!backfilling) backfilling = backfillAssets().finally(() => { backfilling = null; });
+  e.waitUntil(backfilling);
+});
+
+/* 应用入口页：scope 根或 index.html。只有它的导航响应才配覆盖离线壳。 */
+function isShellNav(url){
+  const root = new URL('./', self.registration.scope).pathname;
+  return url.pathname === root || url.pathname === root + 'index.html';
+}
+
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (url.origin !== location.origin) return;          // 零 CDN 约束：跨域一律不拦
@@ -225,11 +231,23 @@ self.addEventListener('fetch', (e) => {
 
   // 导航请求：网络优先，离线回退缓存页
   if (e.request.mode === 'navigate') {
+    const shell = isShellNav(url);
     e.respondWith(
       fetch(e.request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
+          /* 2026-10-31：旧版对任何响应（含 404/500/重定向）都 put 成 ./index.html ⇒ 服务器一次出错
+             就把离线壳换成了错误页。现在只有「res.ok + 非重定向 + 确是入口页」才覆盖：
+             · 非 200 不存；· 重定向过的响应不存（用它回应导航会被浏览器判网络错误）；
+             · 同 scope 下的其它页面（如 probe/*.html）不存，免得把别的页面当成离线壳。 */
+          if (shell && res.ok && res.status === 200 && !res.redirected) {
+            const copy = res.clone();
+            caches.open(CACHE).then((c) => c.put('./index.html', copy)).catch(() => {});
+            return res;
+          }
+          /* 入口页 5xx：有缓存壳就用缓存壳（服务器临时出错时仍能开园），没有才把错误页交给浏览器 */
+          if (shell && res.status >= 500) {
+            return caches.match('./index.html', { ignoreSearch: true }).then((hit) => hit || res);
+          }
           return res;
         })
         .catch(() => caches.match('./index.html', { ignoreSearch: true }))

@@ -80,6 +80,23 @@ try {
   errors.length = 0;      // 之后只统计**断网重载**那一次的错误
   console.log('PASS: online warmup boot (SW installed, src/*.js runtime-cached)');
 
+  /* 2026-10-31：SW 不再在 install 里下载 GLB，而是页面预载结算后回填（sw.js 的 precache-assets）。
+     断网之前先等回填完成：轮询缓存，直到 assets/manifest.json 里 precache 的件全部在资产桶里（≤60s）。
+     只加等待，判据不变。 */
+  const precacheUrls = JSON.parse(await fs.readFile(path.join(root, 'assets/manifest.json'), 'utf8'))
+    .assets.filter(a => a.precache).map(a => '/' + a.url);
+  const backfilled = await page.evaluate(async (urls) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 60000){
+      const keys = (await caches.keys()).filter(k => k.startsWith('suzhou-garden-assets-v'));
+      let have = 0;
+      for (const u of urls) if (await caches.match(u)) have++;
+      if (keys.length && have === urls.length) return { ok: true, have };
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return { ok: false };
+  }, precacheUrls);
+  if (!backfilled.ok) console.warn('WARN: 60s 内资产回填未完成，继续按原判据断网');
   await context.setOffline(true);
   const offline = await page.evaluate(async () => {
     /* ⚠️ 这份清单必须与 sw.js 的 SHELL + GLBS **逐项对齐** —— 它就是"装了 PWA 就该能
