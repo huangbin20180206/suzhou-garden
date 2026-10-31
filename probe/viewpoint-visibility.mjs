@@ -7,7 +7,9 @@
 //
 // 根因是"相机站在水里 + 低机位"这一类组合：荷花/睡莲是 2026-09-30 之后才补进池面的，
 // 而机位公式仍是"池中央看石"的老口径，两者一叠加就必然撞上。这条门把该组合钉死：
-//   ① 每个官方机位的**中心射线**不许被近处物体打断（第一命中 ≥ max(2.0m, 0.7×到注视点距离)）；
+//   ① 每个官方机位的**中心视线**不许被近处物体**成片**打断 —— 锥形 5 条线（中心 + 上下左右各
+//      0.55m）里 ≥3 条的第一命中 < max(2.0m, 0.7×到注视点距离) 才算挡住；
+//      单条中心线被细物/瞬时物（一只鸟、一片叶、一颗水滴）掠过不算（2026-10-31 加）；
 //   ② 机位若在池内，相机高度必须 ≥ 2.4m（低机位泡在水里必然穿进花叶）；
 //   ③ 3m 内的荷花/睡莲实例不得落进画面（"镜头前糊一朵花"的直接判据）；
 //   ④ 负例自检：把「立峰」退回修复前的 1.18m 位姿，③ 必须报出来（证明判据有牙）。
@@ -79,6 +81,22 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('装配就绪（立峰 + 荷花实例都在场）', ready);
   await sleep(600);
 
+  /* ⚠️⚠️ 必须等**装配全部收尾**（2026-10-31 定案）──这条是 hall 偶发红的真因。
+     本门原来只等"立峰 + 荷花实例在场"就开量，而竹丛/树等是在**延迟批**里陆续建的：
+     全量链负载重、帧很长时，测到这里那一批还没跑完，竹竿与竹叶仍堆在**原点附近**
+     —— 而 hall 机位 pos[0.5,4.6,5] 朝北看，正好把这些还没搬走的竹竿/竹叶撞在 3.9~5m 处
+     （实测命中：MAT.bambooA 竿 11 根 + MAT.leaf 叶 2416 片，颜色 #a8c46a / #4e8c36）。
+     独立跑（机器安静、装配早已完成）时同一根射线第一命中是 19.76m 的屏风 ⇒ **视线本来是通的**。
+     项目既有铁律同款："凡是要采样场景内容/几何/像素的探针，必须 await bootDonePromise"。
+     ⚠️ 本门还要继续用"才 600ms"的采样时点判"相机可达"吗？不 —— 机位可见性与装配时序无关，
+        只与最终布局有关，所以等装配收尾不会削弱判据。 */
+  const booted = await page.evaluate(async () => {
+    await window.__garden.bootDonePromise;
+    return true;
+  }).then(() => true).catch(() => false);
+  check('前提：延迟装配已全部收尾（否则竹丛还堆在原点，会把机位前方挡成假红）', booted);
+  await sleep(400);
+
   const scan = await page.evaluate(async () => {
     const G = window.__garden, T = G.THREE;
     const M = await import('/src/01-materials.js');
@@ -106,14 +124,57 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       cam.updateMatrixWorld(true); cam.updateProjectionMatrix();
       const from = cam.position.clone();
       const dir = tgt.clone().sub(from); const dist = dir.length(); dir.normalize();
-      rc.set(from, dir);
-      const hits = rc.intersectObject(G.scene, true)
-        .filter(h => h.object.visible && h.object.isMesh && !SKIP.test(h.object.name || ''));
+      const cast = (f, d) => { rc.set(f, d);
+        return rc.intersectObject(G.scene, true)
+          .filter(h => h.object.visible && h.object.isMesh && !SKIP.test(h.object.name || '')); };
+      const hits = cast(from, dir);
       const first = hits.length ? { name: hits[0].object.name || '(anon)',
         mat: (Array.isArray(hits[0].object.material) ? hits[0].object.material[0] : hits[0].object.material)?.name || '',
         inst: hits[0].object.isInstancedMesh ? true : false,
         parent: hits[0].object.parent ? (hits[0].object.parent.name || '(组)') : '-',
         d: +hits[0].distance.toFixed(2) } : null;
+      /* ── 「挡住」的判定要问"是不是**成片**挡住"，不能只看中心一根线 ──
+         2026-10-31：全量链里 hall 偶发在 5.31m 命中一个**匿名 InstancedMesh**（父级也是匿名组），
+         而同一时序下连采 1883 次一次都复现不出来（outputs/_diag/hall-ray-catch.mjs）——
+         典型是"会动的/短暂的细小实例"从中心线上掠过。一根线被一只鸟/一片叶/一颗水滴穿过，
+         不该判成"机位被挡住"（玩家看到的仍然是主体）。
+         所以改成**锥形 5 条线**（中心 + 上下左右各 0.55m），≥3 条同时被近处打断才算挡住。
+         判定不变的是"近处"这个阈值（max(2m, 0.7×到注视点)）；变的是"要成片"。
+         顺带把中心射线的**前几个命中**一起带回来，下次真红时直接能看到是谁。 */
+      const thr = Math.max(2.0, dist * 0.7);
+      const right = new T.Vector3().crossVectors(dir, new T.Vector3(0, 1, 0));
+      if (right.lengthSq() < 1e-6) right.set(1, 0, 0);
+      right.normalize();
+      const up2 = new T.Vector3().crossVectors(right, dir).normalize();
+      const OFF = 0.55;
+      let coneBlocked = 0;
+      for (const [ox, oy] of [[0, 0], [OFF, 0], [-OFF, 0], [0, OFF], [0, -OFF]]){
+        const f2 = from.clone().addScaledVector(right, ox).addScaledVector(up2, oy);
+        const d2 = tgt.clone().sub(f2); const L = d2.length(); d2.normalize();
+        const h2 = cast(f2, d2);
+        if (h2.length && h2[0].distance < Math.max(2.0, L * 0.7)) coneBlocked++;
+      }
+      const trail = hits.slice(0, 5).map(h => {
+        const o = h.object, mat = Array.isArray(o.material) ? o.material[0] : o.material;
+        let instPos = null, instScale = null;
+        if (o.isInstancedMesh && h.instanceId != null && h.instanceId >= 0){
+          const m4 = new T.Matrix4(), p4 = new T.Vector3(), q4 = new T.Quaternion(), s4 = new T.Vector3();
+          o.getMatrixAt(h.instanceId, m4); m4.decompose(p4, q4, s4);
+          p4.applyMatrix4(o.matrixWorld);
+          instPos = p4.toArray().map(v => +v.toFixed(2));
+          instScale = s4.toArray().map(v => +v.toFixed(2));
+        }
+        const g2 = o.geometry;
+        return { name: o.name || '(anon)', d: +h.distance.toFixed(2),
+          mat: (mat && mat.name) || '', matType: mat ? mat.type : null,
+          matColor: mat && mat.color ? '#' + mat.color.getHexString() : null,
+          opacity: mat ? mat.opacity : null, transparent: mat ? !!mat.transparent : null,
+          inst: o.isInstancedMesh || false, instId: h.instanceId ?? null,
+          count: o.isInstancedMesh ? o.count : null, instPos, instScale,
+          geo: g2 ? g2.type : null, verts: g2 && g2.attributes && g2.attributes.position ? g2.attributes.position.count : null,
+          customRaycast: !!o.raycast && o.raycast !== T.Mesh.prototype.raycast && o.raycast !== T.InstancedMesh.prototype.raycast,
+          parent: o.parent ? (o.parent.name || '(组)') : '-' };
+      });
       /* 3m 内的池面植物有没有落进画面 */
       let inFrame = 0; const samples = [];
       for (const o of plants){
@@ -126,7 +187,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
         }
       }
       const overPond = (() => { try { return W.insidePond(from.x, from.z); } catch { return false; } })();
-      return { cam: from.toArray().map(v => +v.toFixed(2)), dist: +dist.toFixed(2), first,
+      return { cam: from.toArray().map(v => +v.toFixed(2)), dist: +dist.toFixed(2), first, trail,
+               coneBlocked, thr: +thr.toFixed(2),
                ratio: first ? +(first.d / dist).toFixed(2) : 1, inFrame, samples, overPond };
     };
 
@@ -147,12 +209,20 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const rows = scan.rows;
   check('官方机位清单可读', rows.length >= 15, `${rows.length} 个：` + rows.map(r => r.id).join(' '));
 
-  const blocked = rows.filter(r => r.first && r.first.d < Math.max(2.0, r.dist * 0.7));
-  check('每个机位的中心视线不被近处物体打断',
+  /* 「挡住」= **成片**挡住：锥形 5 条线里 ≥3 条被近处打断（细/瞬时物掠过中心线不算，
+     理由见 measure() 里的长注释）。 */
+  const blocked = rows.filter(r => r.coneBlocked >= 3);
+  const thin = rows.filter(r => r.coneBlocked > 0 && r.coneBlocked < 3);
+  check('每个机位的中心视线不被近处物体**成片**打断（锥形 5 线里 ≥3 条）',
     blocked.length === 0,
     blocked.length ? blocked.map(r => `${r.id}: ${r.first.name}/${r.first.mat}${r.first.inst ? '(实例)' : ''}`
-      + ` 父=${r.first.parent} @${r.first.d}m（目标 ${r.dist}m，相机 ${JSON.stringify(r.cam)}）`).join('；')
+      + ` 父=${r.first.parent} @${r.first.d}m，5 线中 ${r.coneBlocked} 条被挡（目标 ${r.dist}m，相机 ${JSON.stringify(r.cam)}）`
+      + ` ｜ 中心线前几命中 ${JSON.stringify(r.trail)}`).join('；')
                    : rows.map(r => `${r.id}:${r.first ? r.first.name + '@' + r.first.d : 'null'}`).join(' '));
+  if (thin.length){
+    console.log('  · 提示：以下机位只有中心线被细物掠过（<3/5，不判红，但留档便于复核）：'
+      + thin.map(r => `${r.id}:${r.first.name}@${r.first.d}m(${r.coneBlocked}/5)`).join(' '));
+  }
 
   const nearFlower = rows.filter(r => r.inFrame > 0);
   check('3m 内没有荷花/睡莲糊在镜头前',

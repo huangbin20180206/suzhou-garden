@@ -52,7 +52,10 @@ const check = (name, ok, detail = '') => {
   page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
   console.log(`\n[festival-lanterns-guard] http://127.0.0.1:${port}/index.html`);
 
-  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0', { waitUntil: 'domcontentloaded' });
+  /* ⚠️ 必须 `?tier=high`（2026-10-31 修，与 festival-guard 同因）：路灯 SpotLight 只在非 low 档
+     创建（低档 `LAMP_LIGHT_BUDGET=0` 是有意设计），本机常被判 low ⇒ `roadLights=0` ⇒
+     第 ③ 条 `roadLights >= 1` 恒红。 */
+  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0&tier=high', { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading')
     && document.getElementById('loading').classList.contains('done'), null, { timeout: 240000 });
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
@@ -134,7 +137,8 @@ const check = (name, ok, detail = '') => {
   /* ── ① 灯会不新增真光源（廊灯 5 + 路灯；路灯数由源码报，不硬编码）── */
   check('① 灯会不新增真光源：廊灯 5 盏 + 路灯（这组是常驻灯，灯会不加）',
     off.st.lampLights === 5 && off.st.roadLights >= 1,
-    `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}`);
+    `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}` +
+    `（roadLights=0 先查 ?tier=high 是否生效 —— 低档按设计不建路灯光源）`);
 
   /* ── 开灯会：数量显形 + 判据③ 的两个读数（同态基线 / 灯会态）── */
   const on = await page.evaluate(async () => {

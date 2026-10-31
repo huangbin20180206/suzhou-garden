@@ -65,7 +65,12 @@ const check = (name, ok, detail = '') => {
   page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
   console.log(`\n[festival-guard] http://127.0.0.1:${port}/index.html`);
 
-  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0', { waitUntil: 'domcontentloaded' });
+  /* ⚠️ 必须 `?tier=high`（2026-10-31 修）：路灯 SpotLight 只在**非 low 画质档**创建
+     （12c-festival.js 的预算 `LAMP_LIGHT_BUDGET = ACTIVE_QUALITY.key === 'low' ? 0 : spots.length`，
+     低档一盏不建是有意设计）。本机 ANGLE 常落 Intel Iris Xe ⇒ 被判 low ⇒ `roadLights=0`，
+     而本门第 ③ 条判据要 `roadLights >= 1` ⇒ 从有真实日轨/画质分档起就**恒红**。
+     烘死档位而不是放宽判据：判据守的是"灯会不许偷偷加光源"，那个契约只在真有光源的档位上才有意义。 */
+  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0&tier=high', { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading')
     && document.getElementById('loading').classList.contains('done'), null, { timeout: 240000 });
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
@@ -171,7 +176,7 @@ const check = (name, ok, detail = '') => {
   check('真光源：廊灯 5 盏（不变的基础灯）',
     off.st.lampLights === 5 && off.st.roadLights >= 1,
     `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}` +
-    `（路灯数由源码报；「灯会开/关前后不变」的对比在 on 那一段）`);
+    `（路灯数由源码报；若 roadLights=0 先查 ?tier=high 是否生效 —— 低档按设计不建路灯光源）`);
 
   /* ── ⑥ 一键切换语义：开 = 夜 + 灯会层；关 = 留夜撤层 ── */
   const on = await page.evaluate(async () => {

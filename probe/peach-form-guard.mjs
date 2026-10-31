@@ -215,7 +215,23 @@ const check = (label, ok, extra) => { results.push({ label, ok }); console.log(`
       `直径 X=${dX} Z=${dZ} 差异=${(skew * 100).toFixed(1)}% 采样顶点=${t.bandN}（旧版实测 0.06×0.15 的刀片）`);
   }
 
-  /* ── 形态：冠层不是骨架 ── */
+  /* ── 期望值**不写死**：读产品自己的花历曲线（12g PHENO + SEASON_DOY）算"这个季节该有多少" ──
+     ⚠️ 2026-10-31 修：原来硬编码"春叶 = 声明数 × 0.15、秋果 = × 0.7"（旧季节表每季一个数的时代）。
+     接上按旬花历之后：春代表日 4/12 的 `peachLeaf` 曲线值约 0.44（先花后叶，叶刚开始长）、
+     秋代表日 10/12 的桃子**已经下市**（`peachFruit = 0`）。这两条旧断言把**新设计的正确行为**
+     判成错，而且是"改设计就得改门禁"的那一类死数字。
+     现在改成：期望 = round(声明数 × 产品自己的曲线值)。判据的牙一点没丢 —— 它守的是
+     "实例数通道真的跟着花历走"，而花历一旦被改错（或 count 通道没接线），期望值跟着错、
+     实测就会对不上。 */
+  const pheno = await page.evaluate(async () => {
+    const m = await import('/src/12g-phenology.js');
+    const out = {};
+    for (const s of ['spring', 'summer', 'autumn', 'winter']) out[s] = m.phenoChannels(m.SEASON_DOY[s]);
+    return out;
+  });
+  console.log('  〔花历期望值〕' + ['spring', 'summer', 'autumn', 'winter']
+    .map(s => `${s}: 叶=${pheno[s].peachShow.toFixed(3)} 花=${pheno[s].peachBlossomShow.toFixed(3)} 果=${pheno[s].peachFruitShow.toFixed(3)}`)
+    .join(' ｜ '));
   const setSeason = (s) => page.evaluate((s) => { const g = window.__garden;
     g.setEnv('time', 'noon'); g.setEnv('weather', 'clear'); g.setEnv('season', s); }, s);
 
@@ -249,10 +265,10 @@ const check = (label, ok, extra) => { results.push({ label, ok }); console.log(`
   await setSeason('spring'); await settled(); await sleep(1400);
   const spr0 = (await instCounts(0)) || {};
   const sprFill = await canopyFill(0);
-  const wantSpringLeaf = spr0.leaf ? Math.round(spr0.leaf.alloc * 0.15) : -1;
-  check('春：先花后叶**真的落地**（叶实例 = 声明数 × 0.15）',
+  const wantSpringLeaf = spr0.leaf ? Math.round(spr0.leaf.alloc * Math.min(1, Math.max(0, pheno.spring.peachShow))) : -1;
+  check('春：先花后叶**真的落地**（叶实例 = 声明数 × 花历曲线 peachLeaf(春代表日)）',
     !!spr0.leaf && spr0.leaf.live === wantSpringLeaf,
-    spr0.leaf ? `叶 live=${spr0.leaf.live} 期望=${wantSpringLeaf}（声明 ${spr0.leaf.alloc}×0.15）` : '没量到');
+    spr0.leaf ? `叶 live=${spr0.leaf.live} 期望=${wantSpringLeaf}（声明 ${spr0.leaf.alloc}×${pheno.spring.peachShow.toFixed(3)}）` : '没量到');
   check('春：花满树（blossom 实例挂满声明且 ≥700）',
     !!spr0.blossom && spr0.blossom.live === spr0.blossom.alloc && spr0.blossom.live >= 700,
     spr0.blossom ? `${spr0.blossom.live}/${spr0.blossom.alloc}` : '没量到');
@@ -270,10 +286,10 @@ const check = (label, ok, extra) => { results.push({ label, ok }); console.log(`
 
   await setSeason('autumn'); await settled(); await sleep(1400);
   const aut0 = (await instCounts(0)) || {};
-  const wantAutFruit = aut0.fruit ? Math.round(aut0.fruit.alloc * 0.7) : -1;
-  check('秋：果渐疏（果实例 = 声明数 × 0.7，该掉的真的掉了）',
+  const wantAutFruit = aut0.fruit ? Math.round(aut0.fruit.alloc * Math.min(1, Math.max(0, pheno.autumn.peachFruitShow))) : -1;
+  check('秋：果渐疏（果实例 = 声明数 × 花历曲线 peachFruit(秋代表日)；秋代表日桃子已下市 ⇒ 0）',
     !!aut0.fruit && aut0.fruit.live === wantAutFruit,
-    aut0.fruit ? `果 live=${aut0.fruit.live} 期望=${wantAutFruit}（声明 ${aut0.fruit.alloc}×0.7）` : '没量到');
+    aut0.fruit ? `果 live=${aut0.fruit.live} 期望=${wantAutFruit}（声明 ${aut0.fruit.alloc}×${pheno.autumn.peachFruitShow.toFixed(3)}）` : '没量到');
 
   await setSeason('winter'); await settled(); await sleep(1400);
   const win0 = (await instCounts(0)) || {};

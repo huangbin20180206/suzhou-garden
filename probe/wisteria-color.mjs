@@ -67,29 +67,48 @@ const check = (name, ok, detail = '') => {
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
     null, { timeout: 90000 });
-  /* 紫藤属"延迟批"，比 GLB 晚但比首帧早；直接轮询到花穗实例出现为止（固定 sleep 会踩空） */
-  const ok = await page.waitForFunction(() => {
-    let found = 0;
+
+  /* ⚠️ **必须钉住季节**（2026-10-31 修）：本门量的是紫藤**花穗**的渐变，而花只在春季有
+     （2026-10-30 起的按旬花历，`wisteriaBloom` 曲线 4 中~5 上，默认"夏"代表日 7/10 时为 0）。
+     旧写法没设季节 ⇒ 跑在默认夏天 ⇒ 花穗 count=0 ⇒ rows 空 ⇒ `brightest.hex` 抛
+     TypeError（探针自身崩溃，表现为"门常红"而不是"产品坏"）。 */
+  await page.evaluate(() => { const G = window.__garden;
+    G.setEnv('season', 'spring'); G.setEnv('weather', 'clear'); G.setEnv('time', 'noon'); });
+  const settled = await page.waitForFunction(() => window.__garden.ENV.t >= 1 && window.__garden.ENV.season === 'spring',
+    null, { timeout: 120000, polling: 300 }).then(() => true).catch(() => false);
+  console.log('[wisteria-color] 春 + 过渡落定: ' + settled);
+
+  /* 紫藤属"延迟批"，比 GLB 晚但比首帧早；轮询到**花穗**（MAT.wisteria）真的挂上实例为止。
+     ⚠️ 旧判据是"一切 instanceColor 且 count>200 的网格"，那个条件夏秋也会被柳叶/竹叶满足 ⇒
+     会在"紫藤花根本不存在"的前提下继续往下跑。 */
+  const ok = await page.waitForFunction(async () => {
+    const M = await import('/src/01-materials.js');
+    let n = 0;
     window.__garden.scene.traverse(o => {
-      if (o.isInstancedMesh && o.instanceColor && o.count > 200) found++;
+      if (o.isInstancedMesh && o.material === M.MAT.wisteria && o.count > 200) n++;
     });
-    return found > 0;
+    return n > 0;
   }, null, { timeout: 120000, polling: 500 }).then(() => true).catch(() => false);
-  console.log('[wisteria-color] 花穗实例就绪: ' + ok);
+  const diag = await page.evaluate(() => ({ season: window.__garden.ENV.season, doy: window.__garden.ENV.doy,
+    bloom: +(window.__garden.ENV.cur.wisteriaBloom || 0).toFixed(3) }));
+  console.log(`[wisteria-color] 花穗实例就绪: ${ok}（season=${diag.season} doy=${diag.doy} wisteriaBloom=${diag.bloom}）`);
   if (!ok){ await browser.close(); server.close(); process.exit(1); }
 
-  const data = await page.evaluate(() => {
+  const data = await page.evaluate(async () => {
     const g = window.__garden, T = g.THREE;
-    /* 定位：先按 seasonWisteriaLeaf 找到叶卡实例 → 其父组即整丛紫藤；
-       花穗实例 = 同一父组下另一个带 instanceColor 的 InstancedMesh。 */
-    let leafInst = null;
-    g.scene.traverse(o => { if (o.isInstancedMesh && o.userData.seasonWisteriaLeaf && !leafInst) leafInst = o; });
-    if (!leafInst) return { found: false, why: 'seasonWisteriaLeaf 实例未找到' };
-    const root = leafInst.parent;
-    root.updateWorldMatrix(true, true);
+    const M = await import('/src/01-materials.js');
+    /* 定位：按**花穗材质**（MAT.wisteria）找网格，取最大的一丛。
+       ⚠️ 旧写法是"先找 seasonWisteriaLeaf 叶卡 → 在它的父组里挑另一个带 instanceColor 的网格"，
+       那个"另一个"在夏秋会挑到别的网格（不在场时直接 undefined）。 */
     let fl = null;
-    root.traverse(o => { if (o.isInstancedMesh && o.instanceColor && o !== leafInst && (!fl || o.count > fl.count)) fl = o; });
-    if (!fl) return { found: false, why: '花穗 InstancedMesh 未找到' };
+    g.scene.traverse(o => {
+      if (!o.isInstancedMesh || o.material !== M.MAT.wisteria) return;
+      if (!fl || o.count > fl.count) fl = o;
+    });
+    if (!fl) return { found: false, why: '紫藤花穗网格（MAT.wisteria）未找到' };
+    if (!fl.count) return { found: false, why: `花穗网格在场但 count=0（season=${g.ENV.season} doy=${g.ENV.doy} wisteriaBloom=${g.ENV.cur.wisteriaBloom}）` };
+    const root = fl.parent;
+    root.updateWorldMatrix(true, true);
 
     const m = new T.Matrix4(), p = new T.Vector3(), q = new T.Quaternion(), s = new T.Vector3();
     /* ⚠️ instanceColor 里存的是**线性空间**值（ColorManagement 把 hex 转成 linear-srgb），
@@ -105,6 +124,10 @@ const check = (name, ok, detail = '') => {
                   hex: '#' + c.getHexString(T.LinearSRGBColorSpace).toUpperCase() });
     }
     const n = rows.length;
+    /* 兜底（2026-10-31）：空数组时 `brightest` 是 undefined，旧代码在这里抛
+       TypeError（"Cannot read properties of undefined (reading 'hex')"）——
+       探针自己崩掉会被读成"门常红"，看不出真正原因。空集要当成**前提不成立**报出来。 */
+    if (!n) return { found: false, why: '花穗实例数为 0（读完矩阵后仍是空集）' };
     const meanY = rows.reduce((a, r) => a + r.y, 0) / n;
     const meanL = rows.reduce((a, r) => a + r.L, 0) / n;
     let cov = 0, vy = 0, vl = 0;

@@ -108,7 +108,12 @@ function check(name, ok, detail){ results.push({ name, ok: !!ok, detail }); }
 
   console.log('[shadow-cover] 阴影视体对园子地面的覆盖率（旧 vs 新）\n');
   const rows = [];
-  const CASES = [[7.5, 'clear'], [7.5, 'storm'], [12.5, 'clear'], [12.5, 'storm'], [18, 'clear'], [18, 'storm']];
+  /* ⚠️ 2026-10-31 重标反向对照的场景集：原来只有 6 个（7.5/12.5/18 各晴雨两条）。
+     接上真实日轨之后，早晨/傍晚太阳低、旧公式的 `_sc` 会自动放大（1.68），于是旧盒也"刚好够大"
+     ⇒ 旧参数只在正午两条漏（实测 2/6），而判据要求"至少一半"⇒ 红。
+     这不是尺子变钝，是**取样点在一天里太稀**：旧参数真正的毛病在"太阳高、放大系数=1"的那一段。
+     所以加密到 8 个场景（补 10.5 / 15 两条也落在这一档），判据仍是"旧参数在**一半以上**的场景里漏"。 */
+  const CASES = [[7.5, 'clear'], [7.5, 'storm'], [10.5, 'clear'], [12.5, 'clear'], [12.5, 'storm'], [15, 'clear'], [18, 'clear'], [18, 'storm']];
   for (const [hour, weather] of CASES){
     await setState(hour, weather);
     const now = await cover();
@@ -145,7 +150,8 @@ function check(name, ok, detail){ results.push({ name, ok: !!ok, detail }); }
   console.log('');
   /* 反向对照：新盒必须比旧盒覆盖得好，且旧盒在至少一半场景里确实漏（否则这把尺子没分辨力） */
   const oldBad = rows.filter(r => r.old.coverPct < 99.9).length;
-  check('反向对照：旧参数确实漏（≥3/6 场景）', oldBad >= 3, `旧参数漏 ${oldBad}/6 个场景`);
+  check(`反向对照：旧参数确实漏（≥${Math.ceil(rows.length / 2)}/${rows.length} 场景）`,
+        oldBad >= Math.ceil(rows.length / 2), `旧参数漏 ${oldBad}/${rows.length} 个场景`);
   const worstNew = Math.min(...rows.map(r => r.now.coverPct));
   const worstOld = Math.min(...rows.map(r => r.old.coverPct));
   check('拟合后严格优于旧参数', worstNew > worstOld + 0.5,

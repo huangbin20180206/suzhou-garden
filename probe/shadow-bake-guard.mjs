@@ -94,11 +94,17 @@ const check = (name, ok, detail = '') => { results.push({ name, ok }); console.l
     const medianStep = sorted[sorted.length >> 1];
     const maxStep = sorted[sorted.length - 1];
     // 显著独立方向数（8° 口径：小于 8° 的两个方向，其投影差异在一片叶的尺度上分不出）
+    /* ⚠️ 2026-10-31 修：原来是**贪心聚类并移动簇心**（`cs[best] = s.d`）。
+       真太阳轨道下相邻样本只差 3~5°，把簇心挪到新样本上之后，下一根样本又会落进它的 8° 圈里
+       ⇒ 链式合并，整条 223.5° 的弧被吞成 3 个簇（实测 clusters8=3），判据红。
+       改成 **leader 聚类：簇心一旦落定就不再移动**。于是每 ~8~9° 才产生一个新簇，
+       223.5° 的弧给出 ~25 个，与"弧长 / 8°"的直觉一致；阈值一个字没改。 */
     const cs = [];
     for (const s of day){
       let best = -1, bd = 1e9;
       for (let i = 0; i < cs.length; i++){ const dd = ang(cs[i], s.d); if (dd < bd){ bd = dd; best = i; } }
-      if (best >= 0 && bd <= 8) cs[best] = s.d; else cs.push(s.d);
+      if (best >= 0 && bd <= 8) continue;           // 落在已有簇心 8° 内 ⇒ 归入，簇心不动
+      cs.push(s.d);
     }
 
     /* ② 投射物高度 p50（世界系：setFromObject 走 matrixWorld，不是裸几何 bbox） */

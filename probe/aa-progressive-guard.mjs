@@ -126,12 +126,24 @@ async function open(browser, port, { mockReal = false, width = 1280, height = 72
   const page = await ctx.newPage();
   page.setDefaultTimeout(180000);
   const errs = [];
+  /* ⚠️ 过滤**启动看门狗的记录性 console.error**（2026-10-31）。
+     本门跑在 ?tier=high 上，无头软/核显档一次加载要 400s 级，而 11-loop/main.js 的第二级看门狗
+     在"已开园但 bootDone 120s 未兑现"时会打一条 console.error（原文注明"仅记录不弹卡"）。
+     那是**负载诊断信息**，不是缺陷：本门自己随后 `await __garden.bootDonePromise`，兑现了。
+     不过滤会把它算成"控制台报错"，让本门在重载下恒红。过滤条数会打进明细，不静默吞掉。 */
+  let watchdogNoise = 0;
+  const isWatchdog = (t) => /\[启动看门狗\]/.test(t);
   page.on('pageerror', e => errs.push(String(e)));
-  page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
+  page.on('console', m => {
+    if (m.type() !== 'error') return;
+    const t = m.text();
+    if (isWatchdog(t)){ watchdogNoise++; return; }
+    errs.push(t);
+  });
   await page.goto(`http://127.0.0.1:${port}/index.html?intro=0&tier=high`, { waitUntil:'domcontentloaded' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'));
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
-  return { ctx, page, errs };
+  return { ctx, page, errs, watchdog: () => watchdogNoise };
 }
 
 (async()=>{
@@ -331,7 +343,8 @@ async function open(browser, port, { mockReal = false, width = 1280, height = 72
 
   check('零 pageerror / console error（[P] + [R] + [B] 三个 context）',
     P.errs.length === 0 && R.errs.length === 0 && B.errs.length === 0,
-    [P.errs[0], R.errs[0], B.errs[0]].filter(Boolean).join(' | '));
+    ([P.errs[0], R.errs[0], B.errs[0]].filter(Boolean).join(' | ') || '—')
+    + `（已滤掉启动看门狗记录 ${P.watchdog() + R.watchdog() + B.watchdog()} 条：那是"重载下延迟装配未在 120s 内收尾"的诊断信息，本门随后自己 await bootDonePromise 已兑现）`);
 
   await browser.close(); server.close();
   const fails = results.filter(r => !r.ok).length;
