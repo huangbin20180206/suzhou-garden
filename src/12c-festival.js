@@ -28,11 +28,17 @@ let syncEnvUI = null;
 let resolveEnv = null;
 let cloneParams = null;   // ⚠️ 三个分开写：合并成一条多变量 let 的话，probe/import-audit 的
                           //    topLevelDecls 只认第一个名字，另外两个会被判成"用了别的模块的导出但没 import"
+/* 2026-10-30：灯会的进出也走 12-env 的统一入口 applyState（审查 S3），节令挂钩查 12g 的 festivalFor ——
+   两者都经注入拿到（本文件不能 import 12-env；12g 虽无依赖，但保持"所需外部函数一律经 host 注入"这条约定）。 */
+let applyState = null;
+let festivalFor = null;
 export function bindFestival(env, host){
   ENV = env;
   willowLeafInsts = host.willowLeafInsts;
   worldLights = host.worldLights;
   syncEnvUI = host.syncEnvUI; resolveEnv = host.resolveEnv; cloneParams = host.cloneParams;
+  applyState = host.applyState || null;
+  festivalFor = host.festivalFor || null;
 }
 
 /* ══ 上元灯会（2026-09-24 · 计划书 Phase 3 第 7 项）════════════════════════════
@@ -538,16 +544,28 @@ let _festPrev = null;
 export function toggleFestival(force){
   const on = force === undefined ? !ENV.festival : !!force;
   if (on === !!ENV.festival) return;
+  /* 2026-10-30：状态写入、过渡、PMREM、UI 一律交给 applyState（'festival' 策略：不收任何景，免得自己收自己）。
+     节令挂钩（审查 B4/B5）：冬天开灯会 ⇒ 日子拨到上元（2/20，望月、红梅正开）；秋天开 ⇒ 拨到中秋（9/15，望月）；
+     春夏照开、不拨日子（老黄要的"自由组合"，季节一律不动）。关灯会时只还"被我拨过、你也没再改过"的日子。 */
+  const want = { festival: on };
   if (on){
-    _festPrev = { time: ENV.time, hour: ENV.hour };
-    if (ENV.time !== 'night'){ ENV.time = 'night'; ENV.hour = 21.5; }   // 灯会 = 夜的 plus 版
-  } else if (_festPrev && ENV.time === 'night' && Math.abs(ENV.hour - 21.5) < 0.05){
-    ENV.time = _festPrev.time;                       // 回到进来之前
-    ENV.hour = _festPrev.hour;
-    _festPrev = null;
+    _festPrev = { time: ENV.time, hour: ENV.hour, doy: ENV.doy, setDoy: 0 };
+    if (ENV.time !== 'night'){ want.time = 'night'; want.hour = 21.5; }   // 灯会 = 夜的 plus 版
+    const fest = festivalFor ? festivalFor('lantern', ENV.season) : null;
+    if (fest && ENV.doy !== fest.doy){ want.doy = fest.doy; _festPrev.setDoy = fest.doy; }
+    ENV.festivalName = fest ? fest.label : '上元灯会';
   } else {
-    _festPrev = null;                                // 用户自己改过时段：不抢，直接作废
+    if (_festPrev && ENV.time === 'night' && Math.abs(ENV.hour - 21.5) < 0.05){
+      want.time = _festPrev.time;                    // 回到进来之前
+      want.hour = _festPrev.hour;
+    }                                                // 用户自己改过时段：不抢
+    if (_festPrev && _festPrev.setDoy && ENV.doy === _festPrev.setDoy) want.doy = _festPrev.doy;
+    _festPrev = null;
+    ENV.festivalName = '';
   }
+  if (applyState){ applyState(want, { via: 'festival' }); return; }
+  /* 兜底（未注入 applyState 的旧宿主）：保持原写法 */
+  if ('time' in want){ ENV.time = want.time; ENV.hour = want.hour; }
   ENV.festival = on;
   ENV.from = cloneParams(ENV.cur);
   ENV.to = resolveEnv();

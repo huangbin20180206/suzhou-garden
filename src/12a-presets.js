@@ -11,10 +11,17 @@
    ⚠️ 只导出"12-env 与其它模块要用到的名字"；表内私有辅助（moonDirAtHour / hourSeg / grayMix /
       applyWeatherTo / makeParams / ENV_COLOR_KEYS / SKY_GRAY / FOG_GRAY / weatherLabelOf）不出文件。 */
 import { THREE } from '../vendor.js';
+/* 2026-10-30 环境路线图：太阳 / 月相 / 时段判定与花历是两个**零依赖**的纯模块（node 下可单测），
+   本文件只负责把它们的结果合进参数集。依赖方向保持单向：12a → 12g / 12h，那两个不 import 任何人。 */
+import { SOLAR, solarPos, sunTimes, sunDir, timeKeyAt, timeAnchorsFor, moonAge, moonIllum,
+         moonRiseHour, smoothstep } from './12h-solar.js';
+import { phenoChannels, drizzleKind, drizzleLabel, SEASON_DOY } from './12g-phenology.js';
 
 /* ↓ 由 12-env.js 在 `ENV.cur = resolveEnv()` 之前注入（见文件头） */
 let ENV = null;
 export function bindPresetsEnv(state){ ENV = state; }
+/* 年内日序：季节按钮背后的内部量（12-env 的 ENV.doy）；没写过就取季节代表日（node 单测 / 旧调用兜底）。 */
+const envDoy = () => (ENV && ENV.doy) || SEASON_DOY[(ENV && ENV.season) || 'summer'] || SEASON_DOY.summer;
 
 /* ── 时段预设 ──
    每个预设是一组扁平的标量与颜色通道。颜色用 hex（number），
@@ -165,6 +172,35 @@ export const ENV_WEATHER = {
     rainAmount:1.0, snowAmount:0.0, snowCover:0.0, wetness:1.0,
     windMul:3.60, gustMul:0.30, moonVis:0.00, snowTint:0xF2F6FA },
 };
+/* ══ 新增两种江南天气（2026-10-30 · 审查 B3/S2）══════════════════════════════════
+   全部**复用**现有雨雪粒子与雾参数组合，不新增资产：
+   · drizzle「细雨」—— 一个预设、按日期换名换性格（drizzleKind，见 12g）：
+       梅雨（6中~7上）：绵密细雨、低对比、湿雾、无风、不打雷 —— 江南园林最典型的一景；
+       春雨：比梅雨轻、雾薄、色仍鲜；冬季冷雨：更暗更冷、风略大（苏州冬天降水以阴冷小雨为主）。
+     rainAmount 只给 0.38（雨"量"小 ⇒ 湿地、涟漪、雨声都是小雨的档），粒子的"密"走 rainDensity
+     （同屏粒子数）、"细"走 rainFine（粒子更小、落得更慢），见 12e updatePrecip。
+     ⚠️ 不进 LN_ALLOWED（12b）：细雨不打闪电；shadowK 0（满天云的漫射光，无硬影）。
+   · snowclear「雪霁」—— 雪停、天晴、积雪还在：snowCover 1 / snowAmount 0，云量 0.2、
+     雾压到 0.72（空气被雪洗过，通透），直射回来 ⇒ 有影子；仅冬季可用。
+   conMul 是新加的对比度乘子（缺省 1）：梅雨的"低对比"靠它，不靠压曝光把画面闷黑。 */
+ENV_WEATHER.drizzle = { weatherLabel:'细雨霏霏', blizzard:0, conMul:0.72, rainFine:1.0, rainDensity:0.85,
+  sunMul:0.22, ambMul:1.00, hemiMul:1.04, fogMul:1.60, satMul:0.86, expMul:0.98, shadowK:0.00,
+  cloudAmount:1.00, skyGray:0.66, fogGray:0.48, diskFade:1.00,
+  rainAmount:0.38, snowAmount:0.0, snowCover:0.0, wetness:0.90,
+  windMul:0.70, gustMul:0.40, moonVis:0.00, snowTint:0xF2F6FA };
+ENV_WEATHER.snowclear = { weatherLabel:'雪霁初晴', blizzard:0, conMul:1.04,
+  sunMul:0.95, ambMul:1.12, hemiMul:1.14, fogMul:0.72, satMul:0.94, expMul:1.00, shadowK:1.00,
+  cloudAmount:0.20, skyGray:0.02, fogGray:0.04, diskFade:0.00,
+  rainAmount:0.0, snowAmount:0.0, snowCover:1.0, wetness:0.15,
+  windMul:0.55, gustMul:0.50, moonVis:1.00, snowTint:0xF6F9FF };
+/* 细雨按日期的三种性格：在 drizzle 基础值上**再乘 / 再取**，不另开预设（同 winterrain 的"换性格不换预设"）。 */
+const DRIZZLE_KIND = {
+  meiyu:  { fog:1.00, sat:1.00, exp:1.00, con:1.00, wind:1.00, rain:1.00, dens:1.00 },
+  spring: { fog:0.78, sat:1.10, exp:1.02, con:1.12, wind:0.90, rain:0.80, dens:0.80 },
+  summer: { fog:0.85, sat:1.04, exp:1.01, con:1.08, wind:1.00, rain:0.90, dens:0.90 },
+  autumn: { fog:0.92, sat:0.96, exp:0.99, con:1.05, wind:1.20, rain:0.95, dens:0.90 },
+  winter: { fog:0.95, sat:0.80, exp:0.92, con:1.04, wind:1.50, rain:1.15, dens:0.80 },
+};
 /* 互斥矩阵 —— 唯一权威在这里。
    · 银装素裹仅冬季（其余季节按钮置灰，悬停给出原因）
    · 冬 + 狂风暴雨 → 渲染为风雪（雨置换为雪、给积雪）；其余季节是雨
@@ -176,6 +212,8 @@ const WEATHER_RULES = {
      与 snow 走**同一套互斥框架**：按钮置灰 + tooltip 给原因；键盘/控制台/外部脚本调 setEnv 时
      由 enforceWeather() 兜底降级回风和日丽（UI 置灰只是提示、不是保证 —— 那条注释就在下面）。 */
   storm: s => s === 'winter' ? '冬季请用「银装素裹」' : null,
+  /* 雪霁 = 雪后放晴、积雪仍在 ⇒ 与银装素裹同一条：仅冬季。细雨四季皆可（按日期叫梅雨 / 春雨 / 冷雨）。 */
+  snowclear: s => s === 'winter' ? null : '仅冬季可用（雪后初晴）',
 };
 export function weatherMutexReason(weather, season){
   const r = WEATHER_RULES[weather];
@@ -188,6 +226,7 @@ export function weatherMutexReason(weather, season){
 function weatherLabelOf(weather, season){
   // 冬 + 暴风 = 狂风细雨：冬天下暴雨是个伪命题，画面该是"风大、雨细、天暗、地湿"的凄凉感
   if (weather === 'storm' && season === 'winter') return '狂风细雨';
+  if (weather === 'drizzle') return drizzleLabel(envDoy());   // 梅雨 / 春雨 / 冷雨 …… 按日期叫
   return (ENV_WEATHER[weather] || ENV_WEATHER.clear).weatherLabel;
 }
 export function weatherTag(){
@@ -240,6 +279,12 @@ function applyWeatherTo(p, eff){
   p.fogDensity    *= w.fogMul;
   p.exposure      *= w.expMul;
   p.grade.saturation *= w.satMul;
+  /* 对比度乘子（2026-10-30，梅雨"低对比"用）：缺键兜底 1 ⇒ 旧天气一字不变。 */
+  p.grade.contrast *= (w.conMul === undefined ? 1 : w.conMul);
+  /* 雨的"细"与"密"（12e 消费）：缺键时 rainDensity 跟 rainAmount 走、rainFine 为 0 ⇒ 暴雨照旧。
+     ⚠️ 两个键**每个天气都写**：mixInto 只遍历 from 的键，缺键就插不出过渡（会 NaN）。 */
+  p.rainFine    = (w.rainFine === undefined ? 0 : w.rainFine);
+  p.rainDensity = (w.rainDensity === undefined ? w.rainAmount : w.rainDensity);
   p.cloudAmount = (w.cloudAmount === null) ? p.cloudAmount : w.cloudAmount;
   p.rainAmount = w.rainAmount; p.snowAmount = w.snowAmount;
   p.snowCover  = w.snowCover;  p.wetness    = w.wetness;
@@ -308,6 +353,13 @@ function applyWeatherTo(p, eff){
   }
   if (eff === 'snow'){
     p.snowAmount = 1.0; p.snowCover = 1.0; p.rainAmount = 0.0;
+  }
+  if (eff === 'drizzle'){
+    /* 细雨按日期换性格（梅雨 / 春雨 / 冷雨……，表在 DRIZZLE_KIND）：只乘不覆盖，过渡照样连续。 */
+    const k = DRIZZLE_KIND[drizzleKind(envDoy())] || DRIZZLE_KIND.meiyu;
+    p.fogDensity *= k.fog; p.grade.saturation *= k.sat; p.exposure *= k.exp;
+    p.grade.contrast *= k.con; p.windMul *= k.wind;
+    p.rainAmount *= k.rain; p.rainDensity = Math.min(1, p.rainDensity * k.dens);
   }
   /* ⚠️⚠️ 2026-10-12 · **夜段阻尼**（只作用于 overcast 分支）：
      上面 2026-10-06 那次「白底 + 乌云密布」是为**白天**暴雨做的（旧病是"暴雨天还像蓝天白云"），
@@ -460,39 +512,41 @@ export const ENV_TIME = {
    季节只写「与时段无关」的那部分：植被色调 / 存在性 / 动物行为，
    外加少量对时段结果的乘性修正（光强、雾、饱和）。
    植被色调采用「保留明度的换色」（见 addSeasonTint）：tintMix=0 表示完全保留原色。 */
+/* ⚠️ 2026-10-30 起，花 / 叶 / 果这些**物候存在性**键（lotusShow / lilyShow / wisteriaShow / lotusBud·Bloom·Pod /
+   peach*Show / plumBlossomShow 等）**不再写在季节表里**：它们由 12g-phenology 的按旬花历曲线按
+   ENV.doy（季节按钮背后的年内日序）算出，见 composeEnv。旧值（春荷 0.05、秋梅 0.15、夏秋紫藤 1.0/0.35、
+   秋桃果 0.7……）正是"反季花事"的来源（审查 B1）。下面各季残留的注释保留作沿革说明。
+   季节表仍管：色调、光强/雾/饱和修正、柳竹叶量、芭蕉/苇、动物、陈设（帘/挂画）。 */
 export const ENV_SEASON = {
   spring: { label:'春',
     sunMul:1.00, ambMul:1.00, hemiMul:1.00, fogMul:0.94, satMul:1.03,
     tinGrass:0x9CC85E, tinBamboo:0xAED078, tinLeaf:0x8ECB58, tinReed:0x9CC86A,
     tinWillow:0xB4D47C, tinLily:0x3E7A34, tinLotus:0xF2C7D4, tinWisteria:0x9B6FC4,   // 春：垂柳新芽淡绿（用户常识反馈）
     tinBanana:0x62B054, tinTrunk:0x3B2A1E, tintMix:0.50,
-    lilyShow:0.05, lotusShow:0.05, wisteriaShow:1.0, bananaShow:0.9, reedShow:0.85, willowLeaf:0.38,   // 春：柳帘均匀变疏=新芽初绽（38%+洗牌）
+    bananaShow:0.9, reedShow:0.85, willowLeaf:0.38,   // 春：柳帘均匀变疏=新芽初绽（38%+洗牌）
     /* 荷花三态（2026-10-24 · 老黄："没有含苞待放和花谢结蓬的状态，按春夏秋三季合理处理"）：
        春 = 小荷才露尖尖角（花苞为主，零星初绽）｜夏 = 盛花期（盛开为主 + 少量花苞续期）
        ｜秋 = 花事将尽（莲蓬为主 + 零星晚花）｜冬 = 三态全收（残梗也不留，池面交给冬柳倒影）。
        ⚠️ lotusShow 保留（池心程序化荷花/莲蓬仍走它），三键只管池边 12 株三态 GLB。 */
-    lotusBud:1.0, lotusBloom:0, lotusPod:0,
     /* 竹叶季节叶量（2026-09-16 用户："初春先抽竿长叶、夏要茂密"）——
        系数×基数（12~21 片/枝）＝绝对量。夏 1.0 ≈ 4.2 万片（茂密）；
        春 0.28 ≈ 1.2 万片（初春抽竿后刚长叶，绝对量与旧版春一致）；
        秋 0.43 ≈ 1.8 万片（微落）；冬 0.33 ≈ 1.4 万片（常绿稍疏） */
     bambooLeaf:0.28, koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 春：大雁北迁过境
     /* 春：先花后叶。花满树、叶始萌（15% 刚抽的嫩芽），落花初落 —— 桃是先花后叶树种 */
-    peachShow:0.15, peachBlossomShow:1, peachFruitShow:0, peachPetalShow:0.3,
-    plumBlossomShow:0.55,          // 梅：红梅冬末春初还在开，春天留一半
+    // 梅：红梅冬末春初还在开，春天留一半
     blindShow:0, scrollCoolShow:1, scrollWarmShow:0 },      // 春：帘未挂；堂内青绿山水
   summer: { label:'夏',
     sunMul:1.00, ambMul:1.00, hemiMul:1.00, fogMul:1.00, satMul:1.00,
     tinGrass:0xFFFFFF, tinBamboo:0xA8C46A, tinLeaf:0x4E8C36, tinReed:0x3F6B34,
     tinWillow:0x5E9638, tinLily:0x3E7A34, tinLotus:0xF2C7D4, tinWisteria:0x9B6FC4,   // 夏：翠绿繁茂（用户常识反馈）
     tinBanana:0x4F9440, tinTrunk:0x3B2A1E, tintMix:0.0,
-    lilyShow:1.0, lotusShow:1.0, wisteriaShow:1.0, bananaShow:1.0, reedShow:1.0, willowLeaf:1.0,
-    lotusBud:0, lotusBloom:1.0, lotusPod:0,          // 夏：盛花期（三态一次只开一种，靠过渡插值完成"苞→花"）
+    bananaShow:1.0, reedShow:1.0, willowLeaf:1.0,
+    // 夏：盛花期（三态一次只开一种，靠过渡插值完成"苞→花"）
     bambooLeaf:1.0,
     koiSpeed:1.0, dragonflyShow:1.0, turtleShow:1.0, gooseShow:0.0,   // 夏：无雁（盛夏非迁徙季）
     /* 夏：花落尽、桃结果（叶茂果生，落花也快被扫净只余淡痕） */
-    peachShow:1, peachBlossomShow:0, peachFruitShow:1, peachPetalShow:0.45,
-    plumBlossomShow:0,             // 梅：夏季无花（骨相仍在）
+    // 梅：夏季无花（骨相仍在）
     blindShow:1, scrollCoolShow:1, scrollWarmShow:0 },  autumn: { label:'秋',   // 夏：帘垂下遮阳
     sunMul:0.97, ambMul:0.95, hemiMul:0.96, fogMul:1.18, satMul:1.06,
     /* 秋竹叶：0xD8A94E（绿度 −47，金黄）→ 0x93A656（绿度 +19，转暗的秋绿）。
@@ -504,13 +558,12 @@ export const ENV_SEASON = {
     tinGrass:0xC2AE66, tinBamboo:0xBCBE72, tinLeaf:0x93A656, tinReed:0xC4AC6E,
     tinWillow:0xDCAE52, tinLily:0x6E8A3E, tinLotus:0xE0B894, tinWisteria:0xB08858,
     tinBanana:0xA89E54, tinTrunk:0x3B2A1E, tintMix:0.76,
-    lilyShow:0.55, lotusShow:0.42, wisteriaShow:0.35, bananaShow:0.7, reedShow:1.0, willowLeaf:0.72,
-    lotusBud:0, lotusBloom:0, lotusPod:1.0,          // 秋：花事将尽（莲蓬挂果，花谢）
+    bananaShow:0.7, reedShow:1.0, willowLeaf:0.72,
+    // 秋：花事将尽（莲蓬挂果，花谢）
     bambooLeaf:0.43,
     koiSpeed:1.0, dragonflyShow:0.35, turtleShow:1.0, gooseShow:1.0,   // 秋：大雁南迁过境
     /* 秋：桃叶转黄（tinLeaf）、果渐疏（快被摘/落尽），花/落花早没了 */
-    peachShow:1, peachBlossomShow:0, peachFruitShow:0.7, peachPetalShow:0,
-    plumBlossomShow:0.15,          // 梅：深秋只有极少数早花（腊梅含苞）
+    // 梅：深秋只有极少数早花（腊梅含苞）
     blindShow:0.35, scrollCoolShow:0, scrollWarmShow:1 },    // 秋：帘卷起；换秋山
   winter: { label:'冬',
     sunMul:0.88, ambMul:0.93, hemiMul:0.94, fogMul:1.28, satMul:0.70,
@@ -525,19 +578,17 @@ export const ENV_SEASON = {
     tinBanana:0x9C8A58, tinTrunk:0x4A4038, tintMix:0.72,   // 芭蕉冬色提亮：0x87805A→0x9C8A58（旧色偏暗被环境绿反射洗成橄榄绿，枯黄读不出来）
     // 紫藤花期是开春四五月（见交接文档来源），冬季不该有花；藤枝走 MAT.bark，不受这里影响
     // 冬季水面不留绿：水草(MAT.reed)整片收掉，否则池面在冬天还浮着一簇簇绿草
-    lilyShow:0.0, lotusShow:0.0, wisteriaShow:0.0, bananaShow:0.0, reedShow:0.0, willowLeaf:0.0,
-    lotusBud:0, lotusBloom:0, lotusPod:0,    // 冬：三态全收（枯梗也不留；池面交给冬柳与白雪）
+    bananaShow:0.0, reedShow:0.0, willowLeaf:0.0,
+    // 冬：三态全收（枯梗也不留；池面交给冬柳与白雪）
     /* 冬：芭蕉叶幕枯落（多年生草本，假茎宿存——第九轮用户常识反馈）；
        柳叶**掉光**（垂柳是落叶乔木，裸枝过冬——2026-09-19 老黄科学反馈；
        0.02 是旧"变稀"思路残留，164 片残叶肉眼仍读作"挂着"）。 */
     bambooLeaf:0.33,   // 冬：竹常绿但疏（不落叶，只是密度回落）
     koiSpeed:0.42, dragonflyShow:0.0, turtleShow:0.0, gooseShow:0.0,   // 冬：无雁（越冬地不在此）
     /* 冬：桃树落叶，裸枝过冬（同冬柳）——叶落尽、无花无果无落花 */
-    peachShow:0, peachBlossomShow:0, peachFruitShow:0, peachPetalShow:0,
     /* ⚠️ 梅 = 冬天的**唯一花事**（老黄："给冬天增加一点色彩，特别是'银装素裹'的场景下"）：
        冬 1.0 —— 满树花。这一档是"梅兰竹菊"第一次真正参与画面，别被任何天气通道压掉：
        雪景要显色 ⇒ 梅的花材质不登 SNOW_COVER_MATS（否则会被雪盖成白片）。 */
-    plumBlossomShow:1.0,
     blindShow:0, scrollCoolShow:0, scrollWarmShow:1 },       // 冬：帘撤下；堂内雪意
 };
 
@@ -600,6 +651,9 @@ export function composeEnv(p){
     if (k === 'label' || k === 'tintMix') continue;
     if (typeof v === 'number') p[k] = v;
   }
+  /* 物候（2026-10-30）：花 / 叶 / 果的存在性按 ENV.doy 在花历曲线上取值（12g），覆盖季节表。
+     放在季节通道之后、天气之前：天气不改物候；灯会也不改（它只叠 look 层）。 */
+  Object.assign(p, phenoChannels(envDoy()));
   p.tintMix = s.tintMix;
   for (const k of ENV_COLOR_KEYS){
     if (k.indexOf('tin') === 0) p[k] = new THREE.Color(s[k] !== undefined ? s[k] : 0xFFFFFF);
@@ -616,9 +670,14 @@ export function resolveEnv(){
   /* 时段基准统一走 ENV.hour（滑杆的连续时辰）：按钮切时段只是把 hour 对齐到锚点，
      这样"滑杆拖到 15:20 再切季节/天气"不会把时刻拽回整点锚点。 */
   const base = (ENV.hour !== undefined)
-    ? paramsAtHour(ENV.hour)
+    ? baseParamsAt(ENV.hour)
     : makeParams(ENV_TIME[ENV.time] || ENV_TIME.noon);
   return composeEnv(base);
+}
+/* 时段基准的唯一入口（2026-10-30）：真实太阳（默认）或旧的四锚点插值（?solar=0）。
+   12-env 的滑杆 / 流转 / 状态机一律经这里，不再直接调 paramsAtHour。 */
+export function baseParamsAt(h){
+  return SOLAR.enabled ? paramsAtSolar(h, envDoy(), ENV ? ENV.moonPhase : null) : paramsAtHour(h);
 }
 
 /* ── 连续昼夜（时辰滑杆）──
@@ -626,6 +685,18 @@ export function resolveEnv(){
    夜里 21:30 → 次日 4:30 整段保持深夜（不是匀速往晨过渡——凌晨两点不该"半亮"），
    4:30 → 7:30 才是黎明渐亮。 */
 export const TIME_ANCHORS = { morning: 7.5, noon: 12.5, dusk: 17.5, night: 21.5 };
+/* ⚠️ 2026-10-30：真实太阳模式下锚点**随季节变**（晨 = 太阳升到 10°、午 = 真太阳正午 + 0.5h、
+   暮 = 太阳落到 7°、夜 = 21:30，见 12h timeAnchorsFor）。TIME_ANCHORS 仍是同一个对象、**就地改写**，
+   这样 11-loop / 12c 等直接读它的地方不用改。上面那组常数是 ?solar=0 的旧口径。 */
+export function syncTimeAnchors(doy){
+  if (!SOLAR.enabled) return TIME_ANCHORS;
+  Object.assign(TIME_ANCHORS, timeAnchorsFor(doy));
+  return TIME_ANCHORS;
+}
+/* 时段标签（晨/午/暮/夜）：真实太阳模式下由太阳高度决定（12h timeKeyAt），旧模式沿用 nearestTimeKey。 */
+export function timeKeyNow(h, doy){
+  return SOLAR.enabled ? timeKeyAt(h, doy === undefined ? envDoy() : doy) : nearestTimeKey(h);
+}
 
 /* ── 月亮（2026-09-19 老黄："风和日丽的夜里该有月亮，随辰起落"）──
    取**满月**节律：18:00 东方升起 → 24:00 中天 → 06:00 落下，其余时间在地平线下。
@@ -654,8 +725,9 @@ export const TIME_ANCHORS = { morning: 7.5, noon: 12.5, dusk: 17.5, night: 21.5 
 export const MOON_ARC = { az0: 110, az1: 180, peakAlt: 4.5 };
 /* 淡出窗口上沿（归一化方向 y）：月亮爬到峰值高度的 ~62% 时亮度吃满 */
 export const MOON_FADE_HI = Math.sin(MOON_ARC.peakAlt * Math.PI / 180) * 0.62;
-function moonDirAtHour(h){
-  const u = (((h - 18) % 24) + 24) % 24;      // 0 = 18:00 月出；12 = 06:00 月落；>12 在地平线下
+function moonDirAtHour(h, rise = 18){
+  /* rise = 月出时刻（2026-10-30 起随月龄后移，见 12h moonRiseHour；缺省 18 = 旧的满月节律）。 */
+  const u = (((h - rise) % 24) + 24) % 24;    // 0 = 月出；12 = 月落；>12 在地平线下
   const k = u / 12;
   const az  = (MOON_ARC.az0 + (MOON_ARC.az1 - MOON_ARC.az0) * k) * Math.PI / 180;
   const alt =  MOON_ARC.peakAlt * Math.PI / 180 * Math.sin(Math.PI * k);
@@ -679,6 +751,46 @@ export function paramsAtHour(h){
      并且放在 mixInto 之后 —— mixInto 遍历 out 的键，若 ENV_TIME 里没有同名键会算出 NaN。 */
   out.moonPos = moonDirAtHour(h);
   out.moonVis = 1;                       // 天气允许度（1=满月照常），applyWeatherTo 再按天气打折
+  /* 与 paramsAtSolar 同一套键（mixInto 只遍历 from 的键 —— 两条路径键集必须一致）：
+     旧模式 = 满月、白天度取 1−星量、无"真实太阳"标记。 */
+  out.moonAge = 0.5; out.moonIllum = 1; out.dayK = 1 - (out.starAmount || 0); out.solar = 0;
+  return out;
+}
+
+/* ══ 真实太阳驱动的时段基准（2026-10-30 · 审查 M3 / B2 / S1）════════════════════════════
+   旧做法：四个锚点（7:30/12:30/17:30/21:30）之间线性插值 sunPos 与颜色 ⇒
+     · 暮→夜的插值让日轮在日落后反而升高、黎明前出现"头顶的太阳"（M3）；
+     · 四季共用一组钟点：冬天 17:30 的"暮"其实早已天黑，夏天 17:30 太阳还有 25°（B2）；
+     · 正午 sunPos 在东南、仰角 47°，苏州正午的太阳应在正南、夏至约 82°、冬至约 35°。
+   现在：太阳方向 = 苏州真实位置（12h solarPos，简化式）；颜色预设按**太阳高度**取锚 ——
+     白天度 d = smoothstep(−9°, 4°, 高度)        夜 ↔ 白天（晨昏蒙影这一段是夜色淡出）
+     正午度 n = smoothstep(0.30, 0.80, 高度/当天正午高度)   晨/暮 ↔ 午（按比例：冬至正午只有 35°）
+     基准 = mix(夜, mix(上午取晨 / 下午取暮, 午, n), d)
+   于是日出日落时刻、晨昏长短、正午高度都随季节自动正确，时段钟点不再写死。
+   月亮：轨道仍是 MOON_ARC 艺术轨道（默认机位朝北，见上方长注释），月出时刻随**月相**后移；
+   月相按日期算（12h moonAge，2027 年），也可由 ENV.moonPhase 指定（0 朔 / 0.5 望）。
+   ⚠️ sunPos 写的是**真实**太阳方向（可在地平线下）：天空日轮 / 水面波光 / 彩虹按它画；
+      投影主光在 applyEnv 里另做"地平线钳制 + 向夜间方向 / 月亮 slerp"，不会从地底下打光。 */
+const SUN_DIST = 72;                       // 与旧 sunPos 同量级（|noon| ≈ 76），阴影拟合不受影响
+const DAY_ALT = [-9, 4];                   // 白天度：−9° 已近航海蒙影，4° 太阳已离开山脊
+const NOON_FRAC = [0.30, 0.80];            // 正午度：按当天正午高度的比例
+export function paramsAtSolar(h, doy, moonAgeOverride = null){
+  const { alt } = solarPos(doy, h);
+  const st = sunTimes(doy);
+  const d = smoothstep(DAY_ALT[0], DAY_ALT[1], alt);
+  const n = alt > 0 ? smoothstep(NOON_FRAC[0], NOON_FRAC[1], alt / Math.max(1, st.noonAlt)) : 0;
+  const day = makeParams(ENV_TIME[h < st.noon ? 'morning' : 'dusk']);
+  if (n > 0) mixInto(day, day, makeParams(ENV_TIME.noon), n);
+  const out = makeParams(ENV_TIME.night);
+  if (d > 0) mixInto(out, out, day, d);
+  const sd = sunDir(doy, h);
+  out.sunPos = [sd[0] * SUN_DIST, sd[1] * SUN_DIST, sd[2] * SUN_DIST];
+  const age = (typeof moonAgeOverride === 'number' && Number.isFinite(moonAgeOverride))
+    ? ((moonAgeOverride % 1) + 1) % 1 : moonAge(doy);
+  out.moonPos = moonDirAtHour(h, moonRiseHour(age));
+  out.moonVis = 1;
+  out.moonAge = age; out.moonIllum = moonIllum(age);
+  out.dayK = d; out.solar = 1;
   return out;
 }
 export function nearestTimeKey(h){

@@ -11,11 +11,15 @@
 import { THREE } from '../vendor.js';
 import { AUX_PASS_HIDDEN } from './01-materials.js';
 import { skyMesh, scene, camera, renderer } from './02-scene.js';
-import { sun, amb, fill, hemiLight, FILL_HOME } from './09-lights.js';
+import { sun, amb, fill, hemiLight } from './09-lights.js';
 import { TAU, HOOKS, mulberry32 } from './00-config.js';
 
 let ENV = null;                                  // 由 12-env.js 的 bindSkyEnv(ENV) 注入
-export function bindSkyEnv(state){ ENV = state; }
+/* 2026-10-29（审查 M8）：烟花闪完要"把灯交还给环境系统"——直接重跑一次 applyEnv(ENV.cur)，
+   而不是自己挑几项写回（自己写回会漏掉月光增益/月光色/阴影等 applyEnv 的后处理）。
+   本文件不能 import 12-env（成环），故由 12-env 一并注入。 */
+let _reapplyEnv = null;
+export function bindSkyEnv(state, reapply){ ENV = state; _reapplyEnv = reapply || null; }
 
 /* ══ 电闪雷鸣（2026-09-30 · 老黄需求）══════════════════════════════════════
    天气预设 thunder 只负责"暗"（压到接近暮色）；闪电是叠在上面的**事件**：
@@ -227,7 +231,6 @@ function lnStrike(tNow){
    ⚠️ 用 Set 而不是散落的字符串比较：以后再加"带闪电的天气"只改这一处。
    ⚠️ 不要在这里判"雨量"——雨后初晴的 rainAmount=0，但绝不能因此放晴天的虹进来。 */
 const LN_ALLOWED = new Set(['storm', 'thunder']);
-let _lnLit = false;    // 上一帧闪电是否写过灯（收尾帧判定；与烟花的 _fwLit 同型，2026-10-30）
 /* 每帧推进（animate 的 ENV 过渡块之后调用） */
 export function tickLightning(dt, tNow){
   const L = LIGHTNING;
@@ -236,12 +239,10 @@ export function tickLightning(dt, tNow){
       L.flash = 0;
       if (L._group){ L._group.visible = false; L._boltMat.opacity = 0; L._streakMat.opacity = 0; }
       skyMesh.material.uniforms.uFlash.value = 0;
-      /* 写回基准（零残留；_lnLit 一并清掉，别留"上一帧在闪"的假记忆） */
-      sun.intensity = ENV.cur.sunIntensity; amb.intensity = ENV.cur.ambIntensity;
-      hemiLight.intensity = ENV.cur.hemiIntensity;
-      renderer.toneMappingExposure = ENV.cur.exposure;
-      _lnLit = false;
     }
+    /* 2026-10-30（同烟花 M8 修法）：离开雷雨时若灯还停在闪光倍率上 ⇒ 交还 applyEnv 重算一次（含月光增益、
+       月光色、主光方向），而不是自己把 ENV.cur 的几项写回 —— ENV.cur.sunIntensity 不含月光增益。 */
+    if (_lnLit) _lnRelease();
     return;
   }
   /* 定格模式（见 LIGHTNING.hold 的注释）：按指定 tau 重放包络，不排新事件、不动 t0 */
@@ -292,24 +293,32 @@ function lnApply(tau){
   } else L._streakMat.opacity = 0;
   /* ③ 天幕/云层泛白（空中电闪） */
   skyMesh.material.uniforms.uFlash.value = f;
-  /* ④ 照亮整体：乘系数（基准取 ENV.cur，零残留）。
-     ⚠️⚠️ 2026-10-30 与烟花同一条规矩（"只在闪的时候才写灯"）：旧版雷雨期间**每帧无条件**
-     写这四路 —— 不闪的帧等于 ×1，与 applyEnv 同值故平时看不出毛病，但它让事件系统成了
-     **第二个灯权威**（applyEnv 写完它再写一遍），谁排在后面谁说了算，正是烟花那条
-     "覆盖时段灯光预设"的同类病。现在只在有闪光量或上一帧在闪（收尾帧）时才写，
-     f=0 的帧灯归 applyEnv 管，闪电一根手指都不伸。 */
-  if (f > 0.0001){
-    sun.intensity = ENV.cur.sunIntensity * (1 + f * 12);
-    amb.intensity = ENV.cur.ambIntensity * (1 + f * 6);
-    hemiLight.intensity = ENV.cur.hemiIntensity * (1 + f * 5);
-    renderer.toneMappingExposure = ENV.cur.exposure * (1 + f * 0.5);
+  /* ④ 照亮整体：乘系数。
+     ⚠️ 2026-10-30（M8 同类问题，审查 S5-1）：原来**每帧无条件**按 ENV.cur 写四项 ——
+       · 主光基准用 ENV.cur.sunIntensity，不含 applyEnv 叠上的月光增益（雨夜月光虽为 0，但雷雨→雨后
+         初晴的过渡里月光会回来，闪完主光就掉一截）；
+       · 不闪的帧也写，会把同帧别的效果（以后的第三种"天上事件"）踩回基准。
+     现在与烟花同一套两态：只在有闪光量时写（主光基准取 applyEnv 发布的 sun.userData.envI），
+     闪完那一帧交还 applyEnv 一次，之后一盏灯都不碰。 */
+  if (f > 0){
+    const C = ENV.cur;
+    const sunBase = sun.userData.envI ?? C.sunIntensity;
+    sun.intensity = sunBase * (1 + f * 12);
+    amb.intensity = C.ambIntensity * (1 + f * 6);
+    hemiLight.intensity = C.hemiIntensity * (1 + f * 5);
+    renderer.toneMappingExposure = C.exposure * (1 + f * 0.5);
     _lnLit = true;
   } else if (_lnLit){
-    sun.intensity = ENV.cur.sunIntensity;
-    amb.intensity = ENV.cur.ambIntensity;
-    hemiLight.intensity = ENV.cur.hemiIntensity;
-    renderer.toneMappingExposure = ENV.cur.exposure;
-    _lnLit = false;
+    _lnRelease();
+  }
+}
+let _lnLit = false;                              // 闪电是否正把灯停在闪光倍率上（收尾一次用）
+function _lnRelease(){
+  _lnLit = false;
+  if (_reapplyEnv) _reapplyEnv();
+  else {                                         // 未注入 reapply 的宿主（单测桩）：退回旧的写回
+    sun.intensity = sun.userData.envI ?? ENV.cur.sunIntensity; amb.intensity = ENV.cur.ambIntensity;
+    hemiLight.intensity = ENV.cur.hemiIntensity; renderer.toneMappingExposure = ENV.cur.exposure;
   }
 }
 /* 探针用：下一次 tick 立刻打一条闪电 */
@@ -412,14 +421,15 @@ const _fwLaunch = new Float32Array(FW_SHELLS * 3);        // 发射点（地面�
 const _fwCol = new Float32Array(FW_SHELLS * 3);           // 这一发的主色
 const _fwFin = new Float32Array(FW_SHELLS);               // 这一发是不是"彩蛋齐射"（1=是）
 let _fwCursor = 0;
-/* 灯基准色：模块期就抓（applyEnv 只调强度、不动颜色 ⇒ 抓一次即可，且必须自己存，
-   否则"染色"会逐帧累积、越闪越白） */
-/* ⚠️ 2026-10-30：烟花的打光基准不再是"模块加载那一刻的灯"（正午值），
-   改为**每帧取 ENV.cur（当前时段预设）**。旧常量 FW_AMB0/FW_HS0/FW_HG0/FW_FILL0/FW_FILL_I0
-   已删 —— 它们的罪状：tickFireworks 的尾巴**不闪的帧也每帧覆写** fill 强度与三盏灯的颜色，
-   时段预设给夜里调的 fill 0.12~0.16、夜色 amb/hemi 全被顶回页面加载时的正午值
-   （"烟花覆盖时段灯光预设"）。现在只在「有闪光量」或「上一帧在闪（收尾帧）」时才写灯。 */
-let _fwLit = false;              // 上一帧烟花是否写过灯（收尾帧判定，与闪电的 _lnLit 同型）
+/* ⚠️ 2026-10-29（审查 H1）：原来这里在模块期抓 amb/hemi/fill 的颜色和 fill 强度当"基准"，
+   注释说"applyEnv 只调强度、不动颜色"——这是错的，applyEnv 每次都写这几项颜色。
+   而 tickFireworks 每帧把启动值写回去 ⇒ 时段预设的 ambColor/hemiSky/hemiGround/fillColor/
+   fillIntensity 从没生效过。现在染色基准一律取 ENV.cur（每帧从基准重算，仍不会累积）。
+   只有 fill 的**方向**不在参数集里（09-lights 固定值、applyEnv 不写），故仍存一份用于收尾复位。 */
+const FW_FILL_POS0 = fill.position.clone();
+/* 上一帧烟花有没有抬过 sun/amb/hemi（见 tickFireworks 里那段"只在闪的时候才写灯"的注释）：
+   用来在闪光结束的那一帧把基准写回一次，之后就不再碰这几盏灯 —— 否则会每帧覆写闪电的照亮。 */
+let _fwLit = false;
 export function setFireworksForce(v){ FIREWORKS.force = v === null ? null : !!v; }
 export function fireworksState(){
   return { on: FIREWORKS.on, force: FIREWORKS.force, t: +FIREWORKS.t.toFixed(2),
@@ -676,7 +686,7 @@ export function tickFireworks(dt){
     u.uLaunch.value = _fwLaunch; u.uCol.value = _fwCol; u.uFin.value = _fwFin;
   }
   /* 取当前最强的那一发做主色（没有在闪的就归零） */
-  let f = 0, best = -1;
+  let f = 0, ci = 0, best = -1;
   for (let i = 0; i < FW_SHELLS; i++){
     const e = fwFlash(F.t - _fwStart[i] - FW_RISE);
     if (e > f){ f = e; best = i; }
@@ -689,53 +699,51 @@ export function tickFireworks(dt){
         像套了滤镜"，那正是环境光的性质（无方向、平）。改成把 `fill`（现成的方向光）
         挪到**爆点方向**、染成爆点色、按包络抬强度 ⇒ 墙/石/桥被同一方向的光照亮，
         亮面朝爆点、暗面背离，才有"被天上那朵花打亮"的读感。 */
-  /* ⚠️⚠️ 只在「有闪光量」或「上一帧在闪（需要收尾一次）」时才写灯（2026-10-30 扩到全部五路：
-     sun/amb/hemi 强度 + fill 强度/颜色 + 三盏灯的颜色 + 曝光，一个不豁免）——
-     旧版对 fill 强度与三盏灯的**颜色**是不闪也每帧覆写，基准还是模块加载时的正午值，
-     时段预设给夜里调的数值全部被顶掉（"烟花覆盖时段灯光预设"）。
-     现在基准统一取 **ENV.cur**（当前时段预设的实时插值）⇒ 换时段/换季立即生效，
-     且与闪电互不踩（烟花要无降水、闪电要雷雨，两者不会同时在空）。 */
-  if (f > 0.0001){
-    sun.intensity        = ENV.cur.sunIntensity  * (1 + f * 1.2);
-    amb.intensity        = ENV.cur.ambIntensity  * (1 + f * 2.6);
-    hemiLight.intensity  = ENV.cur.hemiIntensity * (1 + f * 4.5);
-    /* 方向光是"把庭院照亮"的**主力**，倍数要给够：第一版只给 8 倍 +
-       环境光 2.6 倍，出图在"冬夜本来就极暗"的底子上仍是**一片黑剪影**
-       （判读："建筑、山、墙几乎全是黑剪影，看不出烟花投下的亮面与暗面"）。
-       方向光 8→18 倍、半球光 3.2→4.5 —— 环境光**不抬**（它是无方向的，抬它只会变回"粉色滤镜"）。 */
-    fill.intensity       = ENV.cur.fillIntensity * (1 + f * 18.0);
-    renderer.toneMappingExposure = ENV.cur.exposure * (1 + f * 0.18);
+  /* ⚠️⚠️ 只在「有闪光量」或「上一帧在闪（需要收尾一次）」时才写这三盏灯 ——
+     原版是**每帧无条件**从 ENV.cur 重写基准值，而 animate 里 tickFireworks 排在
+     tickLightning **之后**（11-loop 的 944 → 948）⇒ 闪电的"照亮整体"会被整帧覆写成基准：
+     实测 2026-10-05 thunder-guard 的"照亮整体"三条全红（sun 峰值 0.061 = 基准、被照亮帧 0、
+     下半部只 +0.3），而 flash 明明到了 0.95 —— 与拆分无关，是烟花那批带进来的（stash 对照已证伪拆分）。
+     烟花与闪电**不会同时出现**（烟花要无降水、闪电要雷雨），所以"不闪就完全不碰"即可互不干扰；
+     仍然每帧从 ENV.cur 基准重算 ⇒ 不会指数发散（下面那条注释的担忧依然成立）。 */
+  /* ⚠️ 2026-10-29（审查 H1/M8）：所有写灯都收进"在闪"分支；不闪且已收尾 ⇒ 一盏灯都不碰
+     （烟花关着时 f 恒为 0、_fwLit 恒为 false ⇒ 零写入，probe/fireworks-lights-unit.mjs 锁住）。
+     主光基准取 applyEnv 发布的 sun.userData.envI（含月光增益）—— ENV.cur.sunIntensity
+     不含月光增益，拿它当基准会让月夜主光一闪就掉到约一半。
+     ⚠️ 方向光是"把庭院照亮"的**主力**，倍数要给够：第一版只给 8 倍 +
+     环境光 2.6 倍，出图在"冬夜本来就极暗"的底子上仍是**一片黑剪影**
+     （判读："建筑、山、墙几乎全是黑剪影，看不出烟花投下的亮面与暗面"）。
+     现在方向光 8→18 倍、半球光 3.2→4.5 —— 环境光**不抬**（它是无方向的，抬它只会变回"粉色滤镜"）。 */
+  if (f > 0.0001 && best >= 0){
+    const C = ENV.cur;
+    const sunBase = sun.userData.envI ?? C.sunIntensity;
+    sun.intensity        = sunBase           * (1 + f * 1.2);
+    amb.intensity        = C.ambIntensity    * (1 + f * 2.6);
+    hemiLight.intensity  = C.hemiIntensity   * (1 + f * 4.5);
+    fill.intensity       = C.fillIntensity   * (1 + f * 18.0);
+    renderer.toneMappingExposure = C.exposure * (1 + f * 0.18);
+    ci = best;
+    const t = Math.min(1, f * 1.6);
+    /* 方向光从爆点照向园子：DirectionalLight 的方向 = position → target（默认原点），
+       所以把 position 放到爆点即可 ⇒ 亮面自然朝上方那朵花。 */
+    fill.position.set(_fwPos[ci*3], _fwPos[ci*3+1], _fwPos[ci*3+2]);
+    const fc = C.fillColor, ac = C.ambColor, hs = C.hemiSky;
+    fill.color.setRGB(fc.r + (_fwCol[ci*3]   - fc.r) * t,
+                      fc.g + (_fwCol[ci*3+1] - fc.g) * t,
+                      fc.b + (_fwCol[ci*3+2] - fc.b) * t);
+    amb.color.setRGB(ac.r + (_fwCol[ci*3]   - ac.r) * t * 0.7,
+                     ac.g + (_fwCol[ci*3+1] - ac.g) * t * 0.7,
+                     ac.b + (_fwCol[ci*3+2] - ac.b) * t * 0.7);
+    hemiLight.color.setRGB(hs.r + (_fwCol[ci*3]   - hs.r) * t * 0.6,
+                           hs.g + (_fwCol[ci*3+1] - hs.g) * t * 0.6,
+                           hs.b + (_fwCol[ci*3+2] - hs.b) * t * 0.6);
+    hemiLight.groundColor.copy(C.hemiGround);
     _fwLit = true;
-    if (best >= 0){
-      const t = Math.min(1, f * 1.6);
-      /* 方向光从爆点照向园子：DirectionalLight 的方向 = position → target（默认原点），
-         所以把 position 放到爆点即可 ⇒ 亮面自然朝上方那朵花。 */
-      fill.position.set(_fwPos[best*3], _fwPos[best*3+1], _fwPos[best*3+2]);
-      fill.color.setRGB(ENV.cur.fillColor.r + (_fwCol[best*3]   - ENV.cur.fillColor.r) * t,
-                        ENV.cur.fillColor.g + (_fwCol[best*3+1] - ENV.cur.fillColor.g) * t,
-                        ENV.cur.fillColor.b + (_fwCol[best*3+2] - ENV.cur.fillColor.b) * t);
-      amb.color.setRGB(ENV.cur.ambColor.r + (_fwCol[best*3]   - ENV.cur.ambColor.r) * t * 0.7,
-                       ENV.cur.ambColor.g + (_fwCol[best*3+1] - ENV.cur.ambColor.g) * t * 0.7,
-                       ENV.cur.ambColor.b + (_fwCol[best*3+2] - ENV.cur.ambColor.b) * t * 0.7);
-      hemiLight.color.setRGB(ENV.cur.hemiSky.r + (_fwCol[best*3]   - ENV.cur.hemiSky.r) * t * 0.6,
-                             ENV.cur.hemiSky.g + (_fwCol[best*3+1] - ENV.cur.hemiSky.g) * t * 0.6,
-                             ENV.cur.hemiSky.b + (_fwCol[best*3+2] - ENV.cur.hemiSky.b) * t * 0.6);
-      hemiLight.groundColor.copy(ENV.cur.hemiGround);
-    }
   } else if (_fwLit){
-    /* 收尾：写回**当前预设**基准一次（强度+颜色+曝光，外加 fill 的**位置**——
-       旧版把 fill 挪去爆点后从不还原，applyEnv 也不写 fill 位置，
-       一场烟花放完 fill 就永远从最后一个爆点方向打光了），然后彻底松手。 */
-    sun.intensity        = ENV.cur.sunIntensity;
-    amb.intensity        = ENV.cur.ambIntensity;
-    hemiLight.intensity  = ENV.cur.hemiIntensity;
-    fill.intensity       = ENV.cur.fillIntensity;
-    fill.color.copy(ENV.cur.fillColor);
-    fill.position.copy(FILL_HOME);
-    amb.color.copy(ENV.cur.ambColor);
-    hemiLight.color.copy(ENV.cur.hemiSky);
-    hemiLight.groundColor.copy(ENV.cur.hemiGround);
-    renderer.toneMappingExposure = ENV.cur.exposure;
+    /* 收尾**一次**：fill 方向复位（参数集里没有方向），其余整套交给 applyEnv(ENV.cur) 重算
+       （强度/颜色/月光增益/曝光与正常路径完全一致），然后彻底松手（别再覆写闪电等效果）。 */
+    fill.position.copy(FW_FILL_POS0);
+    _reapplyEnv();
     _fwLit = false;
   }
 }
@@ -1005,7 +1013,7 @@ const _mtOn = () => {
   if (METEORS.force !== true) return false;        // ← 只有显式开过才放（不再"晴夜自动"）
   if ((ENV.cur.starAmount || 0) < 0.5) return false;
   const w = ENV.weather || '';
-  if (w !== 'clear' && w !== 'afterrain') return false;
+  if (w !== 'clear' && w !== 'afterrain' && w !== 'snowclear') return false;   // 雪霁也是晴空（2026-10-30）
   return ((ENV.cur.rainAmount || 0) < 0.05) && ((ENV.cur.snowAmount || 0) < 0.05);
 };
 export function setMeteorsForce(v){ METEORS.force = v === null ? null : !!v; }

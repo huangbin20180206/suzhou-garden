@@ -63,8 +63,13 @@ for (const [mat, key] of SEASON_TINT_MATS){
    写在文件顶部那一处（守卫要求显式 import）。灯会代码要的 6 样东西由本文件 body 里的
    bindFestival(...) 注入 —— 为什么不能反过来 import：见 12c-festival.js 文件头。 */
 
+/* ⚠️ 2026-10-30 花历：表里的键全部来自 ENV.cur，其中花 / 叶 / 果由 12g-phenology 的按旬曲线按 ENV.doy 算出
+   （不再是季节表里"写了小数、却按 > 0.03 当布尔用"的那套 —— 审查 B1 的反季花事就出在这里）。
+   这次顺带把**一个键管两件事**的拆开：紫藤花串 wisteriaBloom ↔ 紫藤叶 wisteriaShow；
+   红梅 plumRedShow ↔ 腊梅 plumYellowShow（两树共用的花苞 / 凋花仍走 plumBlossomShow = 两者取大）；
+   荷花瓣 lotusShow ↔ 莲蓬 lotusPodShow（莲蓬材质也是花心托，所以 = max(荷花, 莲蓬)）。 */
 const SEASON_PRESENCE = [
-  ['lotusShow',[MAT.lotus]], ['lilyShow',[MAT.lily]], ['wisteriaShow',[MAT.wisteria]],
+  ['lotusShow',[MAT.lotus]], ['lilyShow',[MAT.lily]], ['wisteriaBloom',[MAT.wisteria]],
   /* 芭蕉假茎**不进** presence 表（第八轮用户常识反馈）：芭蕉是多年生草本，
      冬季地上部枯萎但假茎宿存 —— 假茎的颜色由 tinBanana（冬=枯黄）表达，
      消失的只是冠层（GLB 叶+果，随 bananaShow 缩放/隐藏）。
@@ -74,7 +79,7 @@ const SEASON_PRESENCE = [
      莲蓬的**杆**用 MAT.lily、**头与莲子**用 MAT.lotusPod —— 杆在表里、头不在，
      于是冬季 lilyShow=0 把杆藏了、头还留在水面上，看起来就是"悬空的莲蓬"。
      以后凡是"一株植物由多种材质拼成"，登记表必须把它**整套材质**都收进来。 */
-  ['lotusShow',[MAT.lotusPod, MAT.lotusPodAged, MAT.lotusPodDark, MAT.lotusSeed]], ['bananaShow',[MAT.bananaFruit]],
+  ['lotusPodShow',[MAT.lotusPod, MAT.lotusPodAged, MAT.lotusPodDark, MAT.lotusSeed]], ['bananaShow',[MAT.bananaFruit]],
   ['wisteriaShow',[MAT.wisteriaLeaf]],
   /* 桃花（2026-09-21）：花/果/落花/叶各自独立材质才能"只开该开的季节"——
      全植物用一种材质的话季节只能整棵树显/隐，做不出"春开花 → 夏结果 → 秋叶黄"。 */
@@ -84,7 +89,8 @@ const SEASON_PRESENCE = [
      树干与枝不进表 —— 梅是落叶小乔木，冬天要留"疏影横斜"的骨相（进表就会被整株收掉）。 */
   /* ⚠️ 花苞（MAT.plumBud）与凋谢（MAT.plumWithered）两份材质必须一起登进这张表 ——
      季节通道按**材质同一性**认领，漏一个就静默不显隐（夏天花谢了、苞与凋花还挂在枝上）。 */
-  ['plumBlossomShow',[MAT.plumBlossomRed, MAT.plumBlossomYellow, MAT.plumBud, MAT.plumWithered]],
+  ['plumRedShow',[MAT.plumBlossomRed]], ['plumYellowShow',[MAT.plumBlossomYellow]],
+  ['plumBlossomShow',[MAT.plumBud, MAT.plumWithered]],
   /* 灯会内容也走同一套存在性通道：festivalShow>0.03 才提交。 */
   ['festivalShow',[riverLampMat, riverFlameMat, stringBulbMat]],
   /* ── 2026-10-04 · 陈设（物）的季节通道 ──
@@ -125,7 +131,7 @@ export function applyPresence(p){
      3800 片叶，秋天本该落掉三成果却一个不少。
      按 count 截前缀是唯一不会被 GTAO 冲掉的做法。桃树的实例写入顺序已在 makePeachTree 里
      按乘性散列打散，所以"截前缀"在空间上就是均匀变稀，而不是只掉半边。 */
-  for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaShow', false],
+  for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaBloom', false],
                                 [MAT.peachLeaf, 'peachShow', true],
                                 [MAT.plumLeaf, 'peachShow', true],      // 梅叶跟桃叶同一季节通道（冬落尽）
                                 [MAT.peachFruit, 'peachFruitShow', true],

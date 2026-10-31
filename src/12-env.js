@@ -43,9 +43,12 @@ import { bindPrecipEnv, PRECIP, updatePrecip, POSTRAIN, updatePostRain } from '.
 export { PRECIP, updatePrecip, POSTRAIN, updatePostRain };
 /* 2026-10-05 拆分：环境三轴预设 + 合成规则已搬进 12a-presets.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, composeEnv, resolveEnv, mixInto,
-         paramsAtHour, nearestTimeKey, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
+         baseParamsAt, timeKeyNow, syncTimeAnchors, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
          weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow } from './12a-presets.js';
 export { mixInto, TIME_ANCHORS, ENV_SEASON, weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow };
+/* 2026-10-30：太阳 / 月相（12h）与花历 / 节令（12g）两个纯模块。 */
+import { SOLAR, wrapDoy, timeAnchorsFor, mainLightDir } from './12h-solar.js';
+import { SEASON_DOY, PLUM_VIEW_DOY, seasonOfDoy, festivalFor } from './12g-phenology.js';
 /* 2026-10-05 拆分：植被季节表现 + 存在性 + 积雪/湿地已搬进 12f-season.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindSeasonEnv, SEASON_TINT_MATS, seasonMixUniform, seasonMeshCache, applyPresence,
          collectSeasonCaches, onAssetAttached, applyGLBSeason, collectSeasonGLB, willowLeafInsts,
@@ -74,16 +77,34 @@ let uiLastDark = null;                 // 主题只跟时段轴有关：记住�
    实测照片的月夜高光大约落在 #C9D8F2 一带 —— 用纯白会失去"月夜"的冷调）。 */
 const MOON_LIGHT = new THREE.Color(0xC9D8F2);
 const _moonV = new THREE.Vector3();
+const _sunTrue = new THREE.Vector3(), _tmpV = new THREE.Vector3();
+const SUN_LIGHT_D = 68;                                      // 主光离原点的距离（旧月光分支同值）
+let _shadowDefer = false;              // 仅 advanceReel 调 applyEnv 期间为 true（见 M7 注释）
 export function applyEnv(p){
   sun.color.copy(p.sunColor); sun.intensity = p.sunIntensity;
-  sun.position.set(p.sunPos[0], p.sunPos[1], p.sunPos[2]);
+  /* ── 主光方向（2026-10-30 · 审查 M3/M4 重写）──
+     _sunTrue = 真实太阳方向（p.sunPos，真实太阳模式下可在地平线下）：天空日轮 / 水面波光 / 彩虹认它；
+     投影主光另算，分两段**球面插值**，全程连续、不再硬切：
+       ① 太阳（钳到地平线上 3°）→ 夜间兜底方向（旧 night 预设的 [-34,52,-22]），权重 = 1 − 白天度；
+       ② 再 → 月亮，权重 = mw（月光接管度，本身就是连续量）。
+     旧写法 `if (mw > 0.01) sun.position.set(月向)` 在 0.01 处整片换阴影方向（M4），
+     而旧模式下暮→夜的 sunPos 线性插值让主光在日落后反而升高（M3）。
+     ⚠️ 用 slerp 不用 lerp：黄昏太阳在西、月亮在东，线性插值会掠过零向量、方向乱甩。 */
+  _sunTrue.set(p.sunPos[0], p.sunPos[1], p.sunPos[2]);
+  if (_sunTrue.lengthSq() < 1e-9) _sunTrue.set(0, 1, 0);
+  _sunTrue.normalize();
+  const solarMode = (p.solar || 0) > 0.5;
+  const sunArr = [_sunTrue.x, _sunTrue.y, _sunTrue.z];
+  let lightDir = mainLightDir(sunArr, p.dayK ?? 1, null, 0, solarMode);   // 先不算月亮（月光接管度在下面）
   sun.target.position.set(0, 0, 0); sun.target.updateMatrixWorld();
   /* ── 月亮 → 天空 / 池水 / 主光（2026-09-19 老黄需求）──
      ① 天空与水面只写 uniform：月轮本体在 sky shader 里（它会被平面反射渲进池面，
         所以"池中有月"是自动成立的，不需要另画一个倒影）；
      ② 主光跟着月亮走：夜里那盏"太阳灯"本来就是月光替身（night 预设 0xA8BEE0 / 0.26），
-        但它此前**从不跟月亮走** —— 月亮在东、影子朝西，这正是"月光影响场景"要修的那处。
-        不新增灯：复用同一盏 → 阴影方向与月光一致，也不多一张阴影贴图（省一次全场深度渲染）。 */
+        复用同一盏 → 阴影方向与月光一致，也不多一张阴影贴图（省一次全场深度渲染）。
+     ③ 月相（2026-10-30）：uMoonPhase = 被照亮比例（12h moonIllum，按日期或 ENV.moonPhase）；
+        月光增益也乘它 —— 新月前后的蛾眉月照不亮园子。 */
+  let mw = 0, illum = 1;
   if (p.moonPos){
     _moonV.set(p.moonPos[0], p.moonPos[1], p.moonPos[2]);
     if (_moonV.lengthSq() < 1e-6) _moonV.set(0, 1, 0);
@@ -92,10 +113,13 @@ export function applyEnv(p){
        黄昏的暖调打架）。窗口上沿走 MOON_FADE_HI（随 MOON_ARC.peakAlt 定，≈2.9°），
        下沿 0.0028 ≈ 0.16° —— 月亮一离地平线就迅速亮起来，"刚爬上来还很淡"。 */
     const alt = Math.max(0, Math.min(1, (_moonV.y - 0.0028) / MOON_FADE_HI));
-    const vis = (p.moonVis || 0) * alt * alt * (3 - 2 * alt);
+    illum = Math.max(0, Math.min(1, p.moonIllum ?? 1));
+    /* 月轮可见度：蛾眉月本身就细，亮度只轻压（下限 0.35），形状交给 uMoonPhase 切。 */
+    const vis = (p.moonVis || 0) * alt * alt * (3 - 2 * alt) * (illum < 0.02 ? 0 : 0.35 + 0.65 * illum);
     const mu = skyMesh.material.uniforms;
     mu.uMoonDir.value.copy(_moonV);
     mu.uMoonAmount.value = vis;
+    if (mu.uMoonPhase) mu.uMoonPhase.value = Math.max(0.02, illum);
     if (waterSurface){
       const wu = waterSurface.material.uniforms;
       if (wu.uMoonDir){ wu.uMoonDir.value.copy(_moonV); wu.uMoonVis.value = vis; }
@@ -104,11 +128,12 @@ export function applyEnv(p){
        sky shader / 平面反射里）。uSunVis = 白天度 × 接近正午 × 晴天：
        ① 白天度用 starAmount 判（夜 1 / 昼 0，日照越深越关，避免夜里把月亮当太阳打出白刺）；
        ② 接近正午用太阳仰角判 —— 太阳几乎在头顶时反射才够锐，晨昏仰角低就归零；
-       ③ 晴天用 cloudAmount 判 —— 云一厚（>0.82）就关，阴雨雪/阴天整片不闪。 */
+       ③ 晴天用 cloudAmount 判 —— 云一厚（>0.82）就关，阴雨雪/阴天整片不闪。
+       ⚠️ 真实太阳模式下方向取**真实太阳**（_sunTrue），旧模式沿用主光方向（同旧行为）。 */
     if (waterSurface){
       const wu = waterSurface.material.uniforms;
       if (wu.uSunDir){
-        const sd = sun.position.clone().normalize();
+        const sd = solarMode ? _sunTrue : _tmpV.set(lightDir[0], lightDir[1], lightDir[2]);
         wu.uSunDir.value.copy(sd);
         const nightness = Math.max(0, Math.min(1, p.starAmount || 0));
         const dayW  = 1.0 - Math.max(0, Math.min(1, (nightness - 0.05) / 0.25));     // 昼 1 → 夜 0
@@ -117,20 +142,25 @@ export function applyEnv(p){
         wu.uSunVis.value = dayW * noonC * clear;
       }
     }
-    /* 主光交给月亮的前提是**真的入夜了**：starAmount 是现成的"夜色深度"通道
-       （夜 1.0 / 暮 0.0，17:30→21:30 之间线性推进）。黄昏月亮虽已升起，
-       但太阳还在西边压着 —— 那时把主光拽向东方会出现"夕阳还在、影子从东边来"的穿帮。
+    /* 主光交给月亮的前提是**真的入夜了**：starAmount 是现成的"夜色深度"通道。
+       黄昏月亮虽已升起，但太阳还在西边压着 —— 那时把主光拽向东方会出现"夕阳还在、影子从东边来"的穿帮。
        0.45→0.85 这一段就是日落到月升的交接。 */
     const nightness = Math.max(0, Math.min(1, p.starAmount || 0));
     const ss = Math.max(0, Math.min(1, (nightness - 0.45) / 0.40));
-    const mw = vis * ss * ss * (3 - 2 * ss);
-    if (mw > 0.01){
-      const D = 68;
-      sun.position.set(_moonV.x * D, Math.max(8, _moonV.y * D), _moonV.z * D);
+    mw = vis * ss * ss * (3 - 2 * ss);
+    if (mw > 0){
+      lightDir = mainLightDir(sunArr, p.dayK ?? 1, [_moonV.x, _moonV.y, _moonV.z], mw, solarMode);
       sun.color.lerp(MOON_LIGHT, 0.75 * mw);
-      sun.intensity = p.sunIntensity * (1 + 0.95 * mw);
+      sun.intensity = p.sunIntensity * (1 + 0.95 * mw * (0.4 + 0.6 * illum));
     }
   }
+  /* 距离：真实太阳模式恒 68；旧模式白天保持 sunPos 原长（阴影拟合口径不变），月光接管时向 68 过渡。 */
+  const baseLen = Math.hypot(p.sunPos[0], p.sunPos[1], p.sunPos[2]) || SUN_LIGHT_D;
+  const LD = solarMode ? SUN_LIGHT_D : baseLen + (SUN_LIGHT_D - baseLen) * mw;
+  sun.position.set(lightDir[0] * LD, lightDir[1] * LD, lightDir[2] * LD);
+  /* 2026-10-29（审查 M8）：发布主光的最终基准（含月光增益），烟花按它乘系数；
+     ENV.cur.sunIntensity 不含月光增益，不能当基准。 */
+  sun.userData.envI = sun.intensity;
   /* ── 物体影子强度随天气（2026-09-28 用户："阴霾和薄雾不该有影子"）──
      sun.shadow.intensity 是 three r155+ 的公开通道（shader 端 mix(1.0, shadow, k)）：
      阴影深度图照常渲，只调"影子的存在感"⇒ 阴/雾切换零额外渲染成本。
@@ -146,9 +176,16 @@ export function applyEnv(p){
   if (Math.abs(sun.position.x - (sun.userData.lastFitPos ? sun.userData.lastFitPos[0] : 1e9)) > 0.01 ||
       Math.abs(sun.position.y - (sun.userData.lastFitPos ? sun.userData.lastFitPos[1] : 1e9)) > 0.01 ||
       Math.abs(sun.position.z - (sun.userData.lastFitPos ? sun.userData.lastFitPos[2] : 1e9)) > 0.01){
-    sun.userData.lastFitPos = [sun.position.x, sun.position.y, sun.position.z];
-    fitShadowCamera();
-    renderer.shadowMap.needsUpdate = true;
+    /* 2026-10-29（审查 M7）：流转中 advanceReel 每帧调本函数、光向每帧都超阈值 ⇒ 原来每帧
+       全量重渲 6144² 阴影，它那边的 4Hz 节流形同虚设。流转时只记脏，拟合+重渲交给 advanceReel
+       按 4Hz 做（不拟合就不重渲：shadow.matrix 只在阴影 pass 里更新，图与矩阵始终配套）。 */
+    if (_shadowDefer){ sun.userData.fitDirty = true; }
+    else {
+      sun.userData.lastFitPos = [sun.position.x, sun.position.y, sun.position.z];
+      fitShadowCamera();
+      renderer.shadowMap.needsUpdate = true;
+      sun.userData.fitDirty = false;
+    }
   }
   amb.color.copy(p.ambColor);  amb.intensity = p.ambIntensity;
   fill.color.copy(p.fillColor); fill.intensity = p.fillIntensity;
@@ -240,7 +277,9 @@ export function applyEnv(p){
   if (p.skyMid) su.uMid.value.copy(p.skyMid);
   su.uHorizon.value.copy(p.skyHorizon);
   su.uSunColor.value.copy(p.sunDisk);
-  su.uSunDir.value.copy(sun.position).normalize();
+  /* 日轮方向：真实太阳模式下取**真实**太阳（落山就到地平线下、天上不再挂"第二个月亮"，审查 L6/M3）；
+     旧模式沿用主光方向（含月光替身，旧行为）。 */
+  if (solarMode) su.uSunDir.value.copy(_sunTrue); else su.uSunDir.value.copy(sun.position).normalize();
   su.uCloudTint.value.copy(p.cloudTint);
   su.uCloudAmount.value = p.cloudAmount;
   // 阴天没有可见日轮 —— 阴霾给 diskFade=1 把天光里的日轮彻底抹掉，
@@ -422,6 +461,8 @@ export function applyEnv(p){
   uiRoot.style.setProperty('--ui-on-bg',   dark ? 'rgba(240,236,226,.95)' : 'rgba(30,34,40,.92)');
   uiRoot.style.setProperty('--ui-on-fg',   dark ? '#14171c' : '#ffffff');
   }
+  /* PMREM 排队的那张在过渡落地那一帧换上（见 syncEnvMap）：反射与光照同步到位。 */
+  if (_envMapPending && ENV.t >= 1) flushEnvMap();
 }
 
 /* ══ 植被季节表现 + 存在性 + 积雪/湿地 ⇒ 已移入 12f-season.js（2026-10-05 拆分）════════════
@@ -457,7 +498,7 @@ function enterSeasonDemo(i, flyDur = SEASON_DEMO.flyDur){
   const season = SEASON_DEMO_ORDER[idx];
   SEASON_DEMO.idx = idx; SEASON_DEMO.phase = 'flying';
   SEASON_DEMO.history.push(season);
-  setEnv('season', season);
+  applyState({ season }, { via: 'demo' });
   showSeasonCaption(season);
   gotoViewpoint(SEASON_DEMO_SHOTS[idx], flyDur, 'season-demo');
   syncSeasonDemoBtn();
@@ -512,8 +553,16 @@ export const ENV = {
   time:'noon', season:'summer', weather:'clear',
   festival:false,                                 // 上元灯会（第 4 层开关，见 makeFestivalLights 一段）
   hour:12.5,                                   // 连续时辰（0~24）：按钮切时段只是对齐到锚点
+  /* 2026-10-30：季节按钮背后的**年内日序**（花历 / 太阳轨迹 / 月相都读它）。面板上季节仍是 4 档，
+     按季节按钮 = 把 doy 对齐到该季代表日（12g SEASON_DOY，夏 = 7/10）；看梅机位、节令挂钩会拨到别的日子。 */
+  doy:SEASON_DOY.summer,
+  moonPhase:null,                              // null = 按日期算月相；0..1 = 指定月龄（0 朔 / 0.5 望）
+  festivalName:'',                             // 节令挂钩命中时的名字（"上元灯会·正月十五"等），字幕 / 探针读
   cur:null, from:null, to:null, t:1, dur:ENV_TRANS_DUR,   // dur = 过渡时长（秒，见上）
 };
+/* 时段锚点随季节：先按初始 doy 落一次（12a 的 TIME_ANCHORS 就地改写），再对齐初始 hour。 */
+syncTimeAnchors(ENV.doy);
+ENV.hour = TIME_ANCHORS[ENV.time];
 /* 拆分（2026-10-05）：三轴预设与合成规则在 12a-presets.js，它在函数体里**只读** ENV。
    ⚠️ 必须注入在下一行 `ENV.cur = resolveEnv()` **之前** —— 那一行一路会读 ENV.weather。 */
 bindPresetsEnv(ENV);
@@ -535,13 +584,13 @@ ENV_REF.env = ENV;
 /* 拆分（2026-10-05）：把环境状态机注入 12b-sky（电闪雷鸣 / 春节烟花在那边）。
    ⚠️ 必须在 body 里、且早于 11-loop 的 animate —— 那两个 tick 都从 animate 里调。
    ⚠️ 不作兜底：没注入的话那边读到 null 会立刻崩，好过静默退化成「永不闪电 / 永不放烟花」。 */
-bindSkyEnv(ENV);
+bindSkyEnv(ENV, () => applyEnv(ENV.cur));   // 第二参：烟花闪完把灯交还环境系统（审查 M8）
 
 /* 拆分（2026-10-05）：把灯会那套代码要的东西注入 12c-festival.js（ENV / willowLeafInsts /
    worldLights / syncEnvUI / resolveEnv / cloneParams）。⚠️ 必须在这里调用：ENV 与 willowLeafInsts
    都已建好（前者在本行上方几行，后者在 const willowLeafInsts = [] 处），而灯会的任何函数都在
    更晚的 initEnvScene / collectSeasonCaches 里才被调用；⚠️ 不作兜底 —— 没注入那边读 null 立刻崩。 */
-bindFestival(ENV, { syncEnvUI, resolveEnv, cloneParams, willowLeafInsts, worldLights });
+bindFestival(ENV, { syncEnvUI, resolveEnv, cloneParams, willowLeafInsts, worldLights, applyState, festivalFor });
 
 /* 拆分（2026-10-05）：把环境状态机注入 12e-precip（雨雪粒子读 ENV.cur 的雨量/风、檐滴积水读 wetness）。
    ⚠️ 注入的是**状态机 ENV**、不是 ENV.cur —— 后者会被 mixInto 就地改写、setEnv 时又会换引用，
@@ -554,65 +603,154 @@ bindPrecipEnv(ENV);
    与其它注入一样不做兜底：没注入那边读 null 立刻崩，好过静默不换季。 */
 bindSeasonEnv(ENV);
 
+/* ══ 环境状态的唯一入口 applyState(next, {via})（2026-10-30 · 审查 S3 / M1 / M2 / M5 / L1 / L5）══════════
+   旧状况：setEnv、时辰滑杆、advanceReel、randomScene、toggleFestival、两个夜景开关**各自**改 ENV.*、
+   各自补 from/to/t、各自记不记得 syncEnvUI / PMREM / 收场景 —— M1（流转吞过渡）、M2（PMREM 只在按钮路径切）、
+   M5（偶得不收灯会烟花）、L5（_nightPrev 不清）全是"某条路漏了一步"。
+   现在所有入口都只说"想要什么"，由这里按固定顺序做完：
+     ① 校验（非法键丢弃并留痕，状态机不被污染）
+     ② 收场景（按 via 的策略：灯会 / 烟花 / 流星 / 两个夜景共用的 _nightPrev）
+     ③ 写状态（季节 → doy 对齐代表日；doy 变了 → 时段锚点重算；时段 → hour 对齐锚点；hour → 时段标签）
+     ④ 天气互斥归一（只改目标，不瞬切）
+     ⑤ 构造过渡（from = 当前实际画面，to = resolveEnv()，t = 0）
+     ⑥ PMREM：按"时段 × 天气大类"排队，过渡落地那一帧才换（见 syncEnvMap）
+     ⑦ 阴影：存在性 / 光向都可能变 ⇒ 标脏（过渡期间 11-loop 每帧刷，落地后补一次）
+     ⑧ UI 同步
+   next 可含：time / hour / season / doy / weather / festival / moonPhase。
+   via（谁发起的，决定②的策略）：
+     'ui' / 'key' / 'slider' / 'random'  —— 用户换场景：灯会、烟花、流星一起收（2026-10-11 定的规矩）
+     'api' / 'demo'                      —— 控制台 / 外部脚本 / 四季演示：只收灯会（setEnv 的旧语义）
+     'scene' / 'festival'                —— 景按钮自己发起的切夜 / 切晴：什么都不收（否则自己收自己）
+   ⚠️ 流转（REEL）不走这里：它每帧只推进 hour，见 advanceReel（那边也不再吞别的过渡）。 */
+const SCENE_POLICY = { ui: 'all', key: 'all', slider: 'all', random: 'all',
+                       api: 'festival', demo: 'festival', scene: 'none', festival: 'none' };
+export function applyState(next = {}, opts = {}){
+  const via = opts.via || 'api';
+  /* ① 校验 —— 必须用 Object.hasOwn：继承来的键（constructor / __proto__ …）都是真值，
+     当成合法值写进 ENV 会让 resolveEnv 在 ENV_TIME['constructor'].label 上炸（实测前科）。 */
+  const want = {};
+  const bad = (k, v) => console.warn('[ENV] 非法切换被忽略：', k, '=', v);
+  for (const k of Object.keys(next)){
+    const v = next[k];
+    if (k === 'time' || k === 'season' || k === 'weather'){
+      const table = k === 'time' ? ENV_TIME : k === 'season' ? ENV_SEASON : ENV_WEATHER;
+      if (typeof v === 'string' && Object.hasOwn(table, v)) want[k] = v; else bad(k, v);
+    } else if (k === 'hour'){
+      if (Number.isFinite(v)) want.hour = ((v % 24) + 24) % 24; else bad(k, v);
+    } else if (k === 'doy'){
+      if (Number.isFinite(v)) want.doy = wrapDoy(v); else bad(k, v);
+    } else if (k === 'festival'){
+      want.festival = !!v;
+    } else if (k === 'moonPhase'){
+      if (v === null || Number.isFinite(v)) want.moonPhase = v; else bad(k, v);
+    } else bad(k, v);
+  }
+  const touchesScene = ('time' in want) || ('hour' in want) || ('season' in want) || ('doy' in want) || ('weather' in want);
+  /* ② 收场景 —— 必须在"同值早退"**之前**：在灯会里再点一次「夜」也算重新选场景（2026-10-06 老黄）。 */
+  const policy = SCENE_POLICY[via] || 'festival';
+  if (touchesScene && policy !== 'none'){
+    if (ENV.festival && !('festival' in want)) toggleFestival(false);
+    if (policy === 'all'){
+      setFireworksForce(null);
+      setMeteorsForce(null);
+      _nightPrev = null;                       // L5：换场景 ⇒ 两个夜景的"进来之前"作废
+      if (!ENV.festival) ENV.festivalName = '';
+    }
+  }
+  /* ③ 写状态 */
+  const before = { time: ENV.time, hour: ENV.hour, season: ENV.season, doy: ENV.doy, weather: ENV.weather,
+                   festival: ENV.festival, moonPhase: ENV.moonPhase };
+  const wasAnchored = Math.abs(_hourDiff(ENV.hour, TIME_ANCHORS[ENV.time])) < 0.05;
+  if ('season' in want){
+    ENV.season = want.season;
+    if (!('doy' in want)) ENV.doy = SEASON_DOY[want.season];   // 季节按钮 = 把 doy 对齐到代表日
+  }
+  if ('doy' in want){
+    ENV.doy = want.doy;
+    if (!('season' in want)) ENV.season = seasonOfDoy(want.doy);
+  }
+  if (ENV.doy !== before.doy) syncTimeAnchors(ENV.doy);
+  if ('weather' in want) ENV.weather = want.weather;
+  if ('moonPhase' in want) ENV.moonPhase = want.moonPhase;
+  if ('festival' in want) ENV.festival = want.festival;
+  if ('time' in want){
+    ENV.time = want.time;
+    ENV.hour = ('hour' in want) ? want.hour : TIME_ANCHORS[want.time];   // 时段按钮 = 把连续时辰对齐到锚点
+  } else if ('hour' in want){
+    ENV.hour = want.hour;
+    ENV.time = timeKeyNow(ENV.hour, ENV.doy);   // 按钮高亮 / UI 主题跟随太阳高度
+  } else if (ENV.doy !== before.doy){
+    /* 换季：原来正落在锚点上（按过时段按钮）⇒ 跟着新季节的锚点走（夏"晨"5:53 → 冬"晨"7:52，
+       时段的"性格"不变）；用户拖到自定义时刻 ⇒ 时刻不动，只按新季节的太阳重判标签。 */
+    if (wasAnchored) ENV.hour = TIME_ANCHORS[ENV.time];
+    else ENV.time = timeKeyNow(ENV.hour, ENV.doy);
+  }
+  /* ④ 天气互斥（UI 置灰只是提示，不是保证 —— 键盘 / 控制台 / 偶得都能绕过按钮） */
+  if (!weatherAllowed(ENV.weather)) ENV.weather = 'clear';
+  /* 同值早退 —— 但时段按钮在 hour 偏离锚点时**不算同值**（L1：拖到 5:10 再点"晨"应该回到锚点）。 */
+  const changed = ENV.time !== before.time || Math.abs(_hourDiff(ENV.hour, before.hour)) > 1e-6
+    || ENV.season !== before.season || ENV.doy !== before.doy || ENV.weather !== before.weather
+    || ENV.festival !== before.festival || ENV.moonPhase !== before.moonPhase;
+  if (!changed){ syncEnvUI(); return false; }
+  /* ⑤ 过渡：从「当前实际画面」出发，连点也不会跳 */
+  ENV.from = cloneParams(ENV.cur);
+  ENV.to   = resolveEnv();
+  ENV.t    = 0;
+  ENV.dur  = Number.isFinite(opts.dur) ? Math.max(0.05, opts.dur) : ENV_TRANS_DUR;
+  /* ⑥ PMREM（M2）⑦ 阴影 */
+  syncEnvMap(ENV.to);
+  renderer.shadowMap.needsUpdate = true;
+  /* ⑧ UI */
+  syncEnvUI();
+  return true;
+}
+const _hourDiff = (a, b) => { let d = (a - b) % 24; if (d > 12) d -= 24; if (d < -12) d += 24; return d; };
+
+/* 兼容入口：外部脚本 / 控制台 / 门禁一直在用 setEnv(axis, val)。语义 = applyState 的 'api' 策略
+   （只收灯会，不动烟花流星 —— 与旧 setEnv 完全一致）。 */
 export function setEnv(axis, val){
-  /* 先验后写 —— 这个函数挂在 window.__garden 上供外部驱动（采集脚本、控制台），
-     一次 setEnv('time', undefined) 就会把 ENV.time 写成 undefined，画面卡住且每帧报错。
-     合法的轴/值在这里一次性收口，非法调用直接忽略并留痕，状态机不被污染。 */
-  /* ⚠️ 必须用 Object.hasOwn，不能靠 ENV_TIME[val] 的真值：继承来的键
-     （constructor / toString / __proto__ …）都是真值，会被当成合法值写进 ENV，
-     然后 resolveEnv 在 ENV_TIME['constructor'].label 上炸 ——
-     实测 throw：Cannot read properties of undefined (reading 'saturation')，状态同时被污染。 */
-  const table = axis === 'time' ? ENV_TIME
-              : axis === 'season' ? ENV_SEASON
-              : axis === 'weather' ? ENV_WEATHER : null;
-  const legal = !!table && Object.hasOwn(table, val);
-  if (!legal){
+  if (axis !== 'time' && axis !== 'season' && axis !== 'weather'){
     console.warn('[ENV] 非法切换被忽略：', axis, '=', val);
     return;
   }
-  /* ⚠️⚠️ 换场景 ⇒ 灯会收起（2026-10-06 老黄："选过'灯会'场景，切换其它场景，灯会的布景
-     一直带到其它场景中，这个应该也是 bug"）。收口放在 setEnv 里 = 季节/天气/时段按钮、
-     四季演示、偶得、控制台**全走这一条**；且必须在"同值早退"**之前** —— 在灯会里再点一次
-     「夜」也算重新选场景，同样要能退出。收起时它会按既有规矩把时段还给"进来之前"
-     （用户自己改过时段就不抢，见 12c 的 toggleFestival）。
-     ⚠️ 例外：烟花的一键预设要**保留**灯会（老黄认可两者同时出现）⇒ 用 _keepFestival 抑制。 */
-  if (!_keepFestival && ENV.festival) toggleFestival(false);
-  if (ENV[axis] === val) return;
-  ENV[axis] = val;
-  if (axis === 'time') ENV.hour = TIME_ANCHORS[val];   // 时段按钮 = 把连续时辰对齐到锚点
-  ENV.from = cloneParams(ENV.cur);      // 从「当前实际画面」出发，连点也不会跳
-  ENV.to   = resolveEnv();
-  ENV.t    = 0;
-  /* PMREM 按时段缓存：切时段时一次性切换环境贴图（缓存命中则零烘焙）。
-     不能在 applyEnv 里调 —— applyEnv 每帧兜底触发会反复烘或压成 'default' 键。 */
-  if (axis === 'time' && ENV.to.skyTop){
-    setEnvPreset({ key: val, skyTop: ENV.to.skyTop.getHex(), skyMid: ENV.to.skyMid.getHex(),
-                   skyHorizon: ENV.to.skyHorizon.getHex(), sunDisk: ENV.to.sunDisk.getHex(),
-                   ground: 0x5F7B45, sunPos: ENV.to.sunPos });
-  }
-  enforceWeather();                     // 非法组合在这里就被打回，不留非法状态
-  syncEnvUI();
+  applyState({ [axis]: val }, { via: 'api' });
 }
 
-/* 天气互斥：银装素裹只在冬季合法；非冬季若被置成它，自动降级回"风和日丽"。
+/* ── PMREM 环境贴图（审查 M2）──
+   旧：只有"按时段按钮"这一条路切贴图，键 = 时段名，烘焙用的却是叠过天气去色的天色 ⇒
+       第一次在雪天切到夜，之后所有晴夜都复用一张灰雪夜（不可复现，依赖切换历史）；滑杆 / 流转 /
+       偶得 / 灯会都绕过它；而且在过渡第一帧就同步烘焙并切换，反射色先于光照跳变。
+   新：键 = 时段 × 天气大类（晴 / 晴+积雪 / 阴雨 / 雪），**每条入口**（applyState、流转跨锚点）都经这里；
+       只排队，不立即切 —— 过渡落地那一帧（applyEnv 里 ENV.t >= 1）才换，反射与光照同步到位。 */
+let _envMapPending = null, _envMapKey = '';
+function weatherClass(p){
+  const w = ENV.weather;
+  if (w === 'snow' || (p && (p.snowAmount || 0) > 0.5)) return 'snow';
+  if (w === 'storm' || w === 'thunder' || w === 'overcast' || w === 'drizzle' || w === 'mist') return 'overcast';
+  return (p && (p.snowCover || 0) > 0.5) ? 'clear+snow' : 'clear';
+}
+function syncEnvMap(p, now = false){
+  if (!p || !p.skyTop) return;
+  const key = ENV.time + '|' + weatherClass(p);
+  if (key === _envMapKey && !_envMapPending) return;
+  _envMapPending = { key, skyTop: p.skyTop.getHex(), skyMid: (p.skyMid || p.skyTop).getHex(),
+                     skyHorizon: p.skyHorizon.getHex(), sunDisk: p.sunDisk.getHex(),
+                     ground: (p.snowCover || 0) > 0.5 ? 0xD6DADF : 0x5F7B45,     // 积雪时地面反照是白的
+                     sunPos: p.sunPos.slice() };
+  if (now || ENV.t >= 1) flushEnvMap();
+}
+function flushEnvMap(){
+  if (!_envMapPending) return;
+  setEnvPreset(_envMapPending);
+  _envMapKey = _envMapPending.key;
+  _envMapPending = null;
+}
+
+/* 天气互斥：银装素裹 / 雪霁只在冬季合法；非冬季若被置成它，自动降级回"风和日丽"。
    "狂风暴雨在冬季渲染为风雪"不是降级 —— 它是合法组合，由 effectiveWeather() 决定表现。 */
 export function weatherAllowed(weather){
   return weatherMutexReason(weather, ENV.season) === null;
 }
-/* 唯一的强制点。UI 置灰只是「提示」，不是「保证」：键盘、控制台、外部脚本都能绕过按钮，
-   所以真正的降级必须发生在 setEnv 里 —— 否则会出现「夏季 + 银装素裹」这种非法状态留在画面上。 */
-function enforceWeather(){
-  if (weatherAllowed(ENV.weather)) return false;
-  ENV.weather = 'clear';                                  // 降级目标：风和日丽
-  /* ⚠️ 不要在这里瞬切（ENV.t = 1 + 立刻 applyEnv）。原来那样写，从"冬 + 银装素裹"
-     切到春天会把画面**当场**换成风和日丽，2.8 秒过渡整段被跳过 —— 用户看到的是跳变。
-     正确做法：先把目标归一化，再从当前画面平滑过渡过去。 */
-  ENV.from = cloneParams(ENV.cur);
-  ENV.to   = resolveEnv();
-  ENV.t    = 0;
-  return true;
-}
-
 export const envEl = document.getElementById('env');
 /* P2-2：巡游期间用户在画布上的任何手动操作都算接管 → 停巡游。
    start 系事件（手按下/滚轮即停），不赌 change/end，低延迟。 */
@@ -740,10 +878,9 @@ function syncEnvUI(){
         两个夜景共用一份"进来之前"的记录（`_nightPrev`），关掉时只还回"被我改过、
         而且你没再动过"的那一轴，且**最后一个关的景才还**（见下面 _nightLeave 的交叉保护）。
      ④ **季节一律不动**（连烟花也不再把你切到冬天）⇒ 三个景在任何季节都能自由组合。
-   ⚠️ 与灯会**可同时存在** ⇒ 开关里用 _keepFestival 抑制 setEnv 的"换场景收起灯会"。
+   ⚠️ 与灯会**可同时存在** ⇒ 景开关里的切夜 / 切晴走 applyState 的 'scene' 策略（不收任何景）。
    ⚠️ 任何环境轴切换都会把 setFireworksForce 复位成 null（= 关），
       否则"开过一次"会一直挂在那儿（面板层与滑杆各做一次，见下面那两处）。 */
-let _keepFestival = false;
 /* ⚠️ 有几个"按钮态读的是下一帧才翻面的量"（烟花是否在放由门控决定，setEnv 只改 ENV 目标，
    applyEnv/tickFireworks 下一帧才跑）⇒ 立刻 syncEnvUI 读到的是旧值，按钮会"该灭不灭/该亮不亮"
    （实测：点开烟花后 aria-pressed 仍是 false；换成暴雨后烟花已灭、按钮还亮着）。
@@ -768,30 +905,37 @@ function _otherSceneOn(self){
 }
 let _nightPrev = null;                       // { time, weather, setTime, setWeather }
 function _nightEnter(){
-  if (!_nightPrev) _nightPrev = { time: ENV.time, weather: ENV.weather, setTime: false, setWeather: false };
+  if (!_nightPrev) _nightPrev = { time: ENV.time, hour: ENV.hour, weather: ENV.weather, doy: ENV.doy,
+                                  setTime: false, setWeather: false, setDoy: 0 };
   return _nightPrev;
 }
 function _nightLeave(self){
   const p = _nightPrev;
   if (!p) return;
   if (_otherSceneOn(self)) return;           // 还有别的景在场 ⇒ 谁都别还（交叉保护）
-  if (p.setWeather && ENV.weather === 'clear') setEnv('weather', p.weather);
-  if (p.setTime && ENV.time === 'night' && !ENV.festival) setEnv('time', p.time);
+  const back = {};
+  if (p.setWeather && ENV.weather === 'clear') back.weather = p.weather;
+  if (p.setTime && ENV.time === 'night' && !ENV.festival){ back.time = p.time; back.hour = p.hour; }
+  if (p.setDoy && ENV.doy === p.setDoy && !ENV.festival) back.doy = p.doy;   // 节令挂钩拨过的日子也还回去
+  if (Object.keys(back).length) applyState(back, { via: 'scene' });
+  if (!ENV.festival) ENV.festivalName = '';
   _nightPrev = null;
 }
 export function toggleFireworksScene(){
   const on = !!(fireworksState && fireworksState().on);
   if (on){                                       // 关
     setFireworksForce(false);                    // 先明确压掉（"还回场景"改不动门控）
-    _keepFestival = true;
-    try { _nightLeave('fw'); } finally { _keepFestival = false; }
+    _nightLeave('fw');
   } else {                                       // 开
-    const p = _nightEnter(), w = ENV.weather || '';
-    _keepFestival = true;
-    try {
-      if (ENV.time !== 'night'){ p.setTime = true; setEnv('time', 'night'); }
-      if (w === 'storm' || w === 'thunder' || w === 'snow'){ p.setWeather = true; setEnv('weather', 'clear'); }
-    } finally { _keepFestival = false; }
+    const p = _nightEnter(), w = ENV.weather || '', want = {};
+    if (ENV.time !== 'night'){ p.setTime = true; want.time = 'night'; }
+    /* 细雨（drizzle）也会否决烟花（rainAmount ≥ 0.05）⇒ 一并补晴。 */
+    if (w === 'storm' || w === 'thunder' || w === 'snow' || w === 'drizzle'){ p.setWeather = true; want.weather = 'clear'; }
+    /* 节令挂钩（审查 B4/B5）：冬天开烟花 ⇒ 日子拨到除夕（朔月无月，天幕最暗、花最亮）；
+       其它季节照放、不拨日子（老黄要的"自由组合"不变，季节一律不动）。灯会在场时不拨（它有自己的节日）。 */
+    const fest = festivalFor('fireworks', ENV.season);
+    if (fest && !ENV.festival && ENV.doy !== fest.doy){ want.doy = fest.doy; p.setDoy = fest.doy; ENV.festivalName = fest.label; }
+    if (Object.keys(want).length) applyState(want, { via: 'scene' });
     setFireworksForce(true);                     // ← 权威开关：现在只有它能让烟花出现
     gotoViewpoint('fireworks');                  // 这个机位是**必需品**（默认俯视机位看不到天上的花）
     showCaption('fireworks', 'manual'); setTimeout(() => hideCaption('manual'), 6000);
@@ -806,15 +950,13 @@ export function toggleMeteorScene(){
   const on = !!(meteorState && meteorState().on);
   if (on){                                       // 关
     setMeteorsForce(false);
-    _keepFestival = true;
-    try { _nightLeave('mt'); } finally { _keepFestival = false; }
+    _nightLeave('mt');
   } else {                                       // 开
-    const p = _nightEnter(), w = ENV.weather || '';
-    _keepFestival = true;
-    try {
-      if (ENV.time !== 'night'){ p.setTime = true; setEnv('time', 'night'); }
-      if (w !== 'clear' && w !== 'afterrain'){ p.setWeather = true; setEnv('weather', 'clear'); }
-    } finally { _keepFestival = false; }
+    const p = _nightEnter(), w = ENV.weather || '', want = {};
+    if (ENV.time !== 'night'){ p.setTime = true; want.time = 'night'; }
+    /* 雪霁（雪后放晴）也是晴空 ⇒ 不改天气（12b 的 _mtOn 同口径放行）。 */
+    if (w !== 'clear' && w !== 'afterrain' && w !== 'snowclear'){ p.setWeather = true; want.weather = 'clear'; }
+    if (Object.keys(want).length) applyState(want, { via: 'scene' });
     setMeteorsForce(true);                       // ← 权威开关（不再"晴夜自动"）
     gotoViewpoint('meteor');
     showCaption('meteor', 'manual'); setTimeout(() => hideCaption('manual'), 6000);
@@ -862,9 +1004,7 @@ envEl.addEventListener('click', (e)=>{
        季节**不动**（虹与季节无关，别顺手改）；时段取**暮色**（ENV_TIME 的 rainbowMul 在暮色
        最大、且 afterrain-guard 的参照实测都在暮色）。 */
     if (b.dataset.view === 'rainbow'){
-      setFireworksForce(null);                 // 换场景 ⇒ 结束烟花（下面的通用那条也会做，这里顺手）
-      setMeteorsForce(null);
-      setEnv('time', 'dusk'); setEnv('weather', 'afterrain');
+      applyState({ time: 'dusk', weather: 'afterrain' }, { via: 'ui' });   // 换场景 ⇒ 三个景一起收（applyState 负责）
     }
     /* ── 「红梅」「腊梅」同理（2026-10-08 · 老黄："这两颗梅花树我就怎么都不能拉近镜头看到细节"）──
        梅是**冬季开花**（plumBlossomShow 冬 1.0 / 夏 0），默认状态是夏 ⇒ 飞过去只会看到一株
@@ -873,7 +1013,8 @@ envEl.addEventListener('click', (e)=>{
        ⇒ 只把**季节**设成冬（花就在），**天气/时段不动**（他可能就是想在"银装素裹"或夜里看梅，
          替他改天气反而会毁掉他要的场景）。 */
     if (b.dataset.view === 'plumRed' || b.dataset.view === 'plumYellow'){
-      setEnv('season', 'winter');
+      /* 2026-10-30 花历：腊梅深冬（1/22）开、红梅早春（2/25）开，季节按钮仍落在"冬"，只是 doy 各取花期。 */
+      applyState({ season: 'winter', doy: PLUM_VIEW_DOY[b.dataset.view] }, { via: 'api' });
     }
     gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return;
   }
@@ -884,11 +1025,8 @@ envEl.addEventListener('click', (e)=>{
   /* ⚠️ 换场景 ⇒ 三个"景"一起收：灯会收起 / 烟花与流星雨都结束
      （2026-10-06 定的规矩，2026-10-11 起对三个景一视同仁：**切任何环境轴 = 结束当前的景**）。
      为什么要显式做一次：setEnv 内部只在"真的改了轴"时收灯会，**同值点击**这里也要收。 */
-  if (ENV.festival) toggleFestival(false);
-  setFireworksForce(null);
-  setMeteorsForce(null);
-  setEnv(b.dataset.axis, b.dataset.v);
-  if (enforceWeather()) syncEnvUI();
+  /* applyState 的 'ui' 策略 = 同值点击也照收（收场景在同值早退之前）。 */
+  applyState({ [b.dataset.axis]: b.dataset.v }, { via: 'ui' });
   syncEnvSoon();          // 换天气可能让门控翻面（烟花/流星）⇒ 按钮态延后对齐
 });
 
@@ -897,23 +1035,15 @@ envEl.addEventListener('click', (e)=>{
    短过渡过去（0.45s 跟手）；松手把过渡节奏还给 2.8s 的默认值。 */
 const hourSlider = document.getElementById('hourSlider');
 hourSlider.addEventListener('input', ()=>{
-  /* 拖时辰 = 换场景 ⇒ 灯会收起、烟花/流星雨一起结束（同面板按钮那条规矩；滑杆不走 setEnv）。 */
-  if (ENV.festival) toggleFestival(false);
-  setFireworksForce(null);
-  setMeteorsForce(null);
-  ENV.hour = parseFloat(hourSlider.value);
+  /* 拖时辰 = 换场景 ⇒ 灯会收起、烟花/流星雨一起结束（applyState 'slider' 策略）；0.45s 短过渡跟手。 */
   tourUserTakeover();   // P2-2：拖时辰 = 接管，停巡游
   seasonDemoUserTakeover();
   if (REEL.on) toggleReel();   // 手动拖时辰 = 接管，停时光流转
+  applyState({ hour: parseFloat(hourSlider.value) }, { via: 'slider', dur: 0.45 });
   placeHourTip(ENV.hour);
-  ENV.from = cloneParams(ENV.cur);
-  ENV.to   = composeEnv(paramsAtHour(ENV.hour));
-  ENV.t = 0; ENV.dur = 0.45;
-  ENV.time = nearestTimeKey(ENV.hour);     // 按钮高亮 / UI 主题跟随最近锚点
-  syncEnvUI();
   syncEnvSoon();                           // 拖时辰可能让烟花的门控翻面 ⇒ 按钮态延后对齐
 });
-hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
+hourSlider.addEventListener('change', ()=>{ ENV.dur = ENV_TRANS_DUR; });
 /* 快捷键提示开关（2026-10-06 老黄："多一个快捷按钮的复选框，选中就出现选择键的提示，
    不选中就不显示快捷键，默认情况下不显示"）：body.show-keys 控制所有 .hint
    （#hourReadout 时辰气泡除外，它不是快捷键），选择存 localStorage。 */
@@ -948,6 +1078,7 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = 2.8; });
   const ICON = {
     'season:spring': '❀', 'season:summer': '☀', 'season:autumn': '❦', 'season:winter': '❄',
     'weather:clear': '☼', 'weather:storm': '☂', 'weather:afterrain': '◠', 'weather:snow': '❄', 'weather:mist': '≋',
+    'weather:drizzle': '⁘', 'weather:snowclear': '✳',
     'act:blind': '⌇', 'act:festival': '◍', 'act:fireworks': '✺', 'act:fish': '◔', 'act:meteor': '☄',
     'quality:auto': 'Ａ', 'quality:high': 'Ｈ', 'quality:balanced': 'Ｂ', 'quality:performance': 'Ｐ',
     'view:rainbow': '◠', 'view:hero': '▲', 'view:stele': '◆', 'view:hall': '⌂', 'view:pavilion': '◇', 'view:overview': '◎',
@@ -993,6 +1124,7 @@ export function toggleReel(){
   const next = !REEL.on;
   if (next) seasonDemoUserTakeover();
   REEL.on = next;
+  if (!next && flushShadowFit()) renderer.shadowMap.needsUpdate = true;   // M7：停下时补齐最后一次
   const b = envEl && envEl.querySelector('button[data-act="reel"]');
   if (b){
     b.classList.toggle('on', REEL.on);
@@ -1002,22 +1134,41 @@ export function toggleReel(){
   if (REEL.on && TOUR.on) tourStop();      // 两台马达别同时抢：巡游与流转互斥
   return REEL.on;
 }
-let reelUiAcc = 0, reelShadowAcc = 0;
+let reelUiAcc = 0, reelShadowAcc = 0, _reelMapKey = '';
+/* 把流转期间攒下的阴影拟合做掉（M7）：4Hz 节拍里调，停流转时也调一次，免得停在最后 0.25s 的旧影上 */
+function flushShadowFit(){
+  if (!sun.userData.fitDirty) return false;
+  sun.userData.lastFitPos = [sun.position.x, sun.position.y, sun.position.z];
+  fitShadowCamera();
+  sun.userData.fitDirty = false;
+  return true;
+}
 export function advanceReel(dt){
   ENV.hour = (ENV.hour + REEL.speed * dt) % 24;
-  const key = nearestTimeKey(ENV.hour);
+  const key = timeKeyNow(ENV.hour, ENV.doy);
   if (key !== ENV.time){ ENV.time = key; syncEnvUI(); }   // 按钮高亮只在跨锚点时刷，不必每帧
-  const target = composeEnv(paramsAtHour(ENV.hour));
+  const target = composeEnv(baseParamsAt(ENV.hour));
+  /* ⚠️ 2026-10-30（审查 M1）：流转中切季节 / 天气，原来这里每帧 `ENV.t = 1` 直接落位 ⇒ 2.8s 过渡被吞、
+     06b 的"起风→压暗→落雨"因果链也被跳过。现在：有过渡在走就**只把过渡的终点换成新时辰的目标**，
+     ENV.t 不动，由 11-loop 的过渡块照常插值并 applyEnv（那边过渡期每帧刷阴影）；过渡走完再接手落位。 */
+  if (ENV.t < 1){
+    ENV.to = target;
+    syncEnvMap(target);                         // 跨锚点 / 天气类变了 ⇒ 排队，过渡落地那帧换
+    return;
+  }
+  if (key !== _reelMapKey){ _reelMapKey = key; syncEnvMap(target, true); }   // M2：流转跨时段也换反射
   /* ⚠️ from 与 to **都**传 target，不要 from 传 ENV.cur：mixInto 的 out 与 from
      若指向同一对象，非数值通道（Color / 数组）会边写边读被自己污染。
      from=to=target 且 e=1，等价于「直接落位到目标」，且零 clone。 */
   mixInto(ENV.cur, target, target, 1);
   ENV.from = target; ENV.to = target; ENV.t = 1;   // 状态保持一致，别让别的逻辑读到旧值
-  applyEnv(ENV.cur);
+  _shadowDefer = true;
+  try { applyEnv(ENV.cur); } finally { _shadowDefer = false; }
   /* 阴影节流到 4Hz：0.25s 内太阳只走 0.1 小时（≈1.5°），肉眼不察，
-     但 shadowMap 从「每帧重渲」降到每 0.25s 一次 —— 流转时的帧率才有保障。 */
+     但 shadowMap 从「每帧重渲」降到每 0.25s 一次 —— 流转时的帧率才有保障。
+     ⚠️ 2026-10-29（M7）：applyEnv 流转时只记 fitDirty，拟合在这里随 4Hz 一起做。 */
   reelShadowAcc += dt;
-  if (reelShadowAcc >= 0.25){ reelShadowAcc = 0; renderer.shadowMap.needsUpdate = true; }
+  if (reelShadowAcc >= 0.25){ reelShadowAcc = 0; flushShadowFit(); renderer.shadowMap.needsUpdate = true; }
   /* 滑杆 / 读数每帧写 DOM 太重，节流到 0.2s（滑杆 step=0.1，跟 60fps 也没意义） */
   reelUiAcc += dt;
   if (reelUiAcc >= 0.2){
@@ -1039,7 +1190,8 @@ export function advanceReel(dt){
    返回 {label, time, season, weather, hour} 供 toast / 门禁使用。 */
 const R_TIMES    = [['dusk',4],['night',4],['morning',2.5],['noon',1]];
 const R_SEASONS  = ['spring','summer','autumn','winter'];
-const R_W_BASE   = { clear:3, mist:2.4, storm:1.2, snow:1, afterrain:1.6 };
+const R_W_BASE   = { clear:3, mist:2.4, storm:1.2, snow:1, afterrain:1.6, drizzle:1.5, snowclear:1.2 };
+// 2026-10-30：细雨（按日期叫梅雨 / 春雨 / 冷雨）1.5、雪霁 1.2（仅冬季，由互斥矩阵过滤）。
 // 阴霾暗沉 2026-09-28 收起（权重并入薄雾）；电闪雷鸣 2026-09-30 并入狂风暴雨（hidden）。
 // 雨后初晴 1.6：比暴雨高一档 —— 合并后暴雨变成"带雷电的雨"，随机池里若雨太多、
 // 难得抽到一次"雨停了太阳出来"的画面。
@@ -1064,22 +1216,20 @@ export function randomScene(){
     weather = rwPick(pool);
   } while (time === ENV.time && season === ENV.season && weather === ENV.weather && ++tries < 12);
 
-  ENV.time = time; ENV.season = season; ENV.weather = weather;
-  ENV.hour = (TIME_ANCHORS[time] + (Math.random() * 1.2 - 0.6) + 24) % 24;
-  ENV.from = cloneParams(ENV.cur);
-  ENV.to = resolveEnv(); ENV.t = 0;
+  /* 2026-10-30（审查 M5）：走 applyState('random') —— 灯会 / 烟花 / 流星 / _nightPrev 一起收、PMREM 同步，
+     与按钮同一条路。锚点随季节，所以先按目标季节的代表日算锚点再加 ±0.6h 抖动。 */
+  const anchors = SOLAR.enabled ? timeAnchorsFor(SEASON_DOY[season]) : TIME_ANCHORS;
+  const hour = (anchors[time] + (Math.random() * 1.2 - 0.6) + 24) % 24;
+  applyState({ season, weather, time, hour }, { via: 'random' });
   /* ⚠️ 标签必须取**兜底后的目标态** ENV.to.weatherLabel，不能取 weatherTag()：
      后者读 ENV.cur（上一帧画面），本函数可能被连发调用（探针连抽两次），
-     两次之间没有动画帧 → cur 还是旧景色，会返回"抽 A 报 B"的穿帮标签。
-     合法池已按季节过滤，enforceWeather 这里理论上不再降级——但返回值仍以它为准。 */
-  enforceWeather();
-  syncEnvUI();
+     两次之间没有动画帧 → cur 还是旧景色，会返回"抽 A 报 B"的穿帮标签。 */
   const hs = document.getElementById('hourSlider');
   if (hs) hs.value = ENV.hour;
   const ro = document.getElementById('hourReadout');
   if (ro) placeHourTip(ENV.hour);
   return {
-    time, season, weather: ENV.weather, hour: ENV.hour,
+    time: ENV.time, season, weather: ENV.weather, hour: ENV.hour,
     label: `${ENV_SEASON[season].label} · ${ENV_TIME[time].label} · ${ENV.to.weatherLabel}`,
   };
 }
@@ -1151,17 +1301,18 @@ if (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '$'){
      d 键空出；预设数据保留（mist-guard 仍可直调 setEnv 测试雾管线），想恢复一条线的事。 */
   /* 2026-09-30：'电闪雷鸣'并入'狂风暴雨'（老黄："这两个场景可以合并，空出一个格子"）
      ⇒ h 键空出，'j' 改为新场景「雨后初晴」。 */
-  const wmap = { a:'clear', s:'storm', j:'afterrain', f:'snow', g:'mist' };
+  /* 2026-10-30：H = 细雨（梅雨 / 春雨 / 冷雨，按日期叫）、K = 雪霁（仅冬季）。
+     面板按钮要等 index.html 加 data-axis="weather" data-v="drizzle" / "snowclear"，syncEnvUI 与图标表已就位。 */
+  const wmap = { a:'clear', s:'storm', j:'afterrain', f:'snow', g:'mist', h:'drizzle', k:'snowclear' };
   const hit = map[e.key] || smap[e.key.toLowerCase()] || wmap[e.key.toLowerCase()];
   if (!hit) return;
   seasonDemoUserTakeover();
-  if (map[e.key])  setEnv('time', hit);
-  else if (smap[e.key.toLowerCase()]) setEnv('season', hit);
+  if (map[e.key])  applyState({ time: hit }, { via: 'key' });
+  else if (smap[e.key.toLowerCase()]) applyState({ season: hit }, { via: 'key' });
   else if (weatherAllowed(hit)){
     if (hit === 'storm' && !HOOKS.sound?.()) HOOKS.sound();   // 同点击：选暴雨自动开音景（它带雷声）
-    setEnv('weather', hit);
+    applyState({ weather: hit }, { via: 'key' });
   }                                          // 非法组合不走键盘这条捷径
-  if (enforceWeather()) syncEnvUI();
 });
 
 /* ── 装配阶段收尾（2026-09-20 · 拆模块时从本模块顶层移出）──
@@ -1185,6 +1336,7 @@ export function initEnvScene(){
   collectSeasonCaches();             // 同步建的物件（紫藤叶/苇/荷盘…）不能等延迟批
   syncEnvUI();
   applyEnv(ENV.cur);
+  syncEnvMap(ENV.cur, true);         // M2：开机就按"时段 × 天气大类"烘一张，之后回到同态复用同一张（可复现）
   installSnow(SNOW_COVER_MATS);      // 必须在**首帧渲染之前**装上：注入才进得了编译好的程序
   /* 挂上补装器：此后任何**晚注册**的雪材质（deferBoot 的立峰·云根就比这里晚）会立刻被装雪，
      不必再赌"它的注册是否早于装配收尾"—— 赌输不报错、不崩、状态全对，只是那块东西冬天

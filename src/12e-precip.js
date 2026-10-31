@@ -195,16 +195,22 @@ export function updatePrecip(dt, t){
     const on = S === PRECIP.rain ? rainOn : snowOn;
     if (!on) continue;
     const amt = S === PRECIP.rain ? p.rainAmount : p.snowAmount;
+    /* 2026-10-30 细雨（梅雨 / 春雨 / 冷雨）：雨的"量"（amt：亮度、湿地、雨声）与"密"（dens：同屏粒子数）、
+       "细"（fine：粒子更小、落得更慢）拆开 —— 绵密细雨 = 量小、密高、粒细。缺键（旧参数集）时
+       dens 跟 amt 走、fine 为 0 ⇒ 暴雨 / 雪的表现一字不变。 */
+    const isRainS = S === PRECIP.rain;
+    const fine = isRainS ? Math.max(0, Math.min(1, p.rainFine || 0)) : 0;
+    const dens = isRainS ? (p.rainDensity ?? amt) : amt;
     const uu = S.points.material.uniforms;     // 雨/雪各写自己那份（见 PRECIP 内的说明）
-    uu.uIntensity.value = S.strength * Math.min(1, 0.35 + amt * 0.85);
-    uu.uSize.value = S.size;
+    uu.uIntensity.value = S.strength * Math.min(1, 0.35 + amt * 0.85) * (1 - 0.25 * fine);
+    uu.uSize.value = S.size * (1 - 0.40 * fine);
     uu.uStreak.value = (S === PRECIP.rain) ? 0
       : Math.max(0, Math.min(1, ((p.windMul || 1) - 1.5) / 2.2));
     const a = S.arr, n = S.n, X = S.spread, YT = 22, YB = -1.2, DH = YT - YB;
     /* 只推进**实际提交渲染**的那部分粒子。原来不管强度多小都遍历整个数组
        （独显档 1.4 万点/帧），小雨/小雪时 95% 的运算是白做的 —— drawRange 之外的粒子
        本来就不提交。降到小雪时 CPU 的粒子开销随之下降。 */
-    const active = Math.max(32, Math.round(n * Math.min(1, amt)));
+    const active = Math.max(32, Math.round(n * Math.min(1, Math.max(amt, dens))));
     if (!S.seeded){                       // 首帧铺满体积，否则会看到"从天上掉下来"
       S.seeded = true;
       for (let i = 0; i < n; i++){
@@ -219,7 +225,7 @@ export function updatePrecip(dt, t){
        永远保持，整层像一张网一起往下挪，落到底同批一起回顶，循环加深成"一层一层掉"。
        x/z 一直有逐粒子扰动，唯独下落速度没有，这才是分层的根因。
        给每片雪 0.55~1.50 的速度倍率：快慢互相追越，任何整齐的层都会在几帧内散掉。 */
-    const vy = isRain ? -(16 + amt * 8) : -(10 + amt * 6);
+    const vy = isRain ? -(16 + amt * 8) * (1 - 0.30 * fine) : -(10 + amt * 6);   // 细雨落得慢一些
     const sp = S.points.geometry.attributes.aSpeed;
     const spArr = sp.array;
     const drift = p.windMul * (isRain ? 1.6 : 3.4);
