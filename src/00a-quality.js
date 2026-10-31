@@ -55,3 +55,36 @@ export function isDebugSurface({ search = '', webdriver = false, hostname = '' }
   const h = String(hostname || '');
   return h === '' || h === 'localhost' || h === '127.0.0.1' || h.endsWith('.localhost');
 }
+
+/* ── 自适应画质（QOS）的相对阈值（2026-10-31 · B3）──────────────────────────
+   原来写死"fps < 45 降档 / fps > 58 升档"：30Hz 屏（含 iOS 低电量限帧、部分笔记本省电模式）
+   满帧也只有 30，于是被当成"GPU 吃力"一路降到最低档 —— 不报错、门禁全绿、只有那台机器现形。
+   改成相对值：目标帧率 = min(刷新率, 60)，低于 75% 降档、高于 96.5% 升档。
+   取整到整数 fps（采样本身就是 Math.round 过的整数），于是 60Hz 下恰为原来的 45 / 58，
+   比较语义（fps < down / fps > up）也与原来逐位一致。
+   高刷屏（120/144Hz）封顶 60：本项目不追求 60 以上，跑满 60 就不该被判"吃力"。 */
+export const QOS_RATIO = Object.freeze({ down: 0.75, up: 0.965, cap: 60 });
+
+export function qosThresholds(refreshHz){
+  const hz = Number.isFinite(refreshHz) && refreshHz > 0 ? refreshHz : QOS_RATIO.cap;
+  const target = Math.min(hz, QOS_RATIO.cap);
+  return { target, down: Math.round(target * QOS_RATIO.down), up: Math.round(target * QOS_RATIO.up) };
+}
+
+/** 单个采样窗口的判定：'down'（计一次低）/ 'up'（计一次高）/ 'hold'。 */
+export function qosVerdict(fps, th){
+  if (fps < th.down) return 'down';
+  if (fps > th.up) return 'up';
+  return 'hold';
+}
+
+/* 刷新率估计：加载页阶段（主循环还没起）收一串 rAF 间隔（秒）。
+   取第 10 百分位间隔 —— 暖机编译帧只会把间隔拉长，低分位不受污染；
+   丢掉 ≤2ms（同帧合并的回调）与 ≥250ms（后台/断点）的样本。
+   样本不足 10 个（后台标签打开、rAF 被节流）返回 0，调用方按 60 处理。 */
+export function estimateRefreshHz(intervals){
+  const xs = (intervals || []).filter(x => Number.isFinite(x) && x > 0.002 && x < 0.25).sort((a, b) => a - b);
+  if (xs.length < 10) return 0;
+  const p10 = xs[Math.floor(xs.length * 0.1)];
+  return Math.round(1 / p10);
+}

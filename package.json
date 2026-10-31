@@ -6,7 +6,7 @@
   "scripts": {
     "build:vendor": "esbuild build-entry.js --bundle --format=esm --minify --outfile=vendor.js",
     "check": "node probe/check.mjs",
-    "unit": "node --test probe/unit-pure.mjs",
+    "unit": "node --test probe/unit-pure.mjs probe/fixed-step-unit.mjs",
     "audit": "node probe/import-audit.mjs",
     "test": "node probe/smoke.mjs",
     "verify": "node probe/verify-all.mjs",
