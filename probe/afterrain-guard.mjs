@@ -1,4 +1,5 @@
 // 雨后初晴 + 七色彩虹门禁：node probe/afterrain-guard.mjs
+// @guards: src/02-scene.js, src/12-env.js, src/12a-presets.js, src/12b-sky.js, src/10-post.js
 //
 // 守老黄 2026-09-30 定的两个东西：
 //   ① 新场景「雨后初晴」："雨刚停，瓦片/石板/树叶还在滴水，太阳出来了；地面和池塘

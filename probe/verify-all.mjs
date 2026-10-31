@@ -154,6 +154,10 @@ const SUITES = [
      本门：C1 全量门数 / C2 quick 门数 / C3 探针文件数 / C1b 门名笔误（SUITES 里写了磁盘上
      不存在的脚本 ⇒ verify-all 会静默少跑一道），外加 3 条负例自检 + 阳性对照。 */
   ['门数一致性 gate-count-sync', 'probe/gate-count-sync.mjs'],
+  /* 2026-10-31：`--changed` 的挑选逻辑自检（纯 node <0.2s）。
+     守的是"改了什么 ⇒ 该跑哪些门"这张映射本身 —— 它最危险的失败形状是
+     **挑少了还全绿**，那比挑错门严重得多。见文件头 --changed 那段说明。 */
+  ['改动挑门映射 changed-map-unit', 'probe/changed-map-unit.mjs'],
   ['拆分守卫 import-audit',   'probe/import-audit.mjs'],
   ['风场轨迹 wind-trajectory','probe/wind-trajectory.mjs'],
   /* ⚠️ 2026-10-13 新增 · 烘焙产物前提门（纯 node 快门）
@@ -658,6 +662,7 @@ const SELFTEST = process.env.VERIFY_SELFTEST;
      + layout-fingerprint ~12s + random-guard 10s ≈ **2 分钟出头**。 */
 const QUICK = new Set([
   'probe/check.mjs', 'probe/codeonly-unit.mjs', 'probe/import-audit.mjs',
+  'probe/changed-map-unit.mjs',        // 纯 node <0.2s：--changed 的映射自检，日常改动必跑
   'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
   'probe/env-phenology-unit.mjs', 'probe/env-solar-unit.mjs',   // 纯 node 单测 <0.2s
   'probe/fixed-step-unit.mjs',         // 纯 node 单测 <0.1s
@@ -698,12 +703,132 @@ const byGates = GATE_KEYS.length
   ? SUITES.filter(([label, p2]) => GATE_KEYS.some(k => p2.includes(k) || label.includes(k)))
   : null;
 const QUICK_MODE = process.argv.includes('--quick');
+
+/* ══ `--changed`：按改动面挑门（2026-10-31）══════════════════════════════════
+   为什么要它：全量 93 道实测 1h50m，其中大头是**每道门各自起一次浏览器 + 装配全园**
+   （中位 48s，长的 470~618s）。而一次改动真正可能影响到的门通常不到 1/3。
+   触发场景（真实统计）：93 道门里有 10 道曾以 `exit=3221225794`（DLL 初始化失败）崩掉，
+   全部集中在队列尾段 —— 那是**反复启停进程**累计出来的，不是耗时长短。
+   按需挑门同时解决"慢"和"尾段崩"两件事。
+
+   ── 怎么知道"改了 A 要跑哪些门" ──
+   试过、都不成立的三条路（留档，免得下一个人重走）：
+     ① 静态分析 probe/*.mjs 里的 import —— 只有 17 道真 import src 模块，
+        其余 76 道全靠"页面加载后从 window.__garden 取"，静态看不见依赖；
+     ② 找 `__garden.xxx` 的调用 —— `ENV` 被 128 处引用，几乎每道门都用，区分不出东西；
+     ③ `git log` 找"源文件和门禁同一次提交" —— 本项目**一项一提交**，
+        源文件与门禁落在不同提交里，历史关联是空的。
+   ⇒ 只能**让门自己声明**。约定：门禁文件顶部写一行
+        // @guards: src/12-env.js, src/12h-solar.js
+      即"我守这些东西"。
+
+   ── 三条铁律（这个参数最怕变成"假绿的借口"）──
+     ① **没写 `@guards:` 的门 ⇒ 一律纳入。** 不知道就别假装知道；
+     ② **改了门禁自己 / 门禁共享设施（_harness、verify-all）⇒ 全量。** 那是地基本身；
+     ③ **挑出来的门 < 8 道 ⇒ 退回全量并明说。** 少到那个程度，"省时间"已经没意义，
+        而"漏掉一道"的代价远大于多跑几十道。
+   用法：
+        node probe/verify-all.mjs --changed            # 与 HEAD 比（含未提交改动）
+        node probe/verify-all.mjs --changed=origin/master  # 与某分支比
+        node probe/verify-all.mjs --changed-why        # 只打印"会跑哪些、为什么"，不执行
+   ⚠️ 永远替代不了发版前的全量。它解的是"日常改动"，不是"发版验收"。 */
+const CHANGED_ARG = (() => {
+  const a = process.argv.find(x => x === '--changed' || x.startsWith('--changed='));
+  if (!a) return null;
+  return a.includes('=') ? a.slice('--changed='.length) : 'HEAD';
+})();
+const CHANGED_WHY = process.argv.includes('--changed-why');
+
+/* 门禁共享设施：动它们等于动所有门的地基。 */
+const GATE_INFRA = /^probe\/(_harness\.mjs|verify-all\.mjs|_png\.mjs|_probe-detect\.mjs|_extract-section\.mjs|_codeonly\.mjs)$/;
+
+function parseGuards(file){
+  let txt;
+  try { txt = fs.readFileSync(path.join(ROOT, file), 'utf8'); } catch { return null; }
+  /* 只看**文件头 3KB**：@guards 是头注释的约定，正文里的同名串不算。
+     （踩过同类坑：visit-carriage-guard 早期版本扫正文里的字符串，把注释里的示例当真了。） */
+  const head = txt.slice(0, 3000);
+  const m = head.match(/^\s*\/\/\s*@guards:\s*(.+)$/m);
+  if (!m) return null;
+  return m[1].split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function changedFiles(base){
+  /* 已提交的差值 + 工作区未提交的（含未跟踪）——两者都可能是有意改动。
+     ⚠️ `-uno`：未跟踪的是"新加的文件"，可能正是新模块；但 node_modules / outputs 这些
+        在 .gitignore 里，`git status --porcelain` 默认就不列。这里用 `--porcelain` 不带 -uno，
+        再自己过滤掉明显的临时产物。 */
+  const run = (args) => {
+    const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+    return (r.stdout || '').split('\n').map(s => s.trim()).filter(Boolean);
+  };
+  const committed = run(['diff', '--name-only', `${base}...HEAD`]);
+  const working = run(['diff', '--name-only', 'HEAD']);
+  const untracked = run(['ls-files', '--others', '--exclude-standard']);
+  return [...new Set([...committed, ...working, ...untracked])]
+    .filter(f => !/^(outputs\/|node_modules\/)/.test(f));
+}
+
+function selectByChange(base){
+  const files = changedFiles(base);
+  if (!files.length){
+    return { list: [], files, reason: '没有任何改动（与基线逐字节相同）', forcedAll: false };
+  }
+  const src = files.filter(f => /^src\/.*\.js$/.test(f));
+  const gateFiles = files.filter(f => /^probe\/.*\.mjs$/.test(f));
+  const infra = gateFiles.filter(f => GATE_INFRA.test(f));
+  /* 铁律②：地基被改 ⇒ 全量。 */
+  if (infra.length){
+    return { list: SUITES, files, forcedAll: true,
+             reason: `门禁共享设施被改动（${infra.join('、')}）⇒ 全量，不做挑选` };
+  }
+  /* 非代码改动（docs/、README、assets/ 等）：保守起见仍按"每条 src 都不算"处理，
+     但如果完全没有 src 也没有 probe 改动，说明这次改动跟运行时无关。
+     ⚠️ 仍不返回空 —— 交回上层按"<8 道退回全量"处理，宁可多跑。 */
+  const touchedGates = gateFiles.map(f => f.replace(/^probe\//, 'probe/'));
+  const srcSet = new Set(src);
+  const picked = [];
+  const why = [];
+  for (const [label, rel] of SUITES){
+    const g = parseGuards(rel);
+    if (g === null){
+      /* 铁律①：未声明的门一律纳入，并记下原因（--changed-why 会打印）。 */
+      picked.push([label, rel]);
+      why.push(`  ${label}（未声明 @guards，按规矩纳入）`);
+      continue;
+    }
+    const hit = g.filter(x => srcSet.has(x));
+    if (hit.length || touchedGates.includes(rel)){
+      picked.push([label, rel]);
+      why.push(`  ${label}（声明守 ${hit.length ? hit.join('、') : '（门禁自身被改）'}）`);
+    }
+  }
+  /* 铁律③：太少就退回全量。 */
+  if (picked.length < 8){
+    return { list: SUITES, files, forcedAll: true,
+             reason: `只挑出 ${picked.length} 道（<8）⇒ 退回全量；省这点时间不值得冒漏测的险`,
+             why };
+  }
+  return { list: picked, files, forcedAll: false,
+           reason: `改动 ${files.length} 个文件（其中 src ${src.length} 个）⇒ 挑出 ${picked.length}/${SUITES.length} 道`,
+           why };
+}
+
+const changedPick = CHANGED_ARG ? selectByChange(CHANGED_ARG) : null;
+const byChanged = changedPick && !changedPick.forcedAll ? changedPick.list : null;
 const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]]
               : byGates ? byGates
+              : byChanged ? byChanged
               : QUICK_MODE ? SUITES.filter(([, p2]) => QUICK.has(p2))
               : SUITES;
 if (byGates && !LIST.length){
   console.error(`[verify-all] ✗ --gates=${GATES_ARG} 没有匹配到任何门（可用名字见 SUITES 表）——拒绝以「0 道门全绿」收场`);
+  process.exit(1);
+}
+/* `--changed` 挑出 0 道 ⇒ **响亮报错**，绝不静默全绿。
+   （这与上面 --gates 拼错同一条规矩：本项目的"假绿"形状里最贵的一种。） */
+if (changedPick && !changedPick.forcedAll && !LIST.length){
+  console.error('[verify-all] ✗ --changed 没能挑出任何门 —— 拒绝以「0 道门全绿」收场。改用全量或 --gates=');
   process.exit(1);
 }
 const gitHead = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim();
@@ -731,6 +856,18 @@ say('[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并
 if (SELFTEST) say(`[verify-all] ⚠️ 自检模式：只跑 ${SELFTEST}（验证红门路径，不是真跑链）`);
 if (!RETRY) say('[verify-all] ⚠️ VERIFY_NO_RETRY=1：红门**不重跑**（要第一手红时用）');
 if (STRICT) say('[verify-all] ⚠️ VERIFY_STRICT=1：FLAKY 也判红');
+if (changedPick){
+  say(`[verify-all] 🔍 --changed=${CHANGED_ARG} ⇒ ${changedPick.reason}`);
+  if (changedPick.files.length) say(`[verify-all]    改动文件：${changedPick.files.slice(0, 12).join('、')}` +
+                                     (changedPick.files.length > 12 ? ` …等 ${changedPick.files.length} 个` : ''));
+  if (CHANGED_WHY && changedPick.why && changedPick.why.length){
+    say('[verify-all]    挑选依据：');
+    for (const line of changedPick.why) say(`[verify-all] ${line}`);
+  }
+  if (changedPick.forcedAll) say('[verify-all]    ⚠️ 本次退回全量（理由见上）——这是保守设计，不是失败');
+  else say('[verify-all]    ⚠️ 挑门只用于**日常改动**；发版前仍须跑全量 npm run verify');
+}
+if (CHANGED_WHY) process.exit(0);   // 只问"会跑哪些"，不执行
 say(`[verify-all] 完整日志：${path.relative(ROOT, LOG)}`);
 say(gpuTag());
 say('');

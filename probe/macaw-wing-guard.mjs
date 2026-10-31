@@ -1,4 +1,5 @@
 // 金刚鹦鹉"翅膀扇动"专项守卫 · node probe/macaw-wing-guard.mjs
+// @guards: src/08c-aquatic.js, src/08f-macaw.js
 //
 // 为什么要有这道门：2026-10-23 老黄指认"起跳/换峰飞行翅膀都不动"。根因是 Macaw.glb
 // 单网格无骨骼，此前的"振翅"只是整身 roll —— 翅膀几何从未参与动画。本轮按

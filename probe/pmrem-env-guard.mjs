@@ -1,4 +1,5 @@
 // PMREM 四时段缓存专项门禁：node probe/pmrem-env-guard.mjs
+// @guards: src/12-env.js, src/02-scene.js, src/01-materials.js
 // 守"切时段时反射色变了但只烘一次；切回旧时段零重烘；切季节/天气不触发烘焙"。
 import http from 'node:http';
 import fs from 'node:fs';

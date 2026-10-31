@@ -1,4 +1,5 @@
 // 水面菲涅尔专项门禁：node probe/fresnel-guard.mjs
+// @guards: src/01-materials.js
 // 守 Schlick 曲线的三个关键点：俯视低反射、平视升反射、掠射封顶；并验证两端画面仍在变。
 import http from 'node:http';
 import fs from 'node:fs';
