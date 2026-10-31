@@ -21,7 +21,7 @@ export async function resolve(spec, ctx, next){
     return { url: new URL('./stubs/' + STUB[base], import.meta.url).href, shortCircuit: true };
   return next(spec, ctx);
 }
-const EXTRA = '\nexport { ACTORS as __ACTORS, DEFS as __DEFS, seatedDefs as __seatedDefs, VISIT as __VISIT, VISCAR as __VISCAR };\n';
+const EXTRA = '\nexport { ACTORS as __ACTORS, DEFS as __DEFS, seatedDefs as __seatedDefs, VISIT as __VISIT, VISCAR as __VISCAR, RITE as __RITE };\n';
 export async function load(url, ctx, next){
   const r = await next(url, ctx);
   if (/\/src\/16-actors\.js(\?|$)/.test(url)) return { ...r, source: String(r.source) + EXTRA, shortCircuit: true };

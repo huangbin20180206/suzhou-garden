@@ -34,7 +34,7 @@ import { STABLE_ROAD_PTS, stableTravel, travelCarriagePlace, travelCarriagePark,
 import { HOOKS, ENV_REF } from './00-config.js';
 import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 import { markArtLicense } from './art-license.js';
-import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ } from './16a-actor-props.js';
+import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ, makeWaterBucket } from './16a-actor-props.js';
 
 const ACTORS = [];
 let _built = false;
@@ -301,10 +301,30 @@ const WAVE = { sx: -3.30, sz: 0.20, ex: 0.25, ampZ: 0.22, ampY: 0.18, hz: 0.15, 
               → eface/ebow（**院门外**石狮旁作揖）→ wave（主人举右手过头顶挥手送别，
               同帧客人沿石板路回马车）→ topav（主人走回水榭）→ listen（站在抚琴人旁听琴）
               → wrap → done
+   礼仪三段（2026-10-31，VISIT_POLICY 可关）插在三处：carIn 里马车子状态多一个 take（马夫接马）；
+   carIn 与 stow 之间 await → usher → announce（门房通报）；seat 与 tea 之间 serve → offer（奉茶）。
    文士的日常捧卷/端茶在整个过程中**保持关闭**（否则客人还站着、他已经读起书来）。
    ⚠️ 文士的 scroll/tea 是互斥手位状态机，必须在这里退出 —— 否则他会"边走边端着茶盏"。 */
+/* ── 礼仪三段的开关（2026-10-31 · 礼仪补全）──────────────────────────────────
+   门房通报 / 奉茶 / 马夫接马，各自一个字段，默认全开；URL `?etiquette=0` 一次全关。
+   ⚠️ 开演那一刻（idle → carIn）把这张表**抄一份**进 VISIT.rite，演到一半改字段不影响
+      本场（下一场才生效）—— 礼仪段半途开关会留下"人走到一半、道具悬在手里"的残局。
+   ⚠️ 只在马车版生效：?visit=walk 是保留给回归用的旧分支，VISIT.rite 恒为全关。
+   ⚠️ 全关时导演层与改动前**逐帧一致**（probe/actor-replay-unit 的 carriage-2 / walk-1
+      两份原基线就是带 ?etiquette=0 跑的）：所有新分支都挂在 VISIT.rite 上，
+      新加的权重项全部以"+ 0"的形式叠在原表达式**末尾**。
+   细则见 docs/guest-visit-choreography.md「礼仪三段」。 */
+export const VISIT_POLICY = {
+  porter: true,          // 门房通报：客人到门外 → 门房入内走到主人前作揖 → 返回 → 主人才出迎
+  tea: true,             // 奉茶：主客入座后，书童从月台西侧端盏走到两人之间、俯身奉茶后退下
+  groomTake: true,       // 马夫接马：车停稳 → 常驻马夫到辕马头侧牵缰、拴马、放水桶 → 回位
+};
+if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('etiquette') === '0'){
+  VISIT_POLICY.porter = VISIT_POLICY.tea = VISIT_POLICY.groomTake = false;
+}
 const VISIT = {
   phase: 'idle', t: 0, bowW: 0,
+  rite: { porter: false, tea: false, groomTake: false },   // 本场的礼仪开关（开演时从 VISIT_POLICY 抄）
   hostId: 'scholar', guestId: 'guest', coachId: 'laborer',
   greetPt: [0, 19.75],      // 门内 1.15m（并排段起点；门外见面点在 MEET_*）
   path: null, s: 0,            // 并排段的参数化航点（弧长驱动，见 pathTable）
@@ -504,6 +524,37 @@ const ESCORT = {
   pts: [...HOST_GREET_PTS.slice(1), [0, 21.2], [0, 22.6], [-0.85, 23.90]],
   hostLat: PAIR.gap, guestLat: -PAIR.gap,       // 与 S3 相反，理由见上
 };
+
+/* ── 礼仪三段 · 站位与路线（2026-10-31）──────────────────────────────────────
+   人物全部复用现有角色换身份，不新增 GLB：
+     · 门房 = 书童 child1（fig-child.glb）；奉茶 = 书童 child2；接马 = 常驻马夫 groom。
+   ⚠️ 这两件 rig（马夫/书童）**不能转肩**（腰带顶点挂在前臂上，见 16a BRUSH 的注释），
+      所以作揖/端盏一律用车夫"握缰"那套只动肘腕的手位（tieTarget ⇒ tieW），
+      再叠 BOW.lean 的躯干前俯（riteBowW）—— 双手在胸前并拢 + 前俯，读作拱手。 */
+const RITE_PTS = {
+  /* 门房的岗位：月洞门内东侧（南墙 z=22.5、洞口半宽 1.62）。离并排线最近 1.1m、
+     离主人出迎线 1.4m，不挡任何一条既有路线。 */
+  porterPost: [2.6, 21.3],
+  /* 去岗位：书童位 → 主人出迎线（HOST_GREET_PTS，已逐点验过：台阶/拱桥/廊道）→ 岗位 */
+  porterOut: [...HOST_GREET_PTS.slice(1, 24), [2.6, 21.3]],
+  /* 通报：岗位 → 出迎线反向（门内空地 → 廊道 → 拱桥 → 堂前），终点在主人前 RITE.bowDist 处现算 */
+  porterIn: HOST_GREET_PTS.slice(1, 24).reverse(),
+  bowDist: 1.35,          // 作揖距离（要求 1.2–1.5m）
+  /* 奉茶书童的候场位：月台西侧（child 原路线里验过的点，绕开西侧水缸） */
+  teaSide: [[0.62, -5.10], [0.0, -5.85], [0.45, -6.4], [0.45, -7.25], [-1.75, -7.45], [-2.15, -8.55]],
+  /* 端盏入堂：候场位 → 主人进门那条线 → 中开间门 → 两把太师椅之间、椅前 0.60m。
+     主左客右：主人椅 (−1.35,−13.6)、客人椅 (+1.35,−13.6)，书童站 x=0 ⇒ 到两人各 1.48m
+     （落在作揖距离 1.2–1.5m 之内；人坐着时膝在 x=±1.35 一线，x=0 不碰膝）。 */
+  teaIn: [[-0.45, -8.9], [0, -10.3], [0, -13.0]],
+  teaBack: [[0, -10.3], [-0.45, -8.9], [-2.15, -8.55]],
+  /* 接马：马夫站车夫系马那个已验过的位子（车局部 0.95,1.95 = 右辕马肩外侧），
+     水桶放在右辕马口鼻外侧（车局部 1.10,2.50：离马中线 0.70、离他 0.57m，俯身够得着） */
+  groomTie: { x: 0.95, z: 1.95 },
+  bucket: { x: 1.10, z: 2.50 },
+};
+/* 礼仪段的子状态（与 VISIT.phase 并行；全关时恒为 'off'，不进任何分支）。
+   g = 马夫接马：off → go → rein → tie → bucket → back → done */
+const RITE = { g: 'off', gt: 0, home: null, tiePt: null, replanAt: 0, bucketPt: null, bucketY: 0, bucket: null };
 
 const DEFS = [
   {
@@ -2136,6 +2187,12 @@ function tickCarriage(dt){
     const P = travelCarriagePlace(q.x, q.z, q.yaw, S.s);
     S.last = P;
     if (P){ setRide(guest, P, CARRY.seat, true); setRide(coach, P, CARRY.coach, true); }
+    /* 礼仪·马夫接马：车进最后 15m（≈收速段）时常驻马夫就迎上去 —— 停车位是定的
+       （arrive 终点 + 末段朝向），按它现算辕马头侧的站位；车停稳时他差不多也到了。 */
+    if (VISIT.rite.groomTake && RITE.g === 'off' && remain < 15 && actorRef('groom')){
+      const qe = pathAt(S.path, S.path.total);
+      riteGroomStart({ x: qe.x, z: qe.z, yaw: qe.yaw });
+    }
     if (S.s >= S.path.total - 1e-6){ S.state = 'stop'; S.t = 0; }
     return;
   }
@@ -2143,6 +2200,13 @@ function tickCarriage(dt){
     S.t += dt;
     if (S.last) setRide(guest, S.last, CARRY.seat, true);       // 客人仍坐着
     if (!S.coachOff) setRide(coach, S.last, CARRY.coach, true);
+    /* 礼仪·马夫接马：车夫**留在车夫位握缰**，等常驻马夫走到辕马头侧接过缰绳再下车
+       （见 'take' 与 tickRiteGroom）。全关时这一段整个跳过，走下面原来的"车夫自己系马"。 */
+    if (VISIT.rite.groomTake && actorRef('groom')){
+      if (RITE.g === 'off') riteGroomStart(S.last);
+      if (S.t > 0.8){ S.state = 'take'; S.t = 0; }
+      return;
+    }
     if (S.t > 0.8 && !S.coachOff){
       S.coachOff = true;
       /* ⚠️ 2026-10-27 真 bug（老黄："马夫依旧是缩成一团，也没有任何动作"）：
@@ -2167,6 +2231,29 @@ function tickCarriage(dt){
   }
   if (S.state === 'tiewalk'){
     if (coach.arrived){ S.state = 'tie'; S.t = 0; }
+    return;
+  }
+  /* 礼仪·马夫接马（2026-10-31）：常驻马夫牵缰（RITE.g 'rein'）之后车夫才跳下车
+     （同 'stop' 里那一套下车：清坐姿、1.0s 插值落到车夫位旁），站在车侧看着他拴马；
+     马拴好（tickRiteGroom 置 tieOn）且车夫已落地 ⇒ 客人下车（'alight'，与原链同一段）。 */
+  if (S.state === 'take'){
+    S.t += dt;
+    if (S.last) setRide(guest, S.last, CARRY.seat, true);       // 客人仍坐着
+    if (!S.coachOff){
+      if (RITE.g === 'tie' || RITE.g === 'bucket' || RITE.g === 'back' || RITE.g === 'done'){
+        S.coachOff = true;
+        coach.sitTarget = 0;
+        const g = carPoint(S.last, CARRY.coachGround.x, CARRY.coachGround.z);
+        g.y = groundHeight(g.x, g.z);
+        startTrip(coach, { x: g.x, y: g.y, z: g.z,
+                           yaw: Math.atan2(g.x - S.last.x, g.z - S.last.z) }, 1.0,
+          () => { coach.def.followFloor = true; coach.def.floorMax = 1.2; });
+      } else if (S.last) setRide(coach, S.last, CARRY.coach, true);
+    } else if (!coach.trip && S.last){
+      const hd = carPoint(S.last, -0.40, 2.10);
+      turnToward(coach, Math.atan2(hd.x - coach.pos.x, hd.z - coach.pos.z), dt);
+    }
+    if (S.tieOn && S.coachOff && !coach.trip){ S.state = 'alight'; S.t = 0; S.alighting = false; }
     return;
   }
   if (S.state === 'tie'){
@@ -2310,6 +2397,102 @@ function tickCarriage(dt){
   }
 }
 
+/* ── 礼仪·马夫接马（2026-10-31）──────────────────────────────────────────────
+   车进最后 15m 时由 'drivein' 叫起（'stop' 兜底）：常驻马夫放下手里的活（刷子按收工那 10% 收掉、草把放下），
+   左手拎一只水桶，绕开院里的马（routeToHorse，同杂役的走线）走到右辕马肩外侧
+   （车局部 0.95,1.95 —— 原来车夫系马站的那个已验过的位子）→
+     rein 面向马头、右手抬起牵缰（复用握缰手位 tieW，左手仍拎桶）1.4s →
+     tie  拴马 2.4s（与车夫系马同时长），到点引绳出现、VISCAR.tieOn ⇒ 客人可以下车 →
+     bucket 转向放桶点、俯身（riteStoopW，同抓草的前俯 0.42）把桶放到右辕马口鼻外侧 2.2s →
+     back 走回接马前的站位（白马旁的 idle 位；无马时回 def.spot）→ done，杂役接着跑。
+   场上"只留一个马夫"的约定在这一段**有意放宽**：车夫坐在车上、常驻马夫在马头，
+   两人同框只有约 10s（见 docs「礼仪三段」）。水桶留在原地，复位时收起。 */
+const RITE_BOW_T = BOW.in + BOW.hold + BOW.out;
+function riteBowCurve(t){
+  const t1 = BOW.in, t2 = BOW.in + BOW.hold;
+  if (t < t1) return ease01(t / BOW.in);
+  if (t < t2) return 1;
+  if (t < RITE_BOW_T) return 1 - ease01((t - t2) / BOW.out);
+  return 0;
+}
+function riteGroomStart(P){
+  const gm = actorRef('groom');
+  if (!gm || !P){ RITE.g = 'done'; return; }
+  RITE.g = 'go'; RITE.gt = 0; RITE.replanAt = 0;
+  gm.riteBusy = true;
+  if (GROOM_H.held && GROOM_H.horse){ holdHorse(GROOM_H.horse, false); GROOM_H.held = false; }
+  if (gm.brushT > 0) gm.brushT = Math.max(gm.brushT, BRUSH.dur * 0.9);   // 刷子按收工那一段收掉
+  gm.hayHeld = false; gm.chore = 'idle'; gm._goalKey = null;
+  const G = gm.def.chores ? groomGoals(gm.def.chores) : null;
+  RITE.home = G ? [G.idle[0], G.idle[1]] : [gm.def.spot.x, gm.def.spot.z];
+  if (!RITE.bucket) RITE.bucket = makeWaterBucket(scene);
+  RITE.bucket.visible = true;
+  RITE.bucketPt = null;
+  gm.riteBucket = RITE.bucket; gm.riteBucketU = 0; gm.riteStoopW = 0;
+  const t = carPoint(P, RITE_PTS.groomTie.x, RITE_PTS.groomTie.z);
+  RITE.tiePt = [t.x, t.z];
+  routeToHorse(gm, RITE.tiePt, null, 0.62);
+}
+function tickRiteGroom(dt){
+  const gm = actorRef('groom'), P = VISCAR.last;
+  if (!gm || !P){ RITE.g = 'done'; return; }
+  RITE.gt += dt;
+  const faceTo = (x, z) => turnToward(gm, Math.atan2(x - gm.pos.x, z - gm.pos.z), dt);
+  if (RITE.g === 'go'){
+    /* 辕马还在往里开 ⇒ 每 1.5s 按马的当前位置重算一次绕行（同杂役 goTo 的道理） */
+    if (!gm.arrived && RITE.gt - (RITE.replanAt || 0) > 1.5 &&
+        Math.hypot(RITE.tiePt[0] - gm.pos.x, RITE.tiePt[1] - gm.pos.z) > 0.6){
+      RITE.replanAt = RITE.gt;
+      routeToHorse(gm, RITE.tiePt, null, 0.62);
+    }
+    /* 兜底 40s：路线被挡也不能让接马卡住整场（客人下车要等 tieOn） */
+    if (gm.arrived && VISCAR.state !== 'take' && VISCAR.state !== 'stop'){
+      /* 先到了：站在辕马头侧等车停稳（面朝车来的方向），停稳前不伸手 */
+      faceTo(P.x, P.z);
+      return;
+    }
+    if (gm.arrived || RITE.gt > 40){ RITE.g = 'rein'; RITE.gt = 0; gm.walkOff = true; gm.tieTarget = true; }
+    return;
+  }
+  if (RITE.g === 'rein' || RITE.g === 'tie'){
+    const hd = carPoint(P, -0.40, 2.10);
+    faceTo(hd.x, hd.z);
+    gm.tieTarget = true;
+    if (RITE.g === 'rein' && RITE.gt > 1.4){ RITE.g = 'tie'; RITE.gt = 0; }
+    else if (RITE.g === 'tie' && RITE.gt > 2.4){
+      travelCarriageTied(true);                 // 引绳出现（"拴好了"的可读证据，同车夫系马）
+      VISCAR.tieOn = true;
+      gm.tieTarget = false;
+      const b = carPoint(P, RITE_PTS.bucket.x, RITE_PTS.bucket.z);
+      RITE.bucketPt = [b.x, b.z];
+      RITE.bucketY = groundHeight(b.x, b.z);
+      RITE.g = 'bucket'; RITE.gt = 0;
+    }
+    return;
+  }
+  if (RITE.g === 'bucket'){
+    faceTo(RITE.bucketPt[0], RITE.bucketPt[1]);
+    const t = RITE.gt;
+    gm.riteStoopW = t < 0.6 ? ease01(t / 0.6) : (t < 1.6 ? 1 : Math.max(0, 1 - ease01((t - 1.6) / 0.6)));
+    gm.riteBucketU = Math.max(0, Math.min(1, (t - 0.3) / 0.9));
+    if (t > 2.2){
+      gm.riteStoopW = 0;
+      gm.riteBucket = null;                     // 桶留在地上（位置停在上一帧的落点）
+      routeToHorse(gm, RITE.home, null, 0.55);
+      RITE.g = 'back'; RITE.gt = 0;
+    }
+    return;
+  }
+  if (RITE.g === 'back'){
+    if (gm.arrived || RITE.gt > 40){
+      RITE.g = 'done';
+      gm.riteBusy = false;
+      gm.walkOff = true;
+      gm.chore = 'idle'; gm.choreT = 2; gm._goalKey = null;
+    }
+  }
+}
+
 /* 游园：单列（主人领路、客人跟 0.95m），同一条弧长驱动，拐弯不会拉成一前一后 */
 function driveTour(dt){
   const v = VISIT;
@@ -2411,10 +2594,13 @@ function avoidCameraReveal(o){
 export const VISIT_PHASES = Object.freeze([
   'idle',                                  // 等条件（白昼、无雨雪、车马就位）
   'carIn',                                 // 马车进场 → 停稳 → 系马 → 客人下车
+  'await', 'usher', 'announce',            // 礼仪·门房通报：客到门外 → 门房入内 → 向主人作揖（可关）
   'stow',                                  // 客人走向主人（步行版从这里直接开始）
   'gwalk', 'face', 'bow', 'line', 'pair',  // 走到位上 → 对视 → 作揖 → 并肩 → 同行
   'hall',                                  // 进厅
-  'enter', 'seat', 'tea', 'sit',           // 入座 → 奉茶 → 品茶 → 对坐
+  'enter', 'seat',                         // 进堂 → 入座
+  'serve', 'offer',                        // 礼仪·奉茶：书童端盏入堂 → 俯身奉茶（可关）
+  'tea', 'sit',                            // 主人举盏 → 对坐
   'rise',                                  // 起身
   'exit', 'eline', 'epair',                // 出厅 → 排成一列 → 并肩
   'tourgo', 'tour',                        // 去巡游起点 → 巡游中（可重入）
@@ -2424,6 +2610,28 @@ export const VISIT_PHASES = Object.freeze([
   'wrap',                                  // 收尾（等客人上车驶离）
   'done',                                  // 收场，等 resetVisit
 ]);
+
+/* 礼仪三段的复位：两书童的身份/道具/权重、马夫接马的子状态与水桶。
+   ⚠️ 全关的场次里这些字段从来没被写过 ⇒ 这里整段跳过（不碰任何进快照的字段）。 */
+function riteReset(){
+  const r = VISIT.rite;
+  if (!r.porter && !r.tea && !r.groomTake && RITE.g === 'off') return;
+  for (const id of ['child1', 'child2']){
+    const c = actorRef(id);
+    if (!c) continue;
+    c.riteBusy = false; c.riteBowW = 0; c.tieTarget = false; c.tieW = 0;
+    c.riteCupOn = false;
+    if (c.riteCup) c.riteCup.visible = false;
+  }
+  const gm = actorRef('groom');
+  if (gm && RITE.g !== 'off'){
+    if (RITE.g !== 'done'){ gm.walkOff = true; gm.def.route = null; gm.arrived = false; }
+    gm.riteBusy = false; gm.riteBucket = null; gm.riteBucketU = 0; gm.riteStoopW = 0;
+    gm.tieTarget = false; gm.chore = 'idle'; gm._goalKey = null;
+  }
+  if (RITE.bucket) RITE.bucket.visible = false;
+  RITE.g = 'off'; RITE.gt = 0; RITE.bucketPt = null;
+}
 
 function resetVisit(){
   const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId), host = actorRef(VISIT.hostId);
@@ -2502,8 +2710,17 @@ function resetVisit(){
     host.floorY = null; host.floorDone = false; host.floorTries = 0;
     host.holder.visible = true;
   }
+  riteReset();
   VISIT.phase = 'idle'; VISIT.t = 0; VISIT.bowW = 0;
   VISIT.tourS = 0; VISIT.guestSent = false; VISIT.hostAtQin = false; VISIT.waveW = 0;
+}
+
+/* 礼仪：客人下车那一刻把两位书童派出去（门房去门内岗位、奉茶的去月台西侧候场） */
+function riteSendBoys(v){
+  const p = v.rite.porter ? actorRef('child1') : null;
+  if (p){ p.riteBusy = true; p.def.stepUp = 1.35; giveRoute(p, RITE_PTS.porterOut, 1.05, 0.3, 2.45); }
+  const b = v.rite.tea ? actorRef('child2') : null;
+  if (b){ b.riteBusy = true; b.def.stepUp = 1.35; giveRoute(b, RITE_PTS.teaSide, 1.05, 0.6, 1.70); }
 }
 
 function tickVisit(dt){
@@ -2519,7 +2736,7 @@ function tickVisit(dt){
   /* 全场看门狗（2026-10-30 第 0 周热修"等待超时会自动收尾"）：wrap 的 180s 强制
      收尾要求 hostAtQin —— 若主人自己卡在路上（航点被挡、踏面采样抖动），那个条件
      永远不成立，180s 兜底形同虚设，整场戏停在半路再也不重播。这里补全场闸：
-     开场累计 1500s（正常全场 ~804s；guard 快进 1280s 内到 done）仍未 done ⇒
+     开场累计 1500s（仿真首场：礼仪全关 436.8s / 礼仪全开 512.8s；guard 快进 1280s 内到 done）仍未 done ⇒
      强制复位重播。每 60s 报一条卡在哪，可诊断。 */
   if (v.phase !== 'idle' && v.phase !== 'done'){
     v.age = (v.age || 0) + dt;
@@ -2532,6 +2749,7 @@ function tickVisit(dt){
     }
   }
   tickCarriage(dt);
+  if (RITE.g !== 'off' && RITE.g !== 'done') tickRiteGroom(dt);     // 礼仪·马夫接马（全关时恒 off）
   /* 场上永远只有一个马夫 —— 但"有人"比"没人"重要（2026-10-28 老黄："马夫依旧只是
      站立不动，看不到喂马和刷毛这两个动作"）。真因不是动作没写，而是 startVisit 一开演
      就把常驻马夫**整段藏起来**（场上只剩一个干站着的车夫），而到访演出几乎一直在循环
@@ -2551,9 +2769,10 @@ function tickVisit(dt){
       const ST = VISCAR.state;
       const coachBusy = ST === 'drivein' || ST === 'stop' || ST === 'tiewalk' || ST === 'tie' ||
                         ST === 'alight' || ST === 'board' || ST === 'driveout' ||
-                        (ST === 'wait' && !VISCAR.tieOn);
+                        (ST === 'wait' && !VISCAR.tieOn) || ST === 'take';
       coach.holder.visible = coachBusy;
-      gm.holder.visible = !coachBusy;
+      /* 礼仪·接马在走的那十来秒，常驻马夫与车夫同框（见 tickRiteGroom 注释） */
+      gm.holder.visible = !coachBusy || (RITE.g !== 'off' && RITE.g !== 'done');
     }
   }
 
@@ -2571,6 +2790,10 @@ function tickVisit(dt){
     if (v.t < 1.2) return;
     if (!visitWeatherOK()) return;
     if (!stableTravel()) return;
+    /* 本场礼仪开关：开演这一刻抄一份（步行版恒全关，见 VISIT_POLICY 注释） */
+    const car = v.mode !== 'walk';
+    v.rite = { porter: car && !!VISIT_POLICY.porter, tea: car && !!VISIT_POLICY.tea,
+               groomTake: car && !!VISIT_POLICY.groomTake };
     if (v.mode === 'walk'){
       guest.holder.visible = true;
       guest.def.stepUp = 0.70;
@@ -2596,6 +2819,57 @@ function tickVisit(dt){
       v.phase = 'stow'; v.t = 0;
       guest.def.stepUp = 0.70;
       giveRoute(guest, GUEST_ALIGHT, 0.58 * WALK_K, 0.55, 1.20);
+      /* 礼仪：门房先去月洞门内的岗位、奉茶书童去月台西侧候场（与客人走石板路同时）。
+         门房开着时主人**不在这里出发**：先进 'await' 等客人到门外、门房通报。 */
+      riteSendBoys(v);
+      if (v.rite.porter && actorRef('child1')){ v.phase = 'await'; v.t = 0; }
+    }
+    return;
+  }
+  /* ── 礼仪·门房通报（2026-10-31）────────────────────────────────────────────
+     await    客人沿石板路走到门外（MEET_GUEST）、门房已在门内岗位上；主人在堂前不动
+     usher    门房入内（趋步 1.8m/s）：沿主人出迎线反向走到主人前 RITE_PTS.bowDist（1.35m）处
+     announce 门房与主人互相转正 → 门房作揖（握缰手位并手 + BOW 的前俯/时序）
+              → 礼毕门房按主人同速返回岗位，主人晚 ~2s 起步（'stow' 原样接手出迎）
+     客人在门外这段时间面朝月洞门站着等。 */
+  if (v.phase === 'await'){
+    v.t += dt;
+    const p = actorRef('child1');
+    if (guest.arrived) turnToward(guest, Math.atan2(-guest.pos.x, 22.5 - guest.pos.z), dt);
+    if (p.arrived) turnToward(p, Math.atan2(-p.pos.x, 22.5 - p.pos.z), dt);
+    if (guest.arrived && p.arrived && v.t > 1.0){
+      v.phase = 'usher'; v.t = 0;
+      const pts = RITE_PTS.porterIn, last = pts[pts.length - 1];
+      const dx = last[0] - host.pos.x, dz = last[1] - host.pos.z, L = Math.hypot(dx, dz) || 1;
+      const T = [host.pos.x + dx / L * RITE_PTS.bowDist, host.pos.z + dz / L * RITE_PTS.bowDist];
+      p.def.stepUp = 1.35;
+      /* 通报要快：趋步 1.2×WALK_K（1.8m/s，比主人出迎 1.29m/s 快三成），客人在门外少等 ~10s */
+      giveRoute(p, [...pts, T], 1.2 * WALK_K, 0.35, 2.45);
+    }
+    return;
+  }
+  if (v.phase === 'usher'){
+    const p = actorRef('child1');
+    turnToward(guest, Math.atan2(-guest.pos.x, 22.5 - guest.pos.z), dt);
+    if (p.arrived){ v.phase = 'announce'; v.t = 0; v.rt = -1; p.tieTarget = true; }
+    return;
+  }
+  if (v.phase === 'announce'){
+    v.t += dt;
+    const p = actorRef('child1');
+    const dp = turnToward(p, yawToOther(p, host), dt);
+    const dh = turnToward(host, yawToOther(host, p), dt);
+    if (v.rt < 0){
+      /* 手先并拢（tieW 0.6s 到位）、两人转正，再拜 */
+      if (v.t > 0.6 && dp < 0.10 && dh < 0.15) v.rt = 0;
+    } else {
+      v.rt += dt;
+      p.riteBowW = riteBowCurve(v.rt);
+      if (v.rt > RITE_BOW_T){
+        p.riteBowW = 0; p.tieTarget = false;
+        giveRoute(p, RITE_PTS.porterOut, 0.86 * WALK_K, 0.2, 2.45);   // 回岗位，主人随后出迎
+        v.phase = 'stow'; v.t = 0;
+      }
     }
     return;
   }
@@ -2614,6 +2888,8 @@ function tickVisit(dt){
       host.def.stepUp = 1.35;
       host.def.floorMax = 2.45;
       giveRoute(host, HOST_GREET_OUT_PTS, 0.86 * WALK_K, 0.15, 2.45);
+      /* 礼仪·门房：门房刚转身回岗，主人多站 1.6s 再走（同速同路，间距 ≈2m，不追尾） */
+      if (v.rite.porter) host.waitT = 1.6;
       /* 两书童随主人离席，跑向井边与仕女玩（2026-10-26 缺陷3；
          2026-10-27 重定路径 — 用户："两个小孩子是直接趟着池子边缘过去的"）。
          旧路 z≈−5.2/−5.8 在池的**左瓣下缘**（池局部 y≈−8.2，世界 z≈−5.2）穿过水面。
@@ -2633,13 +2909,13 @@ function tickVisit(dt){
          正好从缸心穿过（c1 在 x=−3.7 处离缸心只有 0.2m）—— 画面上就是"人穿缸而过"。
          现在从缸**北侧**绕：−1.9 处折向 z≈−8.3（铺地 −9.2~−6.6 之内、离堂前 0.8m），
          过了 x=−5.3 再折回 z≈−7.2。绕行段离缸心 1.5m 以上，两个孩子的横向错开 0.25m。 */
-      if (c1) giveRoute(c1, [
+      if (c1 && !v.rite.porter) giveRoute(c1, [
         [1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -7.2],
         [-1.95, -7.35], [-2.35, -8.30], [-5.35, -8.30], [-5.75, -7.25],
         [-7.0, -7.15], [-10.5, -7.05], [-12.2, -6.85],
         [-15.0, -6.75], [-17.5, -6.85], [-18.6, -6.9], CHILD_WELL.c1,
       ], 1.05, 0.15, 1.70);
-      if (c2) giveRoute(c2, [
+      if (c2 && !v.rite.tea) giveRoute(c2, [
         [0.62, -5.10], [0.0, -5.85], [0.45, -6.4], [0.45, -7.25],
         [-1.75, -7.45], [-2.15, -8.55], [-5.15, -8.55], [-5.55, -7.35],
         [-7.2, -7.3], [-10.7, -7.1], [-12.4, -6.9],
@@ -2726,7 +3002,47 @@ function tickVisit(dt){
     for (const [a, sxy] of [[host, SEAT.host], [guest, SEAT.guest]]){
       if (seatOne(a, sxy, dt)) done++;
     }
-    if (done === 2){ v.phase = 'tea'; v.t = 0; }
+    if (done === 2){
+      v.phase = 'tea'; v.t = 0;
+      const b = v.rite.tea ? actorRef('child2') : null;
+      if (b){
+        /* 礼仪·奉茶：书童端盏入堂（盏用 16a 的程序化茶盏，与主人那只同款） */
+        v.phase = 'serve'; v.t = 0;
+        if (!b.riteCup) b.riteCup = makeTeaCup(b.holder);
+        b.riteCupOn = true;
+        b.tieTarget = true;                       // 端盏：握缰那套只动肘腕的手位（两前臂抬平）
+        b.def.stepUp = 0.70;                      // 月台 → 中开间门槛 +0.24 → 堂内地坪
+        giveRoute(b, RITE_PTS.teaIn, 0.80, 0.25, 2.0);
+      }
+    }
+    return;
+  }
+  /* ── 礼仪·奉茶（2026-10-31）────────────────────────────────────────────────
+     serve  书童从月台西侧端盏入中开间，走到两把太师椅之间、椅前 0.60m（主左客右，到两人各 1.48m）
+     offer  转身面向两人 → 俯身（BOW 时序、前俯 ×0.7）→ 礼到一半盏递出（书童手里的盏收起，
+            主人那只盏在 'tea' 里举起来）→ 起身、退回候场位（与主人举盏并行）
+     之后接原来的 'tea'（主人举盏）→ 'sit'。 */
+  if (v.phase === 'serve'){
+    const b = actorRef('child2');
+    if (b.arrived){ v.phase = 'offer'; v.t = 0; v.rt = -1; }
+    return;
+  }
+  if (v.phase === 'offer'){
+    v.t += dt;
+    const b = actorRef('child2');
+    const d = turnToward(b, Math.PI, dt);
+    if (v.rt < 0){
+      if (v.t > 0.3 && d < 0.10) v.rt = 0;
+    } else {
+      v.rt += dt;
+      b.riteBowW = 0.70 * riteBowCurve(v.rt);
+      if (v.rt > BOW.in + BOW.hold * 0.5) b.riteCupOn = false;
+      if (v.rt > RITE_BOW_T){
+        b.riteBowW = 0; b.tieTarget = false;
+        giveRoute(b, RITE_PTS.teaBack, 0.80, 0.3, 2.0);
+        v.phase = 'tea'; v.t = 0;
+      }
+    }
     return;
   }
   if (v.phase === 'tea'){
@@ -3038,7 +3354,7 @@ function advance(dt){
        起跳相位用 hopT 归一化：0~0.32 下蹲蓄力、0.32~0.78 腾空、0.78~1 落地缓冲。 */
     let hopY = 0, hopCrouch = 0, hopTuck = 0;
     const he = o.hopEvery;
-    if (he && w < 0.2){
+    if (he && w < 0.2 && !a.riteBusy){        // 礼仪段当差时不蹦（作揖/端盏中途蹦一下不成体统）
       a.hopWait -= dt;
       if (a.hopWait <= 0 && a.hopT <= 0){
         a.hopT = 1e-4;
@@ -3243,7 +3559,7 @@ function advance(dt){
     const rein = Math.max(a.coachW || 0, a.tieW || 0);
     if (rein > 0.001){
       const cw = rein;
-      set('LeftLowerArm', -1.22 * cw, 0, 0);
+      if (!a.riteBucket) set('LeftLowerArm', -1.22 * cw, 0, 0);   // 礼仪·接马：左手拎着水桶，只用右手牵缰
       set('RightLowerArm', -1.10 * cw, 0, 0);
       set('LeftHand', 0.34 * cw, 0, 0);
       set('RightHand', 0.34 * cw, 0, 0);
@@ -3319,7 +3635,7 @@ function advance(dt){
           o.chores 恒 undefined，状态机静默不跑：与 GO_ARM 键名拼错同族的坑）。
        行走用 giveRoute（mode once），到站看 a.arrived —— 与迎客导演层同一套机制，
        探针快进走同一条路径。 */
-    if (a.def.chores){
+    if (a.def.chores && !a.riteBusy){          // 礼仪·接马期间杂役暂停（由 tickRiteGroom 驱动）
       const C = a.def.chores;
       const G3 = groomGoals(C);              // 实时站位（null = 马还没装好 ⇒ 原地待着）
       const H3 = G3 ? G3.H : null;
@@ -3442,7 +3758,7 @@ function advance(dt){
         a.brushWait -= dt;
         /* 被马车载着 / 在驾车 / 系马 / 拿草喂草的行程中不开新一轮刷马。
            刷马站位是**马此刻身侧**（groomGoals），不再写死坐标。 */
-        if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05 && a.chore === 'idle'){
+        if (a.brushWait <= 0 && w < 0.3 && !a.ride && rein < 0.05 && a.chore === 'idle' && !a.riteBusy){
           if (a.def.chores){
             const G4 = groomGoals(a.def.chores);
             if (G4){
@@ -3589,9 +3905,11 @@ function advance(dt){
        刷马时**直起身来**（前俯按 1−brushW 收掉）、低头盯着刷子。
        作揖再叠一层前俯（BOW.lean）：这是"礼"的主体，手臂只是配合。 */
     const lean = (o.lean || 0) * (1 - a.brushW) * (1 - a.coachW) + BOW.lean * bw + 0.42 * a.grabW
-               + 0.10 * a.brushW;   // 刷马时整个人往前靠一点：只动小臂看不出动作，躯干跟随才读得出来
+               + 0.10 * a.brushW   // 刷马时整个人往前靠一点：只动小臂看不出动作，躯干跟随才读得出来
+               + BOW.lean * (a.riteBowW || 0) + 0.42 * (a.riteStoopW || 0);   // 礼仪：门房/书童作揖前俯、马夫俯身放桶（全关时恒 +0）
     const hd = (o.headDown || 0) * (1 - a.brushW) * (1 - a.coachW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
-             + SCROLL.headDown * a.scrollW + BOW.head * bw + 0.22 * a.grabW;
+             + SCROLL.headDown * a.scrollW + BOW.head * bw + 0.22 * a.grabW
+             + BOW.head * (a.riteBowW || 0) + 0.22 * (a.riteStoopW || 0);
     set('Chest', o.breath * b + 0.02 * w + lean + cs.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
     set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
     set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
@@ -3683,6 +4001,38 @@ function advance(dt){
     }
     /* 号衣腰带跟髋骨（同下面几件道具：先刷一次矩阵再摆） */
     if (a.belt) updateGroomBelt(a);
+    /* 礼仪·奉茶：书童手里那只盏（同主人茶盏的摆法：腕 + 正前 TEA_CUP_FWD+5cm、上 7cm，姿态恒竖直） */
+    if (a.riteCup){
+      const wr = a.bones.RightHand;
+      a.riteCup.visible = !!a.riteCupOn && !!wr;
+      if (a.riteCupOn && wr){
+        a.holder.updateMatrixWorld(true);
+        wr.getWorldPosition(_cupV);
+        const yw = a.holder.rotation.y;
+        _cupV.x += Math.sin(yw) * (TEA_CUP_FWD + 0.05);
+        _cupV.z += Math.cos(yw) * (TEA_CUP_FWD + 0.05);
+        _cupV.y += 0.07;
+        a.holder.worldToLocal(_cupV);
+        a.riteCup.position.copy(_cupV);
+      }
+    }
+    /* 礼仪·接马：左手拎桶（桶口在腕下 2cm）；放桶时从手里线性落到地上的放置点 */
+    if (a.riteBucket){
+      const wl = a.bones.LeftHand;
+      if (wl){
+        a.holder.updateMatrixWorld(true);
+        wl.getWorldPosition(_cupV);
+        _cupV.y -= 0.28;
+        const u = a.riteBucketU || 0;
+        if (u > 0 && RITE.bucketPt){
+          _cupV.x += (RITE.bucketPt[0] - _cupV.x) * u;
+          _cupV.z += (RITE.bucketPt[1] - _cupV.z) * u;
+          _cupV.y += (RITE.bucketY - _cupV.y) * u;
+        }
+        a.riteBucket.position.copy(_cupV);
+        a.riteBucket.rotation.y = a.yaw;
+      }
+    }
     /* 茶盏跟手：位置 = 腕 + 人物正前方 9cm + 上 2cm（摆到袖口之外，否则被长袖吞掉），
        姿态恒竖直（盏里的水面不斜）。
        ⚠️ 必须先 updateMatrixWorld —— 上面刚写完骨骼四元数，矩阵还是上一帧的
@@ -3859,6 +4209,7 @@ export function actorVisit(){
   const V = stableTravel();
   return { phase: VISIT.phase, t: +VISIT.t.toFixed(2), bowW: +VISIT.bowW.toFixed(3),
            mode: VISIT.mode,
+           rite: Object.assign({}, VISIT.rite), riteGroom: RITE.g,     // 礼仪三段：本场开关 + 接马子状态
            waveW: +(VISIT.waveW || 0).toFixed(3), hostAtQin: !!VISIT.hostAtQin,
            car: { state: VISCAR.state, s: +VISCAR.s.toFixed(2), leg: VISCAR.leg,
                   odo: +VISCAR.odo.toFixed(3),          // 累计里程：门禁守"跨段连续、无跳变"

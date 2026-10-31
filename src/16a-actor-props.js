@@ -41,6 +41,40 @@ export function makeTeaCup(holder){
   return g;
 }
 
+/* 水桶（2026-10-31 礼仪·马夫接马）：木桶身 + 两道铁箍 + 半圈提梁 + 一汪水面。
+   原点在**桶底中心**。挂在场景根上（不挂人：放下以后它要留在地上）。
+   ⚠️ 组名以 `actor_` 开头：16-actors 的踏面射线跳过 actor_*，否则从桶边走过的人会
+      把桶口（离地 0.26m，在"一步"窗口里）当成台阶踩上去。
+   ⚠️ 尺寸按像素定（同马刷/草把）：马厩机位 15~25m，桶径 0.30m 才读得出来。 */
+export function makeWaterBucket(parent){
+  const g = new THREE.Group();
+  g.name = 'actor_riteBucket';
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.125, 0.26, 14, 1, true), MAT.wood);
+  body.position.y = 0.13;
+  g.add(body);
+  const bottom = new THREE.Mesh(new THREE.CircleGeometry(0.125, 14).rotateX(-Math.PI / 2), MAT.woodDark);
+  bottom.position.y = 0.01;
+  g.add(bottom);
+  for (const y of [0.05, 0.21]){
+    const r = 0.128 + (0.15 - 0.125) * (y / 0.26);
+    const hoop = new THREE.Mesh(new THREE.TorusGeometry(r + 0.004, 0.006, 4, 16).rotateX(Math.PI / 2), MAT.harness);
+    hoop.position.y = y;
+    g.add(hoop);
+  }
+  const handle = new THREE.Mesh(new THREE.TorusGeometry(0.15, 0.007, 4, 12, Math.PI), MAT.woodDark);
+  handle.position.y = 0.26;
+  g.add(handle);
+  const water = new THREE.Mesh(new THREE.CircleGeometry(0.142, 14).rotateX(-Math.PI / 2),
+    new THREE.MeshStandardMaterial({ color: 0x3E5A63, roughness: 0.18, metalness: 0.0 }));
+  water.position.y = 0.22;
+  g.add(water);
+  g.traverse(o => { if (o.isMesh){ o.castShadow = false; o.receiveShadow = true; } });
+  g.userData.noMerge = true;
+  g.visible = false;
+  parent.add(g);
+  return g;
+}
+
 /* ── 刷马（P3）──────────────────────────────────────────────────────────────
    马夫的第二件事：给身边那匹低头吃草的马刷颈肩。
    ⚠️ **只动肘 + 腕，绝不转肩**：这条 rig 的腰带有一批顶点贴着前臂/拇指骨
