@@ -1,7 +1,8 @@
 // 纯 node 跑到访导演层（不起浏览器、不装 GLB）：逐步快照全部演员 + 导演层状态。
-// 用法：node --import ./probe/_actor-sim/register.mjs probe/_actor-sim/sim.mjs <carriage|walk|carriage-rite> [场数] [输出.json] [最多步数]
-//   carriage / walk 带 `?etiquette=0` 跑（礼仪三段全关 = 2026-10-31 之前的行为，锁原基线）；
-//   carriage-rite 不带参数 = 产品默认（礼仪三段全开），锁 baseline/carriage-rite.json.gz。
+// 用法：node --import ./probe/_actor-sim/register.mjs probe/_actor-sim/sim.mjs <carriage|walk|carriage-rite|carriage-walkback> [场数] [输出.json] [最多步数]
+//   carriage / walk 带 `?etiquette=0&walkback=0` 跑（礼仪三段全关 + 旧瞬移复位 = 2026-10-31 之前的行为，锁原基线）；
+//   carriage-rite 带 `?walkback=0` = 礼仪三段全开、旧瞬移复位，锁 baseline/carriage-rite.json.gz；
+//   carriage-walkback 不带参数 = 产品默认（礼仪全开 + 走回去），相机换到开机机位，锁 baseline/carriage-walkback.json.gz。
 //   场数 = 跑到第几次 'done' 为止（马车版 2 = 首场 + 冷却 45s 复位 + 重播一场）。
 // 为什么要它：visit-carriage-guard 要起浏览器 + 软件渲染跑十几分钟；改导演层/相位机时
 //   需要"逐帧与基线一致"的证据 —— 导演层只读演员状态推进、与渲染无关，桩掉场景即可逐帧比对。
@@ -139,13 +140,27 @@ export async function runVisit(A, { visits = 1, dt = 0.4, maxSteps = 20000, onSt
     if (onStep) onStep(A, simT);
     if (doneAt.length >= visits) break;
   }
-  return { mode: A.VISIT.mode, etiquette: !!A.etiquette, dt, frames, phases, cars, simT: +simT.toFixed(1), doneAt };
+  const r = { mode: A.VISIT.mode, etiquette: !!A.etiquette, dt, frames, phases, cars, simT: +simT.toFixed(1), doneAt };
+  /* 走回去的统计（只有开着时才有；关着时结果对象与旧版逐字段一致） */
+  if (A.VISIT.homeLog) r.walkback = { log: A.VISIT.homeLog.slice(), snaps: A.VISIT.homeSnaps || 0 };
+  return r;
 }
 
 /* 进程内装载：先按模式设好 location，再 import（模式是模块求值期读的） */
+const SEARCH = {
+  carriage: '?etiquette=0&walkback=0',
+  walk: '?visit=walk&etiquette=0&walkback=0',
+  'carriage-rite': '?walkback=0',
+  'carriage-walkback': '',                       // 产品默认：礼仪三段 + 走回去全开
+};
 export async function loadSim(mode){
-  const etiquette = mode === 'carriage-rite';
-  globalThis.location = { search: mode === 'walk' ? '?visit=walk&etiquette=0' : (etiquette ? '' : '?etiquette=0') };
+  if (!(mode in SEARCH)) throw new Error('未知模式 ' + mode);
+  const etiquette = mode === 'carriage-rite' || mode === 'carriage-walkback';
+  globalThis.location = { search: SEARCH[mode] };
+  /* 走回去要"镜头看得见"才步行：桩相机默认朝天（任何复位都看不见 = 旧行为），
+     carriage-walkback 换成产品开机机位 CAM_HOME（02-scene：pos (−20,17,32)、target (0,3.5,−1)），
+     这个机位下水榭 / 门内岗位 / 月台 / 堂前都在视锥里。 */
+  if (mode === 'carriage-walkback'){ camera.position.set(-20, 17, 32); camera.lookAt(0, 3.5, -1); camera.updateMatrixWorld(true); }
   const quiet = console.log, qi = console.info, qw = console.warn;
   console.log = () => {}; console.info = () => {}; console.warn = () => {};
   try { return { ...(await (await import('./adapter.mjs')).load()), etiquette }; }

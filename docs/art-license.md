@@ -19,17 +19,31 @@
 | 物件 | 实景对应 | 为何保留 | 替代资产候选 | 代码位置 / 打标状态 |
 |---|---|---|---|---|
 | **金刚鹦鹉**（3 只，栖于假山峰顶，会换峰飞行） | 原产中南美热带，明清江南园林没有放养、栖石的实景。园中常见的野鸟是白鹭、翠鸟、乌鸫、白头鹎、珠颈斑鸠、喜鹊；文人园居养鸟多是廊下笼养八哥、画眉 | 灰白太湖石和绿荫里唯一的高饱和点景，换峰飞行是园里少有的大尺度动态 | 八哥（廊下鸟笼或立石）、画眉（笼养，挂在廊檐下）、白鹭（池边浅水立姿）、翠鸟（临水立石） | `src/08c-aquatic.js` 的 Group `'Macaw'`：**已打标**；动作逻辑在 `src/08f-macaw.js` |
-| **马厩**（东墙外，4 个槽位，带场院和马夫） | 苏州城内交通以舟楫、肩舆为主，私家园林外设马厩并不典型。明清宅园多设轿厅和河埠船埠 | 「访客到园」叙事（马车进出、马夫喂草）以此为依托，动作编排已经完整 | 明清园林里的马房或卸车棚（体量收小、粉墙黛瓦）、轿厅、河埠船埠（码头加乌篷船） | 在 `src/15e-stable.js` 里建；`src/08-assemble.js` 给整组**已打标**；院外两条石板路**待打标** |
+| **马厩**（东墙外，4 个槽位，带场院和马夫） | 苏州城内交通以舟楫、肩舆为主，私家园林外设马厩并不典型。明清宅园多设轿厅和河埠船埠 | 「访客到园」叙事（马车进出、马夫喂草）以此为依托，动作编排已经完整 | 明清园林里的马房或卸车棚（体量收小、粉墙黛瓦）、轿厅、河埠船埠（码头加乌篷船） | 在 `src/15e-stable.js` 里建；`src/08-assemble.js` 给整组**已打标**；院外两条石板路**已打标**（2026-10-31）：出园路 `makeStableExitRoad` 整组打；进园路 `makeStableRoad` 只给路面 `stableRoad*` 和马厩院门口铺装 `stableGate*` 逐件打，同组的园门外平台、石灯笼、石狮不打 |
 | **西式双轮马车**（一驾套车待发、一驾卸马停放，另有到访马车） | 非明清江南形制。江南出行以轿子、船为主；北方有明式骡车/马车 | 到访编排（停车、卸马、出园路）离不开车辆 | 轿子（四人或二人肩舆）、明式马车（带篷厢、独辕双轮） | `src/15d-carriage.js`（`makeCarriage`，部件名 `carriagePart`）、`src/15e-stable.js`（carA/carB）、`src/16-actors.js`（到访马车）：均**已打标**（2026-10-31） |
-| **外国马种**（卡马格马 Camargue、克里奥罗马 Criollo 带西式马鞍） | 明清中国常见的是蒙古马（矮壮、短腿、鬃毛厚） | 三匹 Rodin 马已经做完伪蒙皮和动作 | 蒙古马（现成资产 `assets/horse-mongolian.glb`，可以直接换进槽位） | `src/15c-horse-life.js` 的 `RODIN_GLB.camargue/criollo`；`src/15b-horse-rig.js` 的 Tinker 回退马（`markTinkerHorse`）：均**已打标**（2026-10-31） |
+| **外国马种**（卡马格马 Camargue、克里奥罗马 Criollo 带西式马鞍） | 明清中国常见的是蒙古马（矮壮、短腿、鬃毛厚） | 三匹 Rodin 马已经做完伪蒙皮和动作 | 蒙古马（现成资产 `assets/horse-mongolian.glb`，可以直接换进槽位；但它的品种名同样只是资产库标签，换之前先按下一行核对体型） | `src/15c-horse-life.js` 的 `RODIN_GLB.camargue/criollo`；`src/15b-horse-rig.js` 的 Tinker 回退马（`markTinkerHorse`）：均**已打标**（2026-10-31） |
+| **名为“蒙古马”的 Rodin 马**（套车辕马、马夫喂草那匹），登记 id `labelHorse` | 明清中国常见的是蒙古马（矮壮、短腿、头大颈短、鬃尾浓密） | 三匹 Rodin 马里名义上唯一合乎实景的一匹，伪蒙皮和动作已做完；体型待核，暂不替换 | 按蒙古马体貌复核或重做 `assets/horse-mongolian.glb`、另找有出处的蒙古马资产 | `src/15c-horse-life.js` 的 `RODIN_GLB.mongolian`：**已打标**（2026-10-31） |
 
-## 待打标（15 / 16 系模块）
+## 打标进度
 
-2026-10-31 已补：`makeCarriage` 车组、15e 的 `carA`/`carB`、16-actors 的到访马车（均 `'carriage'`），15c 的 camargue/criollo 与 15b 的 Tinker 回退马（`'foreignHorse'`，蒙古马不打）。仍待打标：
+登记表里已经没有待打标的条目（2026-10-31 全部补齐）：
 
-1. `src/15e-stable.js` 的 `makeStableRoad` / `makeStableExitRoad` 补 `'stable'`
+- `makeCarriage` 车组、15e 的 `carA`/`carB`、16-actors 的到访马车：`'carriage'`；
+- 15c 的 camargue/criollo、15b 的 Tinker 回退马：`'foreignHorse'`；
+- 15c 的蒙古马：新增的 `'labelHorse'`（理由见下一节）；
+- 15e 的院外两条石板路：`'stable'`。
 
-完成后，把 `src/art-license.js` 里对应条目的 `status` 从 `'pending'` 改成 `'tagged'`。`probe/art-license-unit.mjs` 会检查源码里是否真的有这条调用。
+以后新增条目先登记为 `'pending'`，打完标改成 `'tagged'`。`probe/art-license-unit.mjs` 会检查源码里是否真的有对应调用，并钉住蒙古马和两条路的打标位置。
+
+## 蒙古马为什么单列，不并进外国马种
+
+- `foreignHorse` 的说明文字写的是“外国马种，非明清江南所有”。蒙古马正是这一条“实景对应”和“替代候选”里列出的马种，打成 `foreignHorse` 等于在物件上写一句假话，还会和替代候选自相矛盾。
+- 这匹马的问题在于品种名没有出处：和另外两匹一样，名字只是生成资产库给的标签（`16b-artistic-note.js` 的马厩注释也是这个说法），体貌没有逐项核对过，体型还和另外两匹一起归一到总高 1.75m。
+- 所以单列一条 `labelHorse`，说明文字只写能确定的事。Tinker 回退马（品种不明）已经在 `foreignHorse` 下，这次不动。
+
+## 院外石板路为什么逐件打
+
+`makeStableRoad` 返回的组里除了通马厩的路面，还有园门外的铺装平台、石灯笼和一对石狮，这些是园林里本来就该有的东西。`artLicenseOf` 会沿祖先链往上找，整组打标会把它们一起标成“马厩”，所以这条路只给路面和马厩院门口的铺装逐件打。出园路整组都只为马车铺，直接给组打标。
 
 ## 替换时的注意事项
 

@@ -31,6 +31,9 @@ const STEP = 0.4;                 // 快进步长（秒）
 const MAX_STEPS = 3200;           // 上限 1280s。首场到 done：礼仪全关 436.8s（相位链 22 段）/ 礼仪全开（默认）512.8s（27 段）
                                   // （出处：probe/_actor-sim 纯 node 仿真，baseline/carriage-2 与 carriage-rite，2026-10-31；
                                   //  浏览器里本探针以 ?tier=low&intro=0 起页 = 礼仪默认开）。1280s 仍留 2.5 倍余量。
+                                  // 第二场开演（第二个 carIn）：旧瞬移复位 559.2s（carriage-rite）/ 走回去默认开 603.2s
+                                  //  （carriage-walkback：done 512.8 → 冷却 45s → homing 44.0s → idle 602.0；同出处，2026-10-31 b4-walk）。
+                                  //  本探针只跑到首场 done，上限不受走回去影响。
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
                '.glb': 'model/gltf-binary', '.png': 'image/png', '.jpg': 'image/jpeg',
                '.webmanifest': 'application/manifest+json', '.ktx2': 'image/ktx2' };
@@ -223,8 +226,8 @@ const check = (name, ok, detail = '') => {
   check('零 pageerror', errs.length === 0, errs.slice(0, 2).join(' | '));
 
   /* ── ①f 相位名静态一致性（2026-10-30 · 架构收口 · 纯读文本，零浏览器开销）──
-     到访导演层有 31 个相位、36 处赋值（2026-10-31 礼仪三段 +5 相位：await/usher/announce/serve/offer；
-     此前 26 / 29）。此前相位名全是散落的字符串字面量，
+     到访导演层有 32 个相位、37 处赋值（2026-10-31 走回去 +1 相位 homing；礼仪三段 +5 相位
+     await/usher/announce/serve/offer 之后是 31 / 36，再此前 26 / 29）。此前相位名全是散落的字符串字面量，
      拼错一个字母（'wrap' 写成 'warpp'）= 那一相位**永不执行**，整场戏静默停在那里：
      无报错、无告警、状态全对，只有盯 13 分钟画面才看得见。
      判据三条（任一红都说明相位机与声明表对不上）：

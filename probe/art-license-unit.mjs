@@ -1,6 +1,6 @@
 // 「写意艺术处理」登记表单测（2026-10-30）：node:test，零浏览器。
 // 钉住三件事：
-//   ① 登记表字段齐全，Kyle 拍板保留的四类物件都在，替代候选包含约定的那几样；
+//   ① 登记表字段齐全，Kyle 拍板保留的四类物件 + 2026-10-31 单列的 labelHorse 都在，替代候选包含约定的那几样；
 //   ② markArtLicense 只写 userData 两个键，拼错 id 当场抛错；artLicenseOf 沿祖先链找得到；
 //   ③ 标为 tagged 的条目，源码里真的有对应的 markArtLicense(…, 'id') 调用（防"表里说打了、代码里没打"）；
 //      pending 的条目写明了所在文件（15/16 系，按分工待合并时打标）；docs/art-license.md 存在且写明口径。
@@ -15,7 +15,7 @@ import { ART_LICENSE, markArtLicense, artLicenseOf } from '../src/art-license.js
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('① 四类物件都已登记，字段齐全，替代候选含约定项', () => {
-  for (const id of ['macaw', 'stable', 'carriage', 'foreignHorse']) assert.ok(ART_LICENSE[id], id);
+  for (const id of ['macaw', 'stable', 'carriage', 'foreignHorse', 'labelHorse']) assert.ok(ART_LICENSE[id], id);
   for (const e of Object.values(ART_LICENSE)){
     for (const k of ['id', 'label', 'tag', 'real', 'why', 'alternatives', 'objects']) assert.ok(e[k], e.id + '.' + k);
     assert.ok(e.tag.startsWith('写意艺术处理：'), e.id + ' tag 前缀');
@@ -52,4 +52,18 @@ test('③ tagged 条目在源码里真有打标调用；pending 写明 15/16 系
   }
   const doc = fs.readFileSync(path.join(ROOT, 'docs/art-license.md'), 'utf8');
   assert.ok(doc.includes('展示保留，标注为艺术处理，替代资产候选见表'));
+});
+
+/* ④ 2026-10-31：蒙古马单列 labelHorse、院外两条石板路打 stable —— 钉住打标落在对的地方 */
+test('④ 蒙古马打 labelHorse（不打 foreignHorse）；院外两条路打 stable，且不标到园门外平台/石灯笼/石狮', () => {
+  const c = fs.readFileSync(path.join(ROOT, 'src/15c-horse-life.js'), 'utf8');
+  assert.match(c, /key === 'mongolian'\) markArtLicense\(root, 'labelHorse'\)/);
+  assert.ok(!ART_LICENSE.foreignHorse.tag.includes('蒙古'), 'foreignHorse 的 tag 不该点名蒙古马');
+  const e = fs.readFileSync(path.join(ROOT, 'src/15e-stable.js'), 'utf8');
+  const body = (name) => { const i = e.indexOf('export function ' + name + '('); return e.slice(i, e.indexOf('\n}\n', i)); };
+  assert.match(body('makeStableExitRoad'), /markArtLicense\(g, 'stable'\)/);
+  const road = body('makeStableRoad');
+  assert.match(road, /\^stable\(Road\|Gate\)\/\.test\(o\.name\)\) markArtLicense\(o, 'stable'\)/);
+  assert.ok(!/markArtLicense\(g,/.test(road), 'makeStableRoad 不能整组打标（组里有园门外平台、石灯笼、石狮）');
+  assert.ok(ART_LICENSE.stable.objects.every(o => o.status !== 'pending'), 'stable 条目不该再有 pending');
 });

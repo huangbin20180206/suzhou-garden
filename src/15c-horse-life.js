@@ -564,8 +564,10 @@ export function loadRodinHorses(slots){
       root.name = 'rodinHorse_' + key;
       root.userData.horse = true;
       root.userData.noMerge = true;
-      /* 写意艺术处理：卡马格马 / 克里奥罗马（带西式马鞍）是外国马种；蒙古马不打（见 art-license.js） */
+      /* 写意艺术处理：卡马格马 / 克里奥罗马（带西式马鞍）是外国马种 → 'foreignHorse'；
+         "蒙古马"这个品种名同样只是资产库标签、体型没核对过 → 单列 'labelHorse'（理由见 art-license.js） */
       if (key === 'camargue' || key === 'criollo') markArtLicense(root, 'foreignHorse');
+      else if (key === 'mongolian') markArtLicense(root, 'labelHorse');
       let mat = null, geo = null;
       root.traverse(o => {
         if (!o.isMesh) return;
