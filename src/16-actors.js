@@ -318,9 +318,17 @@ export const VISIT_POLICY = {
   porter: true,          // 门房通报：客人到门外 → 门房入内走到主人前作揖 → 返回 → 主人才出迎
   tea: true,             // 奉茶：主客入座后，书童从月台西侧端盏走到两人之间、俯身奉茶后退下
   groomTake: true,       // 马夫接马：车停稳 → 常驻马夫到辕马头侧牵缰、拴马、放水桶 → 回位
+  /* 重播复位"走回去"（2026-10-31 · b4-walk）：冷却 45s 后，镜头里看得见、路程合理的人
+     沿原路步行回起始位（复用 tickRoute 步态 + followFloor 踏面射线），走完才 resetVisit；
+     看不见 / 路太远 / 超时卡住的才瞬移兜底。URL `?walkback=0` 回到旧的"冷却到点直接瞬移"。
+     与礼仪三段无关（`?etiquette=0` 不动它）；细则见 homingStart 的注释。 */
+  walkback: true,
 };
 if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('etiquette') === '0'){
   VISIT_POLICY.porter = VISIT_POLICY.tea = VISIT_POLICY.groomTake = false;
+}
+if (typeof location !== 'undefined' && new URLSearchParams(location.search).get('walkback') === '0'){
+  VISIT_POLICY.walkback = false;
 }
 const VISIT = {
   phase: 'idle', t: 0, bowW: 0,
@@ -2608,7 +2616,8 @@ export const VISIT_PHASES = Object.freeze([
   'topav',                                 // 走到马车旁
   'listen',                                // 回水榭听琴
   'wrap',                                  // 收尾（等客人上车驶离）
-  'done',                                  // 收场，等 resetVisit
+  'done',                                  // 收场，冷却 45s
+  'homing',                                // 走回原位（VISIT_POLICY.walkback，可关）→ resetVisit → idle
 ]);
 
 /* 礼仪三段的复位：两书童的身份/道具/权重、马夫接马的子状态与水桶。
@@ -2633,10 +2642,11 @@ function riteReset(){
   RITE.g = 'off'; RITE.gt = 0; RITE.bucketPt = null;
 }
 
-function resetVisit(){
+function resetVisit(hostHome){
   const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId), host = actorRef(VISIT.hostId);
-  /* 避镜头（见上）：主人与马车在**移动前**先量、先藏 */
-  if (host) avoidCameraReveal(host.holder);
+  /* 避镜头（见上）：主人与马车在**移动前**先量、先藏。
+     hostHome = 走回去已经到位（homingFinish 传入）⇒ 不藏，否则近景里会白闪 0.9s。 */
+  if (host && !hostHome) avoidCameraReveal(host.holder);
   {
     const V = stableTravel();
     if (V.ready) avoidCameraReveal(V.group);
@@ -2715,6 +2725,133 @@ function resetVisit(){
   VISIT.tourS = 0; VISIT.guestSent = false; VISIT.hostAtQin = false; VISIT.waveW = 0;
 }
 
+/* ── 重播复位"走回去"（2026-10-31 · b4-walk）────────────────────────────────
+   旧行为：done 冷却 45s 后 resetVisit 把主人（水榭抚琴人旁）、两书童（门内岗位 / 月台西侧 /
+   井边）**瞬移**回堂前，只靠 avoidCameraReveal 挑"离镜头 ≥24m"来遮 —— 远景里仍看得见人闪回去。
+   新行为（VISIT_POLICY.walkback，默认开）：
+     · 冷却到点先给每位步行者找一条**已验过的原路**倒着走（WALKBACK.paths）：
+         主人   水榭 → HOST_PAVILION_PTS 倒走到假山东侧 → HOST_GREET_PTS 倒走（廊道/拱桥/踏跺）→ 堂前；
+         书童   本场最后那条路线倒走（门房岗位 / 井边），或奉茶候场路 RITE_PTS.teaSide 倒走 → 原位。
+       起点离人 ≤ startTol、终点离原位 ≤ endTol 才算"找到"；
+     · 走的条件：holder 可见 + 人在相机视锥里 + 离相机 ≤ seeMax + 路长 ≤ pathMax。
+       走路复用 giveRoute/tickRoute（同一套步态、站住转身、followFloor 踏面射线），
+       速度 ≤1.05m/s ⇒ 0.4s 一帧最多 0.42m（回归网断"单帧 ≤0.5m"）；到位后原地转回起始朝向；
+     · 兜底瞬移：看不见 / 路太远 / 找不到路 / 超时（路长/速度 × slack + extra 秒）仍没到 ——
+       这些人留在原地，等全员结束由 resetVisit 一次放回去（与旧行为同一处代码），
+       近镜头的照旧走 avoidCameraReveal；每一次可见的瞬移都记进 VISIT.homeSnaps / homeLog。
+     · 一个可走的人都没有 ⇒ 不进 homing，当帧 resetVisit（= 旧行为逐帧一致）。
+   ⚠️ 全部新状态挂在 VISIT.home* 上，`?walkback=0` 时一个字段都不写 ⇒ 三份原基线逐帧不变。 */
+const WALKBACK = {
+  speed: { scholar: 0.62 * WALK_K, child1: 1.05, child2: 1.05 },   // 主人用游园步速（0.93m/s）
+  seeMax: 90, pathMax: 70,
+  startTol: 1.2, endTol: 2.0,
+  slack: 1.6, extra: 10,          // 超时 = 路长 / 速度 × slack + extra
+  turnMax: 4,                     // 到位后转回朝向最多等 4s
+  cap: 150,                       // homing 总时长硬上限（任何人卡住也不拖过这个数）
+};
+const _frus = new THREE.Frustum(), _frusM = new THREE.Matrix4(), _seeV = new THREE.Vector3();
+function seenByCamera(a){
+  if (!a.holder.visible) return false;
+  camera.updateMatrixWorld();
+  _frusM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _frus.setFromProjectionMatrix(_frusM);
+  _seeV.set(a.pos.x, a.y + a.def.height * 0.5, a.pos.z);
+  return _frus.containsPoint(_seeV) && camera.position.distanceTo(_seeV) <= WALKBACK.seeMax;
+}
+const _d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
+function homeOf(a){
+  if (a.def.id === VISIT.hostId) return { pt: [1.2, -5.7], yaw: 0.42 };      // 与 resetVisit 同值
+  return { pt: [a.def.spot.x, a.def.spot.z], yaw: a.def.spot.yaw };
+}
+/* 候选原路（全部是本场里真走过、或礼仪段已验过的航点线），挑第一条首尾都对得上的 */
+function homePath(a){
+  const cur = [a.pos.x, a.pos.z], home = homeOf(a).pt;
+  const cands = [];
+  if (a.def.id === VISIT.hostId){
+    cands.push([...HOST_PAVILION_PTS.slice(9)].reverse().concat([...HOST_GREET_PTS.slice(0, 18)].reverse()));
+  } else {
+    if (a.def.route && a.def.route.pts.length > 1) cands.push([...a.def.route.pts].reverse());
+    if (a.def.id === 'child2') cands.push([...RITE_PTS.teaSide].reverse());
+  }
+  for (const c of cands){
+    if (_d2(cur, c[0]) > WALKBACK.startTol || _d2(c[c.length - 1], home) > WALKBACK.endTol) continue;
+    const pts = [cur, ...c];
+    if (_d2(pts[pts.length - 1], home) > 0.05) pts.push(home);
+    let len = 0;
+    for (let i = 1; i < pts.length; i++) len += _d2(pts[i], pts[i - 1]);
+    return { pts, len };
+  }
+  return null;
+}
+function homingStart(){
+  const v = VISIT;
+  v.homeLog = v.homeLog || []; v.homeSnaps = v.homeSnaps || 0;
+  const walkers = [];
+  for (const id of [v.hostId, 'child1', 'child2']){
+    const a = actorRef(id);
+    if (!a || a.ride || a.trip) continue;
+    const P = homePath(a);
+    if (!P || P.len < 0.3) continue;                      // 已在原位 / 没路 ⇒ 交给 resetVisit
+    if (!seenByCamera(a) || P.len > WALKBACK.pathMax) continue;
+    const sp = WALKBACK.speed[id] || 1.0;
+    a.def.stepUp = 1.35;                                  // 拱桥 / 踏跺 / 水榭台阶（同 topav / riteSendBoys）
+    a.sitTarget = 0;
+    giveRoute(a, P.pts, sp, 0.4, id === v.hostId || id === 'child1' ? 2.45 : 1.70);
+    walkers.push({ a, id, len: P.len, t: 0, limit: P.len / sp * WALKBACK.slack + WALKBACK.extra,
+                   yaw: homeOf(a).yaw, turnT: 0, done: false, ok: false });
+  }
+  v.homeWalk = walkers;
+  return walkers.length > 0;
+}
+/* 推进步行者；全员 done 返回 true */
+function homingTick(dt){
+  const v = VISIT;
+  let all = true;
+  for (const w of v.homeWalk){
+    if (w.done) continue;
+    w.t += dt;
+    if (w.a.arrived){
+      w.turnT += dt;
+      if (turnToward(w.a, w.yaw, dt) < 0.03 || w.turnT > WALKBACK.turnMax){ w.done = true; w.ok = true; continue; }
+    } else if (w.t > w.limit || v.t > WALKBACK.cap){
+      w.done = true;                                      // 卡住超时 ⇒ 留给 resetVisit 兜底
+      w.a.def.route = null; w.a.walkOff = true;
+      continue;
+    }
+    all = false;
+  }
+  return all;
+}
+const _homeSnap = [];
+function homingFinish(){
+  const v = VISIT, host = actorRef(v.hostId);
+  for (const w of v.homeWalk)
+    v.homeLog.push({ id: w.id, len: +w.len.toFixed(2), t: +w.t.toFixed(2), ok: w.ok });
+  /* 兜底计数：resetVisit 前后对比，"前后都可见且挪了 >0.5m"的就是一次可见瞬移 */
+  _homeSnap.length = 0;
+  for (const a of ACTORS) if (a.holder.visible) _homeSnap.push([a, a.pos.x, a.pos.z]);
+  const hostHome = host && _d2([host.pos.x, host.pos.z], homeOf(host).pt) < 0.5;
+  for (const id of ['child1', 'child2']){
+    const c = actorRef(id);
+    if (c && _d2([c.pos.x, c.pos.z], homeOf(c).pt) > 0.5) avoidCameraReveal(c.holder);
+  }
+  const V = stableTravel(), car = V && V.ready && V.group && V.group.visible ? V.group : null;
+  const cx = car ? car.position.x : 0, cz = car ? car.position.z : 0;
+  resetVisit(hostHome);
+  for (const [a, x, z] of _homeSnap){
+    if (!a.holder.visible && !_avoidReveal.some(r => r.o === a.holder)) continue;
+    const d = Math.hypot(a.pos.x - x, a.pos.z - z);
+    if (d > 0.5){ v.homeSnaps++; v.homeLog.push({ id: a.def.id, snap: +d.toFixed(2) }); }
+  }
+  /* 车本该已驶离（隐藏）；wrap 超时强制收尾时车还在路上 ⇒ 也是一次可见瞬移 */
+  if (car){
+    const d = Math.hypot(car.position.x - cx, car.position.z - cz);
+    if (d > 0.5){ v.homeSnaps++; v.homeLog.push({ id: 'carriage', snap: +d.toFixed(2) }); }
+  }
+  if (v.homeLog.length > 64) v.homeLog.splice(0, v.homeLog.length - 64);   // 产品里无限循环，只留最近的
+  v.homeWalk = null;
+}
+
 /* 礼仪：客人下车那一刻把两位书童派出去（门房去门内岗位、奉茶的去月台西侧候场） */
 function riteSendBoys(v){
   const p = v.rite.porter ? actorRef('child1') : null;
@@ -2738,7 +2875,7 @@ function tickVisit(dt){
      永远不成立，180s 兜底形同虚设，整场戏停在半路再也不重播。这里补全场闸：
      开场累计 1500s（仿真首场：礼仪全关 436.8s / 礼仪全开 512.8s；guard 快进 1280s 内到 done）仍未 done ⇒
      强制复位重播。每 60s 报一条卡在哪，可诊断。 */
-  if (v.phase !== 'idle' && v.phase !== 'done'){
+  if (v.phase !== 'idle' && v.phase !== 'done' && v.phase !== 'homing'){
     v.age = (v.age || 0) + dt;
     if (v.age > 1500){
       console.warn('[visit] 全场 ' + v.age.toFixed(0) + 's 未收尾 ⇒ 强制复位重播（phase=' +
@@ -3238,7 +3375,16 @@ function tickVisit(dt){
         歇一会儿"的量级，也给验收探针留出取终态的时间。 */
   if (v.phase === 'done'){
     v.t += dt;
-    if (v.t > 45) resetVisit();
+    if (v.t > 45){
+      if (VISIT_POLICY.walkback && homingStart()){ v.phase = 'homing'; v.t = 0; }
+      else resetVisit();
+    }
+    return;
+  }
+  /* homing：走回原位（见 homingStart）。全员到位或超时 ⇒ homingFinish → resetVisit → idle */
+  if (v.phase === 'homing'){
+    v.t += dt;
+    if (homingTick(dt)) homingFinish();
   }
 }
 
