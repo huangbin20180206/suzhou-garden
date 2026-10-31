@@ -58,16 +58,27 @@ const WEATHERS = ['clear', 'storm', 'snow', 'mist', 'afterrain'];
   await sleep(1200);
 
   /* 一次性抽 N 次并回读：抽的动作在页面里跑完再整体回传（逐次往返太慢） */
-  const data = await page.evaluate((n) => {
+  const data = await page.evaluate(async (n) => {
     const g = window.__garden;
     const before = { time: g.ENV.time, season: g.ENV.season, weather: g.ENV.weather, hour: g.ENV.hour };
+    /* ⚠️ 2026-10-31（batch3 · 真实日轨）：锚点必须**按每次抽到的季节现算**。
+       `randomScene()` 内部用的是 `timeAnchorsFor(SEASON_DOY[season])` —— 季节一变锚点就变。
+       而 `ENV.TIME_ANCHORS` 只是**当前季节**那一份（模块期 syncTimeAnchors 就地改写的那次）。
+       原先门禁拿 `g.TIME_ANCHORS` 去比，抽到别的季节就必然偏 —— 实测最大偏移 2.516h
+       （≈ 冬至与夏至的日落差），跟"抖动超标"完全是两回事。
+       这里 import 产品同一个模块、同一份函数，口径与 randomScene 内部逐字一致
+       （ESM 单例，不复制逻辑）。 */
+    const solar = await import('/src/12h-solar.js');
+    const phen = await import('/src/12g-phenology.js');
     const rows = [];
     for (let i = 0; i < n; i++){
       const r = g.randomScene();
       rows.push({ ...r,
         /* 逐次回读"这一抽是否合法"——按 (天气, 季节) 查互斥原因，非空即非法组合 */
         mutex: g.weatherMutexReason(r.weather, r.season),
-        anchors: g.TIME_ANCHORS });
+        /* 该抽**目标季节**的锚点表（与 randomScene 同一函数、同一入参） */
+        anchors: solar.SOLAR.enabled ? solar.timeAnchorsFor(phen.SEASON_DOY[r.season]) : solar.TIME_ANCHORS,
+      });
     }
     return { rows, before };
   }, N);
