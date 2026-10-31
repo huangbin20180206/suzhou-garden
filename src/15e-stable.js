@@ -20,6 +20,7 @@ import { makeSoftAlphaTex } from './15a-shared.js';
    _ROAD_B，两份不同步就会浮空/陷地）。这里 import 后**转出**——本文件内部（makeStableRoad/
    makeStableExitRoad）与 15-stable 门面/16-actors 的引用路径都不变。 */
 import { STABLE_ROAD_PTS, STABLE_EXIT_PTS } from './15a-shared.js';
+import { markArtLicense } from './art-license.js';
 export { STABLE_ROAD_PTS, STABLE_EXIT_PTS };
 /* ── 出园新路（2026-10-25）──────────────────────────────────────────────────
    老黄："客人乘车离开还是在走去院子的石板路，这个不合理，做一条新路，朝向屏幕右下角，
@@ -926,6 +927,9 @@ export function makeStable(cx, cz, opts = {}){
     car.rotation.z = sgn * (gPos - gNeg) / 1.24;     // 横滚：把轮轴转成与坡面平行
   };
   seatCart(carA); seatCart(carB);
+  /* 写意艺术处理（art-license 'carriage'）：makeCarriage 已打过；这里按登记表再显式落一次，
+     便于从 15e 读出"套车待发 / 卸马停放"两驾都在表内（只写 userData，幂等）。 */
+  markArtLicense(carA, 'carriage'); markArtLicense(carB, 'carriage');
   /* ③b 套在 A 辕里的两匹马（站在辕前、与车同向 = 面朝院门 −z）
      ⚠️ 2026-10-10 二轮（出图判读"车辕悬空、未套马"）：
         ① 马的横向位置**对准辕木**（辕在车中心 ±0.40 ⇒ 马就站在那两条线上）；

@@ -20,17 +20,14 @@
 |---|---|---|---|---|
 | **金刚鹦鹉**（3 只，栖于假山峰顶，会换峰飞行） | 原产中南美热带，明清江南园林没有放养、栖石的实景。园中常见的野鸟是白鹭、翠鸟、乌鸫、白头鹎、珠颈斑鸠、喜鹊；文人园居养鸟多是廊下笼养八哥、画眉 | 灰白太湖石和绿荫里唯一的高饱和点景，换峰飞行是园里少有的大尺度动态 | 八哥（廊下鸟笼或立石）、画眉（笼养，挂在廊檐下）、白鹭（池边浅水立姿）、翠鸟（临水立石） | `src/08c-aquatic.js` 的 Group `'Macaw'`：**已打标**；动作逻辑在 `src/08f-macaw.js` |
 | **马厩**（东墙外，4 个槽位，带场院和马夫） | 苏州城内交通以舟楫、肩舆为主，私家园林外设马厩并不典型。明清宅园多设轿厅和河埠船埠 | 「访客到园」叙事（马车进出、马夫喂草）以此为依托，动作编排已经完整 | 明清园林里的马房或卸车棚（体量收小、粉墙黛瓦）、轿厅、河埠船埠（码头加乌篷船） | 在 `src/15e-stable.js` 里建；`src/08-assemble.js` 给整组**已打标**；院外两条石板路**待打标** |
-| **西式双轮马车**（一驾套车待发、一驾卸马停放，另有到访马车） | 非明清江南形制。江南出行以轿子、船为主；北方有明式骡车/马车 | 到访编排（停车、卸马、出园路）离不开车辆 | 轿子（四人或二人肩舆）、明式马车（带篷厢、独辕双轮） | `src/15d-carriage.js`（`makeCarriage`，部件名 `carriagePart`）、`src/15e-stable.js`（carA/carB）、`src/16-actors.js`（到访马车）：均**待打标** |
-| **外国马种**（卡马格马 Camargue、克里奥罗马 Criollo 带西式马鞍） | 明清中国常见的是蒙古马（矮壮、短腿、鬃毛厚） | 三匹 Rodin 马已经做完伪蒙皮和动作 | 蒙古马（现成资产 `assets/horse-mongolian.glb`，可以直接换进槽位） | `src/15c-horse-life.js` 的 `RODIN_GLB.camargue/criollo`；`src/15b-horse-rig.js` 的 Tinker 回退马：均**待打标** |
+| **西式双轮马车**（一驾套车待发、一驾卸马停放，另有到访马车） | 非明清江南形制。江南出行以轿子、船为主；北方有明式骡车/马车 | 到访编排（停车、卸马、出园路）离不开车辆 | 轿子（四人或二人肩舆）、明式马车（带篷厢、独辕双轮） | `src/15d-carriage.js`（`makeCarriage`，部件名 `carriagePart`）、`src/15e-stable.js`（carA/carB）、`src/16-actors.js`（到访马车）：均**已打标**（2026-10-31） |
+| **外国马种**（卡马格马 Camargue、克里奥罗马 Criollo 带西式马鞍） | 明清中国常见的是蒙古马（矮壮、短腿、鬃毛厚） | 三匹 Rodin 马已经做完伪蒙皮和动作 | 蒙古马（现成资产 `assets/horse-mongolian.glb`，可以直接换进槽位） | `src/15c-horse-life.js` 的 `RODIN_GLB.camargue/criollo`；`src/15b-horse-rig.js` 的 Tinker 回退马（`markTinkerHorse`）：均**已打标**（2026-10-31） |
 
-## 待打标（15 / 16 系模块，按分工本轮不改）
+## 待打标（15 / 16 系模块）
 
-下面这些物件在 15 / 16 系模块里构建，本轮不改那些文件，等合并时补上 `markArtLicense`：
+2026-10-31 已补：`makeCarriage` 车组、15e 的 `carA`/`carB`、16-actors 的到访马车（均 `'carriage'`），15c 的 camargue/criollo 与 15b 的 Tinker 回退马（`'foreignHorse'`，蒙古马不打）。仍待打标：
 
-1. `src/15d-carriage.js` `makeCarriage()` 返回的车组，补 `markArtLicense(car, 'carriage')`
-2. `src/15e-stable.js` 里的 `carA` / `carB`（也可以在上面第 1 步统一处理）；`makeStableRoad` / `makeStableExitRoad` 补 `'stable'`
-3. `src/15c-horse-life.js`：camargue / criollo 两种马挂上槽位时补 `markArtLicense(horseRoot, 'foreignHorse')`（蒙古马不打）；`src/15b-horse-rig.js` 的 Tinker 回退路径同理
-4. `src/16-actors.js`：到访马车补 `'carriage'`
+1. `src/15e-stable.js` 的 `makeStableRoad` / `makeStableExitRoad` 补 `'stable'`
 
 完成后，把 `src/art-license.js` 里对应条目的 `status` 从 `'pending'` 改成 `'tagged'`。`probe/art-license-unit.mjs` 会检查源码里是否真的有这条调用。
 

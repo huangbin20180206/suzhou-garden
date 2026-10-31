@@ -5,7 +5,7 @@
 //   · 两套资产的加载与换装（Tinker / Rodin）、毛色贴图、makeHorse
 // 仿真时钟 `_stT` 由 15b 持有，这里用 advanceStableTime(dt) 推进。
 import { mulberry32, HOOKS } from './00-config.js';
-import { _stT, advanceStableTime, applyTinkerPose, applyRodinPose, _tv, HORSE_GLB, installHorseRig, HORSE_TOTAL_H, tinkerBuffer, tinkerLoader, tinkerMaterial, markCoatPoints, slimNeck, TINKER_ANIM_BONES } from './15b-horse-rig.js';
+import { _stT, advanceStableTime, applyTinkerPose, applyRodinPose, _tv, HORSE_GLB, installHorseRig, HORSE_TOTAL_H, tinkerBuffer, tinkerLoader, tinkerMaterial, markCoatPoints, slimNeck, TINKER_ANIM_BONES, markTinkerHorse } from './15b-horse-rig.js';
 import { THREE, mergeGeometries } from '../vendor.js';
 import { makeSoftAlphaTex, prRange } from './15a-shared.js';
 import { ENV } from './12-env.js';
@@ -15,6 +15,7 @@ import { markCasterBoxDirty } from './09-lights.js';
 import { mesh, box } from './03-factory.js';
 import { MAT } from './01-materials.js';
 import { createGLTFLoaderWithDecoders } from './06e-assets.js';
+import { markArtLicense } from './art-license.js';
 
 /* Tinker 缺骨 / 找不到尾骨只警告一次 —— 拆分前它是与 15b 共用的模块级标志，
    实测只有本模块读写它（15b 里零引用），故随本模块搬来。 */
@@ -563,6 +564,8 @@ export function loadRodinHorses(slots){
       root.name = 'rodinHorse_' + key;
       root.userData.horse = true;
       root.userData.noMerge = true;
+      /* 写意艺术处理：卡马格马 / 克里奥罗马（带西式马鞍）是外国马种；蒙古马不打（见 art-license.js） */
+      if (key === 'camargue' || key === 'criollo') markArtLicense(root, 'foreignHorse');
       let mat = null, geo = null;
       root.traverse(o => {
         if (!o.isMesh) return;
@@ -657,6 +660,7 @@ export function loadStableHorses(stableGroup){
         const gltf = parsed[si];
         if (!gltf) continue;
         const root = gltf.scene;
+        markTinkerHorse(root);
         /* 归一：按包围盒高缩到 HORSE_TOTAL_H，水平居中，脚底 y=0。模型脸朝 +z。 */
         let bb = new THREE.Box3().setFromObject(root);
         const sz = bb.getSize(new THREE.Vector3());

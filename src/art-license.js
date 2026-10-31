@@ -47,8 +47,8 @@ export const ART_LICENSE = Object.freeze({
     why: '到访编排（停车/卸马/出园路）依赖车辆；用户已确认保留',
     alternatives: ['轿子（四人/二人肩舆）', '明式马车（带篷厢、独辕双轮）'],
     objects: Object.freeze([
-      { name: "makeCarriage()（部件名 'carriagePart'、'carriage*'；15e 里 carA 双马套车 / carB 卸马停车）", file: 'src/15d-carriage.js / src/15e-stable.js', status: 'pending' },
-      { name: '到访马车编排（visit carriage）', file: 'src/16-actors.js', status: 'pending' },
+      { name: "makeCarriage()（部件名 'carriagePart'、'carriage*'；15e 里 carA 双马套车 / carB 卸马停车）", file: 'src/15d-carriage.js / src/15e-stable.js', status: 'tagged' },
+      { name: '到访马车编排（visit carriage = TRAVEL.car，tickCarriage 接手时打标）', file: 'src/16-actors.js', status: 'tagged' },
     ]),
   }),
   foreignHorse: Object.freeze({
@@ -59,9 +59,9 @@ export const ART_LICENSE = Object.freeze({
     why: '三匹 Rodin 马资产已完成伪蒙皮与动作；用户已确认保留',
     alternatives: ['蒙古马（已有 assets/horse-mongolian.glb，可直接替换槽位）'],
     objects: Object.freeze([
-      { name: "RODIN_GLB.camargue（assets/horse-camargue.glb）", file: 'src/15c-horse-life.js', status: 'pending' },
-      { name: "RODIN_GLB.criollo（assets/horse-criollo-saddle.glb，含西式马鞍）", file: 'src/15c-horse-life.js', status: 'pending' },
-      { name: 'Tinker 回退马（assets/HorseTinker.glb，BlenderKit 低模，品种不明）', file: 'src/15b-horse-rig.js', status: 'pending' },
+      { name: "RODIN_GLB.camargue（assets/horse-camargue.glb）", file: 'src/15c-horse-life.js', status: 'tagged' },
+      { name: "RODIN_GLB.criollo（assets/horse-criollo-saddle.glb，含西式马鞍）", file: 'src/15c-horse-life.js', status: 'tagged' },
+      { name: 'Tinker 回退马（assets/HorseTinker.glb，BlenderKit 低模，品种不明；markTinkerHorse，15c Tinker 路径调用）', file: 'src/15b-horse-rig.js', status: 'tagged' },
     ]),
   }),
 });
