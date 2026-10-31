@@ -140,3 +140,42 @@ test('ARTISTIC_NOTES：每条都有 label/text，且 key 与机位 id 对得上'
   for (const id of ['lantern', 'stable']) assert.ok(ARTISTIC_NOTES[id], `缺 ${id} 的注`);
   assert.equal(artisticNoteFor('no-such-id'), null);   // 未登记 ⇒ null，不加也不兜底
 });
+
+/* ── QOS 相对阈值（2026-10-31 · B3）───────────────────────────────────── */
+import { qosThresholds, qosVerdict, estimateRefreshHz } from '../src/00a-quality.js';
+
+test('qosThresholds：60Hz 下恰为旧的 45 / 58（行为不变）', () => {
+  assert.deepEqual(qosThresholds(60), { target: 60, down: 45, up: 58 });
+  assert.deepEqual(qosThresholds(NaN), { target: 60, down: 45, up: 58 });   // 测不到按 60
+});
+
+test('qosThresholds：高刷屏封顶 60，不因跑不满 144 被判吃力', () => {
+  assert.deepEqual(qosThresholds(144), { target: 60, down: 45, up: 58 });
+});
+
+test('QOS：30Hz 设备满帧运行不被误降档', () => {
+  const th = qosThresholds(30);
+  assert.equal(th.target, 30);
+  for (const fps of [28, 29, 30, 31]) assert.notEqual(qosVerdict(fps, th), 'down', `fps ${fps}`);
+  /* 真吃力（跑不到 75%）仍要降 */
+  assert.equal(qosVerdict(20, th), 'down');
+  /* 对照：旧的绝对阈值会把 30fps 判成降档 */
+  assert.equal(qosVerdict(30, qosThresholds(60)), 'down');
+});
+
+test('qosVerdict：60Hz 边界与旧比较语义逐位一致', () => {
+  const th = qosThresholds(60);
+  for (let fps = 0; fps <= 75; fps++){
+    const old = fps < 45 ? 'down' : fps > 58 ? 'up' : 'hold';
+    assert.equal(qosVerdict(fps, th), old, `fps ${fps}`);
+  }
+});
+
+test('estimateRefreshHz：第 10 百分位，暖机长帧不污染；样本不足返回 0', () => {
+  const s60 = [...Array(200).fill(1 / 60), ...Array(40).fill(0.4), ...Array(30).fill(0.08)];
+  assert.equal(estimateRefreshHz(s60), 60);
+  assert.equal(estimateRefreshHz([...Array(100).fill(1 / 30), ...Array(20).fill(0.2)]), 30);
+  assert.equal(estimateRefreshHz(Array(200).fill(1 / 144)), 144);
+  assert.equal(estimateRefreshHz([1 / 60, 1 / 60]), 0);
+  assert.equal(estimateRefreshHz(undefined), 0);
+});

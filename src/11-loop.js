@@ -40,7 +40,8 @@ import { tickGroomFeed } from './08-assemble.js';
    写的是 08b 新加的 pivot（肩/髋/跳），与循环里写 root 的那几行互不重叠。 */
 import { tickFigureAction } from './08b-figures.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
-import { isDebugSurface } from './00a-quality.js';
+import { isDebugSurface, qosThresholds, qosVerdict, estimateRefreshHz } from './00a-quality.js';
+import { FIXED_STEP, planFixedSteps, maxStepsFor } from './00b-fixedstep.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
 import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL, enterBasic as preloadEnterBasic, assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
@@ -635,8 +636,8 @@ export function queueLongExposurePostcard(){
    也管不住移动端越跑越烫。这里加一层带**滞回**的服务质量控制：
 
    · 采样源：animate 里 stats 已经算好的真实 fps（用 rawDt 记账，不受 dt 钳制污染）；
-   · 降档：连续 6 个窗口（≈3s）fps < 45 → 降一档；
-     升档：连续 12 个窗口（≈6s）fps > 58 → 升一档（升档门槛比降档严得多，
+   · 降档：连续 6 个窗口（≈3s）fps < 目标×75% → 降一档；
+     升档：连续 12 个窗口（≈6s）fps > 目标×96.5% → 升一档（升档门槛比降档严得多，
            因为"偶尔一帧快"不代表稳定，宁可慢一点升）；
    · 每次变档后冷却 10 个窗口（≈5s）只采样不动作 —— 否则会在阈值附近来回抖；
    · 4 档：L0 初始 / L1 关 AO / L2 分辨率 ×0.85 + 阴影 2048 / L3 分辨率 ×0.72 + 阴影 1024；
@@ -646,6 +647,27 @@ export function queueLongExposurePostcard(){
    · 页签隐藏即停渲染（见 animate 顶部）：移动端长时间挂后台是发热与掉电主因。 */
 /* AA 的反向句柄：QOS 需要在改档时让 AA 归零，而 AA 定义在 QOS 之后。
    用可空变量而不是直接引用后面的 const（会撞 TDZ），也不靠 typeof（对 TDZ 无效）。 */
+/* 显示器刷新率（2026-10-31 · B3：QOS 阈值改相对值）。
+   加载页阶段（主循环未起）收 rAF 间隔：那时帧间隔就是屏幕/浏览器给的节拍 ——
+   30Hz 屏、低电量限帧在这里就是 30，后面不会被当成"GPU 吃力"。
+   主循环首帧（startAfterWarm）收口：估计交给 00a-quality.estimateRefreshHz（第 10 百分位，
+   暖机长帧不污染）；样本不足按 60。目标帧率 = min(刷新率, 60)，60Hz 下阈值恰为旧的 45/58。 */
+const REFRESH = { samples: [], last: 0, sampling: true, hz: 60, measured: false };
+function refreshSampler(ts){
+  if (!REFRESH.sampling) return;
+  if (REFRESH.last) REFRESH.samples.push((ts - REFRESH.last) / 1000);
+  REFRESH.last = ts;
+  if (REFRESH.samples.length < 240) requestAnimationFrame(refreshSampler);
+  else finishRefreshProbe();
+}
+requestAnimationFrame(refreshSampler);
+function finishRefreshProbe(){
+  if (!REFRESH.sampling) return REFRESH.hz;
+  REFRESH.sampling = false;
+  const hz = estimateRefreshHz(REFRESH.samples);
+  if (hz > 0){ REFRESH.hz = hz; REFRESH.measured = true; }
+  return REFRESH.hz;
+}
 let AA_HOOK = null;
 const QOS = (()=>{
   const P = ACTIVE_QUALITY;
@@ -717,8 +739,9 @@ const QOS = (()=>{
     if (!st.active) return;
     st.fps = fps;
     if (st.cool > 0){ st.cool--; return; }
-    if (fps < 45){ st.low++; st.high = 0; }
-    else if (fps > 58){ st.high++; st.low = 0; }
+    const v = qosVerdict(fps, qosThresholds(REFRESH.hz));   // 相对阈值：60Hz 下 = 旧 45/58
+    if (v === 'down'){ st.low++; st.high = 0; }
+    else if (v === 'up'){ st.high++; st.low = 0; }
     else { st.low = 0; st.high = 0; }
     if (st.low >= 6 && st.level < LEVELS.length - 1){
       apply(st.level + 1); st.low = 0; st.cool = 10; st.changes++;
@@ -736,7 +759,9 @@ const QOS = (()=>{
              pixelRatio:renderer.getPixelRatio(), pixelBudget:P.pixelBudget,
              presetShadow:P.shadow, presetAO:P.ao, shadow:sun.shadow.mapSize.width,
              ao:!!(gtaoPass && gtaoPass.enabled), software:SOFTWARE_GL,
-             probeDriven:PROBE_DRIVEN, immune:QOS_IMMUNE };
+             probeDriven:PROBE_DRIVEN, immune:QOS_IMMUNE,
+             refreshHz:REFRESH.hz, refreshMeasured:REFRESH.measured,
+             downFps:qosThresholds(REFRESH.hz).down, upFps:qosThresholds(REFRESH.hz).up };
   }
   const saved = (()=>{ if (GPU_TIER_FORCED) return 'auto'; try { return localStorage.getItem('garden.quality.v1') || 'auto'; } catch { return 'auto'; } })();
   setMode(saved);
@@ -929,18 +954,23 @@ if (document.hidden) pageHidden = true;      // 启动即在后台（如后台�
    否则切回标签页/断点调试后一帧补几百步会把相位、涟漪、鱼群一次性推穿。
    ⚠️ 渲染仍每帧一次（不插值）：本项目所有运动都是"按 dt 积分"，多帧补步与单帧大步
       在数学上等价，插值只会带来额外状态。 */
-const FIXED_DT = 1 / 60;
-const MAX_STEPS = 6;                 // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
-let simAccum = 0, simTime = 0, simSteps = 0;
+/* 2026-10-31 · B3 真固定步长：步数计算抽到 00b-fixedstep（纯函数，进 npm run unit）。
+   相对旧版的两处行为变化：
+   · 0.25 步吸附容差：60Hz 下 rAF 抖动不再造成"0 步 / 2 步"交替（旧版累加量差一点不到 1/60 就是 0 步）；
+   · 上限按"每帧最多 100ms 仿真"表述（= 6 步，与旧 MAX_STEPS 同值），超出部分丢弃并记账（simState().dropped）。
+   接口不变：stepSim(rawDt) 仍返回本帧推进秒数（整步 × FIXED_DT），simClock / simState 字段只增不减。 */
+const FIXED_DT = FIXED_STEP.dt;
+const MAX_STEPS = maxStepsFor(FIXED_STEP);   // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
+let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
 /** 推进仿真时钟；返回本帧实际推进的秒数（供风钟等读数同源）。
     ⚠️ 风钟也在这里推进：仿真与风**必须共用同一条时间线** —— 拆成两条时，
        任何一处漏调都会让"风在吹但相位不走"这类现象出现，且不报错。 */
 function stepSim(rawDt){
-  simAccum += Math.max(0, rawDt);
-  let advanced = 0, n = 0;
-  while (simAccum >= FIXED_DT && n < MAX_STEPS){ simAccum -= FIXED_DT; advanced += FIXED_DT; n++; }
-  if (n >= MAX_STEPS) simAccum = 0;   // 补步用尽：丢弃余量，宁可慢也不要雪崩
-  simTime += advanced; simSteps = n;
+  const plan = planFixedSteps(simAccum, rawDt, FIXED_STEP);
+  simAccum = plan.accum;
+  simDropped += plan.dropped;
+  const advanced = plan.steps * FIXED_DT;
+  simTime += advanced; simSteps = plan.steps;
   advanceWindClock(advanced);         // 走 2b-wind 的推进函数：导入绑定只读，不能就地 +=
   return advanced;
 }
@@ -1831,6 +1861,7 @@ async function warmBoot(){
 }
 
 function startAfterWarm(){
+  finishRefreshProbe();                  // 加载页阶段的刷新率测量到此收口（主循环帧会被长帧/负载污染）
   animate();
 
   // 首帧（暖机后第一帧几乎零编译）渲染完成后隐藏加载层
@@ -1954,7 +1985,8 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   /* 固定步长仿真（2026-09-25）：门禁要在**低帧率**下验证“仿真速度不膨胀”，
                      但无头浏览器很难稳定造出 20fps ⇒ 暴露纯函数让它直接按指定 dt 步进。 */
                   simClock: () => simTime, stepSim, windClockNow: () => windClock,
-                  simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS }),
+                  simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS,
+                                      snap: FIXED_STEP.snap, maxFrame: FIXED_STEP.maxFrame, dropped: simDropped }),
                   /* 涟漪容量：门禁要断言"暴雨+密集点击+鱼跃"不抢不到槽（2026-09-25 由 20 提到 64） */
                   rippleCapacity,
                   /* 渐进超采样（2026-09-26）：门禁要断言"静止升档/一动回落/性能档不上探/
