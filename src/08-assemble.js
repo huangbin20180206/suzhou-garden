@@ -117,9 +117,22 @@ export function runDeferredBoot(){
     try { job.fn(); } catch (e){ console.warn('[延迟装配] ' + job.label + ' 失败：', e && e.message); }
     spent += performance.now() - t;
     console.log('[启动分段·延迟] ' + job.label + ' ' + (performance.now() - t).toFixed(1) + 'ms');
-    setTimeout(step, 0);
+    next();
   };
-  setTimeout(step, 0);
+  /* 推进方式（2026-10-30 · visit-carriage-guard bootDone 不兑现）：原来只靠 setTimeout(step,0)。
+     实测（沙箱 SwiftShader，一帧 1～3s）：渲染循环的 rAF 帧首尾相接时，Chromium 调度器优先跑帧，
+     普通优先级的定时器任务被饿住 —— 一个 2ms 的 job 要隔 15～90 秒、几十帧才轮到一次，
+     且只在有外部任务（CDP evaluate）插进来时才"顺带"跑掉；25 批跑不完 900s。c58c3ca 同样如此
+     （与本轮改动无关，属既有缺陷）。改为 rAF + setTimeout 双保险、谁先到谁跑（令牌去重）：
+     · 前台：rAF 每帧必到 ⇒ 严格"每帧一个 job"，不再被饿；
+     · 后台标签页 rAF 暂停：setTimeout 仍会（节流地）推进，不会卡死在后台。 */
+  function next(){
+    let fired = false;
+    const go = () => { if (fired) return; fired = true; step(); };
+    requestAnimationFrame(go);
+    setTimeout(go, 0);
+  }
+  next();
 }
 
 world.add(rippleInst);                       // 涟漪池的挂载点（见上方 RIPPLE_STATE 定义）
