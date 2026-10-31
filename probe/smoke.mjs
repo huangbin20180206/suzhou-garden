@@ -146,6 +146,10 @@ const settled = async page => {
    ⇒ 6s 在慢机上够不够，取决于那之后有几帧可用，不是由节拍本身决定；
      统一抬到 12s（留 20 帧以上）即可覆盖，仍是**只改等多久、test() 一字未动**。 */
 const STATS_BUDGET = 12000;
+/* 启动等待（2026-10-31）：真 GPU 下首帧 <45s；沙箱 SwiftShader 2 核首帧要 ~125s、
+   bootDone ~380s ⇒ 45s 必然假红（门禁超时，不是产品慢到不可用）。
+   默认值不变，慢机用 GARDEN_BOOT_MS 放大；只改等多久，判据一字不动。 */
+const BOOT_WAIT_MS = Math.max(45000, +process.env.GARDEN_BOOT_MS || 0);
 async function waitStats(page, test, ms = STATS_BUDGET){
   const read = () => page.evaluate(() => (document.getElementById('stats') || {}).textContent || '');
   const t0 = Date.now();
@@ -193,7 +197,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   console.log('[source] HTTP=' + response.status() + ' matchesDisk=' + (await response.body()).equals(fs.readFileSync(path.join(ROOT, 'index.html'))));
   const booted = await page.waitForFunction(
     () => window.__garden && document.getElementById('loading').classList.contains('done'),
-    undefined, { timeout: 45000 }).then(() => true).catch(e => { console.log('[boot-wait] ' + e.message); return false; });
+    undefined, { timeout: BOOT_WAIT_MS }).then(() => true).catch(e => { console.log('[boot-wait] ' + e.message); return false; });
   check('页面启动完成（loading 层收起，__garden 就绪）', booted);
   if (!booted) {
     for (const m of consoleMsgs) console.log('[boot-console] ' + m.type + ': ' + m.text);
@@ -262,7 +266,7 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
     });
     return Object.values(names).every(n => n > 0) && window.__garden.ENV
       ? names : false;
-  }, null, { timeout: 40000 }).then(v => v.jsonValue?.() ?? v).catch(() => null);
+  }, null, { timeout: Math.max(40000, BOOT_WAIT_MS) }).then(v => v.jsonValue?.() ?? v).catch(() => null);
   /* ⚠️ **先断言前提，再判对错**（项目老教训：判据必须先断言前提）。
      「五类 GLB 均已挂载」这条在**降级态**下天然为假：required:false 的项失败后
      走程序化替身（芭蕉叶片），场景里出现的是 `banana-leaf` 冠层而不是名字里

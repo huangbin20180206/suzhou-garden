@@ -66,8 +66,10 @@ const check = (name, ok, detail = '') => {
 
   // 马车版是默认到访模式（?visit=walk 才是旧步行版）
   await page.goto(`http://127.0.0.1:${port}/index.html?tier=low&intro=0`, { waitUntil: 'commit', timeout: 180000 });
+  /* 2026-10-31：polling 500 → 'raf'。数字轮询走页内 setTimeout，沙箱 SwiftShader 下 rAF 帧首尾相接，
+     普通定时器被饿住（与 runDeferredBoot 改双保险同一病因）；'raf' 每帧必判。只改等法，判据不动。 */
   await page.waitForFunction(() => !!window.__garden && window.__garden.bootDone(), null,
-    { timeout: 900000, polling: 500 });
+    { timeout: 900000, polling: 'raf' });
   await page.waitForFunction(() => {
     const G = window.__garden;
     if (!G || !G.actorVisit || !G.actorState || !G.stableTravel || !G.stableTravel()) return false;
@@ -75,7 +77,7 @@ const check = (name, ok, detail = '') => {
        而 VISIT 里的角色 id 才是导演层的事。直接问产品"客人/马夫/主人在不在"。 */
     const v = G.actorVisit();
     return !!(v && v.guest && v.coach && v.host);
-  }, null, { timeout: 900000, polling: 500 });
+  }, null, { timeout: 900000, polling: 'raf' });
 
   const r = await page.evaluate(({ STEP, MAX_STEPS }) => {
     const G = window.__garden;
