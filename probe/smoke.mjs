@@ -338,6 +338,9 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
 
   // ── 5. 环境轴切换与过渡 ──
   await page.evaluate(() => { window.__garden.ENV.dur = 0.25; });   // 探针加速过渡（见 settled 注释）
+  /* 2026-10-31：真实月相合入后，夏季代表日 2027-07-10 是蛾眉月、21:30 月高仅 1.9° ⇒ 下面两条按"满月夜"写的
+     月亮判据必须钉住月相 0.5（望）才是在量它们原本要量的东西（月可见、月光接管主光）。判据阈值不动。 */
+  await page.evaluate(() => { window.__garden.ENV.moonPhase = 0.5; });
   await page.evaluate(() => window.__garden.setEnv('time', 'night'));
   check('切夜：过渡完成（ENV.t 收敛）', await settled(page));
   const nightStats = await waitStats(page, t => t.includes('夜'));

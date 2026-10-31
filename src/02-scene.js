@@ -636,7 +636,9 @@ function envBakeScene(preset){
   return { es, s, g };
 }
 function bakeEnvFor(preset){
-  const key = preset && preset.key ? preset.key : 'default';
+  /* 开机那张（preset=null）用的就是午时段晴天参数 ⇒ 直接记成 noon|clear（12-env syncEnvMap 的键格式），
+     免得启动后第一次 syncEnvMap 再按同参数重烘一张（2026-10-31 pmrem 门实测多烘 1 次）。 */
+  const key = preset && preset.key ? preset.key : 'noon|clear';
   const hit = ENV_BAKE.cache.get(key);
   if (hit) return hit;
   if (!ENV_BAKE.pmrem) ENV_BAKE.pmrem = new THREE.PMREMGenerator(renderer);

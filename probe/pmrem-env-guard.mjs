@@ -32,39 +32,31 @@ const check=(name,ok,detail='')=>{results.push({name,ok});console.log(`  ${ok?'�
   await page.waitForFunction(()=>window.__garden&&document.getElementById('loading').classList.contains('done'));
   await page.evaluate(async()=>{await window.__garden.bootDonePromise;});
 
+  /* 2026-10-31 改口径（产品侧改了缓存键，见 src/12-env.js syncEnvMap 注释）：
+     键 = 「时段|天气大类」（clear / clear+snow / overcast / snow），且**过渡落地那一帧**才烘焙/切换。
+     所以每次 setEnv 之后要先等 ENV.t>=1 再读；开机那张直接用 noon|clear 键（02-scene bakeEnvFor），
+     切回午时段因此是缓存命中（旧口径要多烘一张 noon 键）。判据意图不变：新键烘一次、旧键不重烘、季节不触发。 */
+  await page.evaluate(()=>{ window.__garden.ENV.dur = 0.25; });
+  const settle = ()=>page.waitForFunction(()=>window.__garden.ENV.t>=1, null, {polling:'raf'});
+  const go = async (k,v)=>{ await page.evaluate(([k,v])=>window.__garden.setEnv(k,v),[k,v]); await settle();
+                            return page.evaluate(()=>window.__garden.envBakeState()); };
   const baked = await page.evaluate(()=>window.__garden.envBakeState());
-  check('启动时烘焙 1 张（default 键，noon 参数）', baked.builds===1 && baked.cached.length===1, JSON.stringify(baked));
+  check('启动时烘焙 1 张（noon|clear 键）', baked.builds===1 && baked.cached.length===1 && baked.cached[0]==='noon|clear', JSON.stringify(baked));
 
-  /* 启动时 ENV.time=noon；setEnv('time','noon') 会因 early-return 不触发烘焙。
-     这是正确行为：同一时段切回自己不需要换贴图。
-     所以第一张烘的 default 键就已经覆盖了 noon；后续 night/dusk 才会真正烘焙新键。 */
-  await page.evaluate(()=>{ window.__garden.setEnv('time','night'); });
-  const s2 = await page.evaluate(()=>window.__garden.envBakeState());
-  const envNight = await page.evaluate(()=>window.__garden.scene.environment?.uuid);
-  check('切夜时烘焙第 2 张（缓存键 night）', s2.builds===2 && s2.cached.includes('night'), JSON.stringify(s2));
-
-  await page.evaluate(()=>{ window.__garden.setEnv('time','dusk'); });
-  const s3 = await page.evaluate(()=>window.__garden.envBakeState());
-  check('切暮时烘焙第 3 张（缓存键 dusk）', s3.builds===3 && s3.cached.includes('dusk'), JSON.stringify(s3));
-
-  // 切回已缓存的夜时段：不应新增烘焙
-  await page.evaluate(()=>{ window.__garden.setEnv('time','night'); });
-  const s4 = await page.evaluate(()=>window.__garden.envBakeState());
+  const s2 = await go('time','night');
+  check('切夜时烘焙第 2 张（缓存键 night|clear）', s2.builds===2 && s2.cached.includes('night|clear'), JSON.stringify(s2));
+  const s3 = await go('time','dusk');
+  check('切暮时烘焙第 3 张（缓存键 dusk|clear）', s3.builds===3 && s3.cached.includes('dusk|clear'), JSON.stringify(s3));
+  const s4 = await go('time','night');
   check('切回夜时段（已缓存）不增加烘焙', s4.builds===3, JSON.stringify(s4));
-
-  // 切回 noon（无专属键但 default 键参数相同）：烘焙 1 次新键（首次），之后再切不新增
-  await page.evaluate(()=>{ window.__garden.setEnv('time','noon'); });
-  const s5 = await page.evaluate(()=>window.__garden.envBakeState());
-  check('切回午时段（首次用 noon 键烘，default 参数相同但新键）', s5.builds===4, JSON.stringify(s5));
-
-  await page.evaluate(()=>{ window.__garden.setEnv('time','noon'); });
-  const s6 = await page.evaluate(()=>window.__garden.envBakeState());
-  check('再切午时段（已缓存）不增加烘焙', s6.builds===4, JSON.stringify(s6));
-
-  // 切季节/天气不触发烘焙
-  await page.evaluate(()=>{ window.__garden.setEnv('season','spring'); window.__garden.setEnv('weather','storm'); });
-  const s7 = await page.evaluate(()=>window.__garden.envBakeState());
-  check('切季节/天气不触发烘焙（稳态零重烘）', s7.builds===4, JSON.stringify(s7));
+  const s5 = await go('time','noon');
+  check('切回午时段（开机那张即 noon|clear）不增加烘焙', s5.builds===3, JSON.stringify(s5));
+  const s6 = await go('season','spring');
+  check('切季节不触发烘焙', s6.builds===3, JSON.stringify(s6));
+  const s7 = await go('weather','storm');
+  check('切到阴雨大类：烘焙 1 张 noon|overcast', s7.builds===4 && s7.cached.includes('noon|overcast'), JSON.stringify(s7));
+  const s8 = await go('weather','drizzle');
+  check('同大类换天气（暴雨→细雨）不增加烘焙', s8.builds===4, JSON.stringify(s8));
 
   check('零 pageerror / console error', errs.length===0, errs.slice(0,2).join(' | '));
   await browser.close(); server.close();
