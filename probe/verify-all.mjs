@@ -25,9 +25,9 @@
 //  引用内联模块专有名字）在浏览器里表现为"页面加载即炸"或更坏的**静默**（见下），
 //  能在这一步拦住就没必要等 7 分钟。
 //  · codeonly-unit 钉住 `_codeonly.mjs` 的"什么算引用"契约 —— 它判宽=假红、判窄=假绿，两个方向都静默。
-//  · import-audit 四条判据：①内联→src 漏 import ②src→src 漏 import
+//  · import-audit 判据：①入口 src/main.js（原 index.html 内联主模块）→src 漏 import ②src→src 漏 import
 //    ③给 import 进来的绑定赋值（导入绑定只读 → Assignment to constant variable）
-//    ④src 引用内联模块专有的名字（src 里没有该绑定 → ReferenceError）。
+//    ④src 引用入口专有的名字（别的模块里没有该绑定 → ReferenceError）⑤import 的名字对面必须真导出。
 //    ⚠️ ④ 抓到过一个**静默**事故：06-vegetation 读内联的 `$解码器`，而它是在 `new Promise` 的
 //    executor 里抛、被下游 `.catch(()=>{})` 吞掉 → 三类 GLB 资产永远挂不上，零告警、零失败计数，
 //    只有 smoke 的「四类 GLB 资产均已挂载」看得见。
@@ -131,6 +131,12 @@ const SUITES = [
      （冬夏至日落与正午高度、中秋望 / 除夕朔）。node:test，零浏览器，<0.2s。 */
   ['花历单测 env-phenology-unit', 'probe/env-phenology-unit.mjs'],
   ['日轨月相单测 env-solar-unit', 'probe/env-solar-unit.mjs'],
+  /* 固定步长 / 到访重播单测（2026-10-31 登记）：fixed-step-unit 守 00b-fixedstep 的 planFixedSteps
+     （11-loop stepSim 的纯函数内核，<0.1s）；actor-replay-unit 用 probe/_actor-sim 重跑到访整场、
+     与入库基线逐帧比对（马车 / 步行 / 礼仪三段，纯 node 不起浏览器，三进程并行约 13~50s）。
+     两者早已在 npm run unit 里，但不在本链上 ⇒ npm run verify 看不见它们。 */
+  ['固定步长单测 fixed-step-unit', 'probe/fixed-step-unit.mjs'],
+  ['到访重播单测 actor-replay-unit', 'probe/actor-replay-unit.mjs'],
   /* vendor 新鲜度 vendor-fresh（2026-10-15）：vendor.js 入库但为构建产物，
      build-entry.js/依赖版本变而 vendor 未重打时红。修：build + --record。 */
   ['构建物新鲜度 vendor-fresh', 'probe/vendor-fresh.mjs'],
@@ -654,6 +660,8 @@ const QUICK = new Set([
   'probe/check.mjs', 'probe/codeonly-unit.mjs', 'probe/import-audit.mjs',
   'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
   'probe/env-phenology-unit.mjs', 'probe/env-solar-unit.mjs',   // 纯 node 单测 <0.2s
+  'probe/fixed-step-unit.mjs',         // 纯 node 单测 <0.1s
+  'probe/actor-replay-unit.mjs',       // 纯 node 重播回归网，三进程并行 ~13~50s（仍在 quick 的 ≤1 分钟线内）
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
   'probe/figure-foot-guard.mjs',       // 纯射线 ~17s + 零覆盖的缺陷类（人物陷进台基/走在水上）

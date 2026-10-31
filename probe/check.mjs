@@ -1,26 +1,34 @@
-// 语法门禁：抽取 index.html 的内联 <script type="module"> 存成临时 .mjs，
-// 用 node --check 做纯解析校验（不执行、不需要浏览器），一秒内出结果。
-// 顺带校验 build-entry.js。npm run check。
+// 语法门禁：页面唯一模块入口 src/main.js + 全部 src/*.js + build-entry.js + sw.js
+// 用 node --check 做纯解析校验（不执行、不需要浏览器），一秒内出结果。npm run check。
+// 2026-10-31：index.html 的内联 <script type="module"> 已迁到 src/main.js —— 本门改为
+//   ① 断言 index.html **只有一行**外链入口 `<script type="module" src="./src/main.js">`、不再有内联模块
+//     （有人把主模块搬回内联 / 漏改入口路径 ⇒ 整页停在加载页，node 侧此前无门可见）；
+//   ② main.js 作为普通 src 模块走下面的 --check 与 no-undef。
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
+const ENTRY = 'src/main.js';
 
-const m = html.match(/<script type="module">([\s\S]*?)<\/script>/);
-if (!m) { console.error('check: 未找到内联 module script'); process.exit(1); }
-
-const tmp = path.join(os.tmpdir(), 'suzhou-garden-inline-check.mjs');
-fs.writeFileSync(tmp, m[1]);
 try {
-  execFileSync(process.execPath, ['--check', tmp], { stdio: 'pipe' });
+  {
+    const modTags = [...html.matchAll(/<script\b[^>]*\btype=["']module["'][^>]*>([\s\S]*?)<\/script>/g)];
+    const inline = modTags.filter(t => t[1].trim() !== '');
+    if (inline.length) throw new Error(`index.html 里还有 ${inline.length} 段内联 <script type="module">（主模块已迁到 ${ENTRY}，入口只许一行外链）`);
+    const entryTags = modTags.filter(t => /\bsrc=["']\.\/src\/main\.js["']/.test(t[0]));
+    if (modTags.length !== 1 || entryTags.length !== 1)
+      throw new Error(`index.html 必须恰好一个 module 入口 <script type="module" src="./${ENTRY}">，实际 ${modTags.length} 个 module script`
+        + `（${modTags.map(t => t[0].slice(0, t[0].indexOf('>') + 1)).join(' · ') || '无'}）`);
+    if (!fs.existsSync(path.join(ROOT, ENTRY))) throw new Error(`入口 ${ENTRY} 不存在`);
+    console.log(`      入口：index.html → <script type="module" src="./${ENTRY}">（唯一 module script，无内联）✓`);
+  }
   execFileSync(process.execPath, ['--check', path.join(ROOT, 'build-entry.js')], { stdio: 'pipe' });
-  /* ⚠️ 必须顺带 check src/*.js：内联脚本是**独立解析**的，它 import 的模块语法坏掉
-     这里看不出来（--check 不解析依赖）。而拆模块的流程恰恰是"每节搬完立刻跑 check"——
-     不覆盖 src 的话，这一步对一个搬残的模块完全瞎，只能等浏览器跑到才炸。 */
+  /* ⚠️ 必须逐个 check src/*.js（含入口 main.js）：--check 不解析依赖，入口语法 OK 不代表它 import 的
+     模块也 OK。拆模块的流程恰恰是"每节搬完立刻跑 check"—— 不逐个覆盖的话，
+     这一步对一个搬残的模块完全瞎，只能等浏览器跑到才炸。 */
   const srcFiles = fs.readdirSync(path.join(ROOT, 'src')).filter(f => f.endsWith('.js')).sort();
   for (const f of srcFiles) execFileSync(process.execPath, ['--check', path.join(ROOT, 'src', f)], { stdio: 'pipe' });
   /* ── PWA 缓存版本门禁（2026-09-23 · sw.js 纳入白名单时一并加）──
@@ -104,8 +112,8 @@ try {
      53 道浏览器门禁也全绿，只有那个动作消失。本层用 ESLint no-undef 做**真·作用域分析**：
      裸用未定义标识符（忘 import 的模块名 / 写错的变量名 / 给未声明变量赋值）在此报红，
      它们运行期要么 ReferenceError、要么产 NaN 被 `||0` 之类静默吞掉 —— 两样都看不见。
-     范围：src/*.js + index.html 内联主模块（lintText 以虚拟文件名 index-inline.mjs 喂入，
-     flat config 里有对应 files 条目）+ build-entry.js + sw.js。配置：eslint.config.mjs。
+     范围：src/*.js（含页面入口 src/main.js，2026-10-31 前它是 index.html 内联主模块、靠 lintText 喂虚拟文件）
+     + build-entry.js + sw.js。配置：eslint.config.mjs。
      ⚠️ 边界（如实声明）：**属性链上的拼写**（`b.peen` 是属性访问）不归本层管 ——
      no-undef 只判"标识符是否声明过"，不判"对象的属性存不存在"；那要另做
      "对象自身属性名校验"才抓得住，本层不装能抓。
@@ -119,7 +127,6 @@ try {
     }
     const eslint = new ESLint({ cwd: ROOT });
     const results = await eslint.lintFiles([...srcFiles.map(f => 'src/' + f), 'build-entry.js', 'sw.js']);
-    results.push(...await eslint.lintText(m[1], { filePath: 'index-inline.mjs' }));
     const relOf = p => path.isAbsolute(p) ? path.relative(ROOT, p) : p;
     const bad = [];
     for (const r of results) for (const msg of r.messages)
@@ -127,7 +134,7 @@ try {
     if (bad.length) {
       throw new Error(`no-undef：${bad.length} 处裸用未定义标识符（多为忘 import / 写错变量名，页面加载或运行期必炸，或被 ||0 之类静默吞掉）：\n` + bad.join('\n'));
     }
-    console.log(`      no-undef：${results.length} 个编译单元（src ${srcFiles.length} + 内联主模块 + build-entry.js + sw.js）无未定义标识符 ✓`);
+    console.log(`      no-undef：${results.length} 个编译单元（src ${srcFiles.length}（含入口 main.js）+ build-entry.js + sw.js）无未定义标识符 ✓`);
   }
   /* ── 文本编码门禁（必须 UTF-8 · 2026-10-24）──────────────────────────────────
      病因（eca0993 实录）：docs/guest-visit-choreography.md 前 191 行是 UTF-8，
@@ -163,11 +170,9 @@ try {
     }
     console.log(`      编码：${scanned} 个文本文件均为 UTF-8 ✓`);
   }
-  const lines = m[1].split('\n').length;
-  console.log(`check: PASS（内联模块 ${lines} 行 + build-entry.js + src ${srcFiles.length} 个模块：${srcFiles.join(', ')}）`);
+  const lines = fs.readFileSync(path.join(ROOT, ENTRY), 'utf8').split('\n').length;
+  console.log(`check: PASS（入口 ${ENTRY} ${lines} 行 + build-entry.js + src ${srcFiles.length} 个模块：${srcFiles.join(', ')}）`);
 } catch (e) {
   console.error('check: FAIL\n' + (e.stderr || e.message));
   process.exit(1);
-} finally {
-  fs.rmSync(tmp, { force: true });
 }

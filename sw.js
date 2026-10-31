@@ -16,7 +16,7 @@
       · **不用 bump**：**代码类**（`index.html` / `src/*.js` / `vendor.js` / `manifest.webmanifest`）
         —— 它们走上面那条 network-first、改了即所见；`probe/check.mjs:62` 的
         `/\.(js|mjs|html|webmanifest)$/` 也把它们**显式排除**在 bump 判据之外，门禁真值就是"代码类不必 bump"。
-      ⚠️ 反过来对代码类误 bump 有代价：`src/*.js` **不在 SHELL 预缓存清单**、只由运行期写进带版本号的
+      ⚠️ 反过来对代码类误 bump 有代价：`src/*.js`（入口 `src/main.js` 除外，2026-10-31 起它在 SHELL）**不在 SHELL 预缓存清单**、只由运行期写进带版本号的
         `CACHE`，升版会把它们连桶删掉、须等下一次在线加载才补回（离线可用性短暂退化，见
         `probe/pwa-cache.mjs` 的"在线预热"注释）。 */
 /* 2026-09-28 活雾批次 bump v4→v5：本轮改了 SHELL 成员 index.html（天气按钮）与 src/*.js
@@ -118,7 +118,11 @@
    + install 不再下载 GLB（改由页面预载结算后发 precache-assets 回填）。旧版导航分支可能已把 404/500 页
    存成 ./index.html ⇒ 升 CACHE 整桶换掉。ASSET_CACHE 不升：本批没有任何模型文件变化（资产桶内容仍有效）。
    GLBS 改由 tools/gen-asset-manifest.mjs 从 assets/manifest.json 生成。 */
-const CACHE = 'suzhou-garden-v44';
+/* 2026-10-31 bump v44→v45：index.html 的内联主模块迁到 src/main.js（页面唯一模块入口），
+   SHELL 新增 './src/main.js' —— SHELL 清单变了 ⇒ 升 CACHE 让已装 SW 按新清单重装应用壳。
+   入口进预缓存：离线时 index.html 拿得到、入口也拿得到（其余 src/*.js 仍走运行期缓存，口径不变，
+   见 probe/pwa-cache.mjs 的"在线预热"注释）。ASSET_CACHE 不升：本批没有模型文件变化。 */
+const CACHE = 'suzhou-garden-v45';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
@@ -126,6 +130,7 @@ const ASSET_CACHE = 'suzhou-garden-assets-v23';  // 2026-10-30 资产压缩批�
 const SHELL = [
   './',
   './index.html',
+  './src/main.js',          // 页面唯一模块入口（2026-10-31 由 index.html 内联主模块迁出）；network-first，改它不用 bump
   './manifest.webmanifest',
   './icons/garden.svg',
   './vendor.js',

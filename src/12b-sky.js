@@ -3,7 +3,7 @@
    时段/季节/天气状态机、灯笼、上元灯会、环境面板 UI 是两件事。混在一起时 12-env 逼近 3900 行，
    改一处很难看清周围还有什么（本项目多数低级事故都出在这里）。
    ⚠️ 本文件**绝不能** import './12-env.js' —— 12-env 反过来 import 本文件，成环 = 启动期 TDZ，
-   项目已有多起同类前科（见 index.html 内联主模块顶部、00-config 的 HOOKS / ENV_REF 注释）。
+   项目已有多起同类前科（见 src/main.js（原 index.html 内联主模块）顶部、00-config 的 HOOKS / ENV_REF 注释）。
    但这里的 tick 是**在函数体里读环境状态**（ENV.weather / ENV.cur），所以走「破环插槽」：
    模块内 let ENV 占位 + 12-env 在自己 body 里调 bindSkyEnv(ENV) 注入（与 00-config 的
    ENV_REF 同一族做法）。注入点早于 11-loop 的 animate；若没注入，读到的就是 null ⇒ 立刻崩，

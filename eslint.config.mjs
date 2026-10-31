@@ -73,11 +73,11 @@ export default [
     ],
   },
   {
-    /* 应用代码（ESM）：src 模块 + 打包入口 + index.html 内联主模块。
-       内联主模块是 check.mjs 用 lintText 以虚拟文件名 index-inline.mjs 喂进来的，
-       磁盘上不存在 —— 手动跑 `npx eslint .` 时自然只会扫到磁盘文件。 */
+    /* 应用代码（ESM）：src 模块（含页面唯一入口 src/main.js）+ 打包入口。
+       2026-10-31 起 index.html 不再有内联主模块（已迁到 src/main.js），
+       不再需要 check.mjs 用 lintText 喂虚拟文件 index-inline.mjs —— 入口就是磁盘文件，`npx eslint .` 也扫得到。 */
     name: 'suzhou-garden/no-undef (app, ESM)',
-    files: ['src/**/*.js', 'build-entry.js', 'index-inline.mjs'],
+    files: ['src/**/*.js', 'build-entry.js'],
     languageOptions: {
       ecmaVersion: 'latest',
       sourceType: 'module',
@@ -89,11 +89,12 @@ export default [
     /* 未使用变量（2026-10-24 审核补）：马车到访里同时出现三个死变量 ——
        `k` 算了不用、`S.t = S.s` 把自己的计时覆盖掉、`S.dist` 写了没人读。
        no-undef 只判"名字有没有声明"，这类残留它一路放行 ⇒ 补这一条。
-       ⚠️ 只作用于 src 模块与打包入口，**不含 index.html 的内联主模块**：
-       那份脚本的主要职责就是把各模块导出**挂到 window.__garden**（调试点），
-       所以它存在大量"import 了但本文件不直接调用"的名字 —— 那是设计，不是死代码。 */
+       ⚠️ 只作用于 src 模块与打包入口，**不含页面入口 src/main.js**（原 index.html 内联主模块）：
+       它的具名导入清单是为**钉住模块求值顺序**、并让 ESM 链接期校验导出名而列的，
+       存在大量"import 了但本文件不直接调用"的名字 —— 那是设计，不是死代码。 */
     name: 'suzhou-garden/no-unused-vars (app modules)',
     files: ['src/**/*.js', 'build-entry.js'],
+    ignores: ['src/main.js'],
     rules: {
       'no-unused-vars': ['error', { args: 'none',
                                     varsIgnorePattern: '^_', caughtErrors: 'none',

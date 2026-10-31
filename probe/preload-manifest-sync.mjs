@@ -72,7 +72,8 @@ function audit({ manifest, preloadBlock, swBlock, shell, diskFiles, disk, wiredS
   }
   ck('G4 bytes / sha256：清单 = 磁盘实测', bad.length === 0, bad.length ? bad.join('；') : `${manifest.assets.length} 件全部吻合`);
 
-  const REQUIRED_SHELL = ['index.html', 'manifest.webmanifest', 'vendor.js', 'icons/garden.svg', 'docs/cover.jpg'];
+  /* 2026-10-31：src/main.js 是页面唯一模块入口（原 index.html 内联主模块），离线时缺它 = index.html 拿到了也起不来 */
+  const REQUIRED_SHELL = ['index.html', 'src/main.js', 'manifest.webmanifest', 'vendor.js', 'icons/garden.svg', 'docs/cover.jpg'];
   const missShell = REQUIRED_SHELL.filter(u => !shell.includes(u));
   ck('G5 SHELL：应用壳必需成员齐全', missShell.length === 0,
      missShell.length ? `SHELL 缺：${missShell.join('、')}` : `${REQUIRED_SHELL.length} 件齐全（SHELL 共 ${shell.length} 项）`);
