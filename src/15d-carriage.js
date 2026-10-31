@@ -10,6 +10,7 @@ import { mesh, box } from './03-factory.js';
 import { prRange } from './15a-shared.js';
 import { mulberry32 } from './00-config.js';
 import { MAT } from './01-materials.js';
+import { markArtLicense } from './art-license.js';
 export function mergeLocalMeshes(container, inv, accept){
   const list = [];
   container.traverse(o => { if (o.isMesh && o !== container && accept(o)) list.push(o); });
@@ -551,6 +552,7 @@ export function makeCarriage(opts = {}){
     }
   }
   g.userData.carriage = true;
+  markArtLicense(g, 'carriage');      // 写意艺术处理：西式双轮马车（见 art-license.js；只写 userData）
   return g;
 }
 

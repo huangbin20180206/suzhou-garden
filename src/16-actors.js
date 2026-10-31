@@ -33,6 +33,7 @@ import { STABLE_ROAD_PTS, stableTravel, travelCarriagePlace, travelCarriagePark,
    WALK_ROUTE 由 08d-tour 发布进 HOOKS.walkRoute。 */
 import { HOOKS, ENV_REF } from './00-config.js';
 import { createGLTFLoaderWithDecoders } from './06e-assets.js';
+import { markArtLicense } from './art-license.js';
 import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ } from './16a-actor-props.js';
 
 const ACTORS = [];
@@ -2120,6 +2121,8 @@ const GUEST_ALIGHT = [[41.20, 4.20], [41.50, 5.40], [40.90, 6.60], [39.80, 8.60]
 function tickCarriage(dt){
   const V = stableTravel();
   if (!V) return;
+  /* 写意艺术处理：到访马车（= 马厩 TRAVEL.car）。到访导演层接手时落一次标（只写 userData，幂等） */
+  if (V.car && V.car.userData && V.car.userData.artLicenseId !== 'carriage') markArtLicense(V.car, 'carriage');
   const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId);
   if (!guest || !coach) return;
   const S = VISCAR;

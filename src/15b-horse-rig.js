@@ -8,6 +8,7 @@
 import { THREE, mergeGeometries } from '../vendor.js';
 import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 import { mulberry32 } from './00-config.js';
+import { markArtLicense } from './art-license.js';
 /* ── 真马模型（2026-10-10 · 老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行，
       然后再帮我绘制几种典型的马的颜色"）─────────────────────────────────────────
    资产来路（全部记在案，便于复核/换源）：
@@ -56,6 +57,9 @@ export const HORSE_TOTAL_H = 1.75;
    ⚠️ three.js 的 GLTFLoader 会把节点名里的 `.` 去掉（DEF-neck.001 → DEF-neck001），
       骨骼名一律按**去掉点号**的写法取（见 tinker-bones.mjs 的实测名单）。 */
 export const TINKER_GLB = 'assets/HorseTinker.glb';
+/* 写意艺术处理：Tinker 回退马（BlenderKit 低模，吉普赛挽马/品种不明，非明清江南马种）——
+   15c 的 Tinker 路径每匹 parse 出 gltf.scene 后调用（只写 userData，见 art-license.js 'foreignHorse'）。 */
+export function markTinkerHorse(root){ return markArtLicense(root, 'foreignHorse'); }
 /* ══ 驱动骨**真值表**（2026-10-19 · probe/_tmp-horse-diag6/diag8.mjs 逐骨实测）═════
    ⚠️⚠️ 上一版是按"DEF-* 命名"猜的，结果**六项动作里只有摇尾/抬蹄真的动了**，
    其余四项（低头吃草/撅嘴嚼/抬头晃头/抖鬃毛）打的是**另一条链** ⇒ 完全空转，
