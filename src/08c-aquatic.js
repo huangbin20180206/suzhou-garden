@@ -29,6 +29,8 @@ import { makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGe
 import { onAssetAttached } from './12-env.js';
 import {setSmallBirdMesh, N_GRASS_BIRD, perchRnd, perchingDragonflies, DF_PATROL, geese, gRnd, GN, gooseSlot, GOOSE, gooseStartWave, updateGooseFlock, smallBirds, smallBirdMeshRef, bRnd, BIRD_PALETTE, ROCK_BIRD_PALETTE, ROCK_SPOTS, GRASS_SPOTS, N_ROCK_BIRD, BIRD_CAP, BIRD_FOOT_LIFT, birdState, updateSmallBirds} from './08e-birds.js';
 import { MACAW_SPOTS, MACAWS, MACAW_COUNT, MACAW_WING, macawWantPerch, updateMacaws, macawSpots, macawState } from './08f-macaw.js';
+/* 写意艺术处理登记（金刚鹦鹉：展示保留、标注为艺术处理，替代候选见 src/art-license.js） */
+import { markArtLicense } from './art-license.js';
 
 export let koiGroup;   // W3 上提：初值吃全局流，赋值见 buildAquatic()
 
@@ -725,6 +727,7 @@ loadAssetOnce('assets/Macaw.glb', 0.50, (src) => {
        ⚠️ Group 不参与 mergeStatics（它只吃 Mesh），且鹦鹉是**迟到资产**、
           attach 发生在合并之后 ⇒ 加名字不会改变任何几何合并行为。 */
     holder.name = 'Macaw';
+    markArtLicense(holder, 'macaw');            // userData.artLicense = '写意艺术处理：……'（不影响几何/动作）
     holder.position.set(s[0], s[1], s[2]);
     /* ⚠️ 第十五轮：2.4 时三只**背对默认机位**（8× 放大图里只看到后背，读不出"鹦鹉"）。
        改 2.4+π≈5.54 后正对机位，红头/白脸/绿蓝翅都读得出来 —— 对照

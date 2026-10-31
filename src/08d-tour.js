@@ -7,6 +7,8 @@ import { world, camera, controls, renderer, CAM_MIN_DIST, CAM_HOME, PROBE_DRIVEN
 import { groundHeight } from './05-water.js';
 import { envEl } from './12-env.js';
 import { artisticNoteFor } from './16b-artistic-note.js';
+/* 景点显示名（机位按钮/字幕）集中在 03a-names，主堂/凉亭改名只改那一处 */
+import { SITE_NAMES as SN, SITE_LABELS } from './03a-names.js';
 
 /* ══ 巡游观鱼者的闭合步行路径（2026-10-06 · 老黄反馈 B）═════════════════════════
    老黄："巡游观鱼的主人身体倾斜也很厉害 ⇒ 收小倾斜，让他沿『草皮 → 池岸 → 汀步/拱桥
@@ -369,7 +371,7 @@ export function buildViewpoints(heroPos){
   camY = Math.max(camY, 2.75);
   aimY = Math.max(aimY, 1.70);
   return [
-    { id:'hero', label:'立峰·云根',
+    { id:'hero', label:SITE_LABELS.heroVp,
       pos: new THREE.Vector3(hp.x - out.x * dist + side.x * dist * 0.20, camY,
                              hp.z - out.z * dist + side.z * dist * 0.20),
       target: new THREE.Vector3(hp.x, aimY, hp.z) },
@@ -377,13 +379,13 @@ export function buildViewpoints(heroPos){
        （与立峰机位同源的"反算不写死"原则，见 heroStones 末尾那段）。
        这里先给一个同侧兜底值：机位从第一帧起就存在，选择器/巡游不会取到空。
        minDist 必须显式放开 —— 字心前 2.8m 远小于默认下限 9m，不放就会被弹回去。 */
-    { id:'stele', label:'云根近观',
+    { id:'stele', label:SITE_LABELS.steleVp,
       pos: new THREE.Vector3(hp.x - out.x * 6, 1.6, hp.z - out.z * 6),
       target: new THREE.Vector3(hp.x, 1.0, hp.z),
       minDist: 2.2 },
-    { id:'hall', label:'远香堂',
+    { id:'hall', label:SN.hall,
       pos: new THREE.Vector3(0.5, 4.6, 5.0), target: new THREE.Vector3(0, 3.6, -12.0) },
-    { id:'pavilion', label:'荷风四面',
+    { id:'pavilion', label:SN.pavilion,
       pos: new THREE.Vector3(5.6, 3.2, -1.2), target: new THREE.Vector3(14.0, 3.0, 6.4) },
     { id:'overview', label:'全园',
       pos: CAM_HOME.pos.clone(), target: CAM_HOME.target.clone() },
@@ -565,7 +567,7 @@ const TOUR_CAPTIONS = {
   /* 「匾联」站：远香堂檐下匾额「远香堂」+ 前檐金柱对联「碧水涵明月清风自在」，
      都在 04-buildings.js:372-384 手份。机位在堂前草坪（z≈-5.7 以南，人阅读机位再往南退开
      人物站位以外的位置），仰角看匾与联一起入画；minDist 3.0（堂前檐距近）。 */
-  plaque:   { title: '匾联', text: '檐下「远香堂」匾额，前檐金柱一副对联：碧水涵明月，清风自在。匾与联是这堂的题眼，读完再看满堂荷香。' },
+  plaque:   { title: '匾联', text: '檐下「' + SN.hall + '」匾额，前檐金柱一副对联：碧水涵明月，清风自在。匾与联是这堂的题眼，读完再看满堂荷香。' },
   /* 「曲桥」站：石拱桥在池东南跨水（04-buildings makeArchBridge，08-assemble 落位 (8.4,·,4.6)、
      rotation.y=π/2），桥心即拱顶。机位从**桥的东北上下游侧**取景，连同汀步（z≈5.6 线）一起入画。
      ⚠️ 这个站位刻意**不上桥**：巡游观鱼者的步行路径（实走到 z≥9.7 的南端引桥，见 :267-272 注释）
@@ -580,12 +582,12 @@ const TOUR_CAPTIONS = {
   /* 「主峰近观」站：与 hero 站互为远近两档。文案里的"水线与苔痕的层理"指 GLB 浅灰重导
      （3639b6f）后的石皮；"孔洞里存着雨"接 P0-4 的漏透率口径（±z 17.4% / +x 21.5%）。 */
   heroPeak: { title: '主峰近观', text: '贴近了看 —— 灰白的石皮上有水线与苔痕的层理，孔洞里存着雨。池南这一峰，越近越见骨。' },
-  hall:     { title: '远香堂', text: '拙政园中区主厅 —— 四面厅，荷风四面，香远益清。夏日荷香满堂，即是此景。' },
-  pavilion: { title: '荷风四面', text: '临水水榭 —— 三面临水，一面接岸。午后到这里听雨，雨点打在荷叶上最响。' },
+  hall:     { title: SN.hall, text: SN.garden + '中区主厅 —— 四面厅，荷风四面，香远益清。夏日荷香满堂，即是此景。' },
+  pavilion: { title: SN.pavilion, text: '临水水榭 —— 三面临水，一面接岸。午后到这里听雨，雨点打在荷叶上最响。' },
   overview: { title: '全园', text: '一池三山式水院 —— 水居其半，建筑临水，假山作屏。晨雾与暮色最见层次。' },
 };
 const SEASON_CAPTIONS = {
-  spring: { title: '春 · 惊蛰', text: '春雷初动，池边新芽与远香堂的花事一同醒来。' },
+  spring: { title: '春 · 惊蛰', text: '春雷初动，池边新芽与' + SN.hall + '的花事一同醒来。' },
   summer: { title: '夏 · 芒种', text: '荷花渐盛，水榭临风，正是荷风四面时。' },
   autumn: { title: '秋 · 霜降', text: '桂香渐远，枫色染上池岸，石峰在澄水里更显瘦峻。' },
   winter: { title: '冬 · 大雪', text: '雪压竹梢，亭台静敛，满园水墨只剩清瘦的骨架。' },

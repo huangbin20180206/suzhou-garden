@@ -1,6 +1,6 @@
 // 08-assemble: from index.html inline 495..1746
 import { THREE } from '../vendor.js';
-import { validateGeometry, mergeStatics, fitShadowCamera } from './09-lights.js';
+import { validateGeometry, mergeStatics, fitShadowCamera, drawStats, MERGE_STATS } from './09-lights.js';
 import { collectAOSkip } from './10-post.js';
 import { applyEnv, collectSeasonCaches, ENV, initEnvScene } from './12-env.js';
 /* 2026-10-15 W1/W2/W3 拆分收尾：controls / CAM_MIN_DIST / CAM_HOME / PROBE_DRIVEN 的用法
@@ -28,6 +28,8 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildin
    就在本文件下方，马厩模块持有它会造成循环 import。这里只import 马厩整体与"手里的草料捆"。 */
 import { makeStable, loadStableHorses, makeStableRoad, makeStableExitRoad } from './15-stable.js';
 import { mesh } from './03-factory.js';
+/* 写意艺术处理登记（马厩/马车/外国马种：展示保留、标注为艺术处理，见 src/art-license.js） */
+import { markArtLicense } from './art-license.js';
 import { MAT, willowOrigins, rockNormalTex, registerWeatherRoles } from './01-materials.js';
 import { buildProps, SEAT_SPOTS, PROP_SPOTS } from './14-props.js';
 /* ══════════════════════════════════════════════════════════════
@@ -359,6 +361,8 @@ deferBootFirst('马厩', () => {
      旋转后占地核对：厩身+院场 = 局部 x∈[−8,8] × z∈[−4.9,4.9] ⇒ 世界 x∈[32,48]、
      z∈[−6.9,2.7]；东墙在 x=30（墙面到 30.6）⇒ 尚余 1.4m；地面东扩到 x=±52 ✓ 都在界内。 */
   const st = makeStable(40, -2, { yaw: Math.PI });     // 院身朝南（对着园子南门那侧）
+  /* 马厩整组打「写意艺术处理」标（马车/外国马种在 15 系模块里建，打标待合并，见 art-license 登记表） */
+  markArtLicense(st, 'stable');
   deferRoot.add(st);
   /* 马夫站位：由马厩按"递给低头那匹马"算出来（`userData.stable.groom`）——
      人物是 D_SCHEDULES 在**模块求值期**就建好的，比这个延迟批早，所以这里只做**回填**。
@@ -868,3 +872,16 @@ collectAOSkip();
    它要往 world 挂灯笼、还要写本模块的 perchShowOK，而 12-env 被本模块 import 而在 world 之前
    求值 → 留在那边顶层必 TDZ。放在最末是为了让灯笼落在 mergeStatics 之后（动态件不该被合并）。 */
 initEnvScene();
+
+/* ── draw call / 合批统计入口（2026-10-30 · 审查 W6/M7）──
+   window.__garden 由 11-loop 在本模块之后建；bootDone（延迟批合并完）时它一定已在。
+   浏览器门用法：`await __garden.bootDonePromise; __garden.drawStats()`（主/阴影 pass 估算 + renderer.info）
+   与 `__garden.mergeStats`（world / deferRoot 两次合并各拼了几组、展开几个、释放几份几何）。 */
+bootDonePromise.then(() => {
+  try {
+    if (typeof window !== 'undefined' && window.__garden){
+      window.__garden.drawStats = drawStats;
+      window.__garden.mergeStats = MERGE_STATS;
+    }
+  } catch { /* 统计入口挂不上不影响园子 */ }
+});

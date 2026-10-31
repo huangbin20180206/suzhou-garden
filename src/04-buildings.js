@@ -4,6 +4,8 @@ import { makeWisteria } from './06j-herbs.js';
 import { mesh, box, makeQueTu, makeGuaLuo, makeLatticePanel, makeChangChuang, makeJiangnanWindow, makeChineseRoof, makeCeiling, instancedBoxes, instancedRoundRafters, DOUGONG_H, instancedGeo, makeDougongGeo, makeColumn, makeCorrugatedSlab } from './03-factory.js';
 import { MAT, makeInkWashTex, makePlaqueTex } from './01-materials.js';
 import { bootMark } from './00-config.js';
+/* 匾额文字取自景点名常量（主堂/凉亭以后改名只改 03a-names 一处） */
+import { SITE_LABELS } from './03a-names.js';
 /* ══════════════════════════════════════════════════════════════
    4 · 建筑：远香堂 / 水榭 / 游廊
    ══════════════════════════════════════════════════════════════ */
@@ -369,7 +371,7 @@ export function makeYuanxiangHall(){
 
   /* ⑧ 匾额「远香堂」+ 对联 */
   const plaqueW = 4.6, plaqueH = 1.35;
-  const plaqueTex = makePlaqueTex('远香堂');
+  const plaqueTex = makePlaqueTex(SITE_LABELS.hallPlaque);       // 主堂匾额（名字见 03a-names）
   const plaque = mesh(new THREE.PlaneGeometry(plaqueW, plaqueH),
     new THREE.MeshStandardMaterial({ map:plaqueTex, roughness:0.55, metalness:0.1, envMapIntensity:0.6 }),
     { name:'plaque' });
@@ -494,7 +496,7 @@ export function makeWaterPavilion(){
   g.add(pavCeil);
 
   /* 匾额「荷风四面」（面水一侧，-Z 敞开面） */
-  const tex = makePlaqueTex('荷风四面');
+  const tex = makePlaqueTex(SITE_LABELS.pavilionPlaque);           // 凉亭匾额（名字见 03a-names）
   const pl = mesh(new THREE.PlaneGeometry(3.2, 0.95),
     new THREE.MeshStandardMaterial({ map:tex, roughness:0.55, metalness:0.1 }), { name:'pavilionPlaque' });
   pl.position.set(0, 0.55 + colH - 0.3, -(D/2 - 0.26));
