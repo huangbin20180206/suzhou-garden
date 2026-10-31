@@ -190,13 +190,13 @@ export function resetCamera(){
 }
 
 /* 渐变天空球（三停：地平线 → 中腰 → 天顶） */
-function makeSkyMat(top, mid, horizon, sunCol, sunDir){
+function makeSkyMat(top, mid, horizon, sunCol, sunDirV){
   return new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite:false, fog:false,
     uniforms:{
       uTop:{value:new THREE.Color(top)}, uMid:{value:new THREE.Color(mid)},
       uHorizon:{value:new THREE.Color(horizon)},
-      uSunColor:{value:new THREE.Color(sunCol)}, uSunDir:{value:sunDir.clone().normalize()},
+      uSunColor:{value:new THREE.Color(sunCol)}, uSunDir:{value:sunDirV.clone().normalize()},
       uTime:{value:0},
       uCloudTint:{value:new THREE.Color(0xFFFBF3)},   // 云的颜色（黄昏会转暖）
       uCloudAmount:{value:0.88},                       // 云量（阴天→1，晴→低值）
