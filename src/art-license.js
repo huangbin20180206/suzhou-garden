@@ -36,7 +36,8 @@ export const ART_LICENSE = Object.freeze({
     alternatives: ['明清园林里的马房或卸车棚（体量收小、粉墙黛瓦）', '轿厅（停轿 + 轿夫）', '河埠船埠（码头 + 乌篷船）'],
     objects: Object.freeze([
       { name: 'makeStable() 返回的马厩整组（08-assemble 延迟批「马厩」里落位）', file: 'src/15e-stable.js（建）/ src/08-assemble.js（打标）', status: 'tagged' },
-      { name: '院外石板路 makeStableRoad / 出园路 makeStableExitRoad', file: 'src/15e-stable.js', status: 'pending' },
+      { name: '院外石板路 makeStableRoad（只标路面 stableRoad* 与马厩院门口铺装 stableGate*；同组的园门外平台、石灯笼、石狮不标）', file: 'src/15e-stable.js', status: 'tagged' },
+      { name: '出园路 makeStableExitRoad（整组）', file: 'src/15e-stable.js', status: 'tagged' },
     ]),
   }),
   carriage: Object.freeze({
@@ -57,11 +58,28 @@ export const ART_LICENSE = Object.freeze({
     tag: '写意艺术处理：卡马格马（法国）与克里奥罗马（南美）及西式马鞍非明清江南所有；作为马厩场景造型保留',
     real: '明清中国常见马种为蒙古马（矮壮、短腿、厚鬃）',
     why: '三匹 Rodin 马资产已完成伪蒙皮与动作；用户已确认保留',
-    alternatives: ['蒙古马（已有 assets/horse-mongolian.glb，可直接替换槽位）'],
+    alternatives: ['蒙古马（已有 assets/horse-mongolian.glb，可直接替换槽位；但该件品种名同样只是资产库标签，替换前先按 labelHorse 条目核对体型）'],
     objects: Object.freeze([
       { name: "RODIN_GLB.camargue（assets/horse-camargue.glb）", file: 'src/15c-horse-life.js', status: 'tagged' },
       { name: "RODIN_GLB.criollo（assets/horse-criollo-saddle.glb，含西式马鞍）", file: 'src/15c-horse-life.js', status: 'tagged' },
       { name: 'Tinker 回退马（assets/HorseTinker.glb，BlenderKit 低模，品种不明；markTinkerHorse，15c Tinker 路径调用）', file: 'src/15b-horse-rig.js', status: 'tagged' },
+    ]),
+  }),
+  /* 2026-10-31 新增（b4-walk）。为什么不并进 foreignHorse：
+     ① foreignHorse 的 tag 写的是"外国马种非明清江南所有"，蒙古马恰是它 real/alternatives 里列的
+        实景马种 —— 打成 foreignHorse 等于在 userData 上写一句假话，还和"替代候选＝蒙古马"自相矛盾；
+     ② 这匹的问题不在"外国"，而在"品种名无出处"：和另两匹一样，名字只是生成资产库的标签
+        （16b-artistic-note 的马厩注同一口径），体貌没逐件核对，体型还和另两匹一起归一到总高 1.75m。
+     ⇒ 单列一条，tag 只说能确定的事。Tinker 回退马（品种不明）已在 foreignHorse 下，维持不动。 */
+  labelHorse: Object.freeze({
+    id: 'labelHorse',
+    label: '名为"蒙古马"的 Rodin 马（辕马 / 受喂那匹）',
+    tag: '写意艺术处理：此马的"蒙古马"品种名仅来自生成资产库的标签，体貌未按蒙古马逐项核对；作为马厩场景造型保留',
+    real: '明清中国常见马种为蒙古马（矮壮、短腿、头大颈短、鬃尾浓密）',
+    why: '三匹 Rodin 马里名义上唯一合乎实景的一匹，已完成伪蒙皮与动作（套车辕马、马夫喂草）；体型待核，暂不替换',
+    alternatives: ['按蒙古马体貌复核或重做 assets/horse-mongolian.glb（矮壮短腿、厚鬃长尾）', '另寻有出处的蒙古马资产'],
+    objects: Object.freeze([
+      { name: "RODIN_GLB.mongolian（assets/horse-mongolian.glb；rodinSlotModel 的 harnessed / fed 槽位）", file: 'src/15c-horse-life.js', status: 'tagged' },
     ]),
   }),
 });

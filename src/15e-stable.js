@@ -149,6 +149,8 @@ export function makeStableExitRoad(){
     registerWeatherRoles(mat, { snow: 1, wet: 1 });
     g.add(mesh(geo, mat, { name: 'stableExitSlab', cast: false, receive: true }));
   }
+  /* 写意艺术处理（art-license 'stable'）：整条出园路都只为马车进出而铺，组上打标即可。只写 userData。 */
+  markArtLicense(g, 'stable');
   return g;
 }
 
@@ -702,6 +704,11 @@ export function makeStableRoad(){
      这里显式做一道保险：本函数在延迟批里跑，顺序一旦被改动，石板就会"没有接触阴影"）。 */
   markCasterBoxDirty();
   renderer.shadowMap.needsUpdate = true;
+  /* 写意艺术处理（art-license 'stable'）：只给"通马厩的路面"逐件打标 —— 石板路本身
+     （stableRoadBed / stableRoad / stableRoadPebble）与马厩院门口铺装（stableGate*）。
+     ⚠️ 不打在组 g 上：同组里还有园门外平台（gateLanding、gateLandingBed、gateKerb）、石灯笼、石狮，
+        这些是园林实景该有的东西，artLicenseOf 沿祖先链查会把它们一起误标成"马厩"。只写 userData。 */
+  for (const o of g.children) if (/^stable(Road|Gate)/.test(o.name)) markArtLicense(o, 'stable');
   return g;
 }
 
