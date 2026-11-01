@@ -93,6 +93,7 @@ const check = (name, ok, detail = '') => {
     let odoMaxJump = 0, odoJumpAt = '', lastOdo = null, lastLeg = '';
     let nan = 0, floorBad = 0, simT = 0;
     let coachBusyFrames = 0, coachHidden = 0, outFrames = 0, outHidden = 0;
+    const coachHiddenAt = [];   // 2026-11-01：缺席时记录"哪一刻/哪个子状态"，别再只报一个数字
     /* 2026-10-29 新契约：门外见面/送客、挥手、回水榭听琴 */
     let faceOut = null, wavePeak = 0, waveWristMax = -Infinity, waveMinDistHead = Infinity;
     const R = G.actorRig ? G.actorRig('scholar') : null;
@@ -126,6 +127,7 @@ const check = (name, ok, detail = '') => {
       if (BUSY.includes(v.car.state) && v.coach){
         coachBusyFrames++;
         if (!v.coach.visible) coachHidden++;
+        if (!v.coach.visible && coachHiddenAt.length < 8) coachHiddenAt.push({ t: +simT.toFixed(1), phase: v.phase, st: v.car.state, leg: v.car.leg || '' });
         if (v.car.state === 'driveout') { outFrames++; if (!v.coach.visible) outHidden++; }
       }
 
@@ -175,7 +177,7 @@ const check = (name, ok, detail = '') => {
     return { phases, cars, simT: +simT.toFixed(1), boardFrames, coachFrames, guestMinGap, coachMinGap,
              guestDropFrames, coachDropFrames, odoMaxJump: +odoMaxJump.toFixed(3), odoJumpAt,
              nan, floorBad, faceOut, wavePeak: +wavePeak.toFixed(3),
-             coachBusyFrames, coachHidden, outFrames, outHidden,
+             coachBusyFrames, coachHidden, outFrames, outHidden, coachHiddenAt,
              waveWristMax: Number.isFinite(waveWristMax) ? +waveWristMax.toFixed(3) : null,
              waveMinDistHead: Number.isFinite(waveMinDistHead) ? +waveMinDistHead.toFixed(3) : null,
              qinDist, hostEnd, end: G.actorVisit() };
@@ -222,7 +224,7 @@ const check = (name, ok, detail = '') => {
      且要有样本量下限（防"一帧都没取到"的空判据）。 */
   check('⑧ 车夫在岗：车在动/系马/上车的每一段他都在场上（含 driveout）',
     r.coachBusyFrames >= 20 && r.coachHidden === 0 && r.outFrames >= 3 && r.outHidden === 0,
-    `在岗帧 ${r.coachBusyFrames} / 缺席 ${r.coachHidden}；其中驶离段 ${r.outFrames} 帧、缺席 ${r.outHidden}`);
+    `在岗帧 ${r.coachBusyFrames} / 缺席 ${r.coachHidden}；其中驶离段 ${r.outFrames} 帧、缺席 ${r.outHidden}` + (r.coachHiddenAt && r.coachHiddenAt.length ? ' 即 ' + JSON.stringify(r.coachHiddenAt) : '')),
   check('零 pageerror', errs.length === 0, errs.slice(0, 2).join(' | '));
 
   /* ── ①f 相位名静态一致性（2026-10-30 · 架构收口 · 纯读文本，零浏览器开销）──

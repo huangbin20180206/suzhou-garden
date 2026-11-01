@@ -69,7 +69,7 @@ const check = (name, ok, detail = '') => {
   await page.waitForTimeout(2500);
 
   /* ── ② 逐帧录姿态（含仿真时钟，用来算与帧率无关的角速度） ── */
-  const rows = await page.evaluate(async (secs) => {
+  const sampleMacaw = async (secs) => page.evaluate(async (secs) => {
     const G = window.__garden, out = [];
     const t0 = performance.now();
     await new Promise((resolve) => {
@@ -80,7 +80,29 @@ const check = (name, ok, detail = '') => {
       requestAnimationFrame(tick);
     });
     return out;
-  }, W);
+  }, secs);
+
+  /* 2026-11-01：窗口不够就续采。尾巴大甩尾 3.5~12s 一次、每次只几帧，40s 墙钟窗口在软渲染下
+     常只抓到 6 帧 ⇒ ③ 前提判据红（那是"没发生"不是"没跳变"）。判据不放松，只延长采样。*/
+  const evCount = (rs) => {
+    const n0 = rs[0].s.length, cnt = {};
+    for (let i = 0; i < n0; i++) for (let k = 1; k < rs.length; k++){
+      const a0 = rs[k - 1], b0 = rs[k];
+      if (!(b0.sc - a0.sc > 1e-4)) continue;
+      const B0 = b0.s[i];
+      if (!B0) continue;
+      cnt[B0.ev] = (cnt[B0.ev] || 0) + 1;
+    }
+    return cnt;
+  };
+  let rows = await sampleMacaw(W);
+  for (let extra = 1; extra <= 2; extra++){
+    const c0 = evCount(rows);
+    if (['flutter', 'preen', 'tail'].every(e => (c0[e] || 0) >= 10)) break;
+    const more = await sampleMacaw(W);
+    rows = rows.concat(more.slice(1));
+    console.log(`  · 事件采样不足（${['flutter', 'preen', 'tail'].map(e => `${e}=${c0[e] || 0}`).join(' ')}），续采第 ${extra} 轮`);
+  }
 
   const nB = rows[0].s.length;
   const st0 = rows[rows.length - 1].s;

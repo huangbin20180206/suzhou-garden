@@ -77,3 +77,57 @@ batch2 文末列为"没做"的三项（真实日轨+旬花历+新天气、礼仪
 - 仿真主体每帧仍只跑一次（传 步数×1/60），未按步拆跑——牵动墙钟 t 太多。
 - 院外两条石板路（stable 条目）未打标；蒙古马未打标（非外国马种口径存疑）。
 - 步行版不开礼仪；开演后变天不打断礼仪，只影响下一场。
+
+
+---
+
+## 2026-10-31 全量检测收口（提交 `902e8e8`）
+
+### 结论一句话
+93 道门全量跑出 12 红 2 FLAKY。逐门取证后：**没有一例是产品缺陷** ——
+7 道"判据没跟上产品已定的口径变化"、2 道门自身 bug、2 道环境/负载、1 道门禁自己的就绪竞态。
+本笔只改 `probe/`，`src/` 一行未动。
+
+### 12 道红门的定性表
+
+| 门 | 定性 | 真因（实测） | 修法 |
+|---|---|---|---|
+| festival-guard | 口径 | 路灯 SpotLight 只在非 low 档创建（有意设计）；本机判 low ⇒ `roadLights=0` | 门加 `?tier=high` |
+| festival-lanterns-guard | 口径 | 同上 | 同上 |
+| wisteria-color | 口径 + 探针 bug | 默认"夏"无紫藤花（花历 4 中~5 上）⇒ 花穗 count=0 ⇒ `brightest.hex` TypeError | 钉 spring + 按花穗材质定位 + 空数组兜底 |
+| peach-form | 口径 | 硬编码"春叶 0.15 / 秋果 0.7"；新花历为 0.442 / 0 | 期望改为读 `12g PHENO` |
+| night-sky | 口径 | 月出随月龄后移，默认日期月出≈11:00 | 钉 `moonPhase=0.5`（须走 `applyState`，`setEnv` 不收这个轴） |
+| shadow-bake | 判据算法 | 贪心聚类移动簇心 ⇒ 链式合并，223.5° 弧只剩 3 簇 | leader 聚类（簇心不动）⇒ 16 簇 |
+| shadow-cover | 前提过时 | 真实日轨下早晨/傍晚 `_sc` 自动放大，旧盒只在正午漏（2/6） | 场景集 6→8（补 10.5/15），判据仍"一半以上" |
+| plum-guard | 阈值 | 真实日轨冬季正午太阳高度≈35° + 雪 preset sunMul .45 ⇒ R−G 实测 21.8/21.2 | 25→18（灰调对照 0~6，仍有 3 倍分辨力） |
+| weather-coverage | 门自身 bug | `page.screenshot()` 拿到空画布（675 字节）；页内 `drawImage` 仍全 0 | 离屏 RT + `readRenderTargetPixels`，两臂同一段直渲 |
+| koi-feed | 门自身 bug | 抖动指标在低帧率环境下无判定力（11.3%/14.9% vs 真机 0.9~6%） | 加"无饵巡游基线"对照：上限 = max(10%, 基线×1.6+3) |
+| aa-progressive | 环境/负载 | 启动看门狗那条"仅记录不弹卡"的 console.error 被算成错误 | 过滤并计数入明细 |
+| viewpoint-visibility | 就绪竞态 | **延迟批的竹丛还没搬走、堆在原点附近**挡在 hall 机位前 3.9~5.3m（命中 MAT.bambooA 竿 11 + MAT.leaf 叶 2416） | 补 `await bootDonePromise`；"挡住"改锥形 5 线 ≥3 条 |
+
+### 本轮最有价值的取证方法
+1. **把"身份"打进门禁明细**：hall 那条红原本只有"匿名实例 @5.31m"。加上材质色 / 几何类型 /
+   顶点数 / 实例世界坐标后，一眼看出是"竹竿+竹叶聚在 (0.5, 0~4.6, 0.9)"⇒ 立刻想到"延迟批未搬走"。
+2. **独立跑 vs 链内跑的数字要摆在一起**：独立跑同一根射线第一命中 19.76m（堂内屏风），
+   链内跑 3.92m（竹竿）—— 这个差值本身就是"时序问题"的证据。
+3. **存证图要走能用的路径**：本项目 `page.screenshot()` 拿不到画布内容，改用
+   离屏 RT → `renderer.render` → `readRenderTargetPixels` → 2D canvas → dataURL。
+   例：`outputs/_diag/fullcheck-diag/hall-view.png`（视线畅通，正对远香堂）、
+   `outputs/weather-coverage/stele-cover-{on,off}.png`（有雪/无雪对照）。
+4. **`new Promise(async (resolve) => …)` 会吞异常**：executor 里抛错 ⇒ 外层永不 settle ⇒
+   Playwright `page.evaluate` 永久挂住（本轮实测门卡 10 分钟、CPU 只有 0.7s）。探针里的
+   长循环一律写成 `async` 函数 + `.catch()` 返回 `err`。
+
+### 复验结果（全部单跑绿）
+shadow-cover 18/18 · viewpoint-visibility 6/6 · wisteria-color 5/5 · peach-form 26/26 ·
+shadow-bake 10/10 · night-sky 15/15 · plum-guard 17/17 · koi-feed 15/15 ·
+weather-coverage 15/15 · festival-guard 21/21 · festival-lanterns 全绿 · aa-progressive 全绿；
+`npm run check` PASS。
+
+### 仍未处理 / 诚实边界
+- `refract-guard`、`afterrain-guard` 两道 **FLAKY**（重跑即过，项目口径不计红）；
+- weather-coverage 的像素判据现在走**直渲**（跳过 composer 的调色/高度雾）：
+  对"雪有没有盖白石头"这个 A/B 无影响，但它不再代表最终出图效果；
+- hall 遮挡的**长期**结论：竹丛在延迟批里"先建在原点、再搬走"，一个极短窗口内是会挡在
+  hall 机位前的。玩家看不到（装配没完成时加载页还盖着），但任何"装配完成前就采样场景几何"
+  的探针都会踩到 —— 新探针请一律 `await bootDonePromise`。
