@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<title>岸边水面样品 — 湿边 / 浪朝岸 / 泡沫气泡 / 闪点</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#0b1418;font-family:system-ui,sans-serif}
+  #hud{position:fixed;left:14px;bottom:12px;color:#cfe6ee;font-size:12px;line-height:1.7;opacity:.9;
+       text-shadow:0 1px 3px #000;pointer-events:none}
+  #hud b{color:#fff}
+</style>
+</head>
+<body>
+<div id="hud"><b>拖拽</b>旋转视角 · <b>滚轮</b>远近<br>湿边 / 浪永远朝岸推 / 泡沫带气泡 / 水面碎光</div>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 200);
+
+/* ---------- 共享：岸线形状 / 日光 / 噪声 ---------- */
+const COMMON = [
+'precision highp float;',
+'float shoreR(float a){',
+'  return 6.0 + 0.55*sin(3.0*a+1.7) + 0.32*sin(7.0*a+0.4) + 0.18*sin(11.0*a+2.3);',
+'}',
+'float shoreSmooth(float a){',
+'  return 6.0 + 0.55*sin(3.0*a+1.7) + 0.18*sin(7.0*a+0.4);',
+'}',
+'vec3 sunDir(){ return normalize(vec3(0.42, 0.72, 0.52)); }',
+'float hash21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p, p+45.32); return fract(p.x*p.y); }',
+'float noise2(vec2 p){',
+'  vec2 i = floor(p), f = fract(p); f = f*f*(3.0-2.0*f);',
+'  float a = hash21(i), b = hash21(i+vec2(1.0,0.0)), c = hash21(i+vec2(0.0,1.0)), d = hash21(i+vec2(1.0,1.0));',
+'  return mix(mix(a,b,f.x), mix(c,d,f.x), f.y);',
+'}',
+'float fbm(vec2 p){',
+'  float s = 0.0, amp = 0.5;',
+'  for(int i=0;i<5;i++){ s += amp*noise2(p); p *= 2.03; amp *= 0.5; }',
+'  return s;',
+'}'
+].join('\n');
+
+/* ---------- 沙滩（湿边） ---------- */
+const sandMat = new THREE.ShaderMaterial({
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: [
+    'varying vec2 vP;',
+    'void main(){ vP = position.xy; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }'
+  ].join('\n'),
+  fragmentShader: COMMON + '\n' + [
+    'varying vec2 vP;',
+    'uniform float uTime;',
+    'void main(){',
+    '  float r = length(vP);',
+    '  float a = atan(vP.y, vP.x);',
+    '  float e = r - shoreR(a);',
+    '  float grain = fbm(vP*7.0);',
+    '  float blot  = fbm(vP*0.8 + 3.0);',
+    '  vec3 dry = mix(vec3(0.70,0.64,0.51), vec3(0.86,0.80,0.66), blot);',
+    '  dry = mix(dry, dry*0.86, smoothstep(0.55, 0.92, grain));',
+    '  float wet = smoothstep(0.90, 0.02, e);',
+    '  vec3 wetC = vec3(0.27,0.24,0.19);',
+    '  vec3 col = mix(dry, wetC, wet*0.94);',
+    '  col += wet * 0.09;',
+    '  col *= mix(0.50, 1.0, smoothstep(-1.1, 0.20, e));',
+    '  gl_FragColor = vec4(col, 1.0);',
+    '}'
+  ].join('\n')
+});
+
+/* ---------- 水面 ---------- */
+const waterMat = new THREE.ShaderMaterial({
+  transparent: true,
+  depthWrite: false,
+  uniforms: { uTime: { value: 0 } },
+  vertexShader: [
+    'varying vec2 vP;',
+    'varying vec3 vW;',
+    'void main(){',
+    '  vP = position.xy;',
+    '  vec4 w = modelMatrix*vec4(position,1.0);',
+    '  vW = w.xyz;',
+    '  gl_Position = projectionMatrix*viewMatrix*w;',
+    '}'
+  ].join('\n'),
+  fragmentShader: COMMON + '\n' + [
+    'varying vec2 vP;',
+    'varying vec3 vW;',
+    'uniform float uTime;',
+    'void main(){',
+    '  float r = length(vP);',
+    '  float a = atan(vP.y, vP.x);',
+    '  float d = shoreR(a) - r;',
+    '  if (d < -0.02) discard;',
+    '  float t = uTime;',
+    '  vec2 p = vP;',
+    '  float phase = d*2.6 - t*1.35;',
+    '  float wave  = sin(phase);',
+    '  vec3 N = normalize(vec3(',
+    '    cos(a)*0.15*cos(phase) + 0.05*sin(p.x*9.0 + t*0.8),',
+    '    1.0,',
+    '    sin(a)*0.15*cos(phase) + 0.05*cos(p.y*11.0 - t*0.9)',
+    '  ));',
+    '  vec3 shallow = vec3(0.42,0.80,0.76);',
+    '  vec3 mid     = vec3(0.10,0.46,0.62);',
+    '  vec3 deep    = vec3(0.03,0.15,0.29);',
+    '  float ds = shoreSmooth(a) - r;',
+    '  float k = smoothstep(0.0, 3.2, ds);',
+    '  vec3 water = mix(shallow, mid, k);',
+    '  water = mix(water, deep, smoothstep(1.5, 4.0, ds));',
+    '  water *= 0.95 + 0.10*fbm(vP*0.55 + 7.0);',
+    '  float foamBase = smoothstep(0.75, 0.05, d);',
+    '  float crest = smoothstep(0.55, 0.98, wave) * smoothstep(3.0, 0.2, d);',
+    '  float fnoise = fbm(p*4.5 + vec2(t*0.35, -t*0.22));',
+    '  float foam = clamp(foamBase*(0.50+0.80*fnoise) + crest*0.60*fnoise, 0.0, 1.0);',
+    '  foam *= smoothstep(3.6, 0.35, d);',
+    '  vec2 cell = floor(p*3.2);',
+    '  vec2 f = fract(p*3.2);',
+    '  float h = hash21(cell);',
+    '  float life = fract(t*0.55 + h);',
+    '  vec2 c = vec2(hash21(cell+7.1), hash21(cell+13.7));',
+    '  float dist = length(f - c);',
+    '  float ring = smoothstep(0.09, 0.015, abs(dist - life*0.33));',
+    '  float bubble = ring * smoothstep(1.6, 0.05, d) * step(0.55, h);',
+    '  foam = clamp(foam + bubble*0.95, 0.0, 1.0);',
+    '  vec3 V = normalize(cameraPosition - vW);',
+    '  vec3 L = sunDir();',
+    '  vec3 H = normalize(L + V);',
+    '  float spec = pow(max(dot(N,H),0.0), 190.0) * 1.7;',
+    '  float sparkleMask = smoothstep(0.72, 0.98, fbm(p*22.0 + t*0.7));',
+    '  float sparkle = pow(max(dot(N,H),0.0), 45.0) * sparkleMask * 1.3;',
+    '  float fres = pow(1.0 - max(dot(N,V),0.0), 4.0);',
+    '  vec3 col = water;',
+    '  col = mix(col, vec3(0.82,0.93,0.96), foam*0.92);',
+    '  col += vec3(1.0,0.97,0.88) * (spec + sparkle*0.8);',
+    '  col += vec3(0.55,0.75,0.85) * fres * 0.35;',
+    '  float alpha = mix(0.55, 0.95, smoothstep(0.0, 1.6, d));',
+    '  alpha = max(alpha, foam);',
+    '  alpha = max(alpha, spec + sparkle);',
+    '  gl_FragColor = vec4(col, alpha);',
+    '}'
+  ].join('\n')
+});
+
+const sand = new THREE.Mesh(new THREE.CircleGeometry(9.2, 512), sandMat);
+sand.rotation.x = -Math.PI / 2;
+sand.position.y = -0.02;
+scene.add(sand);
+
+const water = new THREE.Mesh(new THREE.CircleGeometry(7.2, 512), waterMat);
+water.rotation.x = -Math.PI / 2;
+water.position.y = 0.0;
+scene.add(water);
+
+/* ---------- 礁石 ---------- */
+function shoreRadius(a) {
+  return 6.0 + 0.55 * Math.sin(3 * a + 1.7) + 0.32 * Math.sin(7 * a + 0.4) + 0.18 * Math.sin(11 * a + 2.3);
+}
+const rockMat = new THREE.MeshStandardMaterial({ color: 0x6b6f6a, roughness: 0.85, metalness: 0.05, flatShading: true });
+for (let i = 0; i < 9; i++) {
+  const a = i * 2.4 + 0.6;
+  const rr = shoreRadius(a) + 0.55 + ((i * 37) % 11) / 11 * 0.9;
+  const g = new THREE.IcosahedronGeometry(0.16 + ((i * 53) % 7) / 7 * 0.26, 0);
+  const m = new THREE.Mesh(g, rockMat);
+  m.position.set(Math.cos(a) * rr, 0.02, -Math.sin(a) * rr);
+  m.rotation.set(i * 1.7, i * 2.3, i * 0.9);
+  m.scale.y = 0.7;
+  scene.add(m);
+}
+
+/* ---------- 光与天 ---------- */
+scene.add(new THREE.HemisphereLight(0xbfe6ff, 0x6b5f45, 1.15));
+const sun = new THREE.DirectionalLight(0xfff2d8, 2.0);
+sun.position.set(6, 9, 7);
+scene.add(sun);
+
+const sky = new THREE.Mesh(
+  new THREE.SphereGeometry(80, 32, 16),
+  new THREE.ShaderMaterial({
+    side: THREE.BackSide,
+    vertexShader: 'varying vec3 vD; void main(){ vD = position; gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }',
+    fragmentShader: [
+      'varying vec3 vD;',
+      'void main(){',
+      '  vec3 d = normalize(vD);',
+      '  float up = clamp(d.y*0.5+0.5, 0.0, 1.0);',
+      '  vec3 c = mix(vec3(0.62,0.74,0.80), vec3(0.16,0.34,0.50), pow(up,0.9));',
+      '  c = mix(c, vec3(0.95,0.88,0.76), smoothstep(0.52,0.62,up)*0.55);',
+      '  gl_FragColor = vec4(c,1.0);',
+      '}'
+    ].join('\n')
+  })
+);
+scene.add(sky);
+
+/* ---------- 相机 ---------- */
+let yaw = 0.55, pitch = 0.62, dist = 15.5;
+let drag = false, lx = 0, ly = 0;
+renderer.domElement.addEventListener('pointerdown', e => { drag = true; lx = e.clientX; ly = e.clientY; });
+addEventListener('pointerup', () => { drag = false; });
+addEventListener('pointermove', e => {
+  if (!drag) return;
+  yaw -= (e.clientX - lx) * 0.006;
+  pitch = Math.min(1.35, Math.max(0.12, pitch + (e.clientY - ly) * 0.005));
+  lx = e.clientX; ly = e.clientY;
+});
+addEventListener('wheel', e => { dist = Math.min(30, Math.max(7, dist + e.deltaY * 0.01)); }, { passive: true });
+
+const t0 = performance.now();
+function frame() {
+  const t = (performance.now() - t0) / 1000;
+  sandMat.uniforms.uTime.value = t;
+  waterMat.uniforms.uTime.value = t;
+  camera.position.set(
+    Math.sin(yaw) * Math.cos(pitch) * dist,
+    Math.sin(pitch) * dist,
+    Math.cos(yaw) * Math.cos(pitch) * dist
+  );
+  camera.lookAt(0, 0.1, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+window.__ready = true;
+</script>
+</body>
+</html>
