@@ -49,9 +49,22 @@ function dequantizeGeometry(geo){
     if (!a || !a.normalized) continue;
     const div = DENORM.get(a.array.constructor.name);
     if (!div) continue;
-    const src = a.array, out = new Float32Array(src.length);
-    for (let i = 0; i < src.length; i++) out[i] = Math.max(-1, src[i] / div);
-    geo.setAttribute(name, new THREE.BufferAttribute(out, a.itemSize));
+    /* ⚠️ 交错属性（InterleavedBufferAttribute）不能按 `a.array` 整体搬：
+       `a.array` 是**整条**交错数组（同一缓冲里还有别的属性、还有步长填充），
+       按 itemSize 重建成紧凑属性会让**每个顶点都读到错位的值**。
+       实测（2026-11-02，老黄报"左键拖动时黑框闪烁/整屏黑"）：
+         石狮子 GLB 的 normal 是「归一化 + 交错」（步长 4 float），被旧写法展开后
+         法线长度在 0.008~1 之间乱跳；片元里 normalize() 遇到插值穿零点 ⇒ 一个像素 NaN
+         ⇒ 被 bloom 的模糊抹满全屏 ⇒ 整帧 alpha 归零 ⇒ 浏览器按透明合成出黑板。
+       改走 getComponent(i, c)：它内部已按 normalized 自动反归一化（系数与上面 DENORM 表
+       逐位相同，见 three.core.js 的 denormalize），且交错/紧凑两种布局都正确
+       ⇒ 非交错资产的换算结果与旧实现完全一致。 */
+    const n = a.count, k = a.itemSize;
+    const out = new Float32Array(n * k);
+    for (let i = 0; i < n; i++){
+      for (let c = 0; c < k; c++) out[i * k + c] = Math.max(-1, a.getComponent(i, c));
+    }
+    geo.setAttribute(name, new THREE.BufferAttribute(out, k));
   }
   geo.computeBoundingBox();
   geo.computeBoundingSphere();

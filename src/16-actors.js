@@ -118,7 +118,9 @@ const HALL_SIT = {
          掀起 0.90rad，袍子像一大块摊在地上 —— 画面上就读成"坐在了地上"。
      修法：floor 改回实测的 1.24、drop 各减 0.02 把髋保持在椅面上方 0.06m；
            裙摆的径向撑开 1.20→1.06、前襟掀起 0.90→0.72（不再把袍子摊到椅子外/地上）。 */
-  skirtLen: 0.72, skirtRad: 1.06, lift: 0.72, kneeSwap: 1.00,
+  /* sideLift：**只给太师椅**的侧片额外抬起量（见下面 skirt 那段的注释）。
+     别的坐具（石桌鼓凳 / 矮横凳 / 车夫座）不填 ⇒ 0，下摆口径一字不变。 */
+  skirtLen: 0.72, skirtRad: 1.06, lift: 0.72, kneeSwap: 1.00, sideLift: 0.75,
 };
 /* ⚠️ 2026-10-29 老黄侧面截图："两个人坐在椅子上"——实际两个人都悬在椅面上方。
    根因两层：① 入座时 floorRay 把**椅面 1.755 当成地面**，整个人先站到了椅子上；
@@ -134,12 +136,24 @@ const HALL_SIT_GUEST   = Object.assign({}, HALL_SIT, { drop: 0.298 });
    车夫用的是 SIT（给石桌对弈反解的 lean 0.52）：坐在高高的车夫座上再深弓 0.52，
    读作"缩成一团"。车夫要直腰拉缰，只需轻微低头看马；腿仍沿用 SIT 的坐姿角度
    （座面 1.15 与凳面不同，但这一组数至少保证不劈叉/穿车）。 */
-const COACH_SIT = Object.assign({}, SIT, { lean: 0.08, headDown: 0.12, skirtLen: 0.72 });
+/* ⚠️ 2026-11-02 老黄："马夫上车后怎么又变成蓝色恶魔了"。
+   SIT 的裙摆三件（skirtLen 0.60 压缩 / skirtRad 1.35 径向撑开 / lift 1.30 前襟掀起）
+   是为**矮鼓凳**反解的：人坐得低，袍子会摊到地上，所以要压短、撑开、掀起来。
+   车夫座 0.72 是**高座**、腿垂在车前，袍子本来就应该自然垂下 ——
+   照搬那三件会把袍子从腰往下扯成一整片张开的布（出图里像一对尖翅膀，老黄读作"恶魔"）。
+   车夫与车厢乘客都坐高座 ⇒ 两处都回到"不压、不撑、不掀"的中性值。 */
+const COACH_SIT = Object.assign({}, SIT, {
+  lean: 0.08, headDown: 0.12,
+  skirtLen: 0.55, skirtRad: 1.0, lift: 0.0,
+});
 /* ── 车厢乘客坐姿（2026-10-27）──────────────────────────────────────────────
    乘客坐的是矮横凳：用 SIT 的髋沉/腿角，但上身要**端坐看风景**（不是伏案），
    所以 lean/headDown 取小值。⚠️ 头顶与车顶是一组数：本坐姿头骨在 origin 上方 1.01m，
    CARRY.seat 0.68 ⇒ 头骨 1.77、发髻顶约 2.15；车顶内顶 2.14 / 顶面 2.22（见 15d 注释）。 */
-const CARRIAGE_SIT = Object.assign({}, SIT, { lean: 0.24, headDown: 0.10, skirtLen: 0.72 });
+const CARRIAGE_SIT = Object.assign({}, SIT, {
+  lean: 0.24, headDown: 0.10,
+  skirtLen: 1.0, skirtRad: 1.02, lift: 0.10,
+});
 function curSit(a){
   if (a.def.id === VISIT.coachId) return COACH_SIT;
   /* ⚠️ 上下车的那段 trip 里 ride 已经被 startTrip 清掉，而 sitW 还在 0.8 左右 ——
@@ -3929,8 +3943,15 @@ function advance(dt){
     const rein = Math.max(a.coachW || 0, a.tieW || 0);
     if (rein > 0.001){
       const cw = rein;
-      if (!a.riteBucket) set('LeftLowerArm', -1.22 * cw, 0, 0);   // 礼仪·接马：左手拎着水桶，只用右手牵缰
-      set('RightLowerArm', -1.10 * cw, 0, 0);
+      /* ⚠️ 2026-11-02 老黄："马夫上车后怎么又变成蓝色恶魔了"。
+         实测（outputs/_diag/coach-ab-20261102：把骨逐个归位做 A/B）：
+         抬前臂到 −1.10/−1.22 rad 时，**整片袖口（贴图是米白内衬）被前臂骨带到
+         腿上摊成一团**，深蓝上身 + 米白一大团 ⇒ 远看就是"蓝色怪物"。
+         手臂归位到垂下后完全消失 ⇒ 真因是"抬得太高 + 这个模型的袖子绑得很低"。
+         这段只有 15~25m 的观看距离，"两条胳膊往前伸、抓着东西"就够了，
+         不需要把前臂抬到胸前 —— 收小 0.35~0.4 rad，手落在膝前。 */
+      if (!a.riteBucket) set('LeftLowerArm', -0.85 * cw, 0, 0);   // 礼仪·接马：左手拎着水桶，只用右手牵缰
+      set('RightLowerArm', -0.72 * cw, 0, 0);
       set('LeftHand', 0.34 * cw, 0, 0);
       set('RightHand', 0.34 * cw, 0, 0);
       for (const sd of ['Left', 'Right']){
@@ -4349,10 +4370,18 @@ function advance(dt){
         const sway = w * a.amp * 1.44 * legSw * panelW;
         /* 跪坐：前襟整片前翻（0.55+0.55·front）。
            坐凳：前襟要**压在平放的大腿上**（1.0·front），后片只轻带一点（0.18）——
-                 后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。 */
+                 后片跟着前翻会让裙摆从凳子背后翘起来，读成"裙子掀了"。
+           ⚠️ 2026-11-02 老黄："主客坐下后跟座椅穿模"。侧片（front≈0）原来只掀 0.18，
+              坐进太师椅时两片侧摆笔直垂到座面以下，正好**穿过扶手与椅腿**（出图
+              outputs/_diag/hall-sit/host-side.png：一片蓝布从扶手外侧垂到地面）。
+              椅子内宽只有 0.52m，靠收窄裙摆救不回来（人坐下后袍宽本来就有 0.6+），
+              只能让侧片也抬到大腿高度：补 0.45·(1−|front|)，侧片 0.18→0.63，
+              前片仍是 1.18、后片仍是 0.18 —— 前襟压腿、后片贴椅背的口径都不变。
+              ⚠️ 这个量走 `cs.sideLift`（只有 HALL_SIT 填），**不能写死常数**：
+                 写死会让石桌对弈那两位的侧摆也一起抬起来（重播基线立刻报出差异）。 */
         const th = sway
           - k * KNEEL.lift * (0.55 + 0.55 * front)
-          - st2 * cs.lift * (0.18 + 1.00 * Math.max(0, front));
+          - st2 * cs.lift * (0.18 + 1.00 * Math.max(0, front) + (cs.sideLift || 0) * (1 - Math.abs(front)));
         const ba = a.bones[sk.a], ra = a.base[sk.a];
         if (ba && ra){
           q.setFromAxisAngle(sk.axis, th);

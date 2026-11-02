@@ -914,8 +914,12 @@ export function makeStable(cx, cz, opts = {}){
   carA.position.set(-3.0, carAY, -1.4); carA.rotation.y = Math.PI;   // +z（辕）→ 局部 −z（院门）
   g.add(carA);
   const carB = makeCarriage({ detached: true });
-  const carBY = yardY(3.0, -0.9);
-  carB.position.set(3.0, carBY, -0.9); carB.rotation.y = Math.PI;
+  /* ⚠️ 2026-11-02 老黄截图：这驾停放的马车车厢右后角**插在马厩 4 号柱里**。
+     厩身 6 柱的 local x = ±0.94 / ±2.82 / ±4.7（柱距 1.88），原位置 local x=3.0
+     正好压在 2.82 那根柱子上（车厢半宽 0.72 ⇒ x 2.28~3.72 横跨柱子）。
+     挪到两个开间的正中：local x = (0.94+2.82)/2 = 1.88，左右各留 0.16m 净空。 */
+  const carBY = yardY(1.88, -0.9);
+  carB.position.set(1.88, carBY, -0.9); carB.rotation.y = Math.PI;
   g.add(carB);
   TRAVEL.parkedCars = [carB];          // 马夫走线避让卸马停放的车
   /* ⚠️ 2026-10-11 补：**把车"坐"到坡上**（老黄这轮出图判读的头号出戏项："马车的一个木轮子
@@ -985,6 +989,10 @@ export function makeStable(cx, cz, opts = {}){
   addHorseSlot(4.6, -3.9, yardY(4.6, -3.9), -Math.PI / 2, MAT.horseGrey,
     { graze: 0.95, role: 'graze', decoSeed: 5, mark: { dapple: 1.0, blaze: 0.7 },
       gait: { lane: 0.75 } });
+  /* ⚠️ 2026-11-02 老黄截图：这匹枣红马正好站在**拴马横杆**上（横杆高 gy+1.04，
+     与马的胸腹同高），横杆东端直接插进马身。
+     先试过把马挪到院子东侧，那里紧贴围栏（马脖穿过栅栏）—— 院子其实已排满，
+     所以改成**整组横杆往东让 0.6m**（见下面的 RAIL_DX），马留在原地。 */
   addHorseSlot(1.5, -2.8, yardY(1.5, -2.8), Math.PI, MAT.horseBay,
     { graze: 0.80, role: 'fed', decoSeed: 6, mark: { blaze: 1.0, socks: 0.8 } });
 
@@ -1044,14 +1052,22 @@ export function makeStable(cx, cz, opts = {}){
      车停在院门外时，两匹辕马的头朝院门里、正好够到这道横杆（0.6~0.7m）。
      位置：世界 z≈0.9（院内、厩身前面那片空地），跨 x 38.6~41.4。 */
   {
-    const railZ = -2.9, railY = gy(0, railZ) + 1.04;
+    /* ⚠️ 2026-11-02：整组横杆往**东**让 0.6m（局部 x −0.6 = 世界 x +0.6，组是 yaw π）。
+       原位置世界 x 38.55~41.45 与院子里的枣红马（x 38.19~38.81）重叠，
+       横杆直接穿过马胸。让开之后东端到 42.05，仍不碰厩内停放的马车（42.28 起）。 */
+    const RAIL_DX = -0.6;
+    const railZ = -2.9, railY = gy(RAIL_DX, railZ) + 1.04;
     for (const lx of [-1.36, 1.36]){
       const post = mesh(box(0.12, 1.10, 0.12), MAT.woodDark, { name: 'hitchRailPost', cast: true });
-      post.position.set(lx, gy(lx, railZ) + 0.55, railZ); g.add(post);
+      post.position.set(lx + RAIL_DX, gy(lx + RAIL_DX, railZ) + 0.55, railZ); g.add(post);
     }
     const bar = mesh(box(2.90, 0.10, 0.10), MAT.wood, { name: 'hitchRailBar', cast: true });
-    bar.position.set(0, railY, railZ); g.add(bar);
+    bar.position.set(RAIL_DX, railY, railZ); g.add(bar);
     TRAVEL.hitchPoints = [];    // 系绳端点与横杆上的真实环共用，避免接到院子另一侧
+    /* ⚠️ 环**不跟着**上面那 0.6m 走：系绳的松紧由 "辕马 ↔ 环" 的距离定，
+       stable-regression-guard 的门是 <1.75m。环跟着挪 0.6 之后实测最远一根到 1.774，
+       超门 2cm（这不是判据苛刻——两张缰绳拉到 1.8m 画面上就是"没系上"）。
+       横杆现在是 39.15~42.05，原来的环位 39.38 / 40.62 仍在杆上 ⇒ 只挪杆不挪环。 */
     for (const lx of [-0.62, 0.62]){
       const ring = mesh(new THREE.TorusGeometry(0.070, 0.016, 4, 10), MAT.harness, { name: 'hitchRailRing' });
       ring.position.set(lx, railY - 0.07, railZ + 0.05);
@@ -1158,10 +1174,17 @@ export function makeStable(cx, cz, opts = {}){
     geo.setIndex(idx); geo.computeVertexNormals();
     g.add(mesh(geo, mat, { name: 'yardWear', cast: false, receive: true }));
   };
+  /* ⚠️ 2026-11-02 老黄："马厩前方这个角度看地面有一团深色阴影，换个角度又消失了"。
+     那是这两层**院子磨损土斑**（马匹踩踏 / 车轮碾压出来的泥色地面，不是阴影）。
+     消失的原因是它们与地面几乎共面（只高 5cm+lift 0~1.8cm）、又开着 depthWrite:false，
+     从某些角度被地面在深度上抢先 ⇒ 时隐时现。修法用标准做法：polygonOffset 把贴花
+     在深度上整体前推一档，几何高度不动（抬高会让人物/马蹄浮起来）。 */
   const wornDry = new THREE.MeshStandardMaterial({ color: 0x9B8B4E, roughness: 0.99, metalness: 0,
-    transparent: true, depthWrite: false, alphaMap: wornAlpha });
+    transparent: true, depthWrite: false, alphaMap: wornAlpha,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
   const wornBare = new THREE.MeshStandardMaterial({ color: 0x6D5B45, roughness: 1.0, metalness: 0,
-    transparent: true, depthWrite: false, alphaMap: wornAlpha });
+    transparent: true, depthWrite: false, alphaMap: wornAlpha,
+    polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -3 });
   /* 踩实的泥地深雪里同样落雪（2026-10-27 复核·视觉清单②）——不登记的话雪天它就是
      一块被雪包围的亮棕色硬边补丁（eyes-2026-10-27b 的 S-vp-stableNear.png）。 */
   registerWeatherRoles(wornDry, { snow: 1 });

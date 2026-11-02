@@ -55,10 +55,23 @@ export function makeYuanxiangHall(){
     g.add(c);
   }
 
-  /* ② 踏跺（南侧两级） */
-  for (let i = 0; i < 2; i++){
-    const st = mesh(box(4.6, 0.31, 0.62), MAT.stone, { name:'step' });
-    st.position.set(0, 0.155 + i*0.31, (D + 4.4)/2 + 0.31 - i*0.62);
+  /* ② 踏跺（南侧）
+     ⚠️ 2026-11-02 老黄："这个台阶太高，主客踏上去和走下来的时候实际画面看是跳上去跳下来的"。
+     原做法是**两级**（各 0.31 高），而台面在 1.24 —— 从第二级 0.62 到台面还要再上
+     **0.62m**（而且第二级整体缩在下层台基的轮廓里，等于"站在台子里往上跳"）。
+     0.62m 是平地高差，人一步上不去；实测航点 ENTER_PTS 正好跨在 z −7.3 这一跳上
+     （stepUp 临时开到 0.70 才勉强能"迈"上去，画面上就是弹跳）。
+     改成 6 级 × 0.24（0.24 是"偏高但能自然迈步"的上限；真实石阶 0.15~0.18），
+     从草地 −0.2 一路排到台面 1.24，最高一级与上层台基齐平、不再有跳变。 */
+  const STEP_N = 6, STEP_RISE = 0.24, STEP_TREAD = 0.35;
+  const zUpper = (D + 3.0) / 2;                 // 上层台基（台面 1.24）南边缘
+  const groundY = -0.20;                        // 堂前草地实测
+  for (let i = 0; i < STEP_N; i++){
+    const topY = 1.24 - (STEP_N - 1 - i) * STEP_RISE;      // i=0 最南最低
+    const h = topY - groundY;
+    const st = mesh(box(4.6, h, STEP_TREAD), MAT.stone, { name:'step' });
+    /* i 从南往北：最高一级紧贴上层台基边缘 */
+    st.position.set(0, groundY + h / 2, zUpper + (STEP_N - 1 - i + 0.5) * STEP_TREAD);
     g.add(st);
   }
 
@@ -224,18 +237,26 @@ export function makeYuanxiangHall(){
   });
   const makeChair = (x, z, ry)=>{
     const ch = new THREE.Group();
-    const seat = mesh(box(0.64, 0.09, 0.58), MAT.woodRed, { name:'chairSeat' });
+    /* ⚠️ 2026-11-02 老黄："主客人坐下后，跟座椅穿模了"。
+       实测（outputs/_diag/hall-sit2-20261102）：主位髋 1.815、膝 1.701、大腿外侧到
+       x −1.567，而**扶手内侧面在 −1.61、外沿 −1.64** —— 长袍下摆从髋部垂到地面
+       （0.57m），侧向铺开就正好从扶手底下钻出去，画面上一大块蓝布穿过扶手和椅腿。
+       原尺寸是照"瘦人坐硬板椅"捏的：坐面 0.64 宽、扶手 ±0.29，扶手离身体只有 3cm。
+       改成坐面 0.74、扶手 ±0.35（太师椅本来就是宽大扶手椅）：扶手**内侧净空**从
+       ±0.26 变成 ±0.32，每侧多 6cm，长袍的侧向铺展就能落进扶手之内。 */
+    const CW = 0.74;
+    const seat = mesh(box(CW, 0.09, 0.58), MAT.woodRed, { name:'chairSeat' });
     seat.position.y = 0.47; ch.add(seat);
-    const back = mesh(box(0.64, 0.66, 0.08), MAT.woodRed, { name:'chairBack' });
+    const back = mesh(box(CW, 0.66, 0.08), MAT.woodRed, { name:'chairBack' });
     back.position.set(0, 0.83, -0.25); ch.add(back);
-    [-0.27, 0.27].forEach(lx=>{
+    [-0.32, 0.32].forEach(lx=>{
       [0.23, -0.23].forEach(lz=>{
         const lg = mesh(box(0.08, 0.47, 0.08), MAT.woodDark, { name:'chairLeg' });
         lg.position.set(lx, 0.235, lz); ch.add(lg);
       });
     });
     // 扶手
-    [-0.29, 0.29].forEach(lx=>{
+    [-0.35, 0.35].forEach(lx=>{
       const arm = mesh(box(0.06, 0.06, 0.5), MAT.woodRed, { name:'chairArm' });
       arm.position.set(lx, 0.72, -0.02); ch.add(arm);
     });
