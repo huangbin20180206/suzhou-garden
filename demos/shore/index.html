@@ -205,7 +205,8 @@ const sky = new THREE.Mesh(
 scene.add(sky);
 
 /* ---------- 相机 ---------- */
-let yaw = 0.55, pitch = 0.62, dist = 15.5;
+let yaw = 0.55, pitch = 0.62;
+let dist = innerWidth / innerHeight < 1 ? 25 : 15.5;
 let drag = false, lx = 0, ly = 0;
 renderer.domElement.addEventListener('pointerdown', e => { drag = true; lx = e.clientX; ly = e.clientY; });
 addEventListener('pointerup', () => { drag = false; });
