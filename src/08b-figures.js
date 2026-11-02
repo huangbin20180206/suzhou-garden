@@ -5,7 +5,7 @@ import { THREE } from '../vendor.js';
 import { world } from './02-scene.js';
 import { mesh } from './03-factory.js';
 import { groundHeight } from './05-water.js';
-import { TAU, mulberry32 } from './00-config.js';
+import { TAU, mulberry32, LADY_SCHEDULE } from './00-config.js';
 import { WALK_PATH, WALKERS, walkPointAt, WALK_SPEED, WALK_TURN, WALK_STRIDE, WALK_BOB, WALK_SWAY } from './08d-tour.js';
 import { ENV } from './12-env.js';
 import { PROP_SPOTS, makeWoodBucket, BUCKET_HANDLE_H, setGoPiecesVisible } from './14-props.js';
@@ -855,7 +855,7 @@ const D_SCHEDULES = [
   { pose:'draw', skin:'lilac', x: PROP_SPOTS.ladyWell.x, z: PROP_SPOTS.ladyWell.z, y: PROP_SPOTS.ladyWell.y,
     yaw: Math.atan2(PROP_SPOTS.well.x - PROP_SPOTS.ladyWell.x, PROP_SPOTS.well.z - PROP_SPOTS.ladyWell.z),
     s: 0.97, lady: true, leanX: 0.17, headDown: 0.42,
-    h0: 7.5, h1: 12.0, stroll: null },
+    h0: LADY_SCHEDULE.h0, h1: LADY_SCHEDULE.h1, stroll: null },
   /* 马夫（2026-10-09 · 老黄："再设计一个马夫在帮忙给马喂草料或者帮马匹梳理毛皮"）。
      · 站位：马厩台基上（y = 台基面 **0.14**）—— ⚠️ 这里**不能省 y 让 makeScholar 用
        groundHeight**：台基面比它下面的地形高 0.5m 以上，人会陷进台基里（井边仕女那条同源教训）。

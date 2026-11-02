@@ -20,7 +20,7 @@ import { SIM_CAR } from './stubs/stable.mjs';
 const SRC08D = fs.readFileSync(new URL('../../src/08d-tour.js', import.meta.url), 'utf8');
 const m = SRC08D.match(/export const WALK_ROUTE = (\[[\s\S]*?\]);/);
 const WALK_ROUTE = new Function('return ' + m[1].replace(/\/\/[^\n]*/g, ''))();
-export const ENV = { hour: 10, weather: 'clear', cur: { rainAmount: 0, snowAmount: 0, snowCover: 0 } };
+export const ENV = { hour: 10, doy: 191, weather: 'clear', cur: { rainAmount: 0, snowAmount: 0, snowCover: 0 } };
 globalThis.window = globalThis.window || {};
 /* 假 canvas：16a 的卷轴纸纹理在 make* 里画 2D canvas。所有绘制调用空转、属性随便写（只影响贴图，不进快照）。 */
 const NOOP_CTX = new Proxy({}, { get: (o, k) => (k in o ? o[k] : () => ({ addColorStop(){} })), set: (o, k, v) => { o[k] = v; return true; } });

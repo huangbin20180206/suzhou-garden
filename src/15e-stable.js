@@ -917,6 +917,7 @@ export function makeStable(cx, cz, opts = {}){
   const carBY = yardY(3.0, -0.9);
   carB.position.set(3.0, carBY, -0.9); carB.rotation.y = Math.PI;
   g.add(carB);
+  TRAVEL.parkedCars = [carB];          // 马夫走线避让卸马停放的车
   /* ⚠️ 2026-10-11 补：**把车"坐"到坡上**（老黄这轮出图判读的头号出戏项："马车的一个木轮子
      明显悬空，没有接触到地面，一眼假"）。原因：原来只用"车心那一点的地形高"给 position.y，
      而院场是草坡 —— 两个轮子（车局部 ±0.62）各自脚下的高差 0.2m 量级 ⇒ 一侧轮子必然离地。
@@ -996,7 +997,9 @@ export function makeStable(cx, cz, opts = {}){
   wt.position.set(-4.85, yardY(-4.85, -0.6), -0.6); g.add(wt);
   /* 草料堆：从"4 个球堆叠（出图判读读作雪人/面团）"改成**码好的草捆 + 散草**——
      扁平长方体交替换向 + 几缕散落的草茎，这才读得出是草料。 */
-  const hayX = -4.30, hayZ = -3.35, hayY0 = yardY(hayX, hayZ);
+  /* 草料堆移到院场西侧：原位置会被待发辕马占住，马夫无安全取草通道。
+     新位置需与 16-actors 的 hayPt 同步，仍在围栏内并避开卸马车。 */
+  const hayX = 4.70, hayZ = -1.50, hayY0 = yardY(hayX, hayZ);
   for (let i = 0; i < 3; i++){
     const bale = mesh(box(0.92, 0.34, 0.52), MAT.straw, { name: 'hayBale', cast: true });
     bale.position.set(hayX + (i === 2 ? 0.14 : 0), hayY0 + 0.18 + i * 0.35, hayZ + (i === 1 ? 0.07 : 0));
@@ -1048,9 +1051,11 @@ export function makeStable(cx, cz, opts = {}){
     }
     const bar = mesh(box(2.90, 0.10, 0.10), MAT.wood, { name: 'hitchRailBar', cast: true });
     bar.position.set(0, railY, railZ); g.add(bar);
+    TRAVEL.hitchPoints = [];    // 系绳端点与横杆上的真实环共用，避免接到院子另一侧
     for (const lx of [-0.62, 0.62]){
       const ring = mesh(new THREE.TorusGeometry(0.070, 0.016, 4, 10), MAT.harness, { name: 'hitchRailRing' });
       ring.position.set(lx, railY - 0.07, railZ + 0.05);
+      TRAVEL.hitchPoints.push(ring.position.clone());
       ring.rotation.y = Math.PI / 2; g.add(ring);
     }
   }

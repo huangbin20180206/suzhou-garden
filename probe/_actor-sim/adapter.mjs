@@ -4,6 +4,6 @@ export async function load(){
   const props = await import('../../src/16a-actor-props.js');
   const M = await import('../../src/16-actors.js');
   return { config, props, ACTORS: M.__ACTORS, defs: [...M.__DEFS, ...M.__seatedDefs()], actorStep: M.actorStep,
-           actorVisit: M.actorVisit, VISIT: M.__VISIT, VISCAR: M.__VISCAR, VISIT_PHASES: M.VISIT_PHASES,
+           tickActors: M.tickActors, visitWeatherOK: M.__visitWeatherOK, actorVisit: M.actorVisit, VISIT: M.__VISIT, VISCAR: M.__VISCAR, VISIT_PHASES: M.VISIT_PHASES,
            RITE: M.__RITE, VISIT_POLICY: M.VISIT_POLICY };
 }

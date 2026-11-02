@@ -855,9 +855,10 @@ export function bakeHorseShading(geo, w, opts = {}){
    ② 所有角度**连续**（慢正弦 + 光滑包络），绝不用高频正弦直接打姿态 —— 这正是 2026-10-05
       "鹦鹉抽搐"的教训（每帧相位超过 ~0.8rad 就走样成乱抖）；③ 幅度按"远看读得出"给：
       15~25m 外 1° ≈ 4~7mm，所以姿态角都在 5° 以上。 */
-export function installHorseRig(mat, geo, W, piv, nose){
+export function installHorseRig(mat, geo, W, piv, nose, frontLiftScale = 1){
   const P = { head: piv.neck, tail: piv.tail, legF: piv.legF, legH: piv.legH,
               jaw: piv.jaw || [0, 1.2, 0.8] };
+  mat.userData.frontLiftScale = frontLiftScale;
   mat.userData.rig = { head: new THREE.Vector2(0, 0), tail: new THREE.Vector2(0, 0),
                        leg: new THREE.Vector4(0, 0, 0, 0), jaw: new THREE.Vector2(0, 0) };
   const N = geo.attributes.position.count, pos = geo.attributes.position;
@@ -886,6 +887,7 @@ export function installHorseRig(mat, geo, W, piv, nose){
     sh.uniforms.uPivLegH = { value: P.legH };
     sh.uniforms.uJawAng  = { value: mat.userData.rig.jaw };
     sh.uniforms.uPivJaw  = { value: P.jaw };
+    sh.uniforms.uFrontLiftScale = { value: frontLiftScale };
     /* 口鼻去粉（2026-10-27 老黄："白马的嘴唇不应该是这种粉红"）：模型贴图在唇鼻处
        本来就带一块饱和的粉红，白光下最扎眼。做法＝**按模型局部坐标**圈出口鼻那一小块，
        把颜色向同明度的灰压过去（只动色相/饱和、不动明暗 ⇒ 不会出现"一块脏斑"）。
@@ -898,6 +900,7 @@ export function installHorseRig(mat, geo, W, piv, nose){
         attribute float aRigJaw;
         varying vec3 vHorseLocal;
         uniform vec2 uHeadAng; uniform vec2 uTailAng; uniform vec4 uLegAng; uniform vec2 uJawAng;
+        uniform float uFrontLiftScale;
         uniform vec3 uPivHead; uniform vec3 uPivTail; uniform vec3 uPivLegF; uniform vec3 uPivLegH; uniform vec3 uPivJaw;
         vec3 rigRX(vec3 p, vec3 pv, float a){ float c = cos(a), s = sin(a); vec3 d = p - pv;
           return vec3(d.x, d.y * c - d.z * s, d.y * s + d.z * c) + pv; }
@@ -911,8 +914,9 @@ export function installHorseRig(mat, geo, W, piv, nose){
         if (aRigJaw > 0.002) transformed = mix(transformed, rigRX(transformed, uPivJaw, uJawAng.x), aRigJaw);
         if (aRigA.x > 0.002){ vec3 q = rigRX(transformed, uPivHead, uHeadAng.x); q = rigRY(q, uPivHead, uHeadAng.y); transformed = mix(transformed, q, aRigA.x); }
         if (aRigA.y > 0.002){ vec3 q = rigRY(transformed, uPivTail, uTailAng.x); q = rigRX(q, uPivTail, uTailAng.y); transformed = mix(transformed, q, aRigA.y); }
-        if (aRigA.z > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegF, uLegAng.x), aRigA.z);
-        if (aRigA.w > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegF, uLegAng.y), aRigA.w);
+        /* 只压低前蹄的竖直位移：同相位下高度严格乘系数，前后摆与后腿保持不变。 */
+        if (aRigA.z > 0.002){ vec3 q = rigRX(transformed, uPivLegF, uLegAng.x); q.y = mix(transformed.y, q.y, uFrontLiftScale); transformed = mix(transformed, q, aRigA.z); }
+        if (aRigA.w > 0.002){ vec3 q = rigRX(transformed, uPivLegF, uLegAng.y); q.y = mix(transformed.y, q.y, uFrontLiftScale); transformed = mix(transformed, q, aRigA.w); }
         if (aRigB.x > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegH, uLegAng.z), aRigB.x);
         if (aRigB.y > 0.002) transformed = mix(transformed, rigRX(transformed, uPivLegH, uLegAng.w), aRigB.y);
       `);

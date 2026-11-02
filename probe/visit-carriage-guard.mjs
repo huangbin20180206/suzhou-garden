@@ -84,6 +84,23 @@ const check = (name, ok, detail = '') => {
     return !!(v && v.guest && v.coach && v.host);
   }, null, { timeout: 900000, polling: 'raf' });
 
+  /* 两驾车厢长 2.43m，车轮与车轴对齐车厢中部。 */
+  const shape = await page.evaluate(async () => {
+    const { makeCarriage } = await import('/src/15d-carriage.js');
+    const T = window.__garden.THREE;
+    return [{ pair: true }, { detached: true }].map(opts => {
+      const c = makeCarriage(opts); c.updateMatrixWorld(true);
+      const b = new T.Box3().setFromObject(c.getObjectByName('carriageBed'));
+      return { length: b.max.z - b.min.z, front: b.max.z, center: (b.min.z + b.max.z) / 2,
+        wheels: c.userData.wheels.map(w => w.position.toArray()), axleZ: c.getObjectByName('carriageAxle').position.z,
+        seatZ: c.getObjectByName('carriageSeatPad').position.z };
+    });
+  });
+  check('两驾车厢加长 1.5 倍，车轮和车轴位于厢体中部',
+    shape.every(c => Math.abs(c.length - 2.43) < 0.001 && Math.abs(c.front - 0.75) < 0.001
+      && c.wheels.length === 2 && c.wheels.every(w => Math.abs(w[2] - c.center) < 0.001)
+      && Math.abs(c.axleZ - c.center) < 0.001 && Math.abs(c.seatZ - 0.93) < 0.001), JSON.stringify(shape));
+
   const r = await page.evaluate(({ STEP, MAX_STEPS }) => {
     const G = window.__garden;
     const phases = [], cars = [];
@@ -91,9 +108,15 @@ const check = (name, ok, detail = '') => {
     let boardFrames = 0, coachFrames = 0, guestMinGap = Infinity, coachMinGap = Infinity;
     let guestDropFrames = 0, coachDropFrames = 0;
     let odoMaxJump = 0, odoJumpAt = '', lastOdo = null, lastLeg = '';
+    let arrivalOdo = null, firstOutOdo = null, ropeTied = 0, ropeOut = 0, ropeOutWrong = 0;
+    const stoppedGaits = [];
     let nan = 0, floorBad = 0, simT = 0;
     let coachBusyFrames = 0, coachHidden = 0, outFrames = 0, outHidden = 0;
     const coachHiddenAt = [];   // 2026-11-01：缺席时记录"哪一刻/哪个子状态"，别再只报一个数字
+    /* 2026-11-02：老黄"马车到达后从车上下来一个新的马夫，但是瞬间就不见了" ——
+       车夫在 wait（客人在园里游玩）段是否还在场。这一段是缺陷发生的窗口。 */
+    let coachWaitFrames = 0, coachWaitHidden = 0;
+    const coachWaitHiddenAt = [];
     /* 2026-10-29 新契约：门外见面/送客、挥手、回水榭听琴 */
     let faceOut = null, wavePeak = 0, waveWristMax = -Infinity, waveMinDistHead = Infinity;
     const R = G.actorRig ? G.actorRig('scholar') : null;
@@ -130,6 +153,11 @@ const check = (name, ok, detail = '') => {
         if (!v.coach.visible && coachHiddenAt.length < 8) coachHiddenAt.push({ t: +simT.toFixed(1), phase: v.phase, st: v.car.state, leg: v.car.leg || '' });
         if (v.car.state === 'driveout') { outFrames++; if (!v.coach.visible) outHidden++; }
       }
+      /* ⑧b wait 段：客人下车进园后，车夫必须还在场（缺陷态：'alighted'→'wait' 那一帧消失）。 */
+      if (v.car.state === 'wait' && v.coach){
+        coachWaitFrames++;
+        if (!v.coach.visible){ coachWaitHidden++; if (coachWaitHiddenAt.length < 8) coachWaitHiddenAt.push({ t: +simT.toFixed(1), phase: v.phase }); }
+      }
 
       /* ③ 上车/在车上：人已上车、不在过渡插值里 ⇒ 必须坐在座面高度上。
          ⚠️ 取样窗必须含 driveout：马夫跨上车与"两人都到齐"几乎同一帧，只在 board 里取样
@@ -147,6 +175,17 @@ const check = (name, ok, detail = '') => {
         const gap = v.coach.pos[1] - carY;
         coachMinGap = Math.min(coachMinGap, gap);
         if (gap < 0.55) coachDropFrames++;
+      }
+      /* 到站姿态与系绳：取真实马匹，不只看导演层的状态字。 */
+      const slots = G.stableTravel()?.slots || [];
+      if (v.car.state === 'stop' || v.car.state === 'take'){
+        for (const s of slots) if (Number.isFinite(s.life?.gaitW)) stoppedGaits.push(s.life.gaitW);
+      }
+      if (v.car.state === 'board') arrivalOdo = v.car.s;
+      if (v.car.tieOn && slots.some(s => s.leadRope?.visible)) ropeTied++;
+      if (v.car.state === 'driveout'){
+        if (firstOutOdo === null) firstOutOdo = v.car.odo;
+        if (slots.some(s => s.leadRope)){ ropeOut++; if (slots.some(s => s.leadRope?.visible)) ropeOutWrong++; }
       }
       /* ④ 里程连续（只看有马车在动的段） */
       if (['driveout'].includes(v.car.state)){
@@ -176,8 +215,10 @@ const check = (name, ok, detail = '') => {
     }
     return { phases, cars, simT: +simT.toFixed(1), boardFrames, coachFrames, guestMinGap, coachMinGap,
              guestDropFrames, coachDropFrames, odoMaxJump: +odoMaxJump.toFixed(3), odoJumpAt,
+             arrivalOdo, firstOutOdo, ropeTied, ropeOut, ropeOutWrong, stoppedGaits,
              nan, floorBad, faceOut, wavePeak: +wavePeak.toFixed(3),
              coachBusyFrames, coachHidden, outFrames, outHidden, coachHiddenAt,
+             coachWaitFrames, coachWaitHidden, coachWaitHiddenAt,
              waveWristMax: Number.isFinite(waveWristMax) ? +waveWristMax.toFixed(3) : null,
              waveMinDistHead: Number.isFinite(waveMinDistHead) ? +waveMinDistHead.toFixed(3) : null,
              qinDist, hostEnd, end: G.actorVisit() };
@@ -217,6 +258,16 @@ const check = (name, ok, detail = '') => {
 
   check('④ 里程 odo 跨段连续（0.4s 内 |Δ| ≤ 0.60m；旧写法会跳 1.5~3.4m）',
     r.odoMaxJump <= 0.60, `最大跳变 ${r.odoMaxJump}m @ ${r.odoJumpAt || '-'}`);
+  check('④b 驶离里程接续驶入终点（0.4s 内 |Δ| ≤ 0.60m）',
+    r.arrivalOdo !== null && r.firstOutOdo !== null && Math.abs(r.firstOutOdo - r.arrivalOdo) <= 0.60,
+    `驶入 ${r.arrivalOdo}m / 驶离 ${r.firstOutOdo}m`);
+  check('④c 系绳可见后，驶离的真实马匹不再带引绳',
+    r.ropeTied > 0 && r.ropeOut > 0 && r.ropeOutWrong === 0,
+    `系好 ${r.ropeTied} 帧 / 驶离 ${r.ropeOut} 帧 / 带绳 ${r.ropeOutWrong} 帧`);
+  const maxStopGait = Math.max(...r.stoppedGaits), minStopGait = Math.min(...r.stoppedGaits);
+  check('④d 停车后真实辕马的步态缓回站姿',
+    r.stoppedGaits.length >= 4 && maxStopGait > 0.03 && minStopGait < 0.01,
+    `样本 ${r.stoppedGaits.length} / 最大 ${maxStopGait.toFixed(4)} / 最小 ${minStopGait.toFixed(4)}`);
   check('⑤ 走路段贴地（|y − floorY| ≤ 0.25m）', r.floorBad === 0, `越限 ${r.floorBad} 帧`);
   check('⑤b 无 NaN 位置', r.nan === 0, `NaN ${r.nan}`);
   /* ⑧ 2026-10-29 老黄："马车走的时候没有马夫在驾车" —— 那次是显隐白名单漏了 driveout。
@@ -225,6 +276,13 @@ const check = (name, ok, detail = '') => {
   check('⑧ 车夫在岗：车在动/系马/上车的每一段他都在场上（含 driveout）',
     r.coachBusyFrames >= 20 && r.coachHidden === 0 && r.outFrames >= 3 && r.outHidden === 0,
     `在岗帧 ${r.coachBusyFrames} / 缺席 ${r.coachHidden}；其中驶离段 ${r.outFrames} 帧、缺席 ${r.outHidden}` + (r.coachHiddenAt && r.coachHiddenAt.length ? ' 即 ' + JSON.stringify(r.coachHiddenAt) : '')),
+  /* 2026-11-02 老黄："马车到达后从车上下来一个新的马夫，但是瞬间就不见了"。
+     缺陷态：'alight' 一结束（状态进 alighted/wait）车夫就被显隐白名单藏掉，
+     客人进园游玩的几分钟里场上只剩常驻男仆。现在两人人设分开、同框各干各的。 */
+  check('⑧b 客人下车进园后车夫仍在场（wait 段不消失）',
+    r.coachWaitFrames >= 20 && r.coachWaitHidden === 0,
+    `wait 段 ${r.coachWaitFrames} 帧 / 缺席 ${r.coachWaitHidden}` +
+    (r.coachWaitHiddenAt && r.coachWaitHiddenAt.length ? ' 即 ' + JSON.stringify(r.coachWaitHiddenAt) : '')),
   check('零 pageerror', errs.length === 0, errs.slice(0, 2).join(' | '));
 
   /* ── ①f 相位名静态一致性（2026-10-30 · 架构收口 · 纯读文本，零浏览器开销）──

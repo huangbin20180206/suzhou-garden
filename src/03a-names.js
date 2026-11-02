@@ -12,6 +12,9 @@ export const SITE_NAMES = Object.freeze({
   heroStone: '云根',       // 池南特置立峰 + 题名石（08d 机位 hero/stele 名与字幕标题）
 });
 
+/* 自拟的堂前题联，上下联分开存放，匾联与导览共用。 */
+export const HALL_COUPLET = Object.freeze({ upper: '碧水涵明月', lower: '清风送荷香' });
+
 /* 由名字派生的展示串：集中在这里拼，调用处只引用结果，免得同一个名字在几处拼法不一。 */
 export const SITE_LABELS = Object.freeze({
   hallPlaque:     SITE_NAMES.hall,                        // 主堂匾额贴图文字

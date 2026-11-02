@@ -5,7 +5,7 @@ import { mesh, box, makeQueTu, makeGuaLuo, makeLatticePanel, makeChangChuang, ma
 import { MAT, makeInkWashTex, makePlaqueTex } from './01-materials.js';
 import { bootMark } from './00-config.js';
 /* 匾额文字取自景点名常量（主堂/凉亭以后改名只改 03a-names 一处） */
-import { SITE_LABELS } from './03a-names.js';
+import { SITE_LABELS, HALL_COUPLET } from './03a-names.js';
 /* ══════════════════════════════════════════════════════════════
    4 · 建筑：远香堂 / 水榭 / 游廊
    ══════════════════════════════════════════════════════════════ */
@@ -377,10 +377,10 @@ export function makeYuanxiangHall(){
     { name:'plaque' });
   plaque.position.set(0, beamY - 0.05, zFront + 0.19);
   g.add(plaque);
-  // 对联（前檐金柱，左右各一）
-  const coupletTex = makePlaqueTex('碧水涵明月清风自在', true);
-  const coupletMat = new THREE.MeshStandardMaterial({ map:coupletTex, roughness:0.55, metalness:0.1 });
-  [-1, 1].forEach(sgn=>{
+  // 自拟对联：面对堂门时右上联、左下联；两侧分别写，不复用同一串字。
+  [[1, HALL_COUPLET.upper], [-1, HALL_COUPLET.lower]].forEach(([sgn, text])=>{
+    const coupletTex = makePlaqueTex(text, true);
+    const coupletMat = new THREE.MeshStandardMaterial({ map:coupletTex, roughness:0.55, metalness:0.1 });
     const c = mesh(new THREE.PlaneGeometry(0.72, 2.9), coupletMat, { name:'couplet' });
     c.position.set(sgn*(W/bays)*0.5, 1.24 + colH*0.52, zFront + 0.17);
     g.add(c);

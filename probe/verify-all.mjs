@@ -205,6 +205,8 @@ const SUITES = [
      马一直站桩（老黄："僵尸马"）。画面上不报错 ⇒ 只能靠量：口鼻相对鬐甲的高度、
      下颌/头骨/蹄骨的角度摆幅、尾尖横摆、冬天白气。 */
   ['马的动作 horse-motion-guard', 'probe/horse-motion-guard.mjs'],
+  /* 量化马、马夫掩膜、缰绳、车厢与取草路线的组合回归。 */
+  ['马厩回归 stable-regression', 'probe/stable-regression-guard.mjs'],
   /* 控制台噪声 gl-warning-guard（2026-10-18 建，~20s）：补 P3「启动 256 条 WebGL 错误」。
      修前：暖机前 12 桶 needsUpdate=false ⇒ sun.shadow.map 为 null，而 STANDARD 材质的
      shadowMap 是 sampler2DShadow ⇒ 空 uniform 绑 RGBA 默认纹理，3713 笔 draw 报

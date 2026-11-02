@@ -2,9 +2,9 @@
 // 用 probe/_actor-sim 的仿真器（桩掉场景/GLB、假骨架）重跑整场，与入库基线**逐帧**比对：
 //   · carriage-2：马车版首场 → done → 冷却 45s → resetVisit → 重播一场 → 第二次 done
 //   · walk-1：步行版（?visit=walk）一场到 done
-//   以上两份带 `?etiquette=0` 跑（礼仪三段全关）—— 2026-10-31 加礼仪之前录的，**一帧都不许变**。
+//   以上两份带 `?etiquette=0` 跑（礼仪三段全关）。2026-11-01 因并肩转角修复更新两份基线；马车版另含入线与车轮修复。
 //   · carriage-rite：马车版、礼仪三段全开两场；另断"开礼仪比关礼仪到 done 多 60–90s"。
-//   以上三份另带 `?walkback=0`（旧的"冷却到点直接瞬移"复位）—— 走回去是后加的，原基线一帧都不许变。
+//   以上三份另带 `?walkback=0`（旧的"冷却到点直接瞬移"复位）。马车礼仪基线同日因入线、车轮和引绳修复更新。
 //   · carriage-walkback：产品默认（礼仪全开 + 走回去），相机在开机机位，两场；另断冷却复位期间
 //     可见演员单帧水平位移 ≤0.5m（兜底瞬移除外，次数取自 VISIT.homeSnaps）、第二场相位链与首场一致。
 // 每 0.4s 一帧，帧 = 导演层（VISIT/VISCAR/车）+ 全部演员的位置/朝向/权重/踏面/骨骼校验和。
@@ -67,6 +67,34 @@ for (const c of CASES){
     for (const [, p] of r.phases) assert.ok(PHASES.includes(p), '未声明的相位 ' + p);
   });
 }
+
+test('接马礼仪后马车驶离时，引绳已收起', async () => {
+  if (STEPS) return;
+  for (const name of ['carriage-rite', 'carriage-walkback']){
+    const r = await runs[name];
+    const driveout = r.frames.map(frame => frame.split('|')).filter(parts => parts[6] === 'driveout');
+    assert.ok(driveout.length > 0, name + ' 没有驶离帧');
+    assert.ok(driveout.every(parts => parts[11] === 'false'), name + ' 驶离时引绳仍可见');
+  }
+});
+
+test('出堂后走到游园起点，不发生可见水平跳位', async () => {
+  if (STEPS) return;
+  const r = await runs['carriage-walkback'];
+  let checked = 0, worst = 0;
+  for (let i = 1; i < r.frames.length; i++){
+    const before = r.frames[i - 1].split('|'), after = r.frames[i].split('|');
+    if (!['exit', 'tourgo'].includes(before[0]) && !['exit', 'tourgo'].includes(after[0])) continue;
+    for (let k = 12; k + 19 <= after.length && after[k] !== 'rite'; k += 19){
+      if (!['scholar', 'guest'].includes(after[k]) || before[k] !== after[k]
+          || before[k + 10] !== 'true' || after[k + 10] !== 'true') continue;
+      const d = Math.hypot(after[k + 1] - before[k + 1], after[k + 2] - before[k + 2]);
+      worst = Math.max(worst, d); checked++;
+    }
+  }
+  assert.ok(checked > 0, '缺少出堂和入线的可见帧');
+  assert.ok(worst <= 0.5, `0.4 秒内水平位移最大 ${worst.toFixed(3)}m`);
+});
 
 test('礼仪三段：开启时首场到 done 比全关晚 60–90s，且三段的相位都走到', async () => {
   if (STEPS) return;                                 // 截断模式下没有 done 可比

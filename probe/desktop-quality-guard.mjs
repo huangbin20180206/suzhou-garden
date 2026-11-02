@@ -76,6 +76,42 @@ const check=(name,ok,detail='')=>{results.push({name,ok});console.log(`  ${ok?'�
   check('画质按钮具备完整无障碍状态', ui.length===4&&ui.every(b=>b.pressed==='true'||b.pressed==='false'),JSON.stringify(ui));
   check('当前高画质按钮选中', ui.find(b=>b.mode==='high')?.pressed==='true',JSON.stringify(ui));
 
+  /* 用模拟 GPU 名测试“保存性能模式后重新打开”，不能用 ?tier=mid：强制档会跳过本地偏好。 */
+  await page.addInitScript(() => {
+    localStorage.setItem('garden.quality.v1', 'performance');
+    for (const C of [window.WebGLRenderingContext, window.WebGL2RenderingContext]){
+      if (!C) continue;
+      const original = C.prototype.getParameter;
+      C.prototype.getParameter = function(p){ return p === 0x9246 ? 'Test Garden GPU' : original.call(this, p); };
+    }
+  });
+  await page.goto(`http://127.0.0.1:${port}/index.html?intro=0`,{waitUntil:'domcontentloaded'});
+  await page.waitForFunction(()=>window.__garden&&document.getElementById('loading').classList.contains('done'));
+  await page.evaluate(async()=>{await window.__garden.bootDonePromise;});
+  const restored = await page.evaluate(()=>window.__garden.qualityState());
+  check('模拟均衡档设备重新打开后，保存的性能模式仍关闭 AO',
+    restored.tier === 'mid' && restored.mode === 'performance' && !restored.ao, JSON.stringify(restored));
+
+  /* 2026-11-02（老黄报障："左键拖动视角出现黑框/黑屏闪烁，位置和大小无规律"）的防回归。
+     ⚠️ 这条缺陷在本门里**动态复现不出来**：QOS_IMMUNE = SOFTWARE_GL || PROBE_DRIVEN，
+        探针里自适应改档根本不跑，setSize 也永远不会在渲染之后发生。所以只能读源码钉两条不变量：
+          ① 自适应降档只许"记账"（queue），真正的重建由帧首的 flush() 落地；
+          ② 帧函数里 QOS.flush() 必须排在 composer.render() 之前。
+        反例形状（旧写法）：sample() 直接 apply() ⇒ setSize 落在"本帧已渲染、浏览器还没合成"
+        之间，alpha 恒 true 的绘图缓冲换成空白 ⇒ 合成出一块纯色，就是用户看到的黑框。 */
+  {
+    const src = fs.readFileSync(path.join(ROOT, 'src/11-loop.js'), 'utf8');
+    const queued = src.includes('queue(st.level + 1)') && src.includes('queue(st.level - 1)');
+    const notApplied = !/apply\(st\.level\s*[+-]\s*1\)/.test(src);
+    const iFlush = src.indexOf('QOS.flush();');
+    const iRender = src.indexOf('composer.render();', iFlush);
+    const ordered = iFlush > 0 && iRender > iFlush
+      && src.slice(iFlush, iRender).includes('AA.tick();');
+    check('自适应改档只记账（queue），由帧首 flush() 在 composer.render() 之前落地',
+      queued && notApplied && ordered,
+      `queue=${queued} 未直接apply=${notApplied} flush在render之前=${ordered}`);
+  }
+
   check('零 pageerror / console error',errs.length===0,errs.slice(0,2).join(' | '));
   await browser.close(); server.close();
   const fails=results.filter(r=>!r.ok).length;

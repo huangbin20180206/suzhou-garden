@@ -15,7 +15,11 @@ export function travelCarriagePlace(x, z, yaw, dist){
   return { x, y, z, yaw, dist };
 }
 export function travelCarriagePark(){ SIM_CAR.parks++; car.position.set(38.0, 0, -1.0); car.rotation.y = 0; }
-export function travelCarriageVisible(v){ SIM_CAR.visible = !!v; car.visible = !!v; }
+export function travelCarriageVisible(v){
+  SIM_CAR.visible = !!v; car.visible = !!v;
+  if (TRAVEL.blob) TRAVEL.blob.visible = !!v;
+  for (const s of TRAVEL.slots) if (s.group) s.group.visible = !!v;
+}
 export function travelCarriageTied(v){ SIM_CAR.tied = !!v; }
 export function horseLifeDebug(){ return []; }
 export function holdHorse(){}

@@ -30,6 +30,9 @@ export const pick= a=>a[(rnd()*a.length)|0];
 export const TAU = Math.PI * 2;
 export const DEG = Math.PI / 180;
 
+/* 井边仕女的原定日程：程序化替身与高精模型共用。 */
+export const LADY_SCHEDULE = Object.freeze({ h0: 7.5, h1: 12.0 });
+
 // 统一登记：便于统计与批量设置阴影
 export const registry = { meshes: 0, geos: 0, mats: 0 };
 

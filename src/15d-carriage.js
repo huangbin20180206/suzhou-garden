@@ -8,7 +8,7 @@ import { groundHeight } from './05-water.js';
 import { gaitPose } from './15c-horse-life.js';
 import { mesh, box } from './03-factory.js';
 import { prRange } from './15a-shared.js';
-import { mulberry32 } from './00-config.js';
+import { mulberry32, HOOKS } from './00-config.js';
 import { MAT } from './01-materials.js';
 import { markArtLicense } from './art-license.js';
 export function mergeLocalMeshes(container, inv, accept){
@@ -74,7 +74,7 @@ export function prepareTravelCarriage(car){
 /* 行驶中的马车 + 两匹辕马（都由 16-actors 的到访导演层驱动）。
    parked 是"停在院里待发"的**局部**坐标（与 makeStable 里 carA 的落点一致）。 */
 export const TRAVEL = {
-  ready: false, group: null, car: null, wheels: [], slots: [], blob: null,
+  ready: false, group: null, car: null, wheels: [], slots: [], blob: null, parkedCars: [], hitchPoints: [],
   cx: 0, cz: 0, stableYaw: 0, cy: 1, sy: 0,
   parked: { lx: -3.0, lz: -1.4, yaw: Math.PI },
   wheelR: 0.55,
@@ -190,22 +190,10 @@ export function travelCarriageVisible(v){
   for (const s of V.slots) s.group.visible = !!v;
 }
 
-/* 系马绳（马夫把两匹辕马的缰绳拴到院内横杆上）：两根细管，与马一起走，
-   只在"已系好"时显示。位置在槽位组的局部系里（马头前下方 → 横杆方向）。 */
+/* 系绳状态保留独立组；头络和两侧细缰随马头更新，不再使用僵硬的固定短管。 */
 export function makeLeadRope(slot){
   const g = new THREE.Group();
   g.name = 'leadRope';
-  const mat = MAT.harness;
-  for (const sgn of [-1, 1]){
-    const c = new THREE.CatmullRomCurve3([
-      new THREE.Vector3(sgn * 0.10, 1.05, 0.74),
-      new THREE.Vector3(sgn * 0.17, 0.96, 1.02),
-      new THREE.Vector3(sgn * 0.24, 0.99, 1.28),
-    ]);
-    const t = mesh(new THREE.TubeGeometry(c, 8, 0.016, 5, false), mat, { name: 'leadRopeTube', cast: false });
-    t.userData.noMerge = true;
-    g.add(t);
-  }
   g.userData.noMerge = true;
   g.visible = false;
   slot.group.add(g);
@@ -213,8 +201,106 @@ export function makeLeadRope(slot){
   return g;
 }
 export function travelCarriageTied(on){
-  for (const s of TRAVEL.slots) if (s.leadRope) s.leadRope.visible = !!on;
+  for (const s of TRAVEL.slots){
+    s.tieRequested = !!on;
+    if (s.leadRope) s.leadRope.visible = !!on;
+    if (s.reins) s.reins.visible = !on;
+  }
 }
+
+/* 两侧缰绳是细线而非粗硬管；端点每帧由真实马头与车夫位推算。 */
+const reinMaterial = new THREE.LineBasicMaterial({ color: 0x39291E });
+function makeReinLine(parent, name){
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(27 * 3), 3));
+  const line = new THREE.Line(geometry, reinMaterial);
+  line.name = name; line.frustumCulled = false; line.raycast = () => {};
+  line.userData.noMerge = true; parent.add(line);
+  return line;
+}
+function attachTravelBridle(slot, horse){
+  if (slot.role !== 'harnessed' || !horse.piv || !horse.nose || slot.bridle) return;
+  const pivot = horse.piv.neck, nose = horse.nose;
+  const head = new THREE.Group(); head.name = 'horseBridle';
+  head.position.set(...pivot); head.rotation.order = 'YXZ'; head.userData.noMerge = true;
+  const muzzleZ = nose[2] - 0.12, muzzleY = nose[1] + 0.02;
+  const ring = [];
+  for (let i = 0; i <= 24; i++){
+    const a = i * Math.PI * 2 / 24;
+    ring.push(new THREE.Vector3(0.105 * Math.cos(a), muzzleY - pivot[1] + 0.135 * Math.sin(a), muzzleZ - pivot[2]));
+  }
+  const band = mesh(new THREE.TubeGeometry(new THREE.CatmullRomCurve3(ring), 32, 0.009, 5, false), MAT.harness,
+    { name: 'bridleMuzzle', cast: false });
+  band.userData.noMerge = true; head.add(band);
+  /* 参考实物：两侧颊带从鼻箍斜向耳后，再用头顶带连接，不画成悬空的硬杆。 */
+  const crownY = Math.min(1.62, nose[1] + 0.32), crownZ = nose[2] - 0.42;
+  for (const side of [-1, 1]){
+    const cheek = new THREE.CatmullRomCurve3([
+      new THREE.Vector3(side * 0.105, muzzleY - pivot[1], muzzleZ - pivot[2]),
+      new THREE.Vector3(side * 0.13, muzzleY + 0.16 - pivot[1], muzzleZ - 0.18 - pivot[2]),
+      new THREE.Vector3(side * 0.14, crownY - pivot[1], crownZ - pivot[2]),
+    ]);
+    const strap = mesh(new THREE.TubeGeometry(cheek, 12, 0.008, 5, false), MAT.harness,
+      { name: side < 0 ? 'bridleCheekLeft' : 'bridleCheekRight', cast: false });
+    strap.userData.noMerge = true; head.add(strap);
+  }
+  const crown = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-0.14, crownY - pivot[1], crownZ - pivot[2]),
+    new THREE.Vector3(0, crownY + 0.055 - pivot[1], crownZ - pivot[2]),
+    new THREE.Vector3(0.14, crownY - pivot[1], crownZ - pivot[2]),
+  ]);
+  const crownBand = mesh(new THREE.TubeGeometry(crown, 10, 0.008, 5, false), MAT.harness,
+    { name: 'bridleCrown', cast: false });
+  crownBand.userData.noMerge = true; head.add(crownBand);
+  slot.group.add(head);
+  const reins = new THREE.Group(); reins.name = 'horseReins'; reins.userData.noMerge = true; slot.group.add(reins);
+  const lines = [-1, 1].map(side => makeReinLine(reins, 'bridleRein' + (side < 0 ? 'Left' : 'Right')));
+  const tied = [-1, 1].map(side => makeReinLine(slot.leadRope, 'leadRope' + (side < 0 ? 'Left' : 'Right')));
+  reins.visible = !slot.leadRope.visible;
+  slot.bridle = { head, reins, lines, tied, muzzleY, muzzleZ };
+  slot.reins = reins;
+}
+function updateTravelBridles(){
+  const V = TRAVEL;
+  if (!V.ready || !V.car) return;
+  V.group.updateWorldMatrix(true, false);  // 不递归刷新整座马厩，只更新缰绳依赖的祖先变换
+  for (const [slotIndex, slot] of V.slots.entries()){
+    const B = slot.bridle, horse = slot.life, rig = horse?.mat?.userData?.rig;
+    if (!B || !rig || !slot.group.visible) continue;
+    B.head.rotation.set(rig.head.x, rig.head.y, 0, 'YXZ');
+    B.head.updateWorldMatrix(true, false);
+    const ringPoint = V.hitchPoints[V.hitchPoints.length - 1 - slotIndex];
+    const ringWorld = ringPoint ? V.group.localToWorld(ringPoint.clone()) : null;
+    const headWorld = B.head.getWorldPosition(new THREE.Vector3());
+    const tiedNear = !!(slot.tieRequested && ringWorld && headWorld.distanceTo(ringWorld) < 1.75);
+    slot.leadRope.visible = tiedNear;
+    B.reins.visible = !tiedNear;
+    for (let i = 0; i < 2; i++){
+      const side = i === 0 ? -1 : 1;
+      const start = B.head.localToWorld(new THREE.Vector3(side * 0.105, B.muzzleY - horse.piv.neck[1], B.muzzleZ - horse.piv.neck[2]));
+      slot.group.worldToLocal(start);
+      const hand = V.car.localToWorld(new THREE.Vector3(side * 0.24, 1.36, 0.93));
+      slot.group.worldToLocal(hand);
+      const points = [start, new THREE.Vector3(side * 0.17, 1.42, 0.55),
+        new THREE.Vector3(side * 0.32, 1.40, 0.05), new THREE.Vector3(side * 0.25, 1.36, -0.82), hand];
+      const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
+      const attr = B.lines[i].geometry.attributes.position;
+      for (let j = 0; j <= 26; j++){ const p = curve.getPoint(j / 26); attr.setXYZ(j, p.x, p.y - 0.025 * Math.sin(Math.PI * j / 26), p.z); }
+      attr.needsUpdate = true;
+      /* 两匹马分别系在横杆两环上，不能用停车位的 home.x，否则绳会横跨整个院子。 */
+      if (!ringWorld) continue;
+      const rail = slot.group.worldToLocal(ringWorld.clone());
+      const tie = B.tied[i].geometry.attributes.position;
+      for (let j = 0; j <= 26; j++){
+        const t = j / 26, p = start.clone().lerp(rail, t);
+        tie.setXYZ(j, p.x, p.y - 0.035 * Math.sin(Math.PI * t), p.z);
+      }
+      tie.needsUpdate = true;
+    }
+  }
+}
+HOOKS.attachTravelBridle = attachTravelBridle;
+HOOKS.updateTravelBridles = updateTravelBridles;
 
 /* ── 参考图外观材质（2026-10-27）────────────────────────────────────────────
    用户给了参考图：红板壁 + 金框、上排大窗带菱形窗棂、米黄桶篷 + 青绿下沿、
@@ -278,6 +364,8 @@ export function makeCarriage(opts = {}){
   const g = new THREE.Group();
   const wood = MAT.woodDark, strap = MAT.harness;
   const detached = !!opts.detached;
+  const CAB_L = 1.62, CZ = -0.06, CABIN_SCALE = 1.5;
+  const wheelZ = CZ + CAB_L / 2 - CAB_L * CABIN_SCALE / 2;
   const wheel = (sx, z) => {
     /* 参考图那种实心圆轮：深色轮盘 + 金边 + 红辐条 + 金毂 + 一圈铆钉 */
     const w = new THREE.Group();
@@ -311,21 +399,22 @@ export function makeCarriage(opts = {}){
   /* 车轮留句柄：2026-10-23「马车版到访」要真的把车开起来，两只轮子得随里程转。
      车体其余静态件在 prepareTravelCarriage 里按材质并成 1~2 个网格（否则 45 个网格
      全部 noMerge ⇒ 45 个 draw call，smoke 的 800 预算吃不消）。 */
-  const wheelL = wheel(-1, 0), wheelR = wheel(1, 0);
+  const wheelL = wheel(-1, wheelZ), wheelR = wheel(1, wheelZ);
   g.add(wheelL); g.add(wheelR);
   g.userData.wheels = [wheelL, wheelR];
   const axle = mesh(new THREE.CylinderGeometry(0.045, 0.045, 1.42, 8), wood, { name: 'carriageAxle' });
-  axle.rotation.z = Math.PI / 2; axle.position.set(0, 0.55, 0); g.add(axle);
+  axle.rotation.z = Math.PI / 2; axle.position.set(0, 0.55, wheelZ); g.add(axle);
+  const cabinStart = g.children.length;
   /* ── 中式厢式车厢（2026-10-27 按用户参考图重做外观）────────────────────────────
      参考图：红板壁 + 金框、侧面上排 4 个大窗（金框 + 菱形窗棂）、半桶形篷顶
      （米黄篷面 + 青绿下沿 + 金边铆钉 + 两端朱红拱脸）、实心金边红辐圆轮。
-     ⚠️ 与到访导演层绑死的尺寸**一个不动**：bench 顶 1.10、车夫座顶 1.17、
-        车轮 R 0.55、CAB_W 1.38、CAB_L 1.62（CARRY.seat/coach 与里程都按它们算）。
+     ⚠️ 车厢原长 CAB_L 1.62m，外观延长到 1.5 倍；以前沿为锚点向后延伸，
+        车轮和车轴移至加长后的厢体中部，车夫座、乘客座和车辕位置不动。
      ⚠️ 篷内净高：墙顶 bedY+WALL_H = 1.82，篷顶 1.82+0.50 = 2.32（局部）；
         客人发髻局部 2.07 ⇒ 留 25cm。改墙高/座位/篷半径必须回量"发髻 vs 篷顶"。 */
   const bedY = 0.72;
-  const CAB_W = 1.38, CAB_L = 1.62, WALL_H = 1.10;
-  const HALF_W = CAB_W / 2, SIDE_X = CAB_W / 2 - 0.04, SIDE_LEN = CAB_L - 0.07, CZ = -0.06;
+  const CAB_W = 1.38, WALL_H = 1.10;
+  const HALF_W = CAB_W / 2, SIDE_X = CAB_W / 2 - 0.04, SIDE_LEN = CAB_L - 0.07;
   const Y_TOP = bedY + WALL_H;                 // 1.82
   const BAND_Y0 = bedY + 0.58, BAND_Y1 = bedY + 1.00;   // 窗带 1.30~1.72
   const bed = mesh(box(CAB_W, 0.09, CAB_L), CAR.dark, { name: 'carriageBed', cast: true });
@@ -425,6 +514,19 @@ export function makeCarriage(opts = {}){
       g.add(riv);
     }
   }
+  /* 以前厢口为锚点把厢体拉长；车夫座、辕杆与乘客座不跟着缩放。 */
+  const cabinFront = CZ + CAB_L / 2;
+  const cabin = new THREE.Group();
+  cabin.name = 'carriageCabin';
+  cabin.position.z = cabinFront;
+  cabin.scale.z = CABIN_SCALE;
+  for (const part of g.children.slice(cabinStart)){
+    g.remove(part);
+    part.position.z -= cabinFront;
+    cabin.add(part);
+  }
+  g.add(cabin);
+
   /* 车夫座垫（参考图前部那块灰蓝布）：平垫 + 前缘一卷 */
   {
     const pad = mesh(box(0.96, 0.07, 0.34), CAR.grey, { name: 'carriageSeatPad', cast: true });
@@ -433,7 +535,7 @@ export function makeCarriage(opts = {}){
     lip.rotation.z = Math.PI / 2;
     lip.position.set(0, bedY + 0.445, CZ + CAB_L / 2 + 0.36); g.add(lip);
   }
-  // 厢内座位：靠后壁的横向木座（供客人坐），高 0.38，坐面进深 0.40
+  // 厢内座位：保留原乘客落座位置，高 0.38，坐面进深 0.40
   const bench = mesh(box(CAB_W - 0.14, 0.38, 0.42), MAT.wood, { name: 'carriageBench', cast: true });
   bench.position.set(0, bedY + 0.19, -0.06 - CAB_L/2 + 0.28); g.add(bench);
   // 车夫木座（④）：前沿横板 + 两条立柱直抵地面 + 脚踏板，够坐一人，马夫脚不悬空
@@ -481,47 +583,7 @@ export function makeCarriage(opts = {}){
       ]);
       g.add(mesh(new THREE.TubeGeometry(trace, 6, 0.018, 4, false), strap, { name: 'yokeTrace', cast: false }));
     }
-    /* ── 缰绳（2026-10-14 提出、2026-10-27 定案）────────────────────────────────
-       2026-10-14 版按"马在车局部 −z"画了口络/颊带/缰绳，2026-10-27 用户报"车后面的木条
-       还在、越来越多"——实测两组辕马的马心在**车局部 +z**：parked 时 z≈1.45、
-       行驶时 z≈2.15，鼻端 z≈2.5/3.2。画在 −z 的管子从车厢后壁探出一排 50cm 细杆，
-       还从车厢里穿过去，正是那排"木条"。
-       现在只保留 **+z 侧的缰绳**：马鼻端 → 马颈外侧 → 车夫手部（z≈1.15）。
-       半径 0.012（皮带量级）；与既有 strap(MAT.harness) 同材质，不引入新资产。 */
-    /* ⚠️⚠️ 2026-10-29 老黄："马的缰绳不对，一匹马应该是两根（或者是一根，以马头为中点
-       对折、马身两侧各一，然后两头汇总到马夫手上）"。
-       旧版每匹马只有**一根**、起点在马身中线（x=±0.40）—— 那是马的**体内**（实测头部
-       在该 z 的横向跨度是 ±0.20），所以缰绳从马脸里长出来，画面上就是"两根棍子"。
-       现在每匹马 **两根**：口角（左右各一）→ 沿颈侧 → 沿马身两侧 → 在马尾之后合到
-       车夫同侧的手里（= 一根缰绳在马头对折，两端都在手上）。
-       控制点的横向偏移**按实测剖面**给（outputs/_diag/meas-2026-10-29）：车局部 z 切片上
-       马身最宽处的半宽 0.10~0.295，缰绳取"半宽 + 0.035" ⇒ 全程贴在马身外侧、不插进肉里。
-       ⚠️ 马尾巴在 z≈1.02（身后就没有马体了），所以**先绕到马尾之后（z 0.90）再往里收**，
-          否则从外侧收到手心的那一段会横穿马臀（实测 x 0.70→0.24 在 z 1.0 处正好穿过）。 */
-    const HORSE_X = 0.40;                       // 两匹马横向（与辕距对齐）
-    /* [车局部 z, 该处马身半宽实测值, 缰绳高度 y] —— 由马体顶点剖面给出，别手填 */
-    const REIN_PATH = [
-      [3.03, 0.20, 1.05],    // 口角（马嘴两侧；该 z 上头部半宽 0.20）
-      [2.86, 0.18, 1.22],    // 颊
-      [2.60, 0.20, 1.34],    // 颈侧
-      [2.25, 0.28, 1.34],    // 肩/鬐甲外缘
-      [1.80, 0.295, 1.30],   // 胸廓最宽处
-      [1.35, 0.28, 1.32],    // 腹侧
-      [1.02, 0.23, 1.34],    // 臀（马尾之外）
-    ];
-    const HAND = { x: 0.24, y: 1.36, z: 0.80 };  // 车夫坐姿下的手（实测 z 0.64~0.88 / y 1.34~1.36 / x ±0.24）
-    for (const sx of [-1, 1]){
-      for (const side of [-1, 1]){
-        const pts = REIN_PATH.map(([z, half, y]) =>
-          new THREE.Vector3(sx * HORSE_X + side * (half + 0.035), y, z));
-        /* 马尾之后再往里收：z 0.90 处仍贴着马身外侧，然后才斜向手心 */
-        pts.push(new THREE.Vector3(sx * HORSE_X + side * (0.23 + 0.045), 1.35, 0.90));
-        pts.push(new THREE.Vector3(sx * HAND.x, HAND.y, HAND.z));
-        const rein = new THREE.CatmullRomCurve3(pts, false, 'catmullrom', 0.25);
-        g.add(mesh(new THREE.TubeGeometry(rein, 26, 0.0105, 4, false), strap,
-          { name: 'bridleRein', cast: false }));
-      }
-    }
+    /* 缰绳不再画在车体上：马到位后由各自头络拉向车夫位，随头部和车身运动更新。 */
   } else {
     for (const sx of [-1, 1]){
       const shaftCurve = new THREE.CatmullRomCurve3([

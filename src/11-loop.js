@@ -416,6 +416,7 @@ export function queuePostcard(){ takePostcard(); }
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.sound = toggleSound;
+HOOKS.soundState = () => Snd.on;
 /* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
 HOOKS.blind = toggleBlinds;
 HOOKS.blindState = blindsRolled;
@@ -669,6 +670,15 @@ function finishRefreshProbe(){
   return REFRESH.hz;
 }
 let AA_HOOK = null;
+/* 2026-11-02：拖动看园子的过程中不切 QOS 档。
+   切档要重建画布与全部 RenderTarget，正按着鼠标时换分辨率，观感就是"顿一下 + 闪一下"，
+   而用户此刻盯着看的正是这块画面。等松开手再降档，代价只是拖动期间多跑几帧。
+   ⚠️ 光靠这一条不够：真正消掉黑框的是 QOS.flush()（把重建挪到帧首），这条只是少制造打断。 */
+let _pointerDown = false;
+renderer.domElement.addEventListener('pointerdown', ()=>{ _pointerDown = true; });
+addEventListener('pointerup', ()=>{ _pointerDown = false; });
+addEventListener('pointercancel', ()=>{ _pointerDown = false; });
+addEventListener('blur', ()=>{ _pointerDown = false; });   // 拖到一半切走窗口：别把 QOS 永久冻住
 const QOS = (()=>{
   const P = ACTIVE_QUALITY;
   /* 平滑退化：先轻降倍率，再逐步关 AO / 降阴影。避免旧 L1→L2 一步同时砍掉
@@ -704,6 +714,23 @@ const QOS = (()=>{
     applyShadow(L.shadow);
     syncQualityButtons();
   }
+  /* 2026-11-02 老黄报障：左键拖动视角出现黑框 / 黑屏闪烁，位置和大小无规律。
+     真因：自适应降档走的是 sample() → apply() → renderer.setSize()/composer.setSize()，
+     而 sample() 在 animate() 里**排在 composer.render() 之后**（stats 那一段）。
+     画布 alpha 恒为 true（three r184 硬写），setSize 会把绘图缓冲换成一张空白的：
+     这一帧已经画好的内容随之作废，浏览器合成出来的就是一块纯色 —— 也就是用户看到的黑框
+     （#app canvas 的 CSS 底色 #0B0E12 正好把它染成黑色）。位置/大小无规律，是因为
+     Chrome 按脏矩形分块重绘，只为其中一部分补了内容。
+     修法：sample() 只记账（queue），真正的重建挪到**下一帧渲染之前**的 flush()，
+     这样"换缓冲"和"画这一帧"发生在同一个 rAF 里，浏览器不可能合到半张空画布。
+     用户手动切画质仍走 apply()（同步）—— 那是一次性动作，门禁也是在同步读状态。 */
+  let pending = -1;
+  function queue(level){ pending = level; }
+  function flush(){
+    if (pending < 0) return;
+    const i = pending; pending = -1;
+    if (i !== st.level) apply(i);
+  }
   function state(){
     const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, st.level))];
     return { ...st, tier:GPU_TIER, tierLabel:QUALITY_PRESETS[GPU_TIER].label,
@@ -737,6 +764,8 @@ const QOS = (()=>{
   }
   function sample(fps){
     if (!st.active) return;
+    /* 手正按在画布上拖动时不切档（见上方 _pointerDown 处说明）。 */
+    if (_pointerDown) return;
     st.fps = fps;
     if (st.cool > 0){ st.cool--; return; }
     const v = qosVerdict(fps, qosThresholds(REFRESH.hz));   // 相对阈值：60Hz 下 = 旧 45/58
@@ -744,11 +773,11 @@ const QOS = (()=>{
     else if (v === 'up'){ st.high++; st.low = 0; }
     else { st.low = 0; st.high = 0; }
     if (st.low >= 6 && st.level < LEVELS.length - 1){
-      apply(st.level + 1); st.low = 0; st.cool = 10; st.changes++;
-      console.log('[QOS] 降档 → L' + st.level + '（fps ' + fps + '）');
+      queue(st.level + 1); st.low = 0; st.cool = 10; st.changes++;
+      console.log('[QOS] 降档 → L' + (st.level + 1) + '（fps ' + fps + '）');
     } else if (st.high >= 12 && st.level > 0){
-      apply(st.level - 1); st.high = 0; st.cool = 10; st.changes++;
-      console.log('[QOS] 升档 → L' + st.level + '（fps ' + fps + '）');
+      queue(st.level - 1); st.high = 0; st.cool = 10; st.changes++;
+      console.log('[QOS] 升档 → L' + (st.level - 1) + '（fps ' + fps + '）');
     }
   }
   function state(){
@@ -765,7 +794,8 @@ const QOS = (()=>{
   }
   const saved = (()=>{ if (GPU_TIER_FORCED) return 'auto'; try { return localStorage.getItem('garden.quality.v1') || 'auto'; } catch { return 'auto'; } })();
   setMode(saved);
-  return { sample, apply, setMode, state };
+  function desiredAO(){ return LEVELS[st.level].ao; }
+  return { sample, apply, flush, setMode, state, desiredAO };
 })();
 HOOKS.setQuality = QOS.setMode;
 HOOKS.qualityState = QOS.state;
@@ -1536,6 +1566,10 @@ function frameWork(){
   updateTour(dt);
   updateIntro(dt);                        // 开场运镜（controls 已被它禁用，update 只刷新阻尼）
   controls.update();
+  /* 自适应改档在这里落地（不是在上帧渲染完之后）：画布与 RT 的重建必须发生在
+     本帧 composer.render() **之前**，否则浏览器会合成一张刚清空、还没画过的缓冲 ——
+     那就是老黄 2026-11-02 报的"左键拖动出现黑框/黑屏闪烁"。 */
+  QOS.flush();
   /* 相机一切就位后再判"是否静止"：自动运镜/巡游/四季演示的飞行都会被认成运动，
      于是升采样只发生在真正的静观时刻（这正是它最该生效的地方）。 */
   AA.tick();
@@ -1803,11 +1837,8 @@ async function warmBoot(){
     renderer.shadowMap.autoUpdate = prevAuto;
     renderer.shadowMap.needsUpdate = true;
     bloom.enabled = _prevBloom;
-    /* GTAO 按档位还原（2026-10-30）：旧写法无脑 true —— 今天它恰好等价于 AO_ENABLED
-       （gtaoPass 只在 AO_ENABLED 时才创建），但这是"碰巧对"不是"写对了"：
-       哪天加档位/开关（比如 QOS 记忆档、?ao=0 诊断参数），这里就是第一个悄悄
-       把 AO 复活的地方。按档位写，谁改了开关这里都跟着走。 */
-    if (gtaoPass) gtaoPass.enabled = AO_ENABLED;
+    /* 暖机暂关 AO，结束时按当前 QOS 档还原：保存的性能模式和暖机期间的改档都不能被覆盖。 */
+    if (gtaoPass) gtaoPass.enabled = QOS.desiredAO();
     if (waterSurface) waterSurface.onBeforeRender = prevWaterHook;
   };
   try {
@@ -1864,26 +1895,51 @@ function startAfterWarm(){
   finishRefreshProbe();                  // 加载页阶段的刷新率测量到此收口（主循环帧会被长帧/负载污染）
   animate();
 
-  // 首帧（暖机后第一帧几乎零编译）渲染完成后隐藏加载层
+  /* 首帧（暖机后第一帧几乎零编译）渲染完成后：**先补装延迟批，再收加载层**。
+     2026-11-02 老黄报障："资源加载完成后会卡在这个界面很长时间，画面无法响应，
+     连界面上的按钮都无法点击"（截图里正停在首次引导气泡上）。
+     取证（outputs/_diag/postboot-stall.mjs）：延迟批（立峰/马厩/柳/桃/梅/兰/竹 共 30 批）
+     是**首帧之后**才创建的对象，材质从未进过暖机；它们第一次被渲染时要现场编译着色器 ——
+     每张慢帧都伴随 +5~15 个 program，单帧最长 2.8s，合计约 9s 全程同步阻塞主线程。
+     旧顺序是"先收加载层 → 再 runDeferredBoot"⇒ 用户正好盯着一个冻住的园子、
+     按不动的引导按钮，而他并不知道后台在编着色器。
+     改成"先补装、编译完再收层"：总时长不变（编译本来就要付），但这段阻塞发生在
+     加载页背后（封面是合成线程动画，主线程被占住时它照样在动），
+     用户看到的是"即将开园"多等一会儿，而不是一块点不动的画面。 */
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
-      document.getElementById('loading').classList.add('done');
-      /* 开场运镜：loading 层淡出的 0.7s 正好遮住起幅跳切。探针/减弱动效默认不播（?intro=1 强制）。 */
-      introMaybeAuto();
-      /* 首次引导：首帧之后才弹（早于此时画布还是白的，教人转视角没有意义）。
-         ⚠️ 探针每次都是全新的 localStorage → 引导**一定会**出现。它非模态且首次交互即消失，
-           所以不会挡住任何门禁的点击。 */
-      guideMaybeAuto();
+      /* ⚠️ 这个刻度必须在**收层之前**打：warmboot-guard 用它量"首帧里编着色器"的耗时
+         （判据：暖机 → 首帧 ≤ FIRST_BUDGET）。它量的是首帧，不是"用户能点动"的时刻。
+         `[启动分段]` 这一行也必须在这里打印：延迟批会在后面几帧里追加自己的刻度
+         （如"立峰几何"），晚打就会把"末刻度=首帧"这条门禁判据顶掉。 */
       bootMark('首帧');
-      runDeferredBoot();                     // P1-4：首帧已出，现在补装柳/竹/立峰（分帧让出主线程）
       console.log('[启动分段] ' + BOOT.marks.map(([n, t]) => n + ' ' + t + 'ms').join(' → ') +
                   ' ｜ 合计 ' + (performance.now() - BOOT.t0).toFixed(0) + 'ms' +
                   (assetFailures ? ' ｜ 资产失败 ' + assetFailures + ' 个' : ''));
-      console.log('[远香堂] 场景就绪', {
-        GPU档位: GPU_TIER, 超采样: SUPERSAMPLE, GTAO: AO_ENABLED,
-        meshes: registry.meshes,
-        drawCalls: renderer.info.render.calls,
-        triangles: renderer.info.render.triangles,
+      runDeferredBoot();
+      /* 再让两帧渲完最后一批的编译，才收层（markBootDone 发信号时最后一帧还没渲染）。 */
+      bootDonePromise.then(()=>{
+        requestAnimationFrame(()=>{
+          requestAnimationFrame(()=>{
+            document.getElementById('loading').classList.add('done');
+            /* 开场运镜：loading 层淡出的 0.7s 正好遮住起幅跳切。探针/减弱动效默认不播（?intro=1 强制）。 */
+            introMaybeAuto();
+            /* 首次引导：首帧之后才弹（早于此时画布还是白的，教人转视角没有意义）。
+               ⚠️ 探针每次都是全新的 localStorage → 引导**一定会**出现。它非模态且首次交互即消失，
+                 所以不会挡住任何门禁的点击。 */
+            guideMaybeAuto();
+            /* 用户真正能动手的时刻（延迟批的着色器编译都在这之前付清）。
+               ⚠️ 不往 BOOT.marks 里塞新刻度：warmboot-guard 断言"末刻度=首帧"，
+                 那是对"暖机→首帧"这条链的契约，不该为了日志好看去改它。 */
+            console.log('[启动分段·收层] ' + (performance.now() - BOOT.t0).toFixed(0) + 'ms');
+            console.log('[远香堂] 场景就绪', {
+              GPU档位: GPU_TIER, 超采样: SUPERSAMPLE, GTAO: AO_ENABLED,
+              meshes: registry.meshes,
+              drawCalls: renderer.info.render.calls,
+              triangles: renderer.info.render.triangles,
+            });
+          });
+        });
       });
     });
   });
@@ -2324,7 +2380,8 @@ function _buildHoverTargets(){
     else if (o.name === 'lotusStem' || o.name === 'lotusCalyx') _hoverTargets.push({ obj: o, label: '荷花' });
     /* 荷花系小件（茎/萼/瓣/蓬）会被 mergeStatics 并进合并网格而丢名 —— name 分支
        命中率有限，真正兜住它们的是材质匹配（lotus/lily/lotusPod 系都是单例）。 */
-    else if (o.name === 'lotusBud' || o.name === 'podHouse' || o.name === 'podFace') _hoverTargets.push({ obj: o, label: '莲蓬' });
+    else if (o.name === 'lotusBud') _hoverTargets.push({ obj: o, label: '荷花苞' });
+    else if (o.name === 'podHouse' || o.name === 'podFace') _hoverTargets.push({ obj: o, label: '莲蓬' });
     else if (o.name && /^horse(Cheek|Muzzle|Ear|ManeTuft|Hoof|Saddle|Girth)$/.test(o.name))
       _hoverTargets.push({ obj: o, label: '马' });
     else if (o.name && /^carriage(Bed|Side|Back|Front|Canopy|Pole|Yoke|Shaft|Axle)/.test(o.name))

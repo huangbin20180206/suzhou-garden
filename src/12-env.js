@@ -814,6 +814,12 @@ function syncEnvUI(){
          卷/放两态由 .on 高亮 + aria-pressed + title 表达（与其它按钮同格式）。 */
       return;
     }
+    if (b.dataset.act === 'sound'){
+      const on = !!HOOKS.soundState?.();
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+      return;
+    }
     if (b.dataset.act === 'season-demo'){
       b.setAttribute('aria-pressed', SEASON_DEMO.on ? 'true' : 'false');
       return;
@@ -921,6 +927,12 @@ function _nightLeave(self){
   if (!ENV.festival) ENV.festivalName = '';
   _nightPrev = null;
 }
+let manualCaptionTimer = 0;
+function showManualCaption(id){
+  clearTimeout(manualCaptionTimer);
+  if (!showCaption(id, 'manual')){ hideCaption('manual'); manualCaptionTimer = 0; return; }
+  manualCaptionTimer = setTimeout(() => { hideCaption('manual'); manualCaptionTimer = 0; }, 6000);
+}
 export function toggleFireworksScene(){
   const on = !!(fireworksState && fireworksState().on);
   if (on){                                       // 关
@@ -938,7 +950,7 @@ export function toggleFireworksScene(){
     if (Object.keys(want).length) applyState(want, { via: 'scene' });
     setFireworksForce(true);                     // ← 权威开关：现在只有它能让烟花出现
     gotoViewpoint('fireworks');                  // 这个机位是**必需品**（默认俯视机位看不到天上的花）
-    showCaption('fireworks', 'manual'); setTimeout(() => hideCaption('manual'), 6000);
+    showManualCaption('fireworks');
   }
   syncEnvUI();
   syncEnvSoon();          // 烟花是否在放由门控下一帧才翻面（见 syncEnvSoon 注释）
@@ -959,7 +971,7 @@ export function toggleMeteorScene(){
     if (Object.keys(want).length) applyState(want, { via: 'scene' });
     setMeteorsForce(true);                       // ← 权威开关（不再"晴夜自动"）
     gotoViewpoint('meteor');
-    showCaption('meteor', 'manual'); setTimeout(() => hideCaption('manual'), 6000);
+    showManualCaption('meteor');
   }
   syncEnvUI();
   syncEnvSoon();
@@ -971,7 +983,7 @@ envEl.addEventListener('click', (e)=>{
   /* 动作按钮（明信片/音景）没有 data-axis，先于环境轴处理，避免落进 setEnv 的非法告警 */
   if (b.dataset.act === 'shot'){ HOOKS.postcard?.(); return; }
   if (b.dataset.act === 'long'){ HOOKS.longExposure?.(); return; }
-  if (b.dataset.act === 'sound'){ b.classList.toggle('on', !!HOOKS.sound?.()); b.setAttribute('aria-pressed', b.classList.contains('on') ? 'true' : 'false'); return; }
+  if (b.dataset.act === 'sound'){ HOOKS.sound?.(); syncEnvUI(); return; }
   if (b.dataset.act === 'reel'){ toggleReel(); return; }   // 时光流转（按钮态由 toggleReel 自己同步）
   if (b.dataset.act === 'random'){ seasonDemoUserTakeover(); HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
   if (b.dataset.act === 'festival'){ toggleFestival(); return; }   // 上元灯会：一键开关（按钮态由 toggleFestival 自己同步）
@@ -1016,12 +1028,12 @@ envEl.addEventListener('click', (e)=>{
       /* 2026-10-30 花历：腊梅深冬（1/22）开、红梅早春（2/25）开，季节按钮仍落在"冬"，只是 doy 各取花期。 */
       applyState({ season: 'winter', doy: PLUM_VIEW_DOY[b.dataset.view] }, { via: 'api' });
     }
-    gotoViewpoint(b.dataset.view); showCaption(b.dataset.view, 'manual'); setTimeout(() => hideCaption('manual'), 6000); return;
+    gotoViewpoint(b.dataset.view); showManualCaption(b.dataset.view); return;
   }
   /* 选"狂风暴雨"自动开启音景 —— 合并后暴雨带闪电，而闪电的核心观感之一就是雷鸣，
      没有声音等于没做一半。浏览器要求音频必须由用户手势创建，这次点击正好是手势。
      （雨后初晴不需要：它的彩虹是视觉，不需要开音景。） */
-  if (b.dataset.axis === 'weather' && b.dataset.v === 'storm' && !HOOKS.sound?.()) HOOKS.sound();
+  if (b.dataset.axis === 'weather' && b.dataset.v === 'storm' && !HOOKS.soundState?.()) HOOKS.sound?.();
   /* ⚠️ 换场景 ⇒ 三个"景"一起收：灯会收起 / 烟花与流星雨都结束
      （2026-10-06 定的规矩，2026-10-11 起对三个景一视同仁：**切任何环境轴 = 结束当前的景**）。
      为什么要显式做一次：setEnv 内部只在"真的改了轴"时收灯会，**同值点击**这里也要收。 */
@@ -1259,12 +1271,12 @@ addEventListener('keydown', (e)=>{
     const cur = VIEWPOINTS.findIndex(v => Math.abs(v.pos.x - camera.position.x) < 0.6
                                        && Math.abs(v.pos.z - camera.position.z) < 0.6);
     const nid = ids[(cur + 1 + ids.length) % ids.length];
-    gotoViewpoint(nid); showCaption(nid, 'manual'); setTimeout(() => hideCaption('manual'), 6000);
+    gotoViewpoint(nid); showManualCaption(nid);
     return;
   }
   if (e.key === 'm' || e.key === 'M'){                                // 音景开关（按钮态同步）
-    const sb = envEl.querySelector('button[data-act="sound"]');
-    if (sb) sb.classList.toggle('on', !!HOOKS.sound?.());
+    HOOKS.sound?.();
+    syncEnvUI();
     return;
   }
   /* 竹帘卷起/放下：C（Curtain，2026-10-05 老黄要的"升起和放下"） */
@@ -1315,7 +1327,7 @@ if (e.key === '!' || e.key === '@' || e.key === '#' || e.key === '$'){
   if (map[e.key])  applyState({ time: hit }, { via: 'key' });
   else if (smap[e.key.toLowerCase()]) applyState({ season: hit }, { via: 'key' });
   else if (weatherAllowed(hit)){
-    if (hit === 'storm' && !HOOKS.sound?.()) HOOKS.sound();   // 同点击：选暴雨自动开音景（它带雷声）
+    if (hit === 'storm' && !HOOKS.soundState?.()) HOOKS.sound?.();   // 同点击：选暴雨自动开音景（它带雷声）
     applyState({ weather: hit }, { via: 'key' });
   }                                          // 非法组合不走键盘这条捷径
 });

@@ -354,6 +354,7 @@ export function tickStableLife(dt){
       }
     }
   }
+  HOOKS.updateTravelBridles?.();  // 马头姿态已写完，再更新两侧缰绳的真实端点
   /* ⑥ 把白雾写进实例矩阵（相机朝向的 billboard；只算"活着"的那些）*/
   const im = horseBreathMesh;
   if (im){
@@ -437,12 +438,41 @@ export function settleRodin(key, ok, err){
   else if (key === 'mongolian') HOOKS.settleAsset?.('assets/horse-mongolian.glb', ok, err);
   else if (key === 'criollo') HOOKS.settleAsset?.('assets/horse-criollo-saddle.glb', ok, err);
 }
+/* 压缩后的 Rodin POSITION 可能是非 normalized 的整数，米制坐标由网格节点变换恢复。
+   伪蒙皮的权重和枢轴在顶点局部空间计算，必须先把该变换烘进 Float32 顶点；
+   只针对无骨骼 Rodin 模板，在克隆各匹马之前做一次，不改 GLB 文件。 */
+export function bakeRodinGeometry(root){
+  root.traverse(o => {
+    if (!o.isMesh || !o.geometry) return;
+    const pos = o.geometry.getAttribute('position');
+    const array = pos && (pos.isInterleavedBufferAttribute ? pos.data.array : pos.array);
+    if (!pos || array instanceof Float32Array) return;
+    if (o.isSkinnedMesh || o.children.length) throw new Error('Rodin 量化网格带骨骼或子节点，不能直接烘焙');
+    const values = new Float32Array(pos.count * 3);
+    for (let i = 0; i < pos.count; i++){
+      values[i * 3] = pos.getX(i); values[i * 3 + 1] = pos.getY(i); values[i * 3 + 2] = pos.getZ(i);
+    }
+    const geometry = o.geometry.clone();
+    geometry.setAttribute('position', new THREE.BufferAttribute(values, 3));
+    o.updateMatrix();
+    geometry.applyMatrix4(o.matrix);
+    geometry.computeBoundingBox(); geometry.computeBoundingSphere();
+    o.geometry = geometry;
+    o.position.set(0, 0, 0); o.rotation.set(0, 0, 0); o.scale.set(1, 1, 1);
+    o.updateMatrix();
+  });
+  return root;
+}
+
 export function rodinSrcOnce(key){
   if (_rodinSrc.has(key)) return _rodinSrc.get(key);
   const url = RODIN_GLB[key];
   const p = new Promise((res, rej) => {
     createGLTFLoaderWithDecoders().load(url,
-      (gltf) => { settleRodin(key, true); res(gltf.scene); },
+      (gltf) => {
+        try { bakeRodinGeometry(gltf.scene); settleRodin(key, true); res(gltf.scene); }
+        catch (err){ settleRodin(key, false, err); rej(err); }
+      },
       (e) => { HOOKS.reportAssetProgress?.(url, e.loaded, e.total); },
       (err) => { settleRodin(key, false, err); rej(err); });
   });
@@ -587,7 +617,7 @@ export function loadRodinHorses(slots){
       const rig = rodinRigOf(geo);
       /* 伪蒙皮注入：shader 挂在**材质**上，所以每匹各注一次（顶点属性在几何上，
          同模型的第二匹会重写一份等值的 aRigA/aRigB —— 一次性开销，忽略） */
-      installHorseRig(mat, geo, rig.W, rig.piv, rig.nose);
+      installHorseRig(mat, geo, rig.W, rig.piv, rig.nose, slot.role === 'harnessed' ? 0.5 : 1);
       /* 防御性复核：归一化哪天被改坏（脚底不在 0 / 总高差太多），先在控制台点出来 */
       const bb = new THREE.Box3().setFromObject(root);
       const hh = bb.max.y - bb.min.y;
@@ -625,6 +655,7 @@ export function loadRodinHorses(slots){
         breathNext: 1.2 + _sr() * 2.6, breathCur: 0,
       });
       slot.life = HORSE_LIFE[HORSE_LIFE.length - 1];   // 让"行驶中的辕马"能按槽位找到它
+      HOOKS.attachTravelBridle?.(slot, slot.life);
       born.push(key + '@' + slot.role);
       if (!horseBreathMesh.parent) scene.add(horseBreathMesh);
     }

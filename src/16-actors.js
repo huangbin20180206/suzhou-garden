@@ -31,9 +31,10 @@ import { STABLE_ROAD_PTS, stableTravel, travelCarriagePlace, travelCarriagePark,
    现在没炸只因为两处都只在函数体里读；谁把读操作挪到顶层就是启动白屏（TDZ）。
    一律走 00-config 的延迟绑定：ENV 由 12-env 发布进 ENV_REF.env，
    WALK_ROUTE 由 08d-tour 发布进 HOOKS.walkRoute。 */
-import { HOOKS, ENV_REF } from './00-config.js';
+import { HOOKS, ENV_REF, LADY_SCHEDULE } from './00-config.js';
 import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 import { markArtLicense } from './art-license.js';
+import { sunTimes } from './12h-solar.js';
 import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ, makeWaterBucket } from './16a-actor-props.js';
 
 const ACTORS = [];
@@ -415,7 +416,8 @@ const TOUR = { speed: 0.62 * WALK_K, gap: 0.95 };
 const VISCAR = {
   state: 'parked', t: 0, s: 0, path: null, last: null,
   alighting: false, coachOff: false, tieOn: false,
-  boardStarted: false, guestOn: false, coachOn: false, coachWalk: false,
+  boardStarted: false, guestOn: false, coachOn: false, coachWalk: false, coachRest: false,
+  coachWaitT: 0, coachWaitLeg: '',
   leg: '', legT: 0,
   odo: 0,                    // 累计里程（车轮/辕马腿相位）；跨段连续，见 driveout 注释
   backYaw0: null,            // back 段入口的进站朝向（用于把 yaw 平滑收到 π，不再一帧硬切）
@@ -633,10 +635,18 @@ const DEFS = [
     /* ⚠️ 2026-10-27：马夫拆成两个人 —— `laborer` = 车夫（只在到访时驾车/系马），
        `groom` = 常驻马厩的喂马/刷马人。两者共用同一件 GLB。
        车夫不再负责替换程序化马夫（hidePose 交给 groom），也不带草把/马刷；
-       否则到访结束后他回到马厩，会和常驻马夫重叠、并且带着坐姿（见 resetVisit）。 */
+       否则到访结束后他回到马厩，会和常驻马夫重叠、并且带着坐姿（见 resetVisit）。
+       ⚠️ 2026-11-02 老黄："马车到达后从车上下来一个新的马夫，但是瞬间就不见了"，
+       并定下两个人设：常驻马厩的**男仆** + 只负责赶车的**车夫**。所以两人现在会正常同框，
+       靠**号衣颜色**区分（见下面的 livery），不再靠互相隐藏来避免"两个马夫"。 */
     hidePose: null,
-    hideUntilVisit: true,    // 到访开始前不出现（马厩的常驻马夫是 groom）
+    hideUntilVisit: true,    // 到访开始前不出现（马厩的常驻男仆是 groom）
     tint: 0xDFE2D8,          // 冷一点的灰，和院子的黄沙地分开（暖米色会糊在沙里）
+    /* 车夫号衣：深靛（沿用 2026-10-29 定的那套），皮腰带深褐。 */
+    livery: 0x4A6488,
+    belt: 0x4A3324,
+    /* 脸/手的肤色重映射目标（sRGB）：比园中文士略深一点的暖黄肤，室外当差的人晒得出来。 */
+    skinColor: 0xE2B488,
     /* ⚠️ 2026-10-27 撤掉染衣（老黄："马夫的脸色应该是正常的亚洲黄种人的肤色"）：
        原来给车夫配了 `dye { hue: 0.08, w: 0.16, shift: 0.55 }` 把袍子转成石青，
        好和常驻马夫区分。但这条色相带 0.08±0.16 **正好覆盖肤色**（黄种人皮肤 h≈0.05~0.09），
@@ -668,16 +678,20 @@ const DEFS = [
        laborer 不再替换（它只在到访时出现，平时 holder.visible=false）。 */
     id: 'groom',
     url: 'assets/fig-laborer.glb',
-    height: 1.70,
+    height: 1.70,            // 与车夫同高：刷马/递草的手位是按这个身高反解的，别动
     hidePose: 'pointDown',
     tint: 0xD8D2C2,
+    /* 常驻男仆号衣：橄榄褐（和车夫的深靛分开，也不和院子的黄沙糊在一起）；腰带深褐。 */
+    livery: 0x53603F,
+    belt: 0x3E2E22,
+    skinColor: 0xE2B488,
     /* 2026-10-28 二次重排：喂草与刷马**不再共用一个站位**。
        ⚠️ 2026-10-29：这两个站位现在**全部相对那匹会走的白马现算**（见 groomGoals），
           spot 只作为"还没开工时站哪儿"的初始落点。 */
     route: null,
     /* ⚠️ 2026-10-29：初始落点原在 (39.21,1.92) —— 那正是**马车停进来的位置**，
        车一到人就站在两匹辕马中间（老黄截图里那一幕）。挪到白马身边、厩前廊下。 */
-    spot: { x: 36.2, z: 2.95, yaw: -2.49 },
+    spot: { x: 36.2, z: 2.42, yaw: -2.49 },  // 围栏内、白马侧面
     floorRay: true,
     /* followFloor（2026-10-30 同上）：喂草行程 idle→toHay→back 一来一回要走院子，
        冻结式采样让他走动时高度不跟地面（老黄"马夫走路贴地"）。 */
@@ -690,8 +704,8 @@ const DEFS = [
        刷马是原地循环（idle.brush）；喂草是**一趟行程**，由 advance 里的 chore 状态机推：
        idle → toHay（走到草料堆）→ grab（抓一把，草把此刻才出现在手里）
        → back（走回马头旁）→ feed（递草摆臂 7~11s）→ idle。
-       草料堆：15e 的 hayBale 组（局部 −4.30,−3.35、组 (40,−2) 朝 π ⇒ 世界 ≈(44.30,1.35)），
-       站位退到堆前 ~0.75m。
+       草料堆：15e 的 hayBale 组（局部 4.70,−1.50、组 (40,−2) 朝 π ⇒ 世界 ≈(35.30,−0.50)），
+       站位退到堆前 ~0.7m。
        ⚠️ 2026-10-29：这里的站位/朝向**不再写死**——作业对象是院场里那匹会走的白马，
           马身边的三个站位（feed/brush/stand）与马嘴点每帧按马的实时位姿现算，
           走线还会绕开马体（routeToHorse），人在马边上时马被按住（holdHorse）。
@@ -707,11 +721,12 @@ const DEFS = [
          ⚠️ lat 的符号 = 马身**右侧**（yaw=0 朝 +z 时右侧是 −x）。这匹马朝 +x，
             右侧是 −z；所以三个站位都用**负值**站到 +z（院子这一侧，实测那侧 1.9m 内无遮挡，
             −z 侧 1.46m 处有栅栏/草槽）。 */
-      feedFwd: 1.45, feedLat: -0.60,
-      brushFwd: 0.34, brushLat: -0.56,
-      standFwd: 0.55, standLat: -0.95,
+      /* 白马靠近南围栏（世界 z≈2.7），站位留在围栏内，避免目标落在栏外导致一直等待。 */
+      feedFwd: 1.45, feedLat: -0.52,
+      brushFwd: 0.34, brushLat: -0.52,
+      standFwd: 0.55, standLat: -0.55,
       muzzleFwd: 0.95,
-      hayPt: [43.60, 1.42],  hayYaw: 1.671,
+      hayPt: [35.50, 0.20], hayYaw: Math.atan2(-0.20, -0.70),  // 与 15e 草料堆同步
       speed: 0.55, grabDur: 2.2,
       /* 2026-10-28：等客的间隙从 9~16s 收到 6~10s —— 看一眼就更容易赶上"正在拿草"。 */
       wait: [6, 10], feed: [7, 11],
@@ -1006,7 +1021,8 @@ function dyeMaterial(m, dye, layerRange){
    换成深皮 + 铜扣，一眼就是"有主家的号衣"。 */
 const LIVERY_DECL =
   'uniform vec3 uLivColor; uniform float uLivVMax; uniform float uLivAmt;\n' +
-  'varying float vLivSkin; varying float vLivY;\n' +
+  'uniform vec3 uLivSkinColor; uniform float uLivSkinAmt;\n' +
+  'varying float vLivSkin; varying float vLivY; varying float vLivTone;\n' +
   'vec3 livRgb2Hsv(vec3 c){\n' +
   '  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n' +
   '  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n' +
@@ -1039,6 +1055,19 @@ const LIVERY_BODY =
   '  vec3 lt_ = uLivColor * lk_;\n' +
   '  float lm_ = lvm_ * lsa_ * uLivAmt * (1.0 - clamp(vLivSkin, 0.0, 1.0));\n' +
   '  diffuseColor.rgb = mix(diffuseColor.rgb, lt_, lm_);\n' +
+  '}\n' +
+  /* ── 2026-11-02 老黄："马夫的脸和手依旧是那种泥土的颜色，不符合中国人的皮肤颜色特点" ──
+     根因：这张 GLB 的脸/手 UV 落在**补丁拼贴**里一块土黄棕上（贴图原色 ≈ 泥土色），
+     号衣只是"不染"它们，没有能力把它们改回肤色。这里按**骨骼掩膜过的肤色顶点**
+     （aLivTone）做一次"保留明暗、换掉色相"的重映射：
+       · 亮度取 sRGB 下的 luma（眼、眉、嘴的明暗结构全部保留）；
+       · 暗部给 0.22 倍目标肤色，亮部给满色 —— 不是把一块布涂平，是让它读成"晒过的黄皮肤"；
+       · 只有 aLivTone=1 的顶点参与（脸窗前半球 + 手；头发/头巾/衣服不受影响）。 */
+  'if (uLivSkinAmt > 0.001){\n' +
+  '  vec3 ss_ = pow(max(diffuseColor.rgb, vec3(0.0)), vec3(0.4545));\n' +
+  '  float sl_ = dot(ss_, vec3(0.299, 0.587, 0.114));\n' +
+  '  vec3 skin_ = mix(uLivSkinColor * 0.22, uLivSkinColor, smoothstep(0.04, 0.60, sl_));\n' +
+  '  diffuseColor.rgb = mix(diffuseColor.rgb, skin_, uLivSkinAmt * clamp(vLivTone, 0.0, 1.0));\n' +
   '}\n';
 function liveryMaterial(m, opt){
   if (!m) return;
@@ -1047,6 +1076,10 @@ function liveryMaterial(m, opt){
     /* 1.2 = 不设明度上限（只靠 sRGB 饱和度挡近白）；调小可以只染暗部 */
     uLivVMax:  { value: opt.vMax === undefined ? 1.2 : opt.vMax },
     uLivAmt:   { value: opt.amt === undefined ? 1 : opt.amt },
+    /* 肤色重映射目标（THREE.Color 会把 sRGB 十六进制换成线性工作色） */
+    uLivSkinColor: { value: new THREE.Color(opt.skinColor === undefined ? 0xE2B488 : opt.skinColor) },
+    uLivSkinAmt:   { value: opt.skinAmt === undefined ? 1 : opt.skinAmt },
+    uLivToHolder: { value: opt.meshToHolder || new THREE.Matrix4() },
   };
   m.userData.livU = U;                     // 供探针页内 A/B（调 vMax 看脸变不变成蓝的）
   const prevCB = m.onBeforeCompile, prevKey = m.customProgramCacheKey;
@@ -1055,10 +1088,10 @@ function liveryMaterial(m, opt){
     Object.assign(shader.uniforms, U);
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>',
-        '#include <common>\nattribute float aLivSkin;\nvarying float vLivSkin;\nvarying float vLivY;\n')
-      /* 没有这个属性的网格，WebGL 补 0 ⇒ 照常整件染（只有马夫那件有掩膜） */
+        '#include <common>\nattribute float aLivSkin;\nattribute float aLivTone;\nuniform mat4 uLivToHolder;\nvarying float vLivSkin;\nvarying float vLivY;\nvarying float vLivTone;\n')
+      /* 量化顶点在节点变换后才是米制；分层也必须在归一化人物坐标内判断。 */
       .replace('#include <begin_vertex>',
-        '#include <begin_vertex>\nvLivSkin = aLivSkin;\nvLivY = position.y;\n');
+        '#include <begin_vertex>\nvLivSkin = aLivSkin;\nvLivTone = aLivTone;\nvLivY = (uLivToHolder * vec4(position, 1.0)).y;\n');
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\n' + LIVERY_DECL)
       .replace('#include <color_fragment>', '#include <color_fragment>\n' + LIVERY_BODY);
@@ -1066,12 +1099,19 @@ function liveryMaterial(m, opt){
   m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|livery'; };
   m.needsUpdate = true;
 }
+/* 网格局部坐标 → 已归一化的 holder 坐标，供掩膜、蒙皮修复和号衣分层共用。 */
+function actorMeshToHolder(inner, node){
+  const holder = inner.parent || inner;
+  holder.updateMatrixWorld(true);
+  return new THREE.Matrix4().copy(holder.matrixWorld).invert().multiply(node.matrixWorld);
+}
+
 /* 给号衣做"脸与手不染"的逐顶点掩膜（写进 aLivSkin，1 = 保持原色）。
    ⚠️ 为什么不能只靠颜色：这个资产的 baseColor 是**补丁拼贴**，肤色的橙红块
       与砖红衣料块的色相相邻，纯像素判据必然误伤。骨骼是可靠的分区信号：
       面部挂在 Head，手挂在 Hand/指节上；再叠一层"该处贴图确实是肤色"的双保险，
       免得把帽子、头巾也放过（它们挂在 Head 但颜色不是肤色）。
-   ⚠️ GLTFLoader 把贴图设成 flipY=false ⇒ 画布的像素行 = v*H（不是 (1-v)*H）。 */
+   ⚠️ 采样走贴图自己的 transformUv，和 GPU 使用同一套 UV 变换、包裹和翻转。 */
 function markLiverySkin(inner){
   inner.updateMatrixWorld(true);
   inner.traverse(o => {
@@ -1081,21 +1121,26 @@ function markLiverySkin(inner){
     const si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
     if (!ps || !si || !sw) return;
     const bones = o.skeleton.bones;
-    /* 骨骼关节在**网格局部**里的位置：给"颜色判据"加一道几何闸门 ——
-       否则肩膀/腰侧的衣料只要贴图颜色偏肤色，就会被当成皮肤放过（实测左右
-       肩背各有一块黄褐斑，正是这条漏的）。 */
+    const holder = inner.parent || inner;
+    const toHolder = actorMeshToHolder(inner, o);
+    const worldToHolder = new THREE.Matrix4().copy(holder.matrixWorld).invert();
+    o.userData.livMeshToHolder = toHolder;
+    /* 顶点与骨骼关节统一转到 holder 局部的米制坐标，再使用距离阈值。 */
     const joint = new Map();
     const jointAt = (bi) => {
       if (joint.has(bi)) return joint.get(bi);
       const b = bones[bi];
       const v = b ? b.getWorldPosition(new THREE.Vector3()) : new THREE.Vector3(1e9, 1e9, 1e9);
-      o.worldToLocal(v);
+      v.applyMatrix4(worldToHolder);
       joint.set(bi, v);
       return v;
     };
     const mat = Array.isArray(o.material) ? o.material[0] : o.material;
     const img = mat && mat.map && mat.map.image;
-    let data = null, W = 0, H = 0, flipY = true;
+    const tex = mat && mat.map;
+    if (tex && tex.matrixAutoUpdate) tex.updateMatrix();
+    const sampleUV = new THREE.Vector2();
+    let data = null, W = 0, H = 0;
     if (img && img.width){
       W = Math.min(512, img.width); H = Math.min(512, img.height);
       const c = document.createElement('canvas');
@@ -1103,44 +1148,22 @@ function markLiverySkin(inner){
       const g = c.getContext('2d', { willReadFrequently: true });
       g.drawImage(img, 0, 0, W, H);
       data = g.getImageData(0, 0, W, H).data;
-      flipY = mat.map.flipY !== false;
     }
     const isHead = (n) => /^Head$/.test(n);
     const isHand = (n) => /^(Left|Right)(Hand|Thumb\w*|Index\w*|Middle\w*|Ring\w*|Little\w*)$/.test(n);
     const arr = new Float32Array(ps.count);
+    /* aLivTone：肤色重映射掩膜（1 = 按皮肤色重映射）。与 aLivSkin 分开记：
+       aLivSkin 管"号衣不要染我"，aLivTone 管"请把我从补丁贴图的土黄色改回皮肤"。 */
+    const toneArr = new Float32Array(ps.count);
     const p = new THREE.Vector3();
-    let nSkin = 0, nRejected = 0;
-    for (let i = 0; i < ps.count; i++){
-      let bw = -1, bi = -1;
-      for (let k = 0; k < 4; k++){
-        const w = sw.getComponent(i, k);
-        if (w > bw){ bw = w; bi = si.getComponent(i, k); }
-      }
-      const b = bones[bi];
-      if (!b) continue;
-      const head = isHead(b.name), hand = isHand(b.name);
-      if (!head && !hand) continue;
-      /* 几何闸门（这件资产的头巾/兜帽后摆垂到肩背，只按距离会把那一片也放过）：
-         · 头骨关节 0.20m 内的"脸"—— **不再看贴图颜色**，整块保留原色
-           （否则眼窝、下巴这些偏暗的贴图像素会被判成"不是皮肤"，脸上留下蓝斑）；
-         · 头骨关节 0.20~0.26m 且高于颈线—— 仍要颜色像皮肤（管头巾边缘）；
-         · 颈线以下（兜帽后摆）一律染；
-         · 手/指节 0.09m 内且颜色像皮肤。 */
-      p.fromBufferAttribute(ps, i);
-      const jp = jointAt(bi);
-      const d = p.distanceTo(jp);
-      let force = false;
-      if (head){
-        /* 0.17m 这个半径只罩住"脸"（下巴以内）；再大就会把衣领/肩线也当成脸 */
-        if (d <= 0.17 && p.y > jp.y - 0.10) force = true;
-        else if (!(d <= 0.26 && p.y > jp.y + 0.02)){ nRejected++; continue; }
-      } else if (!hand || d > 0.065){ nRejected++; continue; }
-      if (force){ arr[i] = 1; nSkin++; continue; }
-      if (!data){ arr[i] = 1; nSkin++; continue; }
-      const u0 = uv ? uv.getX(i) : 0, v0 = uv ? uv.getY(i) : 0;
-      const px = Math.min(W - 1, Math.max(0, Math.round(u0 * (W - 1))));
-      const py = Math.min(H - 1, Math.max(0, Math.round((flipY ? 1 - v0 : v0) * (H - 1))));
-      /* 3×3 取样取平均，避开 UV 缝与贴图噪点 */
+    let nSkin = 0, nTone = 0, nRejected = 0;
+    /* 采样贴图该顶点处的颜色（3×3 平均，避开 UV 缝与噪点）。没有贴图数据时返回 null。 */
+    const samplePixel = (i) => {
+      if (!data) return null;
+      sampleUV.set(uv ? uv.getX(i) : 0, uv ? uv.getY(i) : 0);
+      if (tex) tex.transformUv(sampleUV);      // 含 KHR_texture_transform、重复方式与 flipY
+      const px = Math.min(W - 1, Math.max(0, Math.round(sampleUV.x * (W - 1))));
+      const py = Math.min(H - 1, Math.max(0, Math.round(sampleUV.y * (H - 1))));
       let r = 0, gg = 0, bb = 0, cnt = 0;
       for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){
         const x = Math.min(W - 1, Math.max(0, px + dx)), y = Math.min(H - 1, Math.max(0, py + dy));
@@ -1158,20 +1181,76 @@ function markLiverySkin(inner){
         else hue = (r - gg) / dd + 4;
         hue /= 6;
       }
-      if (hue < 0.095 && sat > 0.15 && mx > 0.38) { arr[i] = 1; nSkin++; }
+      return { mx, sat, hue };
+    };
+    /* 肤色像素判据（比 aLivSkin 的"贴图确实是皮肤"宽的**下半档**）：
+       这块贴图的脸是一块橄榄土黄（实测平均 hue≈0.18、sat≈0.28、mx≈0.57），
+       比园中程序化人物的 FIG_SKIN 暗且偏绿。只用来决定"要不要重映射"，
+       不决定"要不要染色"。头发是深棕（mx<0.24）、头巾是绿（hue≈0.33）、
+       白衣领是近灰白（sat<0.10），都被挡在外面。 */
+    const skinPix = (c) => c && c.mx > 0.24 && c.hue < 0.22 && c.sat > 0.10;
+    for (let i = 0; i < ps.count; i++){
+      let bw = -1, bi = -1, bw2 = 0, bi2 = -1;
+      for (let k = 0; k < 4; k++){
+        const w = sw.getComponent(i, k);
+        if (w > bw){ bw2 = bw; bi2 = bi; bw = w; bi = si.getComponent(i, k); }
+        else if (w > bw2){ bw2 = w; bi2 = si.getComponent(i, k); }
+      }
+      const b = bones[bi];
+      if (!b) continue;
+      const head = isHead(b.name), hand = isHand(b.name);
+      if (!head && !hand) continue;
+      /* 手部有同类误绑：垂手时贴着手的**衣摆/裙片**被绑在腕/指骨上，
+         颜色又和皮肤相近 ⇒ 只按"离手骨 6.5cm"会把一块布当手，重映射成裸胯。
+         真手的第二根骨是同一只手的指骨/前臂骨；布片则挂着 Hips/Spine/腿骨。 */
+      const cloth2 = bw2 > 0.15 && /^(Hips|Spine|Chest|UpperChest|Neck|Head|(Left|Right)(UpperLeg|LowerLeg|Foot))$/.test(bones[bi2]?.name || '');
+      /* 几何闸门（这件资产的头巾/兜帽后摆垂到肩背，只按距离会把那一片也放过）：
+         · 头骨关节 0.20m 内的"脸"—— **不再看贴图颜色**，整块保留原色
+           （否则眼窝、下巴这些偏暗的贴图像素会被判成"不是皮肤"，脸上留下蓝斑）；
+         · 头骨关节 0.20~0.26m 且高于颈线—— 仍要颜色像皮肤（管头巾边缘）；
+         · 颈线以下（兜帽后摆）一律染；
+         · 手/指节 0.09m 内且颜色像皮肤。 */
+      p.fromBufferAttribute(ps, i).applyMatrix4(toHolder);
+      const jp = jointAt(bi);
+      const d = p.distanceTo(jp);
+      let force = false;
+      if (head){
+        /* 0.17m 这个半径只罩住"脸"（下巴以内）；再大就会把衣领/肩线也当成脸 */
+        if (d <= 0.17 && p.y > jp.y - 0.10) force = true;
+        else if (!(d <= 0.26 && p.y > jp.y + 0.02)){ nRejected++; continue; }
+      } else if (!hand || d > 0.065){ nRejected++; continue; }
+      const c = samplePixel(i);
+      if (force){
+        arr[i] = 1; nSkin++;
+        /* 重映射只取脸的**前半球**（holder 局部 +z 是正面），后脑/头顶那圈头发不碰；
+           眼白(sat 低)/瞳仁(mx 低)/眉毛(mx 低)也自然留在外面。
+           ⚠️ y 还要卡在**下颌线以上**（头骨关节 −2cm）：这件资产的上胸/衣襟有一片
+           被误绑到 Head 骨、贴图又是土黄米色 ⇒ 不卡 y 会把整片前襟重映射成"裸胸"。
+           实测那片顶点都在 dy<−0.02，且第二根骨是 Neck；脸/下颌在 dy≥−0.02。 */
+        if (!c ? (p.y - jp.y >= -0.02)
+               : (skinPix(c) && p.z - jp.z > -0.02 && p.y - jp.y >= -0.02)){ toneArr[i] = 1; nTone++; }
+        continue;
+      }
+      if (!c){ arr[i] = 1; nSkin++; if ((hand && !cloth2) || (!hand && p.y - jp.y >= -0.02)){ toneArr[i] = 1; nTone++; } continue; }
+      if (c.hue < 0.095 && c.sat > 0.15 && c.mx > 0.38 && !cloth2){ arr[i] = 1; nSkin++; }
+      /* 手：还要过"这块贴图确实像皮肤"——垂手时白布内衬/袖口也贴在腕骨边上，
+         颜色是近白（sat 低），不挡就会把一块白布重映射成肉色。 */
+      if (hand){ if (!cloth2 && skinPix(c)){ toneArr[i] = 1; nTone++; } }
+      else if (skinPix(c) && p.z - jp.z > -0.02){ toneArr[i] = 1; nTone++; }
     }
     geo.setAttribute('aLivSkin', new THREE.BufferAttribute(arr, 1));
+    geo.setAttribute('aLivTone', new THREE.BufferAttribute(toneArr, 1));
     console.log('[actor] 号衣掩膜 ' + o.name + '：' + nSkin + '/' + ps.count +
-                ' 顶点保持原色（几何闸门挡掉 ' + nRejected + '）');
+                ' 顶点保持原色（几何闸门挡掉 ' + nRejected + '），' + nTone + ' 顶点重映射肤色');
   });
 }
 /* 腰带：跟着 Hips 骨走（每帧只搬到骨骼的世界位置，朝向沿用人物 —— 腰带本来就是水平的）。
    尺寸按 GLB 体形实测（outputs/_diag/body-size.mjs，按 1.70m 归一）：
    腰围 x ±0.205、z ±0.185（那个 ±0.34 是**垂着的手臂**，不是腰）。 */
-function makeGroomBelt(holder){
+function makeGroomBelt(holder, color){
   const g = new THREE.Group();
   g.name = 'actorBelt';
-  const leather = new THREE.MeshStandardMaterial({ color: 0x4A3324, roughness: 0.74, metalness: 0.05 });
+  const leather = new THREE.MeshStandardMaterial({ color: color === undefined ? 0x4A3324 : color, roughness: 0.74, metalness: 0.05 });
   leather.side = THREE.DoubleSide;
   const band = new THREE.Mesh(new THREE.CylinderGeometry(0.206, 0.202, 0.070, 22, 1, true), leather);
   band.scale.set(1, 1, 0.92);              // 前后压扁：人体是扁的
@@ -1300,6 +1379,9 @@ function repairLaborerSkin(inner){
     const geo = o.geometry, ps = geo.attributes.position, si = geo.attributes.skinIndex, sw = geo.attributes.skinWeight;
     if (!ps || !si || !sw) return;
     const bones = o.skeleton.bones;
+    const holder = inner.parent || inner;
+    const toHolder = actorMeshToHolder(inner, o);
+    const worldToHolder = new THREE.Matrix4().copy(holder.matrixWorld).invert();
     const hips = bones.findIndex(b => b.name === 'Hips'), spine = bones.findIndex(b => b.name === 'Spine');
     if (hips < 0 || spine < 0) return;
     const segs = new Map();
@@ -1318,7 +1400,7 @@ function repairLaborerSkin(inner){
         const p = b.parent && b.parent.isBone ? b.parent.getWorldPosition(new THREE.Vector3()) : a.clone().add(new THREE.Vector3(0, -0.035, 0));
         c = a.clone().add(a.clone().sub(p).normalize().multiplyScalar(0.035));
       }
-      o.worldToLocal(a); o.worldToLocal(c);
+      a.applyMatrix4(worldToHolder); c.applyMatrix4(worldToHolder);
       const s = { a, c }; segs.set(bi, s); return s;
     };
     const distanceToSegment = (p, s) => {
@@ -1328,7 +1410,7 @@ function repairLaborerSkin(inner){
     };
     let changed = 0;
     for (let i = 0; i < ps.count; i++){
-      const p = new THREE.Vector3().fromBufferAttribute(ps, i);
+      const p = new THREE.Vector3().fromBufferAttribute(ps, i).applyMatrix4(toHolder);
       if (p.y > 1.20) continue;
       for (let k = 0; k < 4; k++){
         const bi = si.getComponent(i, k), b = bones[bi], w = sw.getComponent(i, k);
@@ -1580,9 +1662,12 @@ function loadActor(def){
         markLiverySkin(inner);
         for (const o of aNew.meshes){
           const ms = Array.isArray(o.material) ? o.material : [o.material];
-          for (const m of ms) liveryMaterial(m, { color: 0x4A6488 });
+          for (const m of ms) liveryMaterial(m, {
+            color: def.livery, meshToHolder: o.userData.livMeshToHolder,
+            skinColor: def.skinColor,
+          });
         }
-        aNew.belt = makeGroomBelt(holder);
+        aNew.belt = makeGroomBelt(holder, def.belt);
       }
       aNew.shadowCast = true;
       markCasterBoxDirty();
@@ -1750,6 +1835,16 @@ function tickRoute(a, dt){
   a.yaw += Math.max(-dTurn, Math.min(dTurn, dy));
   const v = r.speed * (1 - 0.5 * (Math.abs(dy) / TURN_GATE));
   const k = Math.min(1, (v * dt) / dist);
+  if (a.def.id === 'groom' && a.def.chores){
+    /* 路线计算后车马还会动；每步再验当前位置，前方被占用就停下并重新规划。 */
+    const caps = allHorseCapsules(null), cars = groomCars(), target = groomHorse();
+    const nx = a.pos.x + dx * k, nz = a.pos.z + dz * k;
+    if (groomOccupied(nx, nz, caps, cars, target) && !groomOccupied(a.pos.x, a.pos.z, caps, cars, target)){
+      a.def.route = null; a.walkOff = true; a.arrived = false; a._goalKey = null; a._replanT = 1.3;
+      a.moveW = approach(a.moveW, 0, dt / 0.45);
+      return;
+    }
+  }
   a.pos.x += dx * k; a.pos.z += dz * k;
   a.moved = v * dt;
   a.step += a.moved;
@@ -1817,6 +1912,24 @@ const angDiff = (to, from) => {
   return d;
 };
 
+/* 并肩偏移在转角附近渐变方向：路径中心仍走原线，两人的间距仍为 2×gap。 */
+function pairPointAt(P, s){
+  const q = pathAt(P, s);
+  for (let i = 1; i < P.pts.length - 1; i++){
+    const l0 = P.cum[i] - P.cum[i - 1], l1 = P.cum[i + 1] - P.cum[i];
+    const span = Math.min(0.6, l0 / 2, l1 / 2);
+    if (span <= 1e-6 || Math.abs(s - P.cum[i]) > span) continue;
+    const p = P.pts[i - 1], c = P.pts[i], n = P.pts[i + 1];
+    const a0 = Math.atan2((c[0] - p[0]) / l0, -(c[1] - p[1]) / l0);
+    const a1 = Math.atan2((n[0] - c[0]) / l1, -(n[1] - c[1]) / l1);
+    const u = ease01((s - (P.cum[i] - span)) / (2 * span));
+    const a = a0 + angDiff(a1, a0) * u;
+    q.nx = Math.cos(a); q.nz = Math.sin(a);
+    break;
+  }
+  return q;
+}
+
 /* 给一位演员**换一条新路线**（导演层用）。
    ⚠️ 必须一起复位 arrived / target / walkOff / waitT —— 少一个就会出现
       "到了新路线的起点却永远站着"（tickRoute 见 arrived 直接早退）。
@@ -1883,7 +1996,7 @@ function drivePair(v, host, guest, P, latH, latG, dt, onDone){
     return;
   }
   v.s = Math.min(P.total, v.s + PAIR.speed * dt);
-  const q = pathAt(P, v.s);
+  const q = pairPointAt(P, v.s);
   for (const [a, lat] of [[host, latH], [guest, latG]]){
     a.pos.x = q.x + q.nx * lat;
     a.pos.z = q.z + q.nz * lat;
@@ -1902,8 +2015,7 @@ function drivePair(v, host, guest, P, latH, latG, dt, onDone){
 
 /* ── 马车到访 · 条件与摆位工具（2026-10-23）──────────────────────────────────
    条件：白昼（老黄："时辰只是白天（上午、正午和下午）"）+ 不下雨不下雪。
-   ⚠️ 读 `ENV.cur` 的雨雪量而不是只看 `ENV.weather` 字符串：天气切换有 2.8s 过渡，
-      只看字符串会在"刚下起来"的那几秒把人放进场。 */
+   天气切换有 2.8s 过渡：既检查目标天气，也检查当前雨雪量，避免雨刚开始或刚停时误开演。 */
 function visitWeatherOK(){
   const ENV = ENV_REF.env;              // 延迟绑定，见文件头 import 处
   /* 12-env 还没发布 ⇒ 条件不满足（不猜）。但**必须喊一声**：这个槽没填的话，
@@ -1913,9 +2025,11 @@ function visitWeatherOK(){
     return false;
   }
   const h = ENV.hour;
-  if (!(h >= 7.0 && h <= 18.0)) return false;
+  if (!(h >= 7.0 && h <= 18.0) || !Number.isFinite(ENV.doy)) return false;
+  const { sunrise, sunset } = sunTimes(ENV.doy);
+  if (h < sunrise || h > sunset) return false;  // 保留原定时段，并排除当地日出前、日落后
   const w = ENV.weather;
-  if (w === 'storm' || w === 'snow' || w === 'thunder') return false;
+  if (w === 'storm' || w === 'snow' || w === 'thunder' || w === 'drizzle') return false;
   const c = ENV.cur;
   if (c && ((c.rainAmount || 0) > 0.05 || (c.snowAmount || 0) > 0.05 || (c.snowCover || 0) > 0.05)) return false;
   return true;
@@ -2007,13 +2121,9 @@ function segClosest(px, pz, ax, az, bx, bz, out){
       见 outputs/_diag/groom-clip-track-2026-10-29.log）。现在改成通用胶囊判据，
       对**场上所有马**都用它。 */
 const HORSE_AVOID = 0.30;                 // 走线时与马体胶囊的额外净空（m）
-/* 厩舍本体（静态障碍）。量法：outputs/_diag/stable-walkgrid-2026-10-29.log 的
-   0.5m 可走性网格 —— z ≤ ~1.2 那一带 x 36~43.5 是屋顶/墙体/隔栏，人走进去就等于
-   钻进马厩里（实测规划器曾把绕行点选在 (38.09,−2.94)，正是厩内）。
-   ⚠️ 厩前廊道（z 1.4~3.0）是能走的，**别把上界抬上去**：抬到 2.2 时厩前全被判成障碍、
-   只剩 20m 外的路"可行"，人被规划到园外去了。
-   ⚠️ 马厩整体挪位置时这张表要跟着改。 */
-const STABLE_BLOCK = [{ x0: 36.0, x1: 43.5, z0: -2.6, z1: 1.20 }];
+/* 厩舍实体在世界 x≈35.3~44.7、z≈−6.4~−2.6（对应 15e 的 BX/BZ 与马厩朝向）。
+   z>−2.6 是厩前院场，不能误当成整片墙，否则马夫会绕到房子背后。 */
+const STABLE_BLOCK = [{ x0: 35.3, x1: 44.7, z0: -6.4, z1: -2.6 }];
 function inStableBlock(x, z, pad){
   const p = pad || 0;
   for (const b of STABLE_BLOCK){
@@ -2022,11 +2132,11 @@ function inStableBlock(x, z, pad){
   return false;
 }
 /* 场上所有马的胶囊（skip = 要排掉的那一匹，通常传目标马） */
-function allHorseCapsules(skip){
+export function allHorseCapsules(skip){
   const out = [];
   try {
     for (const h of (horseLifeDebug() || [])){
-      if (!h || !h.group || h === skip) continue;
+      if (!h || !h.group || h === skip || !h.group.visible) continue;
       const P = horsePose(h);
       out.push({ x: P.x, z: P.z, fx: P.fx, fz: P.fz, role: h.role });
     }
@@ -2056,91 +2166,127 @@ function pushOutOfHorses(x, z, skip, clear){
   }
   return [px, pz];
 }
-/* 点是否踩进任一马体胶囊（clear = 额外净空） */
-function insideAnyCapsule(px, pz, caps, clear){
-  if (inStableBlock(px, pz, 0.22)) return true;      // 别把人规划进厩舍里
-  for (const C of caps){
-    const d = segClosest(px, pz, C.x - C.fx * HORSE_CAP.half, C.z - C.fz * HORSE_CAP.half,
-                         C.x + C.fx * HORSE_CAP.half, C.z + C.fz * HORSE_CAP.half, _gB);
-    if (d < HORSE_CAP.rad + clear) return true;
+/* 活动马车与卸马车都进入障碍表；车体范围与 15d 的厢体一致（前沿不变、尾部向后延长）。 */
+export function groomCars(){
+  const V = stableTravel();
+  if (!V || !V.ready) return [];
+  const cars = [V.car, ...(V.parkedCars || [])].filter(o => o && o.visible && o.parent);
+  return cars.map(car => {
+    car.updateWorldMatrix(true, false);
+    const center = car.getWorldPosition(new THREE.Vector3());
+    return { inverse: new THREE.Matrix4().copy(car.matrixWorld).invert(), y: center.y };
+  });
+}
+export function groomOccupied(x, z, caps, cars, target){
+  if (inStableBlock(x, z, 0.06)) return true;
+  /* 不从围栏两端或厩舍背后绕出园外；允许在院门外沿围栏移动到门洞。 */
+  if (x < 34.55 || x > 45.45 || z < -6.55) return true;
+  /* 院墙外可从车门绕行，但不能穿过两侧围栏。坐标来自 makeStable 的围栏与门洞。 */
+  if (z > -6.7 && z < 2.7 && (Math.abs(x - 34.4) < 0.20 || Math.abs(x - 45.6) < 0.20)) return true;
+  if (Math.abs(z - 2.7) < 0.20 && x > 34.4 && x < 45.6 && (x < 38.4 || x > 41.6)) return true;
+  for (const c of cars){
+    const p = new THREE.Vector3(x, c.y, z).applyMatrix4(c.inverse);
+    if (Math.abs(p.x) < 1.02 && p.z > -2.01 && p.z < 1.08) return true;
+  }
+  for (const c of caps){
+    const d = segClosest(x, z, c.x - c.fx * HORSE_CAP.half, c.z - c.fz * HORSE_CAP.half,
+      c.x + c.fx * HORSE_CAP.half, c.z + c.fz * HORSE_CAP.half, _gB);
+    /* 马体胶囊本身已比实测半宽 0.295m 大；另加 0.15m 给人物留空间。 */
+    if (d < HORSE_CAP.rad + ((target && c.role === target.role) ? 0.04 : 0.15)) return true;
   }
   return false;
 }
-/* 一条腿够不够清爽：起点 skipHead / 终点 skipTail 之内不判
-   （人可能正贴着马站，站位本来就该在马身边） */
-function legClear(a, b, caps, clear, skipHead, skipTail){
-  const L = Math.hypot(b[0] - a[0], b[1] - a[1]);
-  const n = Math.max(2, Math.min(20, Math.ceil(L / 0.22)));
-  for (let i = 0; i <= n; i++){
-    const t = i / n, d0 = t * L;
-    if (d0 < (skipHead || 0) || L - d0 < (skipTail || 0)) continue;
-    if (insideAnyCapsule(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, caps, clear)) return false;
+/* 小范围网格寻路：既检查马，也检查车厢、厩舍和围栏；无安全路径就等待重试。 */
+export function groomPath(from, goal, target){
+  const caps = allHorseCapsules(null), cars = groomCars(), step = 0.30;
+  const x0 = 33.8, z0 = -7.2, nx = 44, nz = 43;
+  const point = (ix, iz) => [x0 + ix * step, z0 + iz * step];
+  const cell = p => [Math.max(0, Math.min(nx - 1, Math.round((p[0] - x0) / step))),
+                     Math.max(0, Math.min(nz - 1, Math.round((p[1] - z0) / step)))];
+  const total = nx * nz;
+  const index = (x, z) => z * nx + x;
+  const blocked = new Uint8Array(total), cost = new Float64Array(total), parent = new Int32Array(total);
+  cost.fill(Infinity); parent.fill(-1);
+  for (let z = 0; z < nz; z++) for (let x = 0; x < nx; x++){
+    const p = point(x, z); blocked[index(x, z)] = groomOccupied(p[0], p[1], caps, cars, target) ? 1 : 0;
   }
-  return true;
-}
-/* 候选绕行点：绕每匹障碍马一圈（半径 = 半长 + 半宽 + 净空 + 余量），16 个方向 */
-function detourCandidates(caps, clear){
-  const out = [];
-  const R = HORSE_CAP.half + HORSE_CAP.rad + clear + 0.45;
-  for (const C of caps){
-    for (let k = 0; k < 16; k++){
-      const a = (k / 16) * Math.PI * 2;
-      out.push([C.x + Math.cos(a) * R, C.z + Math.sin(a) * R]);
+  if (groomOccupied(goal[0], goal[1], caps, cars, target) || groomOccupied(from[0], from[1], caps, cars, target)) return null;
+  const clearSegment = (a, b) => {
+    const d = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const n = Math.max(1, Math.ceil(d / 0.06));
+    for (let j = 1; j <= n; j++){
+      const t = j / n;
+      if (groomOccupied(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, caps, cars, target)) return false;
+    }
+    return true;
+  };
+  /* 四舍五入的格点可能落进马身：在附近找能直达的最近安全格，不强行清空障碍。 */
+  const safeCell = (p, isStart) => {
+    const [bx, bz] = cell(p); let best = null, bestD = Infinity;
+    for (let dz = -2; dz <= 2; dz++) for (let dx = -2; dx <= 2; dx++){
+      const x = bx + dx, z = bz + dz;
+      if (x < 0 || x >= nx || z < 0 || z >= nz || blocked[index(x, z)]) continue;
+      const q = point(x, z), d = Math.hypot(q[0] - p[0], q[1] - p[1]);
+      if (d < bestD && (isStart ? clearSegment(p, q) : clearSegment(q, p))){ best = [x, z]; bestD = d; }
+    }
+    return best;
+  };
+  const a = safeCell(from, true), b = safeCell(goal, false);
+  if (!a || !b) return null;
+  const [sx, sz] = a, [gx, gz] = b, start = index(sx, sz), end = index(gx, gz);
+  const open = [{ i: start, f: 0 }]; cost[start] = 0;
+  while (open.length){
+    let best = 0;
+    for (let k = 1; k < open.length; k++) if (open[k].f < open[best].f) best = k;
+    const cur = open.splice(best, 1)[0].i;
+    if (cur === end) break;
+    const cx = cur % nx, cz = Math.floor(cur / nx);
+    for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++){
+      if (!dx && !dz) continue;
+      const x = cx + dx, z = cz + dz;
+      if (x < 0 || x >= nx || z < 0 || z >= nz) continue;
+      const next = index(x, z);
+      if (blocked[next] || (dx && dz && (blocked[index(cx + dx, cz)] || blocked[index(cx, cz + dz)]))) continue;
+      if (!clearSegment(point(cx, cz), point(x, z))) continue;
+      const c = cost[cur] + Math.hypot(dx, dz);
+      if (c >= cost[next]) continue;
+      cost[next] = c; parent[next] = cur;
+      open.push({ i: next, f: c + Math.hypot(gx - x, gz - z) });
     }
   }
-  return out;
+  if (start !== end && parent[end] < 0){
+    if (window.__groomRouteTrace) console.log('[groom-path] 网格不可达', from, goal);
+    return null;
+  }
+  const rev = [];
+  for (let i = end; i !== start && i >= 0; i = parent[i]) rev.push(point(i % nx, Math.floor(i / nx)));
+  rev.reverse();
+  const raw = [from, point(sx, sz), ...rev, goal];
+  if (!raw.slice(1).every((p, i) => clearSegment(raw[i], p))){
+    if (window.__groomRouteTrace) console.log('[groom-path] 网格边经过障碍', raw);
+    return null;
+  }
+  /* 用视线检查压缩路线：每次取最远的安全节点，不能抄近路穿过障碍边角。 */
+  const path = [from];
+  let i = 0;
+  while (i < raw.length - 1){
+    let j = raw.length - 1;
+    while (j > i + 1 && !clearSegment(raw[i], raw[j])) j--;
+    path.push(raw[j]); i = j;
+  }
+  return path;
 }
-/* 走向"马身边某点"的走线。**目标马不算障碍**（站位本来就贴着它）。
-   ⚠️ 2026-10-29 第一版是"逐段插绕行点"，两匹马并排时每轮都算出同一个点
-      ⇒ 连插三次重合点（实测 pts 里三个 (38.3,2.47)）、人照旧从马身中间穿过去。
-      现在改成"撒候选点 + 逐腿验净空"：一个点不够再搜两段，纯几何、确定性。 */
 function routeToHorse(a, goal, h, speed){
   const from = [a.pos.x, a.pos.z];
-  /* 只用"附近的马"当障碍：辕马在 20m 外的路上时，把它们算进来会把绕行点甩到园外去
-     （实测把人规划到 (52.5,20.9)）。18m 之外的马对这一趟没有意义。 */
-  const caps = allHorseCapsules(h).filter(c => Math.hypot(c.x - from[0], c.z - from[1]) < 18);
-  const clear = HORSE_AVOID;
-  const straight = Math.hypot(goal[0] - from[0], goal[1] - from[1]);
-  /* 绕路预算：绕得太远不如直走（宁可贴着马过一下，也不能走到园外去） */
-  const maxCost = straight * 2.2 + 5;
-  let pts = [from, goal];
-  if (caps.length && !legClear(from, goal, caps, clear, 0.55, 0.55)){
-    const cands = detourCandidates(caps, clear);
-    const good = [];
-    for (const c of cands){
-      if (insideAnyCapsule(c[0], c[1], caps, clear * 0.75)) continue;
-      if (!legClear(from, c, caps, clear, 0.55, 0)) continue;
-      good.push(c);
-    }
-    let best = null, bestCost = Infinity;
-    for (const c of good){
-      if (!legClear(c, goal, caps, clear, 0, 0.55)) continue;
-      const cost = Math.hypot(c[0] - from[0], c[1] - from[1]) + Math.hypot(goal[0] - c[0], goal[1] - c[1]);
-      if (cost < bestCost){ bestCost = cost; best = c; }
-    }
-    if (best && bestCost <= maxCost){
-      pts = [from, best, goal];
-    } else if (!best){
-      /* 一个点绕不过去（两匹马并排成墙）：搜两段 */
-      let b2 = null, b2c = Infinity;
-      for (const c1 of good){
-        for (const c2 of cands){
-          if (c2 === c1 || insideAnyCapsule(c2[0], c2[1], caps, clear * 0.75)) continue;
-          if (!legClear(c1, c2, caps, clear, 0, 0)) continue;
-          if (!legClear(c2, goal, caps, clear, 0, 0.55)) continue;
-          const cost = Math.hypot(c1[0] - from[0], c1[1] - from[1]) +
-                       Math.hypot(c2[0] - c1[0], c2[1] - c1[1]) +
-                       Math.hypot(goal[0] - c2[0], goal[1] - c2[1]);
-          if (cost < b2c){ b2c = cost; b2 = [c1, c2]; }
-        }
-      }
-      if (b2 && b2c <= maxCost) pts = [from, b2[0], b2[1], goal];
-    }
+  const pts = groomPath(from, goal, h || groomHorse());
+  if (!pts){
+    a.def.route = null; a.walkOff = true; a.arrived = false;
+    if (window.__groomRouteTrace) console.warn('[groom-route] 无安全路径，等待重试', from, goal);
+    return false;
   }
   giveRoute(a, pts, speed, 0);
-  if (window.__groomRouteTrace) console.log('[groom-route] caps=' + caps.length + ' pts=' + pts.length +
-    ' ' + JSON.stringify(pts.map(p => [+p[0].toFixed(2), +p[1].toFixed(2)])) +
-    ' capsPts=' + JSON.stringify(caps.map(c => [c.role, +c.x.toFixed(2), +c.z.toFixed(2)])));
+  if (window.__groomRouteTrace) console.log('[groom-route] 安全路线 ' + JSON.stringify(pts));
+  return true;
 }
 /* 四个"实时站位"（全部相对马此刻的位置）；没有马就是 null（退回原来站桩） */
 const _gGoal = { feed: [0, 0], brush: [0, 0], idle: [0, 0], muzzle: [0, 0] };
@@ -2185,6 +2331,12 @@ function tickCarriage(dt){
   const guest = actorRef(VISIT.guestId), coach = actorRef(VISIT.coachId);
   if (!guest || !coach) return;
   const S = VISCAR;
+
+  /* 到站后保持位置和里程不变，继续更新仍有步态的辕马，直到腿缓回站姿。 */
+  if (S.last && S.state !== 'drivein' && S.state !== 'driveout' && S.state !== 'parked' && S.state !== 'gone'
+      && V.slots.some(s => s.life && s.life.gaitW > 0.003)){
+    travelCarriagePlace(S.last.x, S.last.z, S.last.yaw, S.s);
+  }
 
   if (S.state === 'drivein'){
     /* 远端 ~75m：用 arriveSpeed 开进来，最后 12m 平滑收到 CARRY.speed（硬切换到 1.1 会"一顿"） */
@@ -2294,10 +2446,55 @@ function tickCarriage(dt){
     if (!guest.trip){ S.alighting = false; guest.ride = null; S.state = 'alighted'; }
     return;
   }
+  /* 2026-11-02：客人进园后的等待段。车夫**不再被藏起来**（见下面 tickVisit 的显隐块），
+     这里补上他在场的动作：车侧站一会儿 → 走到辕马头侧抬手查缰/马具 → 走回车侧，
+     18s 一轮；面朝马头点与 'tie' 段同一处。只用已验过的两个落点（车夫位旁 / 系马位），
+     走线贴着车右侧，不穿车厢与马体。 */
+  if (S.state === 'wait'){
+    if (S.last && !coach.trip){
+      const restPt = carPoint(S.last, CARRY.coachGround.x, CARRY.coachGround.z);
+      const tiePt = carPoint(S.last, CARRY.coachTie.x, CARRY.coachTie.z);
+      const hd = carPoint(S.last, -0.40, 2.10);
+      if (!S.coachRest){
+        S.coachRest = true;
+        S.coachWaitT = 0; S.coachWaitLeg = 'rest';
+        coach.def.followFloor = true; coach.def.floorMax = 1.2;
+        if (Math.hypot(restPt.x - coach.pos.x, restPt.z - coach.pos.z) > 0.35){
+          giveRoute(coach, [[restPt.x, restPt.z]], 0.50, 0.10);
+        } else {
+          coach.def.route = null; coach.walkOff = true; coach.arrived = true;
+        }
+      }
+      if (coach.arrived){
+        S.coachWaitT = (S.coachWaitT || 0) + dt;
+        const faceHorse = () => turnToward(coach, Math.atan2(hd.x - coach.pos.x, hd.z - coach.pos.z), dt);
+        if (S.coachWaitLeg === 'rest'){
+          faceHorse();
+          if (S.coachWaitT > 18){
+            S.coachWaitLeg = 'toHorse'; S.coachWaitT = 0;
+            giveRoute(coach, [[tiePt.x, tiePt.z]], 0.50, 0.10);
+          }
+        } else if (S.coachWaitLeg === 'toHorse'){
+          if (coach.arrived){ S.coachWaitLeg = 'check'; S.coachWaitT = 0; }
+        } else if (S.coachWaitLeg === 'check'){
+          faceHorse();
+          coach.tieTarget = true;                 // 抬手查缰/摸马具（车身侧的可读动作）
+          if (S.coachWaitT > 4){
+            coach.tieTarget = false;
+            S.coachWaitLeg = 'toRest'; S.coachWaitT = 0;
+            giveRoute(coach, [[restPt.x, restPt.z]], 0.50, 0.10);
+          }
+        } else if (S.coachWaitLeg === 'toRest'){
+          if (coach.arrived){ S.coachWaitLeg = 'rest'; S.coachWaitT = 0; }
+        }
+      }
+    }
+    return;
+  }
   if (S.state === 'board'){
     S.t += dt;
     /* 解绳：先抬手放下（tieTarget=false），引绳收起 */
-    if (coach.tieTarget){ coach.tieTarget = false; travelCarriageTied(false); S.tieOn = false; }
+    if (coach.tieTarget || S.tieOn){ coach.tieTarget = false; travelCarriageTied(false); S.tieOn = false; }
     /* 客人从地面跨上车 */
     if (!S.boardStarted && !guest.trip){
       S.boardStarted = true;
@@ -2335,8 +2532,8 @@ function tickCarriage(dt){
     }
     if (S.coachOn && !coach.trip && S.last) setRide(coach, S.last, CARRY.coach, false);
     if (S.guestOn && S.coachOn && !guest.trip && !coach.trip){
+      S.odo = S.s;                          // 接续驶入终点的里程，车轮与马腿相位不跳
       S.state = 'driveout'; S.t = 0; S.leg = 'back'; S.legT = 0; S.s = 0;
-      S.odo = 0;                            // 里程从 0 起算，之后跨三个 leg 连续累加
     }
     return;
   }
@@ -2530,10 +2727,11 @@ function driveTour(dt){
 }
 
 /* 开演（条件满足时）：马车已在路上，客人在车里，马夫在车夫位。 */
-/* ── 只留一个马夫（2026-10-27 老黄："现在出现了两个马夫…一个马夫就够了"）──────────
-   车夫（laborer）与常驻马夫（groom）是同一件 GLB 的两个人，到访期间会同框在马厩里，
-   两个人穿着、头巾、身材都一样 ⇒ 读作"两个马夫站在马旁边"。
-   车夫一上场就把常驻马夫收起来（车夫走了再放回来），场上任何时刻只有一个马夫。 */
+/* ── 常驻男仆的显隐 ────────────────────────────────────────────────────────
+   ⚠️ 2026-10-27 曾经"车夫上场就把常驻马夫收起来"，理由是两人共用同一件 GLB、
+   穿着/头巾/身材一样，同框读作"两个马夫"。2026-11-02 老黄改定了人设：
+   **常驻马厩的男仆 + 只赶车的车夫**，两人本来就该同时在场，靠号衣颜色/身高区分
+   （见 DEFS 的 livery / height）。所以到访期间不再收起男仆，这个函数只留给复位用。 */
 function setGroomVisible(v){
   const gm = actorRef('groom');
   if (gm) gm.holder.visible = !!v;
@@ -2550,7 +2748,8 @@ function startVisit(){
   VISCAR.state = 'drivein'; VISCAR.s = 0; VISCAR.t = 0;
   VISCAR.path = pathTable(CARRY.arrive); VISCAR.last = P;
   VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
-  VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
+  VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false; VISCAR.coachRest = false;
+  VISCAR.coachWaitT = 0; VISCAR.coachWaitLeg = '';
   VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0; VISCAR.backYaw0 = null;
   travelCarriageVisible(true);
   travelCarriageTied(false);
@@ -2566,7 +2765,9 @@ function startVisit(){
   coach.trip = null; coach.tieTarget = false; coach.tieW = 0; coach.coachW = 0;
   coach.holder.visible = true;
   setRide(coach, P, CARRY.coach, true);
-  setGroomVisible(false);          // 车夫上场，常驻马夫退场（场上只留一个马夫）
+  /* 2026-11-02：车夫与常驻男仆是两个不同的人设，常驻男仆不该在到访期间消失
+     （他要继续喂马/刷马，接马礼仪也用他）。 */
+  setGroomVisible(true);
 
   host.walkOff = true; host.arrived = false; host.trip = null;
   return true;
@@ -2647,17 +2848,25 @@ function resetVisit(hostHome){
   /* 避镜头（见上）：主人与马车在**移动前**先量、先藏。
      hostHome = 走回去已经到位（homingFinish 传入）⇒ 不藏，否则近景里会白闪 0.9s。 */
   if (host && !hostHome) avoidCameraReveal(host.holder);
-  {
-    const V = stableTravel();
-    if (V.ready) avoidCameraReveal(V.group);
-  }
+  const V = stableTravel();
+  const hideTravel = !!(V && V.ready && V.group && V.group.visible
+    && camera.position.distanceTo(V.group.getWorldPosition(_avV)) < _AVOID_DIST);
   VISIT.age = 0;
   travelCarriagePark();
   travelCarriageVisible(true);
+  if (hideTravel){
+    /* 只隐藏被挪回原位的车、辕马和软影；马厩与其他马匹不能跟着闪没。 */
+    for (const o of [V.car, V.blob, ...V.slots.map(s => s.group)]){
+      if (!o || !o.visible) continue;
+      o.visible = false;
+      _avoidReveal.push({ o, t: _AVOID_WAIT });
+    }
+  }
   travelCarriageTied(false);
   VISCAR.state = 'parked'; VISCAR.t = 0; VISCAR.s = 0; VISCAR.last = null;
   VISCAR.alighting = false; VISCAR.coachOff = false; VISCAR.tieOn = false;
-  VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false;
+  VISCAR.boardStarted = false; VISCAR.guestOn = false; VISCAR.coachOn = false; VISCAR.coachWalk = false; VISCAR.coachRest = false;
+  VISCAR.coachWaitT = 0; VISCAR.coachWaitLeg = '';
   VISCAR.leg = ''; VISCAR.outPath = null; VISCAR.odo = 0; VISCAR.backYaw0 = null;
   if (guest){
     guest.ride = null; guest.trip = null;
@@ -2718,7 +2927,7 @@ function resetVisit(hostHome){
     host.def.route = { pts: HOST_GREET_PTS, speed: 0.86 * WALK_K, pause: [0, 0], mode: 'once' };
     host.target = 1; host.walkOff = true; host.waitT = 0;
     host.floorY = null; host.floorDone = false; host.floorTries = 0;
-    host.holder.visible = true;
+    if (!_avoidReveal.some(r => r.o === host.holder)) host.holder.visible = true;
   }
   riteReset();
   VISIT.phase = 'idle'; VISIT.t = 0; VISIT.bowW = 0;
@@ -2887,29 +3096,25 @@ function tickVisit(dt){
   }
   tickCarriage(dt);
   if (RITE.g !== 'off' && RITE.g !== 'done') tickRiteGroom(dt);     // 礼仪·马夫接马（全关时恒 off）
-  /* 场上永远只有一个马夫 —— 但"有人"比"没人"重要（2026-10-28 老黄："马夫依旧只是
-     站立不动，看不到喂马和刷毛这两个动作"）。真因不是动作没写，而是 startVisit 一开演
-     就把常驻马夫**整段藏起来**（场上只剩一个干站着的车夫），而到访演出几乎一直在循环
-     ⇒ 用户看到的永远是那个不动的车夫。
-     现在改成逐帧按"车夫要不要用"决定显示谁：
-       · 车在进场 / 正在系马 / 正在上车 / **正在驶离** ⇒ 显示车夫、收起常驻马夫；
-       · 其余时段（马拴好、客人在园里）⇒ 显示常驻马夫去喂马刷马、收起车夫。
-     两个人始终不同框，"场上只留一个马夫"的约定不变。
-     ⚠️⚠️ 2026-10-29 老黄："马车走的时候没有马夫在驾车"——真因就是这张表**漏了
-     driveout**（倒车/调头/驶离三段），车一动 `needCoach` 就变 false ⇒ 车夫被藏起来。
-     同批还把 stop/tiewalk/tie/alight 与 parked 一起纳进来：那几段他正在系缰、跳下车，
-     藏起来等于"缰绳自己系好了"。改成**白名单**（只有"马拴好、客人还在园里"这一段
-     才换成常驻马夫），以后再加子状态时默认显示车夫 —— 漏显示比漏隐藏危害小。 */
+  /* ── 两个差事分开的"马厩人"（2026-11-02 老黄定的人设）────────────────────────
+     老黄："马车到达后从车上下来一个新的马夫，但是瞬间就不见了" —— 真因就是下面这张
+     白名单：'alight' 结束时车夫刚落地，状态一进 'alighted'/'wait' 他就不在名单里，
+     同一帧被藏起来（客人在园里游玩的几分钟里，场上只剩常驻男仆）。
+     现在人设拆清楚，两个人**正常同框**、各干各的：
+       · 车夫（laborer）：只驾车。从进场到驶离**全程在场**（'alight'/'wait' 也不例外），
+         客人下车后回车侧等，隔一会儿走到辕马头侧查缰/摸马具；上车段再回驾驶位。
+       · 男仆（groom）：常驻马厩，喂马/刷马/接马牵缰，到访期间**一直可见**
+         （以前为了"只留一个马夫"整段藏起，连喂马刷马都看不到）。
+     两人靠号衣颜色（深靛 / 橄榄褐）区分，不再靠互相隐藏。 */
   {
     const coach = actorRef(VISIT.coachId), gm = actorRef('groom');
     if (coach && gm){
       const ST = VISCAR.state;
-      const coachBusy = ST === 'drivein' || ST === 'stop' || ST === 'tiewalk' || ST === 'tie' ||
-                        ST === 'alight' || ST === 'board' || ST === 'driveout' ||
-                        (ST === 'wait' && !VISCAR.tieOn) || ST === 'take';
+      /* 车已停进马厩院子（或正在离开的路上）就显示车夫；只在 'parked'（还没开演/已复位）
+         与 'gone'（连人带车已隐去）藏他。 */
+      const coachBusy = ST !== 'parked' && ST !== 'gone';
       coach.holder.visible = coachBusy;
-      /* 礼仪·接马在走的那十来秒，常驻马夫与车夫同框（见 tickRiteGroom 注释） */
-      gm.holder.visible = !coachBusy || (RITE.g !== 'off' && RITE.g !== 'done');
+      gm.holder.visible = true;
     }
   }
 
@@ -3251,10 +3456,18 @@ function tickVisit(dt){
     return;
   }
   if (v.phase === 'tourgo'){
-    v.tourPath = buildTourPath();
-    v.tourS = TOUR.gap;
-    host.def.stepUp = guest.def.stepUp = 1.35;   // 桥北/桥南各有一级 0.69m
-    host.def.floorMax = guest.def.floorMax = 2.45;
+    if (v.t === 0){
+      v.t = 1;                                // 只在进入本相位时安排一次入线
+      v.tourPath = buildTourPath();
+      v.tourS = TOUR.gap;
+      host.def.stepUp = guest.def.stepUp = 1.35;   // 桥北/桥南各有一级 0.69m
+      host.def.floorMax = guest.def.floorMax = 2.45;
+      const startHost = pathAt(v.tourPath, TOUR.gap), startGuest = pathAt(v.tourPath, 0);
+      giveRoute(host, [[startHost.x, startHost.z]], TOUR.speed, 0, 2.45);
+      giveRoute(guest, [[startGuest.x, startGuest.z]], TOUR.speed, 0, 2.45);
+      return;
+    }
+    if (!host.arrived || !guest.arrived) return;  // 两人先走到各自起点，再交给弧长驱动
     /* ⚠️⚠️ 2026-10-27 修（老黄截图 2/3"游园与送客的路线全是穿模"）：
        这里必须把 pairDrive 置 **true** —— 位置由 driveTour 按弧长直接写，
        而 tickRoute 在"没有路线"时第一件事就是 `a.moved = 0`（它跑在 tickVisit 之后）。
@@ -3403,6 +3616,17 @@ function advance(dt){
   tickVisit(dt);
   const q = _poseQ, e = _poseE;
   for (const a of ACTORS){
+    /* 井边高精仕女替换的是有日程的低模，沿用同一时段及天气门禁；到访演员不受此规则影响。 */
+    if (a.def.id === 'lady' && ENV_REF.env){
+      const { hour, weather } = ENV_REF.env;
+      const visible = hour >= LADY_SCHEDULE.h0 && hour < LADY_SCHEDULE.h1
+        && weather !== 'storm' && weather !== 'snow' && weather !== 'winterrain';
+      if (a.holder.visible !== visible){
+        a.holder.visible = visible;
+        markCasterBoxDirty();
+        renderer.shadowMap.needsUpdate = true;
+      }
+    }
     tickRoute(a, dt);
     /* 上车/下车：一段纯插值的短程（1~1.3s），不走步态、不取踏面 ——
        走路时脚要踩地，而上下车是"跨上去/跳下来"，本来就是一气呵成。 */
@@ -3818,10 +4042,10 @@ function advance(dt){
           routeToHorse(a, g, H3, spd);
         }
         const budget = Math.max(6, (a._goalD || d0) / Math.max(0.15, spd) * 1.8 + 3);
-        if (a._goalT > budget){                // 兜底：路线出问题也不能让状态机卡死
+        if (a._goalT > budget){
           a._goalKey = null; a._goalT = 0; a.walkOff = true;
-          console.warn('[groom] 走不到目标点，就地作业：' + JSON.stringify([+g[0].toFixed(2), +g[1].toFixed(2)]));
-          return true;
+          if (window.__groomRouteTrace) console.warn('[groom] 目标暂时不可达，等待重试：' + JSON.stringify(g));
+          return false;
         }
         return false;
       };
@@ -4295,9 +4519,14 @@ function advance(dt){
 
 export function tickActors(dt){
   if (!ACTORS.length) return;
-  const d = Math.min(Math.max(dt, 0), 0.05);   // 位置用更紧的步长上限，掉帧也不会跳过端点
-  _t += Math.min(Math.max(dt, 0), 0.1);
-  advance(d);
+  /* 单步仍不超过 50ms，但不能丢掉同一帧剩下的时间，否则低帧率时人物比环境慢一半。 */
+  let remaining = Math.min(Math.max(dt, 0), 0.1);
+  while (remaining > 1e-6){
+    const d = Math.min(remaining, 0.05);
+    _t += d;
+    advance(d);
+    remaining -= d;
+  }
 }
 
 /* 探针用：把 sim 快进 seconds 秒（软件渲染只有 1~3fps，实时等 6s 只走了 0.2s 的 sim）。
