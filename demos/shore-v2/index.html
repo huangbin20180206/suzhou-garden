@@ -1,0 +1,431 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>Shore v2 · 岸线海面</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#08131c;}
+  canvas{display:block;}
+  #hint{position:fixed;left:12px;bottom:10px;color:#cfe9f5;font:12px/1.5 -apple-system,"PingFang SC",sans-serif;
+        opacity:.62;pointer-events:none;text-shadow:0 1px 3px #000a;}
+</style>
+</head>
+<body>
+<div id="hint">拖动旋转 · 滚轮缩放</div>
+<script type="importmap">
+{"imports":{"three":"https://cdn.jsdelivr.net/npm/three@0.161.0/build/three.module.js"}}
+</script>
+<script type="module">
+import * as THREE from 'three';
+
+/* ---------------- 基础 ---------------- */
+const renderer = new THREE.WebGLRenderer({ antialias:false, powerPreference:'high-performance' });
+renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 1.5));
+renderer.setSize(innerWidth, innerHeight);
+renderer.toneMapping = THREE.NoToneMapping;
+renderer.outputColorSpace = THREE.LinearSRGBColorSpace;   // 自己在末端做色调映射
+renderer.setClearColor(0x08131c, 1);
+document.body.appendChild(renderer.domElement);
+
+const scene  = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(38, innerWidth/innerHeight, 0.1, 400);
+
+/* ---------------- 共用噪声（GLSL） ---------------- */
+const GLSL_NOISE = `
+float hash21(vec2 p){ p = fract(p*vec2(123.34,345.45)); p += dot(p,p+34.345); return fract(p.x*p.y); }
+float vnoise(vec2 p){
+  vec2 i = floor(p), f = fract(p);
+  vec2 u = f*f*(3.0-2.0*f);
+  float a = hash21(i), b = hash21(i+vec2(1.0,0.0)), c = hash21(i+vec2(0.0,1.0)), d = hash21(i+vec2(1.0,1.0));
+  return mix(mix(a,b,u.x), mix(c,d,u.x), u.y);
+}
+float fbm(vec2 p){
+  float s = 0.0, a = 0.5;
+  for(int i=0;i<5;i++){ s += a*vnoise(p); p = p*2.03 + vec2(11.7,7.3); a *= 0.5; }
+  return s;
+}
+// 岸线半径（低频，做形状）
+float shoreR(float ang){ return 4.7 + 0.50*sin(3.0*ang+1.7) + 0.24*sin(7.0*ang+0.4) + 0.10*sin(11.0*ang+2.3); }
+`;
+
+/* ---------------- 天空 ---------------- */
+const skyMat = new THREE.ShaderMaterial({
+  side: THREE.BackSide, depthWrite:false,
+  uniforms:{ uSun:{value:new THREE.Vector3(0.55,0.42,0.72).normalize()} },
+  vertexShader:`varying vec3 vDir; void main(){ vDir = normalize(position); gl_Position = projectionMatrix*modelViewMatrix*vec4(position,1.0); }`,
+  fragmentShader:`
+    varying vec3 vDir; uniform vec3 uSun;
+    void main(){
+      float h = clamp(vDir.y*0.5+0.5, 0.0, 1.0);
+      vec3 top    = vec3(0.05,0.26,0.62);
+      vec3 mid    = vec3(0.26,0.58,0.84);
+      vec3 horizon= vec3(0.70,0.84,0.92);
+      vec3 c = mix(horizon, mid, smoothstep(0.44,0.62,h));
+      c = mix(c, top, smoothstep(0.60,0.95,h));
+      float sd = max(dot(normalize(vDir), uSun), 0.0);
+      c += vec3(1.0,0.86,0.62) * pow(sd, 220.0) * 2.4;
+      c += vec3(1.0,0.92,0.78) * pow(sd, 9.0) * 0.16;
+      gl_FragColor = vec4(c, 1.0);
+    }`
+});
+scene.add(new THREE.Mesh(new THREE.SphereGeometry(180, 32, 20), skyMat));
+
+/* ---------------- 光照 ---------------- */
+scene.add(new THREE.HemisphereLight(0xbfe2ff, 0x8d7b5a, 0.85));
+const sun = new THREE.DirectionalLight(0xfff1d4, 2.35);
+sun.position.set(14, 11, 18);
+scene.add(sun);
+
+/* ---------------- 地形（岛 + 浅滩） ---------------- */
+const LS = {
+  shore:(a)=>4.7 + 0.50*Math.sin(3*a+1.7) + 0.24*Math.sin(7*a+0.4) + 0.10*Math.sin(11*a+2.3),
+  // 陆地高于 0；浅滩从 0 缓慢降到 -2.6
+  height(x, z){
+    const r = Math.hypot(x, z), a = Math.atan2(z, x);
+    const sh = LS.shore(a);
+    if (r <= sh){
+      const t = (sh - r) / sh;                 // 0 在岸线，1 在岛心
+      const dune = Math.sin(x*1.3 + 1.1)*Math.cos(z*1.1 - 0.4)*0.10
+                 + Math.sin(x*3.4)*Math.cos(z*3.1)*0.035;
+      return 0.05 + Math.pow(t, 1.15)*0.95 + dune*Math.min(1, t*2.2);
+    }
+    const d = r - sh;
+    return 0.02 - d*0.92 + Math.sin(x*1.7)*Math.cos(z*1.5)*0.05*Math.min(1,d*0.5);
+  }
+};
+
+const terGeo = new THREE.PlaneGeometry(26, 26, 240, 240);
+terGeo.rotateX(-Math.PI/2);
+{
+  const p = terGeo.attributes.position;
+  const col = new Float32Array(p.count*3);
+  const cGrass = new THREE.Color(0x6f8d4a), cDune = new THREE.Color(0xd8c79a);
+  const cSand  = new THREE.Color(0xeadfb8), cWet = new THREE.Color(0xc8b78c);
+  const cShallow = new THREE.Color(0xd9d3a8), cDeep = new THREE.Color(0x6f7d68);
+  const tmp = new THREE.Color();
+  for (let i=0;i<p.count;i++){
+    const x = p.getX(i), z = p.getZ(i);
+    const y = LS.height(x, z);
+    p.setY(i, y);
+    const edge = 0.42 + Math.sin(x*2.7+1.3)*Math.cos(z*2.3-0.7)*0.06 + Math.sin(x*6.1)*Math.sin(z*5.3)*0.02;
+    if (y >= edge)      tmp.copy(cGrass).lerp(cDune, Math.min(1,(y-edge)*1.4));
+    else if (y >= 0.05) tmp.copy(cDune).lerp(cSand, Math.min(1,(edge-y)*3));
+    else if (y >= -0.18) tmp.copy(cSand).lerp(cWet, Math.min(1,(-y)/0.18));
+    else                tmp.copy(cWet).lerp(cShallow, Math.min(1,(-y-0.18)/0.6));
+    if (y < -0.8) tmp.lerp(cDeep, Math.min(1, (-y-0.8)/1.6)*0.75);
+    col[i*3]=tmp.r; col[i*3+1]=tmp.g; col[i*3+2]=tmp.b;
+  }
+  terGeo.setAttribute('color', new THREE.BufferAttribute(col,3));
+  terGeo.computeVertexNormals();
+}
+const terMat = new THREE.MeshStandardMaterial({ vertexColors:true, roughness:0.93, metalness:0.0 });
+const terrain = new THREE.Mesh(terGeo, terMat);
+scene.add(terrain);
+
+/* ---------------- 礁石 ---------------- */
+const rockMat = new THREE.MeshStandardMaterial({ color:0x7b8478, roughness:0.86, metalness:0.04, flatShading:true });
+const rocks = [];
+for (let i=0;i<11;i++){
+  const a = i*2.31+0.7;
+  const rr = LS.shore(a) + 0.5 + ((i*37)%13)/13*1.5;
+  const g = new THREE.IcosahedronGeometry(0.18 + ((i*53)%7)/7*0.42, 0);
+  const m = new THREE.Mesh(g, rockMat);
+  m.position.set(Math.cos(a)*rr, LS.height(Math.cos(a)*rr, Math.sin(a)*rr) + 0.06, Math.sin(a)*rr);
+  m.rotation.set(i*0.7, i*1.3, i*0.5);
+  m.scale.set(1, 0.7+((i*17)%5)/10, 1);
+  scene.add(m); rocks.push(m);
+}
+
+/* ---------------- 渲染目标 ---------------- */
+const W = ()=>innerWidth, H = ()=>innerHeight;
+const sceneRT   = new THREE.WebGLRenderTarget(W(), H(), { depthBuffer:true, samples:0 });
+const reflectRT = new THREE.WebGLRenderTarget(W()*0.5|0, H()*0.5|0, { depthBuffer:true });
+const brightRT  = new THREE.WebGLRenderTarget(W()*0.25|0, H()*0.25|0, { depthBuffer:false });
+const blurA     = new THREE.WebGLRenderTarget(W()*0.25|0, H()*0.25|0, { depthBuffer:false });
+const blurB     = new THREE.WebGLRenderTarget(W()*0.25|0, H()*0.25|0, { depthBuffer:false });
+const mirrorCam = new THREE.PerspectiveCamera();
+const texMat    = new THREE.Matrix4();
+
+/* ---------------- 水面 ---------------- */
+const waterUni = {
+  uTime:{value:0},
+  tReflect:{value:reflectRT.texture},
+  uTexMat:{value:texMat},
+  uSun:{value:new THREE.Vector3(0.55,0.42,0.72).normalize()},
+  uFog:{value:new THREE.Color(0.56,0.74,0.84)}
+};
+const waterMat = new THREE.ShaderMaterial({
+  uniforms: waterUni, transparent:false,
+  vertexShader:`
+    uniform float uTime;
+    varying vec3 vW;
+    ${GLSL_NOISE}
+    void main(){
+      vec4 wp = modelMatrix * vec4(position,1.0);
+      float r = length(wp.xz), a = atan(wp.z,wp.x);
+      float d = r - shoreR(a);                        // 水里为正
+      float near = smoothstep(14.0, 0.0, r);
+      float w1 = sin(d*1.45 - uTime*1.35)*0.6 + sin(d*2.7 - uTime*1.9)*0.4;
+      float w2 = sin(wp.x*0.42 + uTime*0.55) * 0.5 + sin(wp.z*0.37 - uTime*0.48) * 0.5;
+      float w3 = (fbm(wp.xz*0.35 + vec2(uTime*0.05, -uTime*0.04)) - 0.5) * 2.0;
+      wp.y += (w1*0.085 + w2*0.06 + w3*0.05) * near;
+      vW = wp.xyz;
+      gl_Position = projectionMatrix * viewMatrix * wp;
+    }`,
+  fragmentShader:`
+    uniform float uTime; uniform sampler2D tReflect; uniform mat4 uTexMat;
+    uniform vec3 uSun; uniform vec3 uFog;
+    varying vec3 vW;
+    ${GLSL_NOISE}
+
+    float heightAt(vec2 p, float t){
+      float r = length(p), a = atan(p.y,p.x);
+      float d = r - shoreR(a);
+      float near = smoothstep(14.0, 0.0, r);
+      float w1 = sin(d*1.45 - t*1.35)*0.6 + sin(d*2.7 - t*1.9)*0.4;
+      float w2 = sin(p.x*0.42 + t*0.55) * 0.5 + sin(p.y*0.37 - t*0.48) * 0.5;
+      float w3 = (fbm(p*0.35 + vec2(t*0.05, -t*0.04)) - 0.5) * 2.0;
+      return (w1*0.085 + w2*0.06 + w3*0.05) * near;
+    }
+
+    void main(){
+      float r = length(vW.xz), ang = atan(vW.z, vW.x);
+      float sh = shoreR(ang);
+      float d = r - sh;                       // 岸线为 0，越远越大
+      if (d < 0.0) discard;                   // 岛上的水面剔掉
+
+      // 法线：中心差分
+      float e = 0.06;
+      float hC = heightAt(vW.xz, uTime);
+      float hX = heightAt(vW.xz + vec2(e,0.0), uTime);
+      float hZ = heightAt(vW.xz + vec2(0.0,e), uTime);
+      // 叠加细碎波纹（法线层面）
+      vec2 rip = vec2(fbm(vW.xz*1.4 + vec2(uTime*0.32, -uTime*0.21)),
+                      fbm(vW.xz*1.4 + vec2(-uTime*0.26, uTime*0.29))) - 0.5;
+      vec3 n = normalize(vec3(-(hX-hC)/e + rip.x*0.30, 1.0, -(hZ-hC)/e + rip.y*0.30));
+
+      // 水深（岛外浅滩一路变深）
+      float depth = clamp(d*1.05, 0.0, 9.0);
+
+      // 沙底（越深越藻绿）+ 水下焦散
+      vec3 sandC = mix(vec3(0.86,0.81,0.63), vec3(0.28,0.38,0.26), smoothstep(0.05,1.5,depth));
+      float caus  = fbm(vW.xz*2.2 + vec2(uTime*0.30, uTime*0.18));
+      float caus2 = fbm(vW.xz*2.2*1.9 + vec2(-uTime*0.44, uTime*0.25));
+      float caustic = pow(1.0 - abs(caus-caus2)*2.4, 5.0);
+      sandC += vec3(0.85,1.0,0.85) * caustic * 0.38
+             * smoothstep(0.0,0.5,depth) * (1.0 - smoothstep(1.2,3.0,depth));
+
+      // 吸收 + 水色（近岸薄荷，远处深蓝）
+      vec3 absorb = exp(-vec3(0.95,0.34,0.20) * depth);
+      vec3 shallowT = vec3(0.10,0.90,0.76);
+      vec3 midT     = vec3(0.010,0.34,0.48);
+      vec3 deepT    = vec3(0.003,0.028,0.100);
+      vec3 tint = mix(shallowT, midT, smoothstep(0.10,1.6,depth));
+      tint = mix(tint, deepT, smoothstep(1.6,6.0,depth));
+      vec3 under = sandC*absorb + tint*(1.0 - absorb*0.85);
+      under = mix(under, tint, smoothstep(2.0,7.0,depth)*0.55);
+
+      // 远处融进海雾
+      float haze = smoothstep(150.0, 430.0, length(vW.xz));
+      under = mix(under, uFog, haze*0.9);
+
+      // 菲涅尔 + 反射
+      vec3 V = normalize(cameraPosition - vW);
+      float fres = 0.02 + 0.98*pow(1.0 - max(dot(n,V),0.0), 5.0);
+      vec4 rc = uTexMat * vec4(vW,1.0);
+      vec2 ruv = rc.xy/rc.w + n.xz*0.055;
+      vec3 refl = texture2D(tReflect, clamp(ruv, vec2(0.002), vec2(0.998))).rgb;
+      vec3 col = mix(under, refl, clamp(fres*1.45, 0.0, 0.92));
+
+      // 泡沫带 + 浪线 + 气泡点
+      float band = smoothstep(0.95, 0.0, d);
+      float f1 = fbm(vW.xz*1.9 + vec2(uTime*0.16, -uTime*0.13));
+      float f2 = fbm(vW.xz*4.7 - vec2(uTime*0.28, uTime*0.11));
+      float foam = smoothstep(0.56, 0.84, f1*0.58 + band*0.66 + f2*0.26);
+      float line = sin(d*3.6 - uTime*2.1 + f1*3.0);
+      foam += smoothstep(0.90, 1.0, line) * smoothstep(2.0, 0.05, d) * 0.42;
+      float bub = smoothstep(0.78, 0.97, vnoise(vW.xz*52.0 + vec2(0.0, uTime*0.7)));
+      bub *= smoothstep(1.3, 0.0, d);
+      foam = clamp(foam, 0.0, 1.0);
+      vec3 foamC = vec3(0.93,0.98,0.97);
+      col = mix(col, foamC, foam*0.85);
+      col = mix(col, foamC, bub*0.40);
+
+      // 太阳高光 + 碎光
+      vec3 Hv = normalize(V + uSun);
+      float spec = pow(max(dot(n,Hv),0.0), 320.0);
+      float glint = smoothstep(0.62, 0.95, fbm(vW.xz*7.5 + vec2(uTime*0.5, uTime*0.35)));
+      col += vec3(1.0,0.96,0.86) * spec * (2.2 + 4.0*glint);
+      col += vec3(1.0,0.97,0.88) * pow(max(dot(n,Hv),0.0), 40.0) * 0.05;
+
+      gl_FragColor = vec4(col, 1.0);
+    }`
+});
+const waterGeo = new THREE.PlaneGeometry(260, 260, 220, 220);
+waterGeo.rotateX(-Math.PI/2);
+const water = new THREE.Mesh(waterGeo, waterMat);
+water.renderOrder = 1;
+scene.add(water);
+
+/* ---------------- 全屏后处理 ---------------- */
+const fsCam = new THREE.OrthographicCamera(-1,1,1,-1,0,1);
+const fsGeo = new THREE.PlaneGeometry(2,2);
+const brightMat = new THREE.ShaderMaterial({
+  uniforms:{ tD:{value:sceneRT.texture} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
+  fragmentShader:`
+    varying vec2 vUv; uniform sampler2D tD;
+    void main(){
+      vec3 c = texture2D(tD, vUv).rgb;
+      float l = max(max(c.r,c.g),c.b);
+      c *= smoothstep(0.80, 1.40, l);
+      gl_FragColor = vec4(c,1.0);
+    }`
+});
+const blurMat = new THREE.ShaderMaterial({
+  uniforms:{ tD:{value:null}, uDir:{value:new THREE.Vector2(1,0)} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
+  fragmentShader:`
+    varying vec2 vUv; uniform sampler2D tD; uniform vec2 uDir;
+    void main(){
+      vec3 s = vec3(0.0);
+      s += texture2D(tD, vUv + uDir*vec2(-4.0,-4.0)).rgb * 0.051;
+      s += texture2D(tD, vUv + uDir*vec2(-2.0,-2.0)).rgb * 0.122;
+      s += texture2D(tD, vUv).rgb * 0.234;
+      s += texture2D(tD, vUv + uDir*vec2( 2.0, 2.0)).rgb * 0.122;
+      s += texture2D(tD, vUv + uDir*vec2( 4.0, 4.0)).rgb * 0.051;
+      gl_FragColor = vec4(s,1.0);
+    }`
+});
+const finalMat = new THREE.ShaderMaterial({
+  uniforms:{ tScene:{value:sceneRT.texture}, tBloom:{value:blurB.texture}, uTime:{value:0} },
+  vertexShader:`varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
+  fragmentShader:`
+    varying vec2 vUv; uniform sampler2D tScene; uniform sampler2D tBloom; uniform float uTime;
+    vec3 aces(vec3 x){
+      const float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14;
+      return clamp((x*(a*x+b))/(x*(c*x+d)+e), 0.0, 1.0);
+    }
+    float h21(vec2 p){ p=fract(p*vec2(123.34,345.45)); p+=dot(p,p+34.345); return fract(p.x*p.y); }
+    void main(){
+      vec3 c = texture2D(tScene, vUv).rgb;
+      vec3 b = texture2D(tBloom, vUv).rgb;
+      c += b * 0.55;
+      c = aces(c * 1.15);
+      vec2 q = vUv - 0.5;
+      c *= 1.0 - 0.30*dot(q,q);
+      c += (h21(vUv*vec2(1920.0,1080.0) + uTime) - 0.5) * 0.010;
+      gl_FragColor = vec4(pow(c, vec3(1.0/2.2)), 1.0);
+    }`
+});
+const fsQuad = new THREE.Mesh(fsGeo, finalMat);
+fsQuad.frustumCulled = false;
+const fsScene = new THREE.Scene(); fsScene.add(fsQuad);
+
+function blit(mat, target){
+  fsQuad.material = mat;
+  renderer.setRenderTarget(target);
+  renderer.clear();
+  renderer.render(fsScene, fsCam);
+}
+
+/* ---------------- 相机控制 ---------------- */
+const cam = { az: -0.95, el: 0.33, dist: 12.5 };
+let drag = false, lx = 0, ly = 0;
+function applyCam(){
+  cam.el = Math.max(0.08, Math.min(0.85, cam.el));
+  cam.dist = Math.max(8, Math.min(60, cam.dist));
+  const ce = Math.cos(cam.el), se = Math.sin(cam.el);
+  camera.position.set(Math.cos(cam.az)*cam.dist*ce, se*cam.dist + 0.6, Math.sin(cam.az)*cam.dist*ce);
+  camera.lookAt(0, 0.2, 0);
+}
+addEventListener('pointerdown', e=>{ drag = true; lx = e.clientX; ly = e.clientY; });
+addEventListener('pointerup', ()=> drag = false);
+addEventListener('pointermove', e=>{
+  if (!drag) return;
+  cam.az -= (e.clientX - lx) * 0.006;
+  cam.el += (e.clientY - ly) * 0.004;
+  lx = e.clientX; ly = e.clientY; applyCam();
+});
+addEventListener('wheel', e=>{ cam.dist += e.deltaY * 0.012; applyCam(); }, { passive:true });
+
+/* ---------------- 反射相机 ---------------- */
+const reflMat = new THREE.Matrix4().makeScale(1,-1,1);
+const biasMat = new THREE.Matrix4().set(
+  0.5,0,0,0.5, 0,0.5,0,0.5, 0,0,0.5,0.5, 0,0,0,1
+);
+function renderReflection(){
+  mirrorCam.copy(camera);
+  mirrorCam.matrixWorld.copy(camera.matrixWorld).premultiply(reflMat);
+  mirrorCam.matrixWorldInverse.copy(mirrorCam.matrixWorld).invert();
+  mirrorCam.projectionMatrix.copy(camera.projectionMatrix);
+  mirrorCam.projectionMatrixInverse.copy(camera.projectionMatrixInverse);
+
+  texMat.copy(biasMat)
+        .multiply(mirrorCam.projectionMatrix)
+        .multiply(mirrorCam.matrixWorldInverse);
+
+  water.visible = false;
+  renderer.clippingPlanes = [ new THREE.Plane(new THREE.Vector3(0,1,0), 0.0) ];
+  renderer.setRenderTarget(reflectRT);
+  renderer.clear();
+  renderer.render(scene, mirrorCam);
+  renderer.clippingPlanes = [];
+  water.visible = true;
+}
+
+/* ---------------- 尺寸 ---------------- */
+function resize(){
+  const w = innerWidth, h = innerHeight;
+  renderer.setSize(w, h);
+  camera.aspect = w/h; camera.updateProjectionMatrix();
+  sceneRT.setSize(w,h);
+  reflectRT.setSize(Math.max(2,w*0.5|0), Math.max(2,h*0.5|0));
+  brightRT.setSize(Math.max(2,w*0.25|0), Math.max(2,h*0.25|0));
+  blurA.setSize(brightRT.width, brightRT.height);
+  blurB.setSize(brightRT.width, brightRT.height);
+  if (w/h < 1) cam.dist = 26;
+  applyCam();
+}
+addEventListener('resize', resize);
+
+/* ---------------- 主循环 ---------------- */
+const t0 = performance.now();
+function frame(){
+  const t = (performance.now() - t0) / 1000;
+  waterUni.uTime.value = t;
+  finalMat.uniforms.uTime.value = t;
+  applyCam();
+
+  renderReflection();
+
+  renderer.setRenderTarget(sceneRT);
+  renderer.clear();
+  renderer.render(scene, camera);
+
+  brightMat.uniforms.tD.value = sceneRT.texture;
+  blit(brightMat, brightRT);
+
+  blurMat.uniforms.tD.value = brightRT.texture;
+  blurMat.uniforms.uDir.value.set(1.6/brightRT.width, 0);
+  blit(blurMat, blurA);
+
+  blurMat.uniforms.tD.value = blurA.texture;
+  blurMat.uniforms.uDir.value.set(0, 1.6/brightRT.height);
+  blit(blurMat, blurB);
+
+  renderer.setRenderTarget(null);
+  fsQuad.material = finalMat;
+  renderer.clear();
+  renderer.render(fsScene, fsCam);
+
+  requestAnimationFrame(frame);
+}
+
+resize();
+frame();
+setTimeout(()=>{ window.__ready = true; }, 400);
+</script>
+</body>
+</html>
