@@ -230,8 +230,9 @@ const check = (name, ok, detail = '') => {
   const names = r.phases.map(p => p[1]);
   check('① 相位链走到 done', names.includes('done'),
     `${r.simT}s 内到 ${names[names.length - 1]}（共 ${names.length} 段）`);
-  /* 2026-10-31 礼仪三段（默认开）：门房通报 await/usher/announce、奉茶 serve/offer（出处同 MAX_STEPS 注释） */
-  for (const need of ['carIn', 'await', 'usher', 'announce', 'stow', 'bow', 'pair', 'enter', 'seat', 'serve', 'offer',
+  /* 2026-11-04 迎客重排（老黄"主人和红衣孩童一起到门口迎接"）：旧通报相位
+     await/usher/announce 停用（门房揖改在并行状态机 RITE.b），奉茶 serve/offer（出处同 MAX_STEPS 注释） */
+  for (const need of ['carIn', 'stow', 'bow', 'pair', 'enter', 'seat', 'serve', 'offer',
                       'tea', 'tour', 'ebow', 'wave', 'topav', 'listen'])
     check(`① 相位包含 ${need}`, names.includes(need));
   /* 2026-10-29 老黄：门外见面、门外送客 + 挥手 + 回水榭听琴 */

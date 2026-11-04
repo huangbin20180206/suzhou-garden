@@ -33,8 +33,11 @@ const STEPS = +(process.env.ACTOR_SIM_STEPS || 0);
 const CASES = [{ name: 'carriage-2', mode: 'carriage', visits: 2 }, { name: 'walk-1', mode: 'walk', visits: 1 },
                { name: 'carriage-rite', mode: 'carriage-rite', visits: 2 },
                { name: 'carriage-walkback', mode: 'carriage-walkback', visits: 2 }];
-/* 礼仪三段合计让首场到 done 推迟的窗口（任务口径 60–90s；2026-10-31 录基线时实测 +76.0s） */
-const RITE_DELAY = [60, 90];
+/* 礼仪合计让首场到 done 推迟的窗口（任务口径 60–90s；2026-10-31 录基线时实测 +76.0s）。
+   2026-11-04 迎客重排（老黄"主人和红衣孩童一起到门口迎接"）：门房通报三段
+   （await/usher/announce ≈40s）停用，礼仪只余奉茶（serve/offer）与接马的时序差
+   ⇒ 实测 +10.8s，窗口收到 [8, 20]。 */
+const RITE_DELAY = [8, 20];
 
 const src = fs.readFileSync(path.join(ROOT, 'src/16-actors.js'), 'utf8');
 const PHASES = new Function('return ' + src.match(/export const VISIT_PHASES = Object\.freeze\((\[[\s\S]*?\])\);/)[1])();
@@ -103,9 +106,12 @@ test('礼仪三段：开启时首场到 done 比全关晚 60–90s，且三段�
   const d = +(on.doneAt[0] - off.doneAt[0]).toFixed(1);
   assert.ok(d >= RITE_DELAY[0] && d <= RITE_DELAY[1], '推迟 ' + d + 's（关 ' + off.doneAt[0] + ' / 开 ' + on.doneAt[0] + '）');
   const names = on.phases.map(p => p[1]);
-  for (const need of ['await', 'usher', 'announce', 'serve', 'offer']) assert.ok(names.includes(need), '缺相位 ' + need);
+  /* 2026-11-04 迎客重排：旧通报相位 await/usher/announce 停用（门房揖改在并行状态机
+     RITE.b / tickRiteBoy 里演，不进主相位表）；礼仪主线上仍断言奉茶两段。
+     TODO：sim 桩若记录 RITE.b 轨迹，补"门房到过门外（child1 z>23.5）"的行为断言。 */
+  for (const need of ['serve', 'offer']) assert.ok(names.includes(need), '缺相位 ' + need);
   assert.ok(on.cars.some(c => c[1] === 'take'), '马车子状态缺 take（马夫接马）');
-  for (const need of ['await', 'usher', 'announce', 'serve', 'offer'])
+  for (const need of ['serve', 'offer'])
     assert.ok(!off.phases.some(p => p[1] === need), '全关时不该出现 ' + need);
 });
 
@@ -119,7 +125,9 @@ test('走回去：冷却复位期间可见演员单帧水平位移 ≤0.5m（兜
   const r = await runs['carriage-walkback'], ref = await runs['carriage-rite'];
   assert.ok(r.walkback, '缺走回去统计（VISIT.homeLog）');
   const walks = r.walkback.log.filter(e => e.t !== undefined), snaps = r.walkback.snaps;
-  assert.ok(walks.length >= 3 && walks.every(e => e.ok), '主人 + 两书童都应步行到位：' + JSON.stringify(r.walkback.log));
+  /* 2026-11-04 迎客版：child1 揖毕沿原路跑回先生身边（到家后 walkback 自动跳过他）
+     ⇒ walkback 只剩主人与 child2 两名步行者；child1 不得有 snap。 */
+  assert.ok(walks.length >= 2 && walks.every(e => e.ok), '主人 + 两书童都应步行到位：' + JSON.stringify(r.walkback.log));
   let big = 0, worst = 0, homingFrames = 0;
   for (let i = 1; i < r.frames.length; i++){
     const a = r.frames[i - 1].split('|'), b = r.frames[i].split('|');

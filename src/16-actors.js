@@ -66,8 +66,10 @@ const GAIT = {
 const TURN_GATE = 0.55;   // 朝向偏差超过这个就"站住转身"，不再平移
 /* 2026-10-29 老黄："把主人和客人的移动（步行）速度提高到 1.5 倍"。
    只乘**步行**速度（路线 speed / 并排 / 游园），不碰车马、不碰转身角速度 ——
-   步态相位本来就是按走过的距离推进的（a.step += moved），走快一步自然迈得快，不会滑步。 */
-const WALK_K = 1.5;
+   步态相位本来就是按走过的距离推进的（a.step += moved），走快一步自然迈得快，不会滑步。
+   2026-11-04 老黄："步行速度再加快一些（1.3 倍速？）" ⇒ 1.5 × 1.3 = 1.95。
+   步幅对账机制兜底（脚摆弧长 = 推进距离），大步不滑步；长袍碎步变正常步幅。 */
+const WALK_K = 1.95;
 
 /* ── 跪坐（P2 坐姿）参数：与 research/characters/README.md §12.2 的出图一致 ─────────
    drop  = 髋部骨骼下沉量（**不动 holder**，动 Hips 骨：holder 原点在地面，移它整只人下沉）；
@@ -441,7 +443,7 @@ const VISCAR = {
    不写真字 —— 5m 外只是一列列墨点，写真字反而会露出分辨率；抖动是确定性的
    （sin 哈希），不吃全局/私有随机流。 */
 const HOST_GREET_PTS = [
-  [1.2, -5.7], [3.5, -5.4], [6.0, -4.0], [7.6, -3.2],          // 堂前 → 桥北踏步
+  [1.2, -5.05], [3.5, -5.4], [6.0, -4.0], [7.6, -3.2],          // 堂前（= scholar.spot，2026-11-04 挪出台阶带）→ 桥北踏步
   [8.3, -2.0], [8.3, 0.5], [8.3, 2.0], [8.3, 4.6],              // 拱桥：1.30 → 2.10
   [8.3, 7.0], [8.3, 8.8], [8.3, 9.6], [8.3, 10.4], [8.3, 11.2], // 桥面 → 架高廊道（1.30）
   [8.3, 12.0], [8.3, 12.8], [8.7, 13.2],                       // 廊道南端逐级下坡
@@ -564,7 +566,17 @@ const RITE_PTS = {
   /* 门房的岗位：月洞门内东侧（南墙 z=22.5、洞口半宽 1.62）。离并排线最近 1.1m、
      离主人出迎线 1.4m，不挡任何一条既有路线。 */
   porterPost: [2.6, 21.3],
-  /* 去岗位：书童位 → 主人出迎线（HOST_GREET_PTS，已逐点验过：台阶/拱桥/廊道）→ 岗位 */
+  /* 2026-11-04 老黄："红衣孩童连客人面都没见也没作揖……主人和红衣孩童一起到门口
+     迎接"——通报流程（门房入内→对主人作揖→回岗，porterIn/porterOut）整段停用，
+     改**门口迎客**：门房与主人同帧出发，小跑穿过月洞门到门外迎客位（客人来路
+     右前方 ~1.1m、雄狮 (2.55,23.25) 内侧不挡门洞），客人站定后趋前作揖。 */
+  greetBoy: [1.75, 24.05],
+  /* ⚠️ 首端必须是 child1 的家（def.spot）：walkback 的"原路倒走"候选要求路线尾点
+     （= 首端倒序）对得上家（homePath 的 endTol 校验），否则孩子被兜底瞬移 29m
+     （门房迎客位 → 原位，2026-11-04 首跑实测）。 */
+  porterGreet: [[1.77, -5.00], ...HOST_GREET_PTS.slice(1, 24), [0, 19.75], [1.2, 21.6], [1.55, 23.3], [1.75, 24.05]],
+  /* 旧通报流程（停用留档，回滚用）：
+     去岗位：书童位 → 主人出迎线（HOST_GREET_PTS，已逐点验过：台阶/拱桥/廊道）→ 岗位 */
   porterOut: [...HOST_GREET_PTS.slice(1, 24), [2.6, 21.3]],
   /* 通报：岗位 → 出迎线反向（门内空地 → 廊道 → 拱桥 → 堂前），终点在主人前 RITE.bowDist 处现算 */
   porterIn: HOST_GREET_PTS.slice(1, 24).reverse(),
@@ -582,8 +594,11 @@ const RITE_PTS = {
   bucket: { x: 1.10, z: 2.50 },
 };
 /* 礼仪段的子状态（与 VISIT.phase 并行；全关时恒为 'off'，不进任何分支）。
-   g = 马夫接马：off → go → rein → tie → bucket → back → done */
-const RITE = { g: 'off', gt: 0, home: null, tiePt: null, replanAt: 0, bucketPt: null, bucketY: 0, bucket: null };
+   g = 马夫接马：off → go → rein → tie → bucket → back → done
+   b = 门房迎客（2026-11-04）：off → go（小跑去迎客位）→ bow（客人站定后趋前作揖）
+       → back（退回迎客位侧）→ done */
+const RITE = { g: 'off', gt: 0, home: null, tiePt: null, replanAt: 0, bucketPt: null, bucketY: 0, bucket: null,
+               b: 'off', bt: 0 };
 
 const DEFS = [
   {
@@ -607,20 +622,14 @@ const DEFS = [
        0.0625 子区 ×16 后铺满全图，袍面岛遍布——**矩形选染罩不住**（会连脸罩进去），
        uRect 通道在此资产上弃用（机制保留给未来图集分区合理的资产）。 */
     dye: { hue: 0.65, w: 0.30, shift: 0.30, sat: 1.35, val: 0.95, vMax: 0.50, pat: 0.18 },
-    /* layerRange 恢复（2026-11-03 曾误删，当日恢复）：贴图 repeat=16 ⇒ vMapUv 是
-       attribute UV×16，袍面在渲染 UV 空间铺满 [0,1]——腰带领口区间（y 0.55~0.95）
-       罩的正是袍面腰部/领口，一直在正确工作。 */
-    layerRange: {
-      waistStart: 0.55,
-      waistEnd: 0.72,
-      waistDark: 0.15,
-      neckStart: 0.85,
-      neckEnd: 0.95,
-      neckDark: 0.20
-    },
-    /* layerRange 删除（2026-11-03）：腰带领口压暗区间（UV y 0.55~0.95）在真实图集上
-       罩的是袍面之外的部件——袍面 UV 实测只在 y 0~0.0625。压暗从未落在设计部位，拔除。 */
-    spot: { x: 1.2, z: -5.7, yaw: 0.42 },
+    /* layerRange 再删（2026-11-04 定案）：碎岛图集上 UV 区间段（y 0.55~0.95）必然同时
+       罩到袍面领口**和脸的 UV 岛**——恢复当天老黄即复测"脸左右肤色不一样"。
+       机制性误伤，腰带领口层次放弃；"金带"同理不可做（详见 guest 的 dye 注释）。 */
+    /* 2026-11-04 老黄"主人在台阶上站着腿没了"：7532e53 台阶南扩后，新台阶带
+       z∈[−7.3,−5.2]（踏面中心 −5.375~−7.125），旧 spot z=−5.7 正落在第二级踏面
+       （i=1 顶 0.28）上 —— 开局 y 采样错位后袍摆插进踏面立面，腿全埋。
+       挪回真草地（台阶南缘 −5.2 以南 0.15m），"堂前草坪晨课"的构图不变。 */
+    spot: { x: 1.2, z: -5.05, yaw: 0.42 },
     /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
        走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
        否则他一进园就自己往门口走，然后在那儿站两分钟。
@@ -821,18 +830,8 @@ const DEFS = [
     /* 2026-10-25：同一件资产第二次 parse，光靠 tint 分不开（乘色改不了色相）⇒ 用 dye 把
        衣料从蓝相转到**竹青/石绿**（shift −0.18），和主人的藏青、客人的月白都隔开。 */
     /* 2026-11-03 竹青带同样对准袍面实测色相（0.65±0.30 全罩蓝紫相，shift −0.25 ⇒
-       竹青 0.40）；旧带 0.60±0.16 罩不住紫相残留。下界 0.35 不含肤色带 ✓。
-       layerRange 恢复口径同 scholar。 */
+       竹青 0.40）；旧带 0.60±0.16 罩不住紫相残留。下界 0.35 不含肤色带 ✓。 */
     dye: { hue: 0.65, w: 0.30, shift: -0.25, sat: 1.02, val: 1.10 },
-    /* layerRange 恢复（2026-11-03，同 scholar/guest 口径） */
-    layerRange: {
-      waistStart: 0.55,
-      waistEnd: 0.72,
-      waistDark: 0.15,
-      neckStart: 0.85,
-      neckEnd: 0.95,
-      neckDark: 0.20
-    },
     spot: { x: QIN_LOW_SEAT.x, z: QIN_LOW_SEAT.z, y: QIN_LOW_SEAT.y, yaw: QIN_LOW_SEAT.yaw },
     floorRay: true,
     floorMax: 1.70,
@@ -858,21 +857,9 @@ const DEFS = [
        暖褐暗部**，色相/明度/UV 三个维度都分不开——色相带会连头发脸影一起染，
        矩形罩不住（袍面渲染 UV 铺满全图，见 scholar 的注释）。绯袍方案对这件资产
        不可行 ⇒ 袍保持原色（amt 0 关带，旧"月白"参数同样从未生效过）。
-       "达官贵人"的辨识度靠 layerRange 的金腰带（渲染 UV 空间罩袍面腰部，恢复后真正
-       落位）+ 马车/仪仗的规格感。pat 撤（暗纹挂在 dye 带的 mask 上，amt 0 时无 mask）。 */
+       "达官贵人"的辨识度靠马车/仪仗的规格感（layerRange 的金带在碎岛图集上必然误伤
+       脸的 UV 岛，2026-11-04 与腰带领口压暗一并弃用）。pat 撤（amt 0 时无 mask）。 */
     dye: { hue: 0.58, w: 0.13, shift: 0.00, sat: 1.28, val: 1.12, amt: 0 },
-    /* layerRange 恢复（同 scholar：渲染 UV 空间罩袍面腰部/领口）。waistGold 金带
-       （明制官袍革带带銙，shisei C040 参考）——恢复后第一次真正落位。 */
-    layerRange: {
-      waistStart: 0.55,
-      waistEnd: 0.72,
-      waistDark: 0.15,
-      waistGold: true,
-      waistGoldAmt: 0.55,
-      neckStart: 0.85,
-      neckEnd: 0.95,
-      neckDark: 0.20
-    },
     spot: { x: 40.0, z: 4.2, yaw: -0.13 },      // 马厩门口（石板路起点），面朝路
     floorRay: true,
     followFloor: true,
@@ -1828,15 +1815,7 @@ function seatedDefs(){
       dye: si === 0
         ? { hue: 0.58, w: 0.13, shift: -0.24, sat: 1.20, val: 0.92 }
         : { hue: 0.58, w: 0.13, shift: 0.40, sat: 1.34, val: 1.00 },
-      /* 2026-10-27 分段式视觉：衣领/腰带暗色分层 */
-      layerRange: {
-        waistStart: 0.55,
-        waistEnd: 0.72,
-        waistDark: 0.15,
-        neckStart: 0.85,
-        neckEnd: 0.95,
-        neckDark: 0.20
-      },
+      /* layerRange 删（2026-11-04 同 scholar 口径：碎岛图集上 UV 区间段误伤脸的 UV 岛） */
       pose: 'sit',
       fixedY: true,          // 凳面高度是绝对量，不跟地形
       route: null,
@@ -2748,6 +2727,50 @@ function riteGroomStart(P){
   RITE.tiePt = [t.x, t.z];
   routeToHorse(gm, RITE.tiePt, null, 0.62);
 }
+/* 礼仪·门房迎客（2026-11-04）：与主相位并行的状态机（RITE.b，见 riteSendBoys）。
+   go   门房小跑在路上（riteSendBoys 已 giveRoute）；到岗后等客人站定（guest.arrived）
+   bow  客人站定 ⇒ 趋前到客人面前 1.1m，转正作揖（tieTarget 并手 + riteBowW 前俯，
+        与 announce 同一套时序）——礼毕退回迎客位侧，面朝客人（恭送姿态）
+   back 走回 greetBoy ⇒ done（守在门口侧位；riteBusy 解除）
+   ⚠️ 迎客位在客人右前方（东侧），主人的出迎位在门内西侧（MEET_HOST）——门房不占
+      主客相见的视线；趋前 1.1m 在 bowDist（1.2–1.5）下限之下，孩童揖短一点合礼。 */
+function tickRiteBoy(dt){
+  const p = actorRef('child1'), guest = actorRef(VISIT.guestId);
+  if (!p || !guest){ RITE.b = 'done'; return; }
+  if (RITE.b === 'go'){
+    if (p.arrived && guest.arrived){
+      const dx = RITE_PTS.greetBoy[0] - guest.pos.x, dz = RITE_PTS.greetBoy[1] - guest.pos.z;
+      const L = Math.hypot(dx, dz) || 1;
+      giveRoute(p, [[guest.pos.x + dx / L * 1.1, guest.pos.z + dz / L * 1.1]], 0.9, 0, 1.2);
+      RITE.b = 'bow'; RITE.bt = -1;          // −1 = 转正等待段（同 announce 的 v.rt 口径）
+    }
+    return;
+  }
+  if (RITE.b === 'bow'){
+    const dp = turnToward(p, yawToOther(p, guest), dt);
+    if (RITE.bt < 0){
+      if (p.arrived && dp < 0.10) RITE.bt = 0;   // 转正后才开始拜
+    } else {
+      RITE.bt += dt;
+      p.tieTarget = true;
+      p.riteBowW = riteBowCurve(RITE.bt);
+      if (RITE.bt > RITE_BOW_T){
+        p.riteBowW = 0; p.tieTarget = false;
+        /* 礼毕沿来路小跑回家（差事办完回主子身边侍立）。⚠️ 必须是**多点**路线：
+           单点退场会把 def.route 覆盖成 [gb]，walkback 的"原路倒走"候选要求
+           pts.length > 1 ⇒ 无路可倒 ⇒ 每场结束兜底瞬移 29m（2026-11-04 首跑实测）。
+           沿 porterGreet 倒序走回 = 家正好是路线末点，到家后 walkback 自动跳过他。 */
+        giveRoute(p, [[p.pos.x, p.pos.z], ...[...RITE_PTS.porterGreet].reverse()],
+                  1.1 * WALK_K, 0, 2.45);
+        RITE.b = 'back';
+      }
+    }
+    return;
+  }
+  if (RITE.b === 'back'){
+    if (p.arrived){ RITE.b = 'done'; p.riteBusy = false; }
+  }
+}
 function tickRiteGroom(dt){
   const gm = actorRef('groom'), P = VISCAR.last;
   if (!gm || !P){ RITE.g = 'done'; return; }
@@ -2913,8 +2936,8 @@ function avoidCameraReveal(o){
 export const VISIT_PHASES = Object.freeze([
   'idle',                                  // 等条件（白昼、无雨雪、车马就位）
   'carIn',                                 // 马车进场 → 停稳 → 系马 → 客人下车
-  'await', 'usher', 'announce',            // 礼仪·门房通报：客到门外 → 门房入内 → 向主人作揖（可关）
-  'stow',                                  // 客人走向主人（步行版从这里直接开始）
+  'stow',                                  // 主人放下卷轴即出迎（2026-11-04 迎客版：不等门房通报；
+                                           //   门房的迎客揖在并行状态机 RITE.b / tickRiteBoy 里演）
   'gwalk', 'face', 'bow', 'line', 'pair',  // 走到位上 → 对视 → 作揖 → 并肩 → 同行
   'hall',                                  // 进厅
   'enter', 'seat',                         // 进堂 → 入座
@@ -2951,6 +2974,7 @@ function riteReset(){
   }
   if (RITE.bucket) RITE.bucket.visible = false;
   RITE.g = 'off'; RITE.gt = 0; RITE.bucketPt = null;
+  RITE.b = 'off'; RITE.bt = 0;
 }
 
 function resetVisit(hostHome){
@@ -3027,7 +3051,8 @@ function resetVisit(hostHome){
   }
   if (host){
     host.ride = null; host.trip = null;
-    host.pos.x = 1.2; host.pos.z = -5.7;
+    /* 2026-11-04 与 scholar.spot 同值（台阶南扩后旧 −5.7 落在踏面/立面上，snap 0.65 的根） */
+    host.pos.x = 1.2; host.pos.z = -5.05;
     host.y = groundHeight(host.pos.x, host.pos.z);
     host.yaw = 0.42;
     host.sitTarget = 0; host.sitW = 0; host.offerW = 0; host.moveW = 0; host.arrived = false;
@@ -3061,7 +3086,10 @@ function resetVisit(hostHome){
      · 一个可走的人都没有 ⇒ 不进 homing，当帧 resetVisit（= 旧行为逐帧一致）。
    ⚠️ 全部新状态挂在 VISIT.home* 上，`?walkback=0` 时一个字段都不写 ⇒ 三份原基线逐帧不变。 */
 const WALKBACK = {
-  speed: { scholar: 0.62 * WALK_K, child1: 1.05, child2: 1.05 },   // 主人用游园步速（0.93m/s）
+  /* child1 1.3×WALK_K 小跑（2026-11-04）：迎客版他的"家"在先生身边、最后位置在园门口，
+     回家要走 45m+ 的出迎线倒序——旧速 1.05 走完要 ~78s，超 45s 冷却 ⇒ 每场结束都兜底
+     瞬移 29m（基线门禁"不该有兜底瞬移"红）。孩童小跑回家不怪；主人仍用游园步速。 */
+  speed: { scholar: 0.62 * WALK_K, child1: 1.3 * WALK_K, child2: 1.05 },   // 主人用游园步速
   seeMax: 90, pathMax: 70,
   startTol: 1.2, endTol: 2.0,
   slack: 1.6, extra: 10,          // 超时 = 路长 / 速度 × slack + extra
@@ -3079,7 +3107,7 @@ function seenByCamera(a){
 }
 const _d2 = (p, q) => Math.hypot(p[0] - q[0], p[1] - q[1]);
 function homeOf(a){
-  if (a.def.id === VISIT.hostId) return { pt: [1.2, -5.7], yaw: 0.42 };      // 与 resetVisit 同值
+  if (a.def.id === VISIT.hostId) return { pt: [1.2, -5.05], yaw: 0.42 };      // 与 scholar.spot 同值（2026-11-04 台阶南扩后从 −5.7 挪出）
   return { pt: [a.def.spot.x, a.def.spot.z], yaw: a.def.spot.yaw };
 }
 /* 候选原路（全部是本场里真走过、或礼仪段已验过的航点线），挑第一条首尾都对得上的 */
@@ -3171,10 +3199,19 @@ function homingFinish(){
   v.homeWalk = null;
 }
 
-/* 礼仪：客人下车那一刻把两位书童派出去（门房去门内岗位、奉茶的去月台西侧候场） */
+/* 礼仪：客人下车那一刻把两位书童派出去（门房小跑去门口迎客、奉茶的去月台西侧候场） */
 function riteSendBoys(v){
   const p = v.rite.porter ? actorRef('child1') : null;
-  if (p){ p.riteBusy = true; p.def.stepUp = 1.35; giveRoute(p, RITE_PTS.porterOut, 1.05, 0.3, 2.45); }
+  if (p){
+    p.riteBusy = true; p.def.stepUp = 1.35;
+    /* 迎客版（2026-11-04）：1.1×WALK_K 小跑 ≈2.2m/s，快过新提速后的主人（1.68m/s）——
+       两人同走出迎线，门房恒在前且间距越拉越大，不会追尾穿人。到岗后 faceAfter
+       面朝客人来向（东南石板路）。RITE.b='go'：等客人站定再趋前作揖（见 tickRiteBoy）。 */
+    const side = RITE_PTS.greetBoy;
+    giveRoute(p, RITE_PTS.porterGreet, 1.1 * WALK_K, 0.3, 2.45,
+              Math.atan2(1.30 - side[0], 24.40 - side[1]));
+    RITE.b = 'go'; RITE.bt = 0;
+  }
   const b = v.rite.tea ? actorRef('child2') : null;
   if (b){
     b.riteBusy = true; b.def.stepUp = 1.35;
@@ -3212,6 +3249,7 @@ function tickVisit(dt){
   }
   tickCarriage(dt);
   if (RITE.g !== 'off' && RITE.g !== 'done') tickRiteGroom(dt);     // 礼仪·马夫接马（全关时恒 off）
+  if (RITE.b !== 'off' && RITE.b !== 'done') tickRiteBoy(dt);       // 礼仪·门房迎客（2026-11-04，并行）
   /* ── 两个差事分开的"马厩人"（2026-11-02 老黄定的人设）────────────────────────
      老黄："马车到达后从车上下来一个新的马夫，但是瞬间就不见了" —— 真因就是下面这张
      白名单：'alight' 结束时车夫刚落地，状态一进 'alighted'/'wait' 他就不在名单里，
@@ -3277,60 +3315,18 @@ function tickVisit(dt){
       v.phase = 'stow'; v.t = 0;
       guest.def.stepUp = 0.70;
       giveRoute(guest, GUEST_ALIGHT, 0.58 * WALK_K, 0.55, 1.20);
-      /* 礼仪：门房先去月洞门内的岗位、奉茶书童去月台西侧候场（与客人走石板路同时）。
-         门房开着时主人**不在这里出发**：先进 'await' 等客人到门外、门房通报。 */
+      /* 礼仪：门房小跑去门口迎客、奉茶书童去月台西侧候场（与客人走石板路同时）。
+         2026-11-04 老黄"主人和红衣孩童一起到门口迎接"：主人**不再等门房通报**，
+         这里就直接出迎（stow）——两人一前一后出门，门房的迎客揖在 tickRiteBoy
+         里与主人的出迎并行演。 */
       riteSendBoys(v);
-      if (v.rite.porter && actorRef('child1')){ v.phase = 'await'; v.t = 0; }
     }
     return;
   }
-  /* ── 礼仪·门房通报（2026-10-31）────────────────────────────────────────────
-     await    客人沿石板路走到门外（MEET_GUEST）、门房已在门内岗位上；主人在堂前不动
-     usher    门房入内（趋步 1.8m/s）：沿主人出迎线反向走到主人前 RITE_PTS.bowDist（1.35m）处
-     announce 门房与主人互相转正 → 门房作揖（握缰手位并手 + BOW 的前俯/时序）
-              → 礼毕门房按主人同速返回岗位，主人晚 ~2s 起步（'stow' 原样接手出迎）
-     客人在门外这段时间面朝月洞门站着等。 */
-  if (v.phase === 'await'){
-    v.t += dt;
-    const p = actorRef('child1');
-    if (guest.arrived) turnToward(guest, Math.atan2(-guest.pos.x, 22.5 - guest.pos.z), dt);
-    if (p.arrived) turnToward(p, Math.atan2(-p.pos.x, 22.5 - p.pos.z), dt);
-    if (guest.arrived && p.arrived && v.t > 1.0){
-      v.phase = 'usher'; v.t = 0;
-      const pts = RITE_PTS.porterIn, last = pts[pts.length - 1];
-      const dx = last[0] - host.pos.x, dz = last[1] - host.pos.z, L = Math.hypot(dx, dz) || 1;
-      const T = [host.pos.x + dx / L * RITE_PTS.bowDist, host.pos.z + dz / L * RITE_PTS.bowDist];
-      p.def.stepUp = 1.35;
-      /* 通报要快：趋步 1.2×WALK_K（1.8m/s，比主人出迎 1.29m/s 快三成），客人在门外少等 ~10s */
-      giveRoute(p, [...pts, T], 1.2 * WALK_K, 0.35, 2.45);
-    }
-    return;
-  }
-  if (v.phase === 'usher'){
-    const p = actorRef('child1');
-    turnToward(guest, Math.atan2(-guest.pos.x, 22.5 - guest.pos.z), dt);
-    if (p.arrived){ v.phase = 'announce'; v.t = 0; v.rt = -1; p.tieTarget = true; }
-    return;
-  }
-  if (v.phase === 'announce'){
-    v.t += dt;
-    const p = actorRef('child1');
-    const dp = turnToward(p, yawToOther(p, host), dt);
-    const dh = turnToward(host, yawToOther(host, p), dt);
-    if (v.rt < 0){
-      /* 手先并拢（tieW 0.6s 到位）、两人转正，再拜 */
-      if (v.t > 0.6 && dp < 0.10 && dh < 0.15) v.rt = 0;
-    } else {
-      v.rt += dt;
-      p.riteBowW = riteBowCurve(v.rt);
-      if (v.rt > RITE_BOW_T){
-        p.riteBowW = 0; p.tieTarget = false;
-        giveRoute(p, RITE_PTS.porterOut, 0.86 * WALK_K, 0.2, 2.45);   // 回岗位，主人随后出迎
-        v.phase = 'stow'; v.t = 0;
-      }
-    }
-    return;
-  }
+  /* ── 迎客段（2026-11-04 重排）──────────────────────────────────────────────
+     旧 await/usher/announce（客人到门外 → 门房入内通报主人 → 回岗 → 主人才出迎）
+     整段停用：主人与门房**同帧出发**（carIn→stow），门房的迎客揖走并行状态机
+     tickRiteBoy（RITE.b）。省一趟"入内通报+回岗"约 30s，且门房终于见得到客人。 */
   if (v.phase === 'stow'){
     /* 先把卷轴放下再迈步：手里还捧着卷轴就走，会看到卷轴"粘在手上跟着飘"。
        0.55s 是 SCROLL "放下"那一段的时长量级（卷轴在这里线性收到 0）。 */
@@ -3346,8 +3342,8 @@ function tickVisit(dt){
       host.def.stepUp = 1.35;
       host.def.floorMax = 2.45;
       giveRoute(host, HOST_GREET_OUT_PTS, 0.86 * WALK_K, 0.15, 2.45);
-      /* 礼仪·门房：门房刚转身回岗，主人多站 1.6s 再走（同速同路，间距 ≈2m，不追尾） */
-      if (v.rite.porter) host.waitT = 1.6;
+      /* 2026-11-04：迎客版不再"门房回岗后主人晚 1.6s"——主人与门房同帧出发，
+         门房小跑在前（1.1×WALK_K vs 0.86×WALK_K），同走出迎线不追尾。 */
       /* 两书童随主人离席，跑向井边与仕女玩（2026-10-26 缺陷3；
          2026-10-27 重定路径 — 用户："两个小孩子是直接趟着池子边缘过去的"）。
          旧路 z≈−5.2/−5.8 在池的**左瓣下缘**（池局部 y≈−8.2，世界 z≈−5.2）穿过水面。
@@ -3384,8 +3380,11 @@ function tickVisit(dt){
   }
   if (v.phase === 'gwalk'){
     /* 两个人各自走同一段时间；先到的原地等。
-       主人先到 ⇒ 转身看着客人沿石板路走来（恭候的姿态）。 */
+       主人先到 ⇒ 转身看着客人沿石板路走来（恭候的姿态）。
+       客人先到门外 ⇒ 面朝月洞门站定等主人（旧 await 的转身逻辑挪到这里：
+       迎客版主人不再等通报，客人的"等待朝向"跟着主相位走）。 */
     if (host.arrived && !guest.arrived) turnToward(host, yawToOther(host, guest), dt);
+    if (guest.arrived && !host.arrived) turnToward(guest, Math.atan2(-guest.pos.x, 22.5 - guest.pos.z), dt);
     if (host.arrived && guest.arrived){
       v.phase = 'face'; v.t = 0;
       /* 并排进园要跨 0.22 的门槛（门外平台 −0.36 ⇒ 门槛 +0.22 = 0.58）
