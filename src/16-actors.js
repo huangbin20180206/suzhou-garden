@@ -514,9 +514,14 @@ const SEAT = {
   floor: 1.24,
 };
 const ENTER_PTS = {
-  host: [[1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -6.95], [-0.45, -7.6],
+  /* 2026-11-03 老黄"上次改了台阶高度没改主人站位"：7532e53 把月台踏跺从 2 级×0.31
+     改成 6 级×0.24（踏面宽 0.35、世界 z −5.375~−7.125，见 04-buildings 的 STEP_N），
+     这两个 z=−6.95 的旧航点正好骑在新台阶 i=4/i=5 两级的**立面接缝**上 —— 主人站定
+     时袍摆插进石头。挪到最近一级踏面中心 −7.125（顶面 1.24）；其余旧点逐个对照新
+     踏面区间核过（−6.3/−6.4 在 i=3 踏面内、−6.15 在 i=2 内、−7.6 起是台面），不动。 */
+  host: [[1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -7.125], [-0.45, -7.6],
          [-0.45, -8.9], [-0.9, -10.3], [-1.35, -11.7], [-1.35, -12.55]],
-  guest: [[1.26, -6.15], [0.45, -6.4], [0.45, -6.95], [0.45, -7.6],
+  guest: [[1.26, -6.15], [0.45, -6.4], [0.45, -7.125], [0.45, -7.6],
           [0.45, -8.9], [0.9, -10.3], [1.35, -11.7], [1.35, -12.55]],
 };
 
@@ -595,7 +600,16 @@ const DEFS = [
     tint: 0xFFFFFF,
     /* 2026-10-25 着装：主人换成**藏青**（压暗 + 提饱和）。蓝衣在生成件上已经"很雅"，
        但一眼看不出"这家有钱"——深青直裰是明清文士的正装色，比浅蓝更像当家人。 */
-    dye: { hue: 0.96, w: 0.14, shift: 0.02, sat: 1.55, val: 1.06, vMax: 0.50 }, // 绛紫绸（2026-10-27 压深一档）
+    /* 2026-11-03 绛紫正本清源：旧带 0.96±0.14 只罩住袍面紫相（渲染 UV 实测袍面蓝紫相
+       遍布图集，蓝相主体 0.58~0.67 在带外残留 ⇒ 蓝袍），绕回部分又罩住脸暗部 ⇒ 阴阳脸。
+       新带 0.65±0.30 全罩袍面蓝紫相（shift +0.30 ⇒ 绛紫 0.95），下界 0.35 距肤色带
+       （0.03~0.10）有 0.25 安全边，脸彻底出带。⚠️ 图集 repeat=16：attribute UV 的
+       0.0625 子区 ×16 后铺满全图，袍面岛遍布——**矩形选染罩不住**（会连脸罩进去），
+       uRect 通道在此资产上弃用（机制保留给未来图集分区合理的资产）。 */
+    dye: { hue: 0.65, w: 0.30, shift: 0.30, sat: 1.35, val: 0.95, vMax: 0.50, pat: 0.18 },
+    /* layerRange 恢复（2026-11-03 曾误删，当日恢复）：贴图 repeat=16 ⇒ vMapUv 是
+       attribute UV×16，袍面在渲染 UV 空间铺满 [0,1]——腰带领口区间（y 0.55~0.95）
+       罩的正是袍面腰部/领口，一直在正确工作。 */
     layerRange: {
       waistStart: 0.55,
       waistEnd: 0.72,
@@ -604,6 +618,8 @@ const DEFS = [
       neckEnd: 0.95,
       neckDark: 0.20
     },
+    /* layerRange 删除（2026-11-03）：腰带领口压暗区间（UV y 0.55~0.95）在真实图集上
+       罩的是袍面之外的部件——袍面 UV 实测只在 y 0~0.0625。压暗从未落在设计部位，拔除。 */
     spot: { x: 1.2, z: -5.7, yaw: 0.42 },
     /* S2「主人出迎」（2026-10-23）：客人走到门内后，文士才出发、沿 HOST_GREET_PTS
        走到门口与客人面对面（见 VISIT）。awaitGuest = 开局先按住不动，
@@ -754,11 +770,19 @@ const DEFS = [
     url: 'assets/fig-child.glb',
     height: 1.20,
     hidePose: 'child',
-    tint: 0xEFE4DC,
-    /* 2026-10-25 着装：书童原来是一身暗红 + 白围裙，远看像仆役。改成**朱红**（提亮提饱和），
-       与另一个孩子的秋香黄分开 —— 大户人家的孩童本来穿得鲜亮。 */
-    dye: { hue: 0.99, w: 0.11, shift: 0.00, sat: 1.32, val: 1.38 },
-    spot: { x: 1.80, z: -5.25, yaw: -2.21 },   // 面向先生（1.2,−5.7）
+    /* 2026-11-03 老黄："小仆人的脸太难看了，换成正常人的皮肤颜色"——绿脸两个成因一起拔：
+       ① tint 0xEFE4DC/0xDCE0E8 是乘在**整张图集**上的（含脸），蓝白乘暖黄皮肤出灰绿
+          ⇒ 两人都撤成纯白（区别袍色是 dye 的活，不劳 tint）；
+       ② dye 红相带 0.99±0.11 会绕回肤色 0.05~0.10，脸贴图暗部落在 vMax 闸内 ⇒ 脸颊被
+          染成黄绿。w 收窄到 0.09 + vMax 收到 0.55，让脸完全出带（衣料 value 0.3~0.5
+          仍在带内，袍色不受影响）。 */
+    tint: 0xFFFFFF,
+    dye: { hue: 0.99, w: 0.09, shift: 0.00, sat: 1.32, val: 1.38, vMax: 0.55 },
+    /* 2026-11-03 老黄"红衣童子脑袋后面穿模"：主人出迎起步线（(1.2,−5.7)→(3.5,−5.4)）
+       离旧位只有 0.37m —— 主人转身（半径 ~0.35 含摆臂）+ 起步掠过时，身体扫过童子
+       头壳（半径 ~0.16）＝穿插。挪到离线 0.62m 的位置（净距 0.62−0.35−0.16=0.11m），
+       面朝先生的方向随之修正（atan2(−0.57,−0.7)≈−2.46rad），"半围先生"的构图保持。 */
+    spot: { x: 1.77, z: -5.00, yaw: -2.46 },   // 面向先生（1.2,−5.7）
     route: null,
     floorRay: true, followFloor: true, floorMax: 1.20,
     idle: { breath: 0.018, head: 0.055, sway: 0.009, phase: 0.9, hopEvery: [9, 22], hopH: 0.20 },
@@ -768,10 +792,13 @@ const DEFS = [
     url: 'assets/fig-child.glb',
     height: 1.16,
     hidePose: 'child',
-    tint: 0xDCE0E8,
-    /* 另一个孩子改成**秋香/杏黄**（红相 shift +0.16 ⇒ 黄绿相）：两人同框一眼分得开，
-       也符合"这家有钱"的读法（明代孩童常穿鲜艳的绢衣）。 */
-    dye: { hue: 0.99, w: 0.11, shift: 0.16, sat: 1.08, val: 1.24 },
+    /* 2026-11-03 老黄："小仆人的脸太难看" —— child2 是**绿脸重灾区**，两个成因同 child1：
+       ① tint 0xDCE0E8（蓝白）乘在整张图集含脸上，暖黄皮肤 × 蓝白 = 灰绿 ⇒ 撤成纯白；
+       ② dye 色相带 0.99+0.16 平移后落在**黄绿相**，0.11 带宽绕回正好罩住肤色 0.05~0.10，
+          脸的暗部又在 vMax 闸内 ⇒ 整张脸被染成青绿。收窄 w 0.09 + vMax 0.55 让脸出带
+          （衣料 value 0.3~0.5 照染，秋香黄袍色不受影响）。 */
+    tint: 0xFFFFFF,
+    dye: { hue: 0.99, w: 0.09, shift: 0.16, sat: 1.08, val: 1.24, vMax: 0.55 },
     spot: { x: 0.62, z: -5.10, yaw: 2.37 },    // 面向先生（1.2,−5.7）
     route: null,
     floorRay: true, followFloor: true, floorMax: 1.20,
@@ -793,7 +820,11 @@ const DEFS = [
     tint: 0xC6BFAE,          // 暖褐（与讲学那位蓝灰长衫分开，同一件资产不成"照镜子"）
     /* 2026-10-25：同一件资产第二次 parse，光靠 tint 分不开（乘色改不了色相）⇒ 用 dye 把
        衣料从蓝相转到**竹青/石绿**（shift −0.18），和主人的藏青、客人的月白都隔开。 */
-    dye: { hue: 0.60, w: 0.16, shift: -0.18, sat: 1.02, val: 1.10 },
+    /* 2026-11-03 竹青带同样对准袍面实测色相（0.65±0.30 全罩蓝紫相，shift −0.25 ⇒
+       竹青 0.40）；旧带 0.60±0.16 罩不住紫相残留。下界 0.35 不含肤色带 ✓。
+       layerRange 恢复口径同 scholar。 */
+    dye: { hue: 0.65, w: 0.30, shift: -0.25, sat: 1.02, val: 1.10 },
+    /* layerRange 恢复（2026-11-03，同 scholar/guest 口径） */
     layerRange: {
       waistStart: 0.55,
       waistEnd: 0.72,
@@ -823,11 +854,21 @@ const DEFS = [
     height: 1.70,
     hidePose: null,
     tint: 0xF0EDE6,          // 生成件本身就偏灰褐，只做很轻的提亮（压重会糊成一团）
-    dye: { hue: 0.58, w: 0.13, shift: 0.00, sat: 1.28, val: 1.12 }, // 月白偏天青鲜亮（与主人绛紫分开）
+    /* 2026-11-03 客人袍色的实话：袍面（黑/深灰）、头发、脸部阴影在图集上**同为低饱和
+       暖褐暗部**，色相/明度/UV 三个维度都分不开——色相带会连头发脸影一起染，
+       矩形罩不住（袍面渲染 UV 铺满全图，见 scholar 的注释）。绯袍方案对这件资产
+       不可行 ⇒ 袍保持原色（amt 0 关带，旧"月白"参数同样从未生效过）。
+       "达官贵人"的辨识度靠 layerRange 的金腰带（渲染 UV 空间罩袍面腰部，恢复后真正
+       落位）+ 马车/仪仗的规格感。pat 撤（暗纹挂在 dye 带的 mask 上，amt 0 时无 mask）。 */
+    dye: { hue: 0.58, w: 0.13, shift: 0.00, sat: 1.28, val: 1.12, amt: 0 },
+    /* layerRange 恢复（同 scholar：渲染 UV 空间罩袍面腰部/领口）。waistGold 金带
+       （明制官袍革带带銙，shisei C040 参考）——恢复后第一次真正落位。 */
     layerRange: {
       waistStart: 0.55,
       waistEnd: 0.72,
       waistDark: 0.15,
+      waistGold: true,
+      waistGoldAmt: 0.55,
       neckStart: 0.85,
       neckEnd: 0.95,
       neckDark: 0.20
@@ -907,8 +948,15 @@ const RELAXED_ARM = {
      hz 1.5 是**没有腕骨基准滚转**时"把掌心拧到大腿侧"的补角；现在基准里已经有
      −90°/+90° 的前臂滚转（见 loadActor 的 HAND_ROLL），再叠这组角就把掌心又翻到
      朝外/朝上。归零后与书童（身份手）同一口径：手指顺前臂、掌心朝大腿。 */
-  guest:   { x: -0.55, z: 0.25, hx: 0, hy: 0, hz: 0, ex: 0.06 },
-  scholar: { x: -0.30, z: 0.30, hx: 0, hy: 0, hz: 0, ex: 0.06 },
+  /* ⚠️⚠️ 2026-11-03 老黄："手掌的朝向反了，正常走路或站立时掌心朝自己身体"（同步检查主人
+     ——两人都反）。实测四只手骨的世界轴（guest/scholar 与 laborer 模式完全不同）：
+     HAND_ROLL 那圈 −90°/+90° 是按 laborer 的绑定点解的，fig-guest / fig-scholar 的
+     绑定掌心本来就朝另一侧 ⇒ 垂手后掌心朝前外（老黄截图所见）。但**不能翻 HAND_ROLL
+     基准**——捧卷/端茶/作揖/抚琴的全部反解手位都建立在它上面，翻基准全歪。
+     修法：只在这条"垂手"通道里绕手指轴（Hand 局部 y）补半圈 π，掌心前外→后内贴大腿；
+     Right 在 set() 里自动取 −hy（±π 同义，天然对称）。拇指侧随滚转翻到身后，垂手时不可见。 */
+  guest:   { x: -0.55, z: 0.25, hx: 0, hy: Math.PI, hz: 0, ex: 0.06 },
+  scholar: { x: -0.30, z: 0.30, hx: 0, hy: Math.PI, hz: 0, ex: 0.06 },
 };
 
 /* 贴地软影的材质（全部人物共用一份，只建一次）。
@@ -944,6 +992,9 @@ function getLegWrapMat(){
 const DYED_DECL =
   'uniform float uDyeHue; uniform float uDyeW; uniform float uDyeShift;\n' +
   'uniform float uDyeSat; uniform float uDyeVal; uniform float uDyeAmt; uniform float uDyeVMax;\n' +
+  'uniform float uDyePat;\n' +
+  'uniform float uRectOn; uniform float uRectX1; uniform float uRectY1;\n' +
+  'uniform float uRectX2; uniform float uRectY2; uniform float uRectHue; uniform float uRectSat;\n' +
   'vec3 dyeRgb2Hsv(vec3 c){\n' +
   '  vec4 K = vec4(0.0, -1.0 / 3.0, 2.0 / 3.0, -1.0);\n' +
   '  vec4 p = mix(vec4(c.bg, K.wz), vec4(c.gb, K.xy), step(c.b, c.g));\n' +
@@ -971,7 +1022,29 @@ const DYED_BODY =
   '  t_.y = clamp(t_.y * uDyeSat, 0.0, 1.0);\n' +
   '  t_.z = clamp(t_.z * uDyeVal, 0.0, 1.0);\n' +
   '  diffuseColor.rgb = mix(diffuseColor.rgb, dyeHsv2Rgb(t_), band_ * sat_ * vmask_ * uDyeAmt);\n' +
-  '}\n';
+  '}\n' +
+  '  #ifdef USE_MAP\n' +
+  '  /* UV 矩形选染（2026-11-03）：guest/scholar 的袍面 UV 实测**全部**挤在图集左下\n' +
+  '     (0~0.0625)²（60%/100% 的袍面三角形，逐格统计），且袍面色相与脸重叠（同是暖褐/蓝紫）\n' +
+  '     —— 色相带要么罩不住袍面（月白/绯从来没染上过），要么绕回罩住脸的暗部\n' +
+  '     （scholar 绛紫带 0.96±0.14 绕回 0~0.10 = 肤色带 ⇒ 半张脸被染 = "阴阳脸"）。\n' +
+  '     矩形通道整片重染：色相写死 uRectHue、饱和乘 uRectSat、**明度保留**（布纹/褶皱\n' +
+  '     不丢），只碰矩形内的像素，脸/手/头发在矩形外天然免疫。织金暗纹（uDyePat）也搬\n' +
+  '     进矩形——原来挂在 dye 带的 mask 上，带罩不住袍面时暗纹同样没上过。 */\n' +
+  '  if (uRectOn > 0.5 && vMapUv.x >= uRectX1 && vMapUv.x <= uRectX2\n' +
+  '      && vMapUv.y >= uRectY1 && vMapUv.y <= uRectY2){\n' +
+  '    vec3 h_ = dyeRgb2Hsv(diffuseColor.rgb);\n' +
+  '    h_.x = uRectHue;\n' +
+  '    h_.y = clamp(h_.y * uRectSat, 0.0, 1.0);\n' +
+  '    vec3 rc_ = dyeHsv2Rgb(h_);\n' +
+  '    if (uDyePat > 0.001){\n' +
+  '      float wp_ = 0.6 * sin(vMapUv.x * 110.0) * sin(vMapUv.y * 80.0)\n' +
+  '                + 0.4 * sin((vMapUv.x + vMapUv.y * 0.7) * 160.0);\n' +
+  '      rc_ *= 1.0 + uDyePat * 0.35 * wp_;\n' +
+  '    }\n' +
+  '    diffuseColor.rgb = rc_;\n' +
+  '  }\n' +
+  '  #endif\n';
 
 function dyeMaterial(m, dye, layerRange){
   if (!m || !dye) return;
@@ -985,6 +1058,18 @@ function dyeMaterial(m, dye, layerRange){
     /* 只染比这个更暗的像素（HSV 的 value）。默认 0.66：衣料 0.3~0.5、皮肤 0.7~0.85，
        所以皮肤与白袜一律不染 —— 红相带绕回 0.05 时靠它挡脸（实测没这道闸孩子会绿脸）。 */
     uDyeVMax:  { value: dye.vMax === undefined ? 0.66 : dye.vMax },
+    /* 织金暗纹幅度（0=关）。原来挂在 dye 带的 mask 上；矩形通道打开时暗纹改在矩形内
+       生成（见 DYED_BODY 注释——带罩不住袍面的资产靠矩形通道）。 */
+    uDyePat:   { value: dye.pat === undefined ? 0 : dye.pat },
+    /* UV 矩形选染（dye.uvRect = [x1,y1,x2,y2] + rectHue/rectSat）。袍面 UV 与脸同色相
+       的资产（guest/scholar）用它整片重染袍面；不配 uvRect 时 uRectOn=0 整段跳过。 */
+    uRectOn:  { value: dye.uvRect ? 1 : 0 },
+    uRectX1:  { value: dye.uvRect ? dye.uvRect[0] : 0 },
+    uRectY1:  { value: dye.uvRect ? dye.uvRect[1] : 0 },
+    uRectX2:  { value: dye.uvRect ? dye.uvRect[2] : 1 },
+    uRectY2:  { value: dye.uvRect ? dye.uvRect[3] : 1 },
+    uRectHue: { value: dye.rectHue === undefined ? 0.6 : dye.rectHue },
+    uRectSat: { value: dye.rectSat === undefined ? 1 : dye.rectSat },
   };
   /* 供探针在页内做 A/B（改 vMax/hue 看脸与袍子分不分得开）—— 只读引用，不参与产品逻辑。 */
   m.userData.dyeU = U;
@@ -1001,10 +1086,13 @@ function dyeMaterial(m, dye, layerRange){
       {
         // 服装分层简化版：用 uv.y 切出两段深色带
         float dy = vMapUv.y;
-        // 腰带：大致在袍子中部
+        // 腰带：大致在袍子中部。waistGold=金带銙（样稿），否则压暗近黑${layerRange.waistGold ? `
+        if (dy > ${layerRange.waistStart} && dy < ${layerRange.waistEnd}) {
+          diffuseColor.rgb = mix(diffuseColor.rgb, vec3(${(layerRange.waistGoldColor || [0.80, 0.62, 0.22]).join(',')}), ${layerRange.waistGoldAmt === undefined ? 0.55 : layerRange.waistGoldAmt});
+        }` : `
         if (dy > ${layerRange.waistStart} && dy < ${layerRange.waistEnd}) {
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.05,0.05,0.05), ${layerRange.waistDark});
-        }
+        }`}
         // 衣领：大致在袍子上部
         if (dy > ${layerRange.neckStart} && dy < ${layerRange.neckEnd}) {
           diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.08,0.08,0.08), ${layerRange.neckDark});
@@ -1805,7 +1893,13 @@ function tickRoute(a, dt){
   }
   const r = a.def.route;
   a.moved = 0;
-  if (!r || a.walkOff || a.arrived){ a.moveW = approach(a.moveW, 0, dt / 0.45); return; }
+  if (!r || a.walkOff || a.arrived){
+    a.moveW = approach(a.moveW, 0, dt / 0.45);
+    /* 到岗转身（2026-11-03 老黄"绿衣孩童在门口面朝东"）：giveRoute 的 faceAfter
+       给"到岗后该面朝哪"——差役站在岗上背对主客/面朝墙，读作失礼。转到位即停。 */
+    if (a.arrived && a.faceTo !== undefined) turnToward(a, a.faceTo, dt);
+    return;
+  }
   if (a.waitT > 0){
     a.waitT -= dt;
     a.moveW = approach(a.moveW, 0, dt / 0.45);
@@ -1948,8 +2042,10 @@ function pairPointAt(P, s){
    ⚠️ 必须一起复位 arrived / target / walkOff / waitT —— 少一个就会出现
       "到了新路线的起点却永远站着"（tickRoute 见 arrived 直接早退）。
    ⚠️ floorMax 也要跟着路走：客人原本只走地面（1.20），并排要过 2.10m 的拱桥。 */
-function giveRoute(a, pts, speed, waitT, floorMax){
-  a.def.route = { pts, speed, pause: [0, 0], mode: 'once' };
+function giveRoute(a, pts, speed, waitT, floorMax, faceAfter){
+  a.def.route = { pts, speed, pause: [0, 0], mode: 'once',
+                  ...(faceAfter !== undefined ? { faceAfter } : {}) };
+  a.faceTo = undefined;          // 新路线清掉上一条的到岗朝向，别让它再转身
   a.target = pts.length > 1 ? 1 : 0;
   a.arrived = false;
   a.walkOff = false;
@@ -3080,7 +3176,13 @@ function riteSendBoys(v){
   const p = v.rite.porter ? actorRef('child1') : null;
   if (p){ p.riteBusy = true; p.def.stepUp = 1.35; giveRoute(p, RITE_PTS.porterOut, 1.05, 0.3, 2.45); }
   const b = v.rite.tea ? actorRef('child2') : null;
-  if (b){ b.riteBusy = true; b.def.stepUp = 1.35; giveRoute(b, RITE_PTS.teaSide, 1.05, 0.6, 1.70); }
+  if (b){
+    b.riteBusy = true; b.def.stepUp = 1.35;
+    /* 候场位面朝堂门（老黄"绿衣孩童面朝东"）：岗在月台西侧，主客从堂门（东侧）进出，
+       到岗后转身面朝门口伺候，不再按路线末段方向面朝外墙。 */
+    const side = RITE_PTS.teaSide[RITE_PTS.teaSide.length - 1];
+    giveRoute(b, RITE_PTS.teaSide, 1.05, 0.6, 1.70, Math.atan2(0 - side[0], -8.8 - side[1]));
+  }
 }
 
 function tickVisit(dt){
@@ -3395,7 +3497,9 @@ function tickVisit(dt){
       if (v.rt > BOW.in + BOW.hold * 0.5) b.riteCupOn = false;
       if (v.rt > RITE_BOW_T){
         b.riteBowW = 0; b.tieTarget = false;
-        giveRoute(b, RITE_PTS.teaBack, 0.80, 0.3, 2.0);
+        /* 退回候场位后仍面朝堂门（同 riteSendBoys：站门口是"恭送"姿态，不背身） */
+        const side = RITE_PTS.teaSide[RITE_PTS.teaSide.length - 1];
+        giveRoute(b, RITE_PTS.teaBack, 0.80, 0.3, 2.0, Math.atan2(0 - side[0], -8.8 - side[1]));
         v.phase = 'tea'; v.t = 0;
       }
     }
@@ -3428,6 +3532,22 @@ function tickVisit(dt){
     return;
   }
   if (v.phase === 'rise'){
+    /* 边起边移（2026-11-03 老黄"站起来的时候从椅子面板中穿过"）：旧逻辑只降 sitW，
+       人钉在椅心站直 —— 座面 1.75、地面 1.24，站姿髋高 ≈2.06 ⇒ 双腿正好横插在座面
+       里，然后从椅子正上方直线走出去（第二段穿扶手/前缘）。起身的同一时间把人往
+       椅前站定位（SEAT.frontZ）平移，臀部离座那一刻人已站到座面前缘之外；moved=0
+       不播步态（与 seatOne 退半步同一套"滑移"做法）。2.4m/s 是为了在 sitW 缓完
+       （≈0.43s）内走完椅心→frontZ 的 1.05m，两件事同步结束。 */
+    const pushFront = (a) => {
+      const d = SEAT.frontZ - a.pos.z;
+      if (d > 0.005){
+        const k = Math.min(1, (2.4 * dt) / d);
+        a.pos.z += d * k;
+        a.moved = 0;
+        a.moveW = approach(a.moveW, 0, dt / 0.3);
+      }
+    };
+    pushFront(host); pushFront(guest);
     if (host.sitW <= 0.06 && guest.sitW <= 0.06){
       v.phase = 'exit'; v.t = 0;
       giveRoute(host, EXIT_PTS.host, 0.52 * WALK_K, 0.25, 2.0);
