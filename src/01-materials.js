@@ -352,9 +352,10 @@ export function makeDistantMat(hex, opacity, haze, relief, freqPerM, opts = {}){
 
       void main(){
         ${opts.map ? 'if (texture2D(uMap, vHillUv).a < 0.5) discard;' : ''}
-        /* ① 谷底沉雾、脊线留实（方向纠正，见文件头）。0.62 是实测定的：
-           低于它山脚溶雾、往上收回；再高脊线又开始发白，>0.80 时山几乎溶进背景。 */
-        float hz = uHaze * (1.0 - smoothstep(0.0, 0.62, vHillUv.y));
+        /* ① 谷底沉雾、脊线留实（方向纠正，见文件头）。0.55 是 2026-11-05 定的：
+           参考水墨远山效果图加厚"山脚云带"——低于它山脚溶雾的区间从 0.62 收到 0.55，
+           云带升高变厚，山读作"从云里长出来"；峰顶照旧拿到 100% 山色。 */
+        float hz = uHaze * (1.0 - smoothstep(0.0, 0.55, vHillUv.y));
         vec3 col = mix(uColor, fogColor, hz);
 
         /* ② 层内明暗：三倍频噪声读作沟壑；山脚权重低（那里本来就白），山腰权重高
@@ -601,14 +602,20 @@ export const MAT = {
          ⇒ 远层卡片在角度上只跨了近层的 1/2~1/3。0.075 ≈ 每张卡（~40m）3 个周期。
      ⚠️ 上一版的注释（"uTopFade 二轮，各档收约 1/3"）描述的是**已被本次推翻的**
         方向：那版把溶雾乘在高度上，越到峰顶越白，正好化掉脊线。 */
-  distantNear: makeDistantMat(0x4A5754, 0.95, 0.30, 0.40, 0.075),
-  distantDeep: makeDistantMat(0x60737A, 0.90, 0.36, 0.62, 0.075),
-  distant:     makeDistantMat(0x7A8F9C, 0.84, 0.42, 0.95, 0.075),
+  /* 2026-11-06 定稿（近浓）：haze 0.44/0.56 → 0.26/0.40。
+     haze 是"山脚中低段溶进雾色的比例"（hz = uHaze*(1-smoothstep(0,0.55,y))），峰顶不受影响。
+     ⚠️ A/B 实测定案：haze 在 mist-guard 的采样点上**像素级中性**——pow 0.30 时
+     0.26 与 0.44 两版整门禁跑出的 山/天 均 61.02/58.91 vs 61.03/58.91 逐位一致
+     （浓雾下山体像素本来就是雾色，混不混雾白看不出差别）。所以压它只影响
+     白天中低段的"浓墨"观感，不碰夜空"山≤天"门禁（那门的真凶是 pow，见 07-ground）。 */
+  distantNear: makeDistantMat(0x36423F, 0.95, 0.26, 0.62, 0.075),
+  distantDeep: makeDistantMat(0x60737A, 0.90, 0.40, 0.62, 0.075),
+  distant:     makeDistantMat(0x7A8F9C, 0.84, 0.60, 0.95, 0.075),
   /* ⚠️ 2026-10-03 V-1：最远层的固有色**不动**。实测压 10% 脊线只暗 0.04 lum、
      压 25% 也只暗 1.9 lum —— 远层脊线的颜色 **九成来自距离雾**（176m Exp2），
      固有色只占一成，这条路走不通还把"层间色阶"的余量从 5.86 吃到 2.88。
      真正的杠杆是正午 `fogColor`（12-env 的时段预设），见那边注释。 */
-  distantFar:  makeDistantMat(0x93A3AB, 0.76, 0.46, 1.25, 0.075),
+  distantFar:  makeDistantMat(0x93A3AB, 0.76, 0.62, 1.25, 0.075),
   /* ⚠️ 2026-09-23：原 distantTree（"柱状树林"的树形剪影广告牌材质）**已整层删除** ——
      它被修过三轮（矩形→树形、改深灰绿、降不透明度、并进 DISTANT_MATS 跟天光）都断不了根：
      只要这层还在，堂前池北岸就会立着一棵淡色树形剪影（并被 Reflector 镜像进水里）。
