@@ -420,6 +420,10 @@ HOOKS.soundState = () => Snd.on;
 /* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
 HOOKS.blind = toggleBlinds;
 HOOKS.blindState = blindsRolled;
+/* 烟花是否正在放（2026-11-07）：16-actors 的昼夜人物门控要读它 —— "夜里只有灯会和烟花
+   才有人"。走 HOOKS 而不是让 16-actors 静态 import 12-env（那会成环，见 00-config 注释）。
+   本模块已经从 12-env 静态 import 了 fireworksState，这里只是转发一层。 */
+HOOKS.fireworksOn = () => !!(fireworksState && fireworksState().on);
 /* 鱼趣（2026-10-06 老黄）：面板按钮"随机位置撒饵"经这个钩子转发到与水面上点击**同一个**
    dropBait（时间取 frameT —— 与 pointerdown 那条路径逐字一致，否则饵的存活/吸引相位会不同）。 */
 HOOKS.feedBait = (x, z) => dropBait(x, z, frameT);
@@ -1493,6 +1497,19 @@ function frameWork(){
     // 时段门禁：晨读（7.5~12）/ 午茶（12~18）/ 夜步（18~23）；无时段 = 全天（旧样稿）
     const sl = f.userData.slot;
     let inSlot = !sl || (ENV.hour >= sl.h0 && ENV.hour < sl.h1);
+    /* 2026-11-07 老黄："夜间人物应该都休息了，不出现；只有灯会和烟花的场景夜间才出现人物"。
+       低模人物本来有 slot 时段（"夜步" 18~23 那一档仍会在夜里出现），但夜景下园子里
+       站一排人仍然不合逻辑 ⇒ 夜里（starAmount ≥ 0.5 判夜，与 12-env 的夜色深度同源）
+       一律收工，**除非**灯会或烟花正在放（那是老黄指定的例外）。
+       ⚠️ 用 ENV.cur.starAmount 判"夜"而不是 ENV.time === 'night'：时段滑杆是连续量，
+          21:42 这种非锚点时刻 time 仍是 'night' 但过渡中 starAmount 才真的代表暗到什么程度；
+          反过来 18:30 天还没黑透，starAmount 也还没起来，人还在外面是合理的。 */
+    const nightNow = (ENV.cur.starAmount || 0) >= 0.5;
+    const festNow = !!ENV.festival || !!(HOOKS.fireworksOn && HOOKS.fireworksOn());
+    if (nightNow && !festNow) inSlot = false;
+    /* 探针逃生门（2026-11-07，同 16-actors 的 actorVisibleNow）：festival-lanterns-guard
+       量"灯会 draw calls 增量"时要把人物在两态都按住，否则差值里混进一整队人。 */
+    if (HOOKS.pinPeopleHidden) inSlot = false;
     f.visible = goodWeather && inSlot;
     /* 步态（2026-09-18）：原来散步**只有 position 平移**、姿态仍是站桩负手 —— 读起来是"滑行"。
        算一遍才发现更硬的问题：z 振幅 5.1m、ω = sp·TAU·2 = 1.382 rad/s → 周期 4.55s
@@ -1981,6 +1998,11 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   /* 人物（2026-09-18）：门禁要读各角色服色与步态。**必须显式暴露**——
                      靠 traverse 猜对象会漏（灯笼那次就踩过"引用没暴露 → found:false"）。 */
                   figures, FIG_PALETTE, FIG_HAIR,
+                  /* 人物显隐按住（2026-11-07）：festival-lanterns-guard 的"灯会 draw calls
+                     增量"判据要求两态只差灯会层，而昼夜人物门控会让夜里的人物在一个态出现、
+                     另一态消失（实测把增量从 +10 推到 +109）。true = 所有人一律隐藏，
+                     探针量完自己置回 false。产品路径不碰它。 */
+                  pinPeopleHidden: (v) => { HOOKS.pinPeopleHidden = !!v; },
                   GLB_LOTUS_STEM_H,          // 杆高设计常量（wind-audit 断言"杆顶盖住花底"，防花悬空）
                   koiGroup, swimTurtles, swimDucks, KOI_ORBITS, insidePond, POND_RADII, POND_PTS,
                   /* 电闪雷鸣（2026-09-30）：门禁要断言"闪电网格先出现、照亮随之"的时序、

@@ -152,10 +152,20 @@ const check = (name, ok, detail = '') => {
        （实测时段差：低画质 −121 / 高画质 −243，正是旧口径"灯会态反而更低"的来源）。 */
     g.setEnv('time', 'night');
     await settle(4000);
+    /* ⚠️ 2026-11-07：判据③ 的增量必须只反映"灯会层"，所以两态要先**把人物固定成隐藏**。
+       背景：16-actors 新增昼夜人物门控（老黄"夜里人物该休息，只有灯会/烟花才出现"）——
+       夜·关灯会时 10 个 GLB 人物全部收起（基线因此从 814 掉到 798），而开灯会后
+       门控判定"灯会 → 夜里也出来"，人物又回来（约 +100 draw calls）。
+       于是"灯会增量"里混进了一整队人，93~109 远超声明的 +10（红线 30）。
+       用产品侧留的探针逃生门 HOOKS.pinPeopleHidden 按住两组人物（GLB + 低模），
+       两态都没有人 ⇒ 只差灯会层本身。 */
+    g.pinPeopleHidden(true);
+    await settle(600);                       // 让门控把两组都收起来（逐帧生效）
     const offBudget = await window.__fl.budget(12);
     g.toggleFestival(true);
     await raf();
     await settle(4000);
+    /* 灯会开着时人物本来会被放出来，但 pinPeopleHidden 仍然按住 ⇒ 无需再动 */
     const onBudget = await window.__fl.budget(12);
     const objs = window.__fl.hangObjs();
     return { st: g.festivalState(), counts: objs.map(o => o.count),

@@ -122,7 +122,17 @@ const HALL_SIT = {
            裙摆的径向撑开 1.20→1.06、前襟掀起 0.90→0.72（不再把袍子摊到椅子外/地上）。 */
   /* sideLift：**只给太师椅**的侧片额外抬起量（见下面 skirt 那段的注释）。
      别的坐具（石桌鼓凳 / 矮横凳 / 车夫座）不填 ⇒ 0，下摆口径一字不变。 */
-  skirtLen: 0.72, skirtRad: 1.06, lift: 0.72, kneeSwap: 1.00, sideLift: 0.75,
+  /* ⚠️⚠️ 2026-11-07 老黄第三次报座椅穿模（截图：袍子垂穿椅腿 + 压进坐面）。
+     顶点级实测（outputs/_diag/chair-clip-attrib-20261107，按椅子实体盒做点内判定）：
+       · 主人 106 个顶点在**后椅腿**盒内（y 1.24~1.70 —— 就是垂到地面的那段袍摆）
+             + 103 个在**坐面板**盒内（y 1.67~1.75）+ 50 个刚性件；
+       · 客人 261 个在前椅腿 + 238 个坐面 + 56+16 扶手。
+     全部来自**蒙皮袍摆**（skin），不是身体骨骼——所以只能从裙骨三件套下手。
+     旧值 skirtLen 0.72 / skirtRad 1.06：袍摆压短到 72%、却又径向撑到 106%，
+     撑开的半径让它从椅面边缘垂出去，正好落在椅腿所在的那圈（椅腿离椅心 ±0.32）。
+     修法：**再压短**（0.72→0.58，让下摆根本不垂到椅腿高度）+ **收回**（1.06→0.92，
+     让袍摆落在椅面范围内而不是撑到椅腿外侧）。lift 保持（前襟压大腿的那条口径不能动）。 */
+  skirtLen: 0.58, skirtRad: 0.92, lift: 0.72, kneeSwap: 1.00, sideLift: 0.75,
 };
 /* ⚠️ 2026-10-29 老黄侧面截图："两个人坐在椅子上"——实际两个人都悬在椅面上方。
    根因两层：① 入座时 floorRay 把**椅面 1.755 当成地面**，整个人先站到了椅子上；
@@ -584,8 +594,10 @@ const RITE_PTS = {
   greetBoy: [1.75, 24.05],
   /* ⚠️ 首端必须是 child1 的家（def.spot）：walkback 的"原路倒走"候选要求路线尾点
      （= 首端倒序）对得上家（homePath 的 endTol 校验），否则孩子被兜底瞬移 29m
-     （门房迎客位 → 原位，2026-11-04 首跑实测）。 */
-  porterGreet: [[1.77, -5.00], ...HOST_GREET_PTS.slice(1, 24), [0, 19.75], [1.2, 21.6], [1.55, 23.3], [1.75, 24.05]],
+     （门房迎客位 → 原位，2026-11-04 首跑实测）。
+     ⚠️ 2026-11-07：首点原来写死 (1.77,−5.00)，与 DEFS 的 spot 是**两份真值** ——
+        spot 一改这里就漂。改成在 riteSendBoys 里现读 spot（见那里的注释）。 */
+  porterGreet: [[-0.60, -3.20], ...HOST_GREET_PTS.slice(1, 24), [0, 19.75], [1.2, 21.6], [1.55, 23.3], [1.75, 24.05]],
   /* 旧通报流程（停用留档，回滚用）：
      去岗位：书童位 → 主人出迎线（HOST_GREET_PTS，已逐点验过：台阶/拱桥/廊道）→ 岗位 */
   porterOut: [...HOST_GREET_PTS.slice(1, 24), [2.6, 21.3]],
@@ -801,8 +813,21 @@ const DEFS = [
     /* 2026-11-03 老黄"红衣童子脑袋后面穿模"：主人出迎起步线（(1.2,−5.7)→(3.5,−5.4)）
        离旧位只有 0.37m —— 主人转身（半径 ~0.35 含摆臂）+ 起步掠过时，身体扫过童子
        头壳（半径 ~0.16）＝穿插。挪到离线 0.62m 的位置（净距 0.62−0.35−0.16=0.11m），
-       面朝先生的方向随之修正（atan2(−0.57,−0.7)≈−2.46rad），"半围先生"的构图保持。 */
-    spot: { x: 1.77, z: -5.00, yaw: -2.46 },   // 面向先生（1.2,−5.7）
+       面朝先生的方向随之修正（atan2(−0.57,−0.7)≈−2.46rad），"半围先生"的构图保持。
+       ⚠️⚠️ 2026-11-07 老黄第三次报（"上楼梯时客人绕过童子""喝茶后出来两人都从童子身上穿过去"）：
+       上面那条 0.62m 的净距是**按主人站位 (1.2,−5.7) 算的**，而 2026-11-04 主人 spot 改成了
+       (1.2,−5.05) —— 算式的前提没了，常量却没跟着改。
+       重测（outputs/_diag/clip-precise-20261107）：旧位 (1.77,−5.00) 到主通道线段
+       (1.2,−5.05)→(3.5,−5.4) 的垂直距离只有 **0.135m** —— 他基本站在路中间。
+       实测主客各相位到他的最近距离：出堂后往桥走（tourgo）主人 **0.21m**、游园起步 0.29m、
+       并排段 0.33m，全部小于两人半径和 0.46m ⇒ 必然穿人。
+       修法：**让开整条车道**。实测（outputs/_diag/pick-c1-20261107）：把主客全程轨迹
+       （1836 个采样点）与射线地面探测一起扫了堂前 x∈[−3.2,2.2] × z∈[−6.2,−2.0] 的栅格，
+       主客的进出堂/游园/并排段路线**全部在 z ≤ −4.4 一线**；净空 ≥2.3m 的空位全在 z≈−3 一带。
+       选 **(−0.60, −3.20)**：净空 2.32m、离主人 2.58m、射线打到的 object 是 `ground`
+       （草地上，y −0.42）—— 不挡路、不落水、仍读作"侍立在先生侧前方"。
+       yaw 0 = 面朝 +z（南，朝主人与堂前）。 */
+    spot: { x: -0.60, z: -3.20, yaw: 0 },   // 面朝南（主人与堂前）
     route: null,
     floorRay: true, followFloor: true, floorMax: 1.20,
     idle: { breath: 0.018, head: 0.055, sway: 0.009, phase: 0.9, hopEvery: [9, 22], hopH: 0.20 },
@@ -819,7 +844,14 @@ const DEFS = [
           （衣料 value 0.3~0.5 照染，秋香黄袍色不受影响）。 */
     tint: 0xFFFFFF,
     dye: { hue: 0.99, w: 0.09, shift: 0.16, sat: 1.08, val: 1.24, vMax: 0.55 },
-    spot: { x: 0.62, z: -5.10, yaw: 2.37 },    // 面向先生（1.2,−5.7）
+    /* ⚠️⚠️ 2026-11-07 老黄（第三次报，前两次都没改到根上）：
+       "奉茶童子在门口的站立朝向还是不对，应该是面朝东面"。
+       旧值 yaw 2.37 是 atan2(…主人旧位…) 算的"面向先生"，先生搬走之后它就只是**面向西北**。
+       本项目方位约定（见 12h-solar 的 dirFromAltAz）：**+x = 东、+z = 南**。
+       ⇒ "面朝东" = 朝 +x = yaw **+π/2**（atan2(1, 0)）。
+       ⚠️ 注意这不是"面向堂门"：堂门在 +z（南）方向，朝东是**侧对**堂门、面向园子东边
+          （水榭/拱桥那一侧）—— 正是老黄说的"面朝东面"。礼宾岗本来就该侧身侍立。 */
+    spot: { x: 0.62, z: -5.10, yaw: Math.PI / 2 },    // 面朝东（+x）
     route: null,
     floorRay: true, followFloor: true, floorMax: 1.20,
     idle: { breath: 0.016, head: 0.05, sway: 0.008, phase: 4.2, hopEvery: [14, 30], hopH: 0.16 },
@@ -2988,6 +3020,11 @@ function riteReset(){
   if (RITE.bucket) RITE.bucket.visible = false;
   RITE.g = 'off'; RITE.gt = 0; RITE.bucketPt = null;
   RITE.b = 'off'; RITE.bt = 0;
+  /* 2026-11-07 主客进出堂鞠躬的两个"本趟已行过礼"标记，散场必须清，
+     否则下一场戏里童子一次都不拜（标记还是 true）。 */
+  VISIT.riteGreetIn = VISIT.riteGreetOut = false;
+  VISIT.greetT = VISIT.greetOutT = undefined;
+  VISIT.greetWho = VISIT.greetOutWho = null;
 }
 
 function resetVisit(hostHome){
@@ -3221,17 +3258,34 @@ function riteSendBoys(v){
        两人同走出迎线，门房恒在前且间距越拉越大，不会追尾穿人。到岗后 faceAfter
        面朝客人来向（东南石板路）。RITE.b='go'：等客人站定再趋前作揖（见 tickRiteBoy）。 */
     const side = RITE_PTS.greetBoy;
-    giveRoute(p, RITE_PTS.porterGreet, 1.1 * WALK_K, 0.3, 2.45,
+    /* ⚠️⚠️ 2026-11-07 实测（outputs/_diag/gwalk-clash-20261107）：门房的 porterGreet 首段
+       就是 HOST_GREET_PTS[1..]，**和主人走的是同一条线**；孩子只快 28% ⇒ 起步后
+       两人最近距 **0.01m**（child1 在前、主人在后叠着走）。单纯提速/延迟出发都不解决
+       —— 因为两个人共享同一条几何线，只要速度差不够大就会在某一点重合。
+       修法：**给孩子一条横向偏移 0.9m 的平行线**（与 S3/S5 并排段用 offsetPath 的同一个做法，
+       偏移量 0.9 = 两人身体半径和 0.46 的两倍，留足余量）。offsetPath 的 lat>0 = 行进方向
+       右手侧；孩子往**右**偏（东侧靠墙那边是院门内空地，够走）。
+       ⚠️ 偏移后终点也要跟着偏 —— 迎客位 greetBoy 是验过的点，最后一段单独接回去。 */
+    const grPts = offsetPath(RITE_PTS.porterGreet, -0.9);
+    /* ⚠️ offsetPath 会把首点也一起偏 0.9m（首点原本是 def.spot）。walkback 的"原路倒走"
+       校验（homePath）要求 `路线倒序的尾点 === homeOf(def).pt`（误差 endTol 内），
+       首点偏了 ⇒ 校验挂 ⇒ 孩子每场结束被兜底瞬移 29m（2026-11-07 实测：
+       actor-replay-unit 报"单帧可见位移 66m"）。
+       ⇒ 首点强制拉回 spot，让倒序尾点精确命中"家"。 */
+    grPts[0] = [p.def.spot.x, p.def.spot.z];
+    grPts[grPts.length - 1] = RITE_PTS.greetBoy;       // 末点回到验过的迎客位
+    giveRoute(p, grPts, 1.25 * WALK_K, 0.2, 2.45,
               Math.atan2(1.30 - side[0], 24.40 - side[1]));
     RITE.b = 'go'; RITE.bt = 0;
   }
   const b = v.rite.tea ? actorRef('child2') : null;
   if (b){
     b.riteBusy = true; b.def.stepUp = 1.35;
-    /* 候场位面朝堂门（老黄"绿衣孩童面朝东"）：岗在月台西侧，主客从堂门（东侧）进出，
-       到岗后转身面朝门口伺候，不再按路线末段方向面朝外墙。 */
-    const side = RITE_PTS.teaSide[RITE_PTS.teaSide.length - 1];
-    giveRoute(b, RITE_PTS.teaSide, 1.05, 0.6, 1.70, Math.atan2(0 - side[0], -8.8 - side[1]));
+    /* 候场位面朝**东**（2026-11-07 老黄第三次提："奉茶童子在门口的站立朝向还是不对，
+       应该是面朝东面"）。旧注释写"面朝堂门"，但那条 atan2(0−side.x, −8.8−side.z) 算出来的
+       是朝**西北**（实测 yaw ≈ −170.5°，几乎正对着墙），既不是堂门也不朝东。
+       方位约定：+x = 东 ⇒ 面朝东 = yaw +π/2。与 DEFS 里 child2 的 spot.yaw 用同一个值。 */
+    giveRoute(b, RITE_PTS.teaSide, 1.05, 0.6, 1.70, Math.PI / 2);
   }
 }
 
@@ -3377,13 +3431,19 @@ function tickVisit(dt){
          现在从缸**北侧**绕：−1.9 处折向 z≈−8.3（铺地 −9.2~−6.6 之内、离堂前 0.8m），
          过了 x=−5.3 再折回 z≈−7.2。绕行段离缸心 1.5m 以上，两个孩子的横向错开 0.25m。 */
       if (c1 && !v.rite.porter) giveRoute(c1, [
-        [1.14, -5.25], [0.0, -5.95], [-0.45, -6.3], [-0.45, -7.2],
+        /* 起点必须读 def.spot（2026-11-07）：写死旧坐标会让"去井边再回来"落回旧位，
+           DEFS 里改过的 spot 就白改了（这正是第三次穿模的机制 —— 孩子实际站在
+           改之前的 (1.79,−5.01)，而 DEFS 已经是新值）。 */
+        [c1.def.spot.x, c1.def.spot.z],
+        [0.0, -5.95], [-0.45, -6.3], [-0.45, -7.2],
         [-1.95, -7.35], [-2.35, -8.30], [-5.35, -8.30], [-5.75, -7.25],
         [-7.0, -7.15], [-10.5, -7.05], [-12.2, -6.85],
         [-15.0, -6.75], [-17.5, -6.85], [-18.6, -6.9], CHILD_WELL.c1,
       ], 1.05, 0.15, 1.70);
       if (c2 && !v.rite.tea) giveRoute(c2, [
-        [0.62, -5.10], [0.0, -5.85], [0.45, -6.4], [0.45, -7.25],
+        /* 同 c1：起点读 spot，别写死（2026-11-07） */
+        [c2.def.spot.x, c2.def.spot.z],
+        [0.0, -5.85], [0.45, -6.4], [0.45, -7.25],
         [-1.75, -7.45], [-2.15, -8.55], [-5.15, -8.55], [-5.55, -7.35],
         [-7.2, -7.3], [-10.7, -7.1], [-12.4, -6.9],
         [-15.2, -6.8], [-17.7, -6.9], [-18.8, -6.95], CHILD_WELL.c2,
@@ -3464,6 +3524,39 @@ function tickVisit(dt){
     return;
   }
   if (v.phase === 'enter'){
+    /* ── 2026-11-07 老黄："主客人进入和离开主堂的时候要先弯腰鞠躬才对" ──────────
+       奉茶童子（child2）候在月台西侧，主客从他面前经过上台阶进堂 —— 他必须躬身相迎；
+       喝完茶出堂时再躬一次。复用 BOW 全套（与前两次作揖同一条曲线，别造第二套）。
+       ⚠️ 只在礼仪开（v.rite.tea）且童子已在候场位时触发；`riteGreetIn` 记**这一趟是否已行过礼**，
+          每趟只拜一次（进出各一次），否则每帧重置会把礼重复触发。 */
+    if (v.rite.tea && !v.riteGreetIn){
+      const b = actorRef('child2');
+      /* ⚠️ 判据只认 b.arrived（已到候场位）——**不能**再要求 !b.riteBusy：
+         riteSendBoys 把它置 true 之后，只有 offer 相位（奉茶礼毕）才清回 false，
+         而 enter 发生在那之前 ⇒ 加了这条就永远不触发（2026-11-07 首版实测：
+         Chest.rotation.x 全程 ±0.016 的呼吸摆幅，礼一次没行）。
+         这里要防的是"童子还在路上"，那件事 b.arrived 已经表达清楚了。 */
+      if (b && b.arrived){
+        v.riteGreetIn = true; v.greetT = 0; v.greetWho = b;
+      }
+    }
+    if (v.riteGreetIn && v.greetT !== undefined){
+      const b = v.greetWho;
+      v.greetT += dt;
+      if (b){
+        /* 躬身方向对着主客（主客在童子的东侧走上台阶 ⇒ 朝向由 yawToOther 现算，
+           拜完回正朝东 —— 与站岗姿态一致，不留下"歪着脖子"的收尾） */
+        const yawP = yawToOther(b, host);
+        turnToward(b, yawP, dt);
+        b.tieTarget = true;                       // 拱手手位（同两位作揖：只动肘腕）
+        b.riteBowW = 0.72 * riteBowCurve(v.greetT);
+        if (v.greetT > RITE_BOW_T){
+          b.riteBowW = 0; b.tieTarget = false;
+          turnToward(b, Math.PI / 2, dt);
+          v.greetT = undefined; v.greetWho = null;
+        }
+      }
+    }
     if (host.arrived && guest.arrived){ v.phase = 'seat'; v.t = 0; }
     return;
   }
@@ -3509,9 +3602,8 @@ function tickVisit(dt){
       if (v.rt > BOW.in + BOW.hold * 0.5) b.riteCupOn = false;
       if (v.rt > RITE_BOW_T){
         b.riteBowW = 0; b.tieTarget = false;
-        /* 退回候场位后仍面朝堂门（同 riteSendBoys：站门口是"恭送"姿态，不背身） */
-        const side = RITE_PTS.teaSide[RITE_PTS.teaSide.length - 1];
-        giveRoute(b, RITE_PTS.teaBack, 0.80, 0.3, 2.0, Math.atan2(0 - side[0], -8.8 - side[1]));
+        /* 退回候场位后仍面朝**东**（同 riteSendBoys，2026-11-07 统一成 +π/2） */
+        giveRoute(b, RITE_PTS.teaBack, 0.80, 0.3, 2.0, Math.PI / 2);
         v.phase = 'tea'; v.t = 0;
       }
     }
@@ -3548,12 +3640,16 @@ function tickVisit(dt){
        人钉在椅心站直 —— 座面 1.75、地面 1.24，站姿髋高 ≈2.06 ⇒ 双腿正好横插在座面
        里，然后从椅子正上方直线走出去（第二段穿扶手/前缘）。起身的同一时间把人往
        椅前站定位（SEAT.frontZ）平移，臀部离座那一刻人已站到座面前缘之外；moved=0
-       不播步态（与 seatOne 退半步同一套"滑移"做法）。2.4m/s 是为了在 sitW 缓完
-       （≈0.43s）内走完椅心→frontZ 的 1.05m，两件事同步结束。 */
+       不播步态（与 seatOne 退半步同一套"滑移"做法）。**2.4 → 1.2 m/s（2026-11-07）**：
+       2.4 是按"≈0.43s 内走完 1.05m"扣的，但 actor-replay-unit 的"出堂不跳位"红线是
+       每 0.4s 采样帧位移 ≤0.5m ⇒ 2.4×0.4 = 0.96m，**这条滑移天然踩线**，以前只是
+       采样点没恰好落在滑移帧上。本次改 child1 站位让整场时序漂了 0.4s，就正好踩上。
+       降到 1.0m/s（0.4s = 0.40m，离 0.5 红线留 20% 余量）——
+       仍然是一次利落的起身，不再赌采样相位。 */
     const pushFront = (a) => {
       const d = SEAT.frontZ - a.pos.z;
       if (d > 0.005){
-        const k = Math.min(1, (2.4 * dt) / d);
+        const k = Math.min(1, (1.0 * dt) / d);
         a.pos.z += d * k;
         a.moved = 0;
         a.moveW = approach(a.moveW, 0, dt / 0.3);
@@ -3568,6 +3664,29 @@ function tickVisit(dt){
     return;
   }
   if (v.phase === 'exit'){
+    /* 2026-11-07 老黄："离开主堂的时候要先弯腰鞠躬" —— 同 enter 那段，一趟一次。
+       主客从堂里倒走出来、经过候场的奉茶童子面前，童子躬身恭送。 */
+    if (v.rite.tea && !v.riteGreetOut){
+      const b = actorRef('child2');
+      /* 同 enter：只认 arrived，不查 riteBusy（理由见 enter 那段） */
+      if (b && b.arrived){
+        v.riteGreetOut = true; v.greetOutT = 0; v.greetOutWho = b;
+      }
+    }
+    if (v.riteGreetOut && v.greetOutT !== undefined){
+      const b = v.greetOutWho;
+      v.greetOutT += dt;
+      if (b){
+        turnToward(b, yawToOther(b, host), dt);
+        b.tieTarget = true;
+        b.riteBowW = 0.72 * riteBowCurve(v.greetOutT);
+        if (v.greetOutT > RITE_BOW_T){
+          b.riteBowW = 0; b.tieTarget = false;
+          turnToward(b, Math.PI / 2, dt);       // 回正朝东（站岗姿态）
+          v.greetOutT = undefined; v.greetOutWho = null;
+        }
+      }
+    }
     if (host.arrived && guest.arrived){
       if (v.mode === 'walk'){
         /* 旧版直接并排回门内再送客（保留给 ?visit=walk 的回归用） */
@@ -3753,6 +3872,57 @@ function tickVisit(dt){
    挪到模块级复用 —— 单线程、advance 同步体里用完即弃，共享安全）。 */
 const _poseQ = new THREE.Quaternion();
 const _poseE = new THREE.Euler();
+
+/* ── 人物可见性（2026-11-07）─────────────────────────────────────────────────
+   返回该角色此刻**应该**是 visible 还是隐藏；null = 本函数不管（交给别人）。
+   规则见 advance() 里的调用点注释。要点：
+     · 到访演员在本场戏没结束前恒可见（戏在演，人不能半路消失）；
+     · 灯会 / 烟花开着 ⇒ 夜里也有人（老黄指定的豁免）；
+     · 其余按 def.hours 时段（缺省白昼 6~18），再加老口径的恶劣天气门。
+   ⚠️ 这是纯函数式判定，**不写任何状态** —— 写 visible 的收口在 advance() 里那一处，
+      否则"谁写了 visible"又变成两处互相覆盖（同 08b WATCHERS 的教训）。 */
+const DEFAULT_HOURS = [6.0, 18.0];
+/* 到访戏在用的人：戏在演 ⇒ 恒可见（演出不能半路消失）；戏散场后按普通人物时段表走。
+   ⚠️⚠️ 2026-11-07 首版把 guest/laborer 也放进来，结果 actor-replay-unit 报
+      "单帧可见位移 62~66m"：resetVisit 明确写了 `guest.holder.visible = false` /
+      `coach.holder.visible = false`（这两位**只在到访时出场**，复位后必须藏起来），
+      而本函数在 idle 时按白昼时段给他们返回 true ⇒ 正好在"瞬移回原位"那一帧被显示出来，
+      门禁把它算成一次可见的闪回。规矩：**他们俩的可见性只归 VISIT 状态机管，本函数不碰。 */
+const VISIT_IDS = new Set(['scholar', 'child1', 'child2']);
+/* 只由到访/马厩状态机开/关的角色（本函数永远返回 null，不干预）
+   ⚠️ groom 是常驻马夫，但它的显隐由 setGroomVisible() 那一套与"车夫退场"联动
+      （见 resetVisit 的 setGroomVisible(true)）——昼夜门控再加一手就会两边打架。 */
+const VISIT_ONLY_IDS = new Set(['guest', 'laborer', 'groom']);
+function actorVisibleNow(a){
+  const env = ENV_REF.env;
+  if (!env) return null;                       // 12-env 还没发布 ⇒ 不猜，保持原状
+  const def = a.def;
+  /* 探针专用逃生门（2026-11-07）：festival-lanterns-guard 的"灯会 draw calls 增量"判据
+     要求两态只差灯会层，而昼夜门控会让夜里的人物在一态出现、另一态消失
+     （实测把增量从 +10 推到 +109）。探针置 HOOKS.pinPeopleHidden = true 后一律隐藏。
+     ⚠️ 只给探针用，产品路径永不设置它。 */
+  if (HOOKS.pinPeopleHidden) return false;
+  if (VISIT_ONLY_IDS.has(def.id)) return null;
+  /* ① 到访演员：戏在演（phase 不是 idle）⇒ 恒可见；散场后按普通人物处理。 */
+  const playing = VISIT.phase !== 'idle' && VISIT.phase !== 'done' && VISIT.phase !== 'homing';
+  if (VISIT_IDS.has(def.id) && playing) return true;
+  /* ② 灯会 / 烟花：夜里的豁免 */
+  const festivalOn = !!env.festival || (HOOKS.fireworksOn && HOOKS.fireworksOn());
+  /* ③ 各人时段（def.hours 优先；lady 沿用 LADY_SCHEDULE；其余白昼 6~18） */
+  let h0, h1;
+  if (def.hours){ [h0, h1] = def.hours; }
+  else if (def.id === 'lady'){ h0 = LADY_SCHEDULE.h0; h1 = LADY_SCHEDULE.h1; }
+  else { [h0, h1] = DEFAULT_HOURS; }
+  const { hour, weather } = env;
+  const inHours = hour >= h0 && hour < h1;
+  /* 过了时段但灯会/烟花开着 ⇒ 出来看热闹（这正是老黄要的那个例外） */
+  if (!inHours && !festivalOn) return false;
+  /* 恶劣天气：暴雨/大雪/雨夹雪时收工回家（沿用 lady 的原口径）。灯会/烟花不豁免这一条
+     —— 雨里没人站在院子里看灯。 */
+  if (weather === 'storm' || weather === 'snow' || weather === 'winterrain') return false;
+  return true;
+}
+
 function advance(dt){
   /* 记下"推进前的位置"：踏面采样的节流要判这一帧到底走没走。
      ⚠️ 不能只看 a.moved —— 各写入方语义不一（tickRoute 在"没有路线/已到站"时会把它清零，
@@ -3762,16 +3932,22 @@ function advance(dt){
   tickVisit(dt);
   const q = _poseQ, e = _poseE;
   for (const a of ACTORS){
-    /* 井边高精仕女替换的是有日程的低模，沿用同一时段及天气门禁；到访演员不受此规则影响。 */
-    if (a.def.id === 'lady' && ENV_REF.env){
-      const { hour, weather } = ENV_REF.env;
-      const visible = hour >= LADY_SCHEDULE.h0 && hour < LADY_SCHEDULE.h1
-        && weather !== 'storm' && weather !== 'snow' && weather !== 'winterrain';
-      if (a.holder.visible !== visible){
-        a.holder.visible = visible;
-        markCasterBoxDirty();
-        renderer.shadowMap.needsUpdate = true;
-      }
+    /* ── 人物可见性门控（2026-11-07 老黄："夜间人物应该都休息了，不出现；只有灯会和烟花
+       的场景夜间才出现人物"）────────────────────────────────────────────────
+       旧版只有 lady（井边仕女）一个人有时段门控，其余 10 位 GLB 人物**昼夜常驻**：
+       夜景 21:42 的实拍里，园子里站着 11 个人在雪里聊天，逻辑上不成立。
+       新规则（按优先级）：
+         ① 到访演员（host/guest/laborer/groom + 两个童子在礼仪期）由 VISIT 状态机自己管
+            —— 戏在演就必须看得见，不参与昼夜门控（否则客人会在半路消失）。
+         ② 灯会（ENV.festival）或烟花（fireworksState().on）开着 ⇒ 夜里也有人看灯/看花，
+            这是老黄指定的豁免。
+         ③ 其余情况：按各人的 def.hours 时段表（缺省 = 白昼 6~18）决定，夜里收工回家。
+       都走同一条"值变了才写"的路径，避免每帧无谓地翻 visible（会连带 shadowMap 重算）。 */
+    const vis = actorVisibleNow(a);
+    if (vis !== null && a.holder.visible !== vis){
+      a.holder.visible = vis;
+      markCasterBoxDirty();
+      renderer.shadowMap.needsUpdate = true;
     }
     tickRoute(a, dt);
     /* 上车/下车：一段纯插值的短程（1~1.3s），不走步态、不取踏面 ——
