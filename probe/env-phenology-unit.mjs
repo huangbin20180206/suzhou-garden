@@ -8,11 +8,18 @@ import { SEASON_DOY, phenoChannels, xunOfDoy } from '../src/12g-phenology.js';
 const NONE = 0.03;   // 旧显隐阈值：低于它即"不出现"
 const at = (season) => phenoChannels(SEASON_DOY[season]);
 
-test('春季代表日：没有荷花（荷花瓣 / 荷苞 / 莲蓬 / 荷叶都不出）', () => {
+/* ⚠️ 2026-11-08 老黄："春天的池塘为什么什么植物都没有？"
+   —— 这条断言原来把 **lilyShow（荷叶/睡莲叶盘）** 跟荷花绑在一起要求"春无"。
+   那是错的常识：苏州 4 月中旬池塘里**荷叶已经铺开**，4/12 时一片都没有才是反常。
+   荷**花**（lotusShow / bud / bloom / pod）春无是对的（6 月下旬才开），
+   荷叶必须单独判、而且要求"有明显一片"。改判据的同时把荷叶的生长曲线
+   起点从 4/1 提前到 3 月中（见 12g 的 lotusLeaf）。 */
+test('春季代表日：没有荷花（荷花瓣 / 荷苞 / 莲蓬都不出），但**荷叶已经在长**', () => {
   const p = at('spring');
-  for (const k of ['lotusShow', 'lotusPodShow', 'lotusBud', 'lotusBloom', 'lotusPod', 'lilyShow']) {
+  for (const k of ['lotusShow', 'lotusPodShow', 'lotusBud', 'lotusBloom', 'lotusPod']) {
     assert.ok(p[k] < NONE, `${k}=${p[k]}`);
   }
+  assert.ok(p.lilyShow > 0.3, `春季荷叶应当已经出水：lilyShow=${p.lilyShow}`);
 });
 
 test('秋季代表日：没有梅花（红梅 / 腊梅 / 合并通道）', () => {

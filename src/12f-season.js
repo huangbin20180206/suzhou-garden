@@ -78,8 +78,12 @@ const SEASON_PRESENCE = [
   /* ⚠️ 莲蓬（莲实）必须跟着荷花一起消失。
      莲蓬的**杆**用 MAT.lily、**头与莲子**用 MAT.lotusPod —— 杆在表里、头不在，
      于是冬季 lilyShow=0 把杆藏了、头还留在水面上，看起来就是"悬空的莲蓬"。
+     ⚠️ 2026-11-08 追加 MAT.lotusStem（程序化荷花的杆 + 萼）：它挂的是**本条**通道
+        （= max(荷花瓣, 莲蓬)，因为一根杆上可能顶花也可能顶莲蓬），而不是 lilyShow。
+        换材质之前它们用 MAT.lily（叶盘材质）⇒ 春季 lily=0.56 / lotus=0 / pod=0 时，
+        池面会站着一排**只有杆和萼、没有花**的光杆。
      以后凡是"一株植物由多种材质拼成"，登记表必须把它**整套材质**都收进来。 */
-  ['lotusPodShow',[MAT.lotusPod, MAT.lotusPodAged, MAT.lotusPodDark, MAT.lotusSeed]], ['bananaShow',[MAT.bananaFruit]],
+  ['lotusPodShow',[MAT.lotusPod, MAT.lotusPodAged, MAT.lotusPodDark, MAT.lotusSeed, MAT.lotusStem]], ['bananaShow',[MAT.bananaFruit]],
   ['wisteriaShow',[MAT.wisteriaLeaf]],
   /* 桃花（2026-09-21）：花/果/落花/叶各自独立材质才能"只开该开的季节"——
      全植物用一种材质的话季节只能整棵树显/隐，做不出"春开花 → 夏结果 → 秋叶黄"。 */

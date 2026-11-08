@@ -568,6 +568,17 @@ export const MAT = {
   peachFruit: new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.62, metalness:0.0, envMapIntensity:0.35 }),
   peachPetal: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xFFFFFF, roughness:0.92, metalness:0.0, envMapIntensity:0.2, side:THREE.DoubleSide, alphaTest:0.45 }),
   lily:     new THREE.MeshStandardMaterial({ color:0x3E7A34, roughness:0.7,  envMapIntensity:0.5, side:THREE.DoubleSide }),
+  /* ── 程序化荷花的杆 + 萼（2026-11-08 新增，专治"光杆/光秃绿锥"）──────────────
+     病根：杆和萼原来用 MAT.lily —— 那是**叶盘**的材质，由 lilyShow 管。而花头
+     （花瓣/花心/莲蓬）走 lotusShow / lotusPodShow。两个通道各自独立：
+       春 lily=0.56 但 lotus=0 ⇒ **杆和萼显示、花没有** = 池面一排光杆 + 绿锥；
+       秋 lily=1.00 但 lotus=0、pod=0.51 ⇒ 荷花光杆 + 莲蓬杆混着来。
+     这与 01-materials 里 lotusSeed 那条是同一族问题（"多材质构件必须整套登记"），
+     也跟 06j 里"光秃绿锥"那次同源。但那次是整块撤掉，这次是**换材质**：
+     杆/萼本来就该跟花同生共死 ⇒ 给它们一个只属于这套荷花的材质。
+     ⚠️ 颜色与原 MAT.lily 一致（0x3E7A34）：同一片水面上的荷叶与荷杆没有色差。
+     ⚠️ 风摆参数另行 addWind（见下方 969 行附近），与 MAT.lily 同档。 */
+  lotusStem: new THREE.MeshStandardMaterial({ color:0x3E7A34, roughness:0.72, metalness:0.0, envMapIntensity:0.45 }),
   /* 2026-10-14：加瓣面贴图（渐变+脉络，见 01b makeLotusPetalTex）—— color 仍留作 tint 基准。 */
   lotus:    new THREE.MeshStandardMaterial({ color:0xFFFFFF, map:makeLotusPetalTex(), roughness:0.62, envMapIntensity:0.55, side:THREE.DoubleSide }),
   reed:     new THREE.MeshStandardMaterial({ color:0x3F6B34, roughness:0.86, envMapIntensity:0.3, side:THREE.DoubleSide }),
@@ -968,6 +979,9 @@ addWind(MAT.reed,   0.15, 1.10, 'base');    // 水草
    杆顶同量级 —— 全部远小于池心到岸石的距离，**不会甩到岸上草皮/石头里**。 */
 addWind(MAT.lily,  0.030, 1.15, 'tip', 0.0, 0.05);   // 睡莲浮叶/荷杆/莲蓬茎：贴水轻漾，位移硬顶 5cm
 addWind(MAT.lotus, 0.050, 1.25, 'tip', 0.0, 0.05);   // 荷花瓣/花蕾：越高越摆，位移硬顶 5cm
+/* 程序化荷花的杆+萼（2026-11-08）：参数与 MAT.lily 那行**逐字相同**——
+   杆本来就该和叶盘同频摆，换材质只是为了显隐能跟花走（见上面的 lotusStem 注释）。 */
+addWind(MAT.lotusStem, 0.030, 1.15, 'tip', 0.0, 0.05);
 /* 芭蕉（2026-09-17 用户："芭蕉树应该是叶子晃动，现在的晃动有问题"）：
    病根是**动错了对象、且权重反了** —— MAT.banana 只挂在假茎上、且用 crown 模式，
    权重 (3.6 - y)/2.5 在假茎根部 y=0 时 = 1.44（最大）、顶端 y=2.8 时只有 0.32：

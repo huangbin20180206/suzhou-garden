@@ -545,7 +545,18 @@ world.add(makePondPads(lotusSpots));
    做法：装配完对**所有** MAT.lily 的实例做一遍确定性分层 —— 按 y 从低到高遍历，
    遇到"水平重叠且高度差 < 两片碟沿之和"的，把这一片抬到对方之上（+4mm 余量）。
    ⚠️ 纯几何后处理：不新增/删除实例、不吃任何随机数（铁律 1），只改实例矩阵的 y。
-   ⚠️ 会改 layout-fingerprint 的实例矩阵 ⇒ 跑完要重出基线。 */
+   ⚠️ 会改 layout-fingerprint 的实例矩阵 ⇒ 跑完要重出基线。
+   ⚠️⚠️ 2026-11-07 老黄（夏季实拍三处穿模）—— **本函数的判定基准一直是错的**：
+     `im.getMatrixAt()` 给的是**实例局部坐标**，而两张叶盘网格挂在两个不同的组下：
+       · makeAquatic(-2.5, 2.2, …) → 组偏移 (-2.5, +2.2)，36 片
+       · makePondPads(lotusSpots)  → 组偏移 (0, 0)，36 片
+     旧版把两组的局部坐标放进同一个数组里比距离 ⇒ 等于把 36 片整体平移 (-2.5, +2.2)
+     再和另 36 片比。实测（outputs/_diag 复算，世界 vs 局部两种口径）：
+       局部口径（旧）= 3 对交叠、最深 0.018m —— "看起来很干净"，所以两年没被发现；
+       世界口径（真）= **25 对交叠、最深 0.107m**，其中 **22 对是跨组的**。
+     修法：decompose 出局部位置后立刻 `applyMatrix4(im.matrixWorld)` 换成世界坐标，
+     后面所有距离判定都按世界走；回写时把世界坐标逆变换回局部（组只有平移，
+     用 matrixWorld 的逆即可，仍然是纯确定性、零随机数）。 */
 function separateLilyPads(){
   const RIM = 0.045, PAD_R = 0.62;
   /* 两步：① 按 y 从低到高，水平重叠且高度差 < 两片碟沿之和就往上抬（最多 4 层、上限水面+0.42m），
@@ -555,6 +566,9 @@ function separateLilyPads(){
   const meshes = [];
   world.traverse(o => { if (o.isInstancedMesh && o.material === MAT.lily) meshes.push(o); });
   if (!meshes.length) return;
+  /* updateMatrixWorld 必须在这里显式跑一次：本函数在模块求值期调用，
+     此时渲染循环还没跑过，各组的 matrixWorld 可能仍是单位阵。 */
+  world.updateMatrixWorld(true);
   const m = new THREE.Matrix4(), pos = new THREE.Vector3();
   const quat = new THREE.Quaternion(), scl = new THREE.Vector3();
   const pads = [];
@@ -562,7 +576,64 @@ function separateLilyPads(){
     for (let i = 0; i < im.count; i++){
       im.getMatrixAt(i, m);
       m.decompose(pos, quat, scl);
-      pads.push({ im, i, x: pos.x, y: pos.y, z: pos.z, s: scl.x, q: quat.clone() });
+      /* 局部 → 世界（见上方 2026-11-07 注释：旧版就是漏了这一步） */
+      const wp = pos.clone().applyMatrix4(im.matrixWorld);
+      pads.push({ im, i, x: wp.x, y: wp.y, z: wp.z, s: scl.x, r: PAD_R * scl.x, q: quat.clone() });
+    }
+  }
+  /* ── ⓪ 驳岸石避让（2026-11-07 老黄："夏季，池塘里面有几个植物穿模"）─────────────
+     现象：2 片叶盘被驳岸石顶穿，最深 9.2cm（石头顶 y=0.183，叶盘 y=0.063）。
+     为什么 clampAquaticToPond 的 BANK_MARGIN=1.30 没兜住：那个余量是按**岸线多边形**
+     （POND_RADII）算的，而驳岸石沿 POND_PTS 布点、jitter 取 0.88~1.04 倍 ⇒ 石头
+     可以**越过岸线往池心伸**。余量量的是"到理论岸线"，不是"到真实石头"。
+     （这与 06j 里 2026-10-06 三轮那条教训同源：向外出射线先撞到池内物件、
+       量出来的"岸石带宽度"不可信 —— 所以这里改量"石头到底戳没戳出盘面"。）
+     做法：对每片叶盘沿盘面 3 圈各打若干竖直向下的射线，量石头最高点比该处盘面高多少；
+     超出 3mm 就沿"池心 → 叶盘"方向把这片叶盘往外推，退到不戳为止（上限 1.2m，
+     推到上限还没解决就把它抬到石头之上 —— 抬比推安全，不会离开水面）。
+     ⚠️ 纯几何、零随机数；在分层之前做，后面的分层会基于新位置重算交叠。 */
+  const _rockMeshes = [];
+  world.traverse(o => { if (o.isInstancedMesh && o.material === MAT.riverStone) _rockMeshes.push(o); });
+  if (_rockMeshes.length){
+    const _rc = new THREE.Raycaster(), _down = new THREE.Vector3(0, -1, 0);
+    const _o = new THREE.Vector3();
+    for (const p of pads){
+      /* ⚠️ 采样圈必须与验收探针**同一套**（[[0,1],[0.25,8],[0.5,12],[0.75,16],[0.95,16]]）：
+         第一版只采 3 圈（0 / 0.45 / 0.85），避让按粗采样判"没戳"，验收按密采样仍测到
+         0.079m ⇒ 同一片叶盘一边说干净、一边说穿模。判据与修法用同一个量才是闭环。 */
+      for (let iter = 0; iter < 24; iter++){
+        let poke = -9;
+        for (const [frac, n] of [[0, 1], [0.25, 8], [0.5, 12], [0.75, 16], [0.95, 16]]){
+          for (let k = 0; k < n; k++){
+            const a = k / n * TAU;
+            const px = p.x + Math.cos(a) * p.r * frac, pz = p.z + Math.sin(a) * p.r * frac;
+            _o.set(px, p.y + Math.pow(frac, 2.2) * RIM * p.s + 2.0, pz);
+            _rc.set(_o, _down); _rc.far = 3.0;
+            const h = _rc.intersectObjects(_rockMeshes, false)[0];
+            if (!h) continue;
+            const padY = p.y + Math.pow(frac, 2.2) * RIM * p.s;
+            if (h.point.y - padY > poke) poke = h.point.y - padY;
+          }
+        }
+        if (poke <= 0.003) break;
+        /* 做法：**直接抬到石头之上**，不做水平推移。
+           第一版试过"沿池心方向往外推，推满 1.2m 还戳就抬"，实测推不干净：
+           推出去 0.06m/次、24 次，而石头在池边是一串（jitter 0.88~1.04 倍布点），
+           推过一块又撞下一块，最后仍残留 0.0725m。
+           抬升是**一次到位**且单调收敛的：叶盘本来就在水面 5~13cm 处浮动
+           （makePondPads 的 y 取 CFG.water+0.055~0.13），抬到石头顶之上只是
+           让它"叠在石头上"，视觉上就是一片叶子搁在岸边石头上 —— 真实荷塘里就是这样。
+           ⚠️ 上限 0.55m：再高就读作"叶子浮在半空"，宁可留一点接缝也不要飘。
+           ⚠️ 纯确定性的：不消耗任何随机数（铁律 1），也不依赖遍历顺序。 */
+        /* ⚠️ 抬升上限 0.55m —— 基准取**这片叶盘自己第一次进入本循环时的高度**
+           （p.baseY，不是 CFG.water：08c 里没有 import CFG，而且叶盘本来就在
+           水面 +5.5~13cm 浮动，用自身基准才算"额外抬了多少"）。
+           再高就读作"叶子浮在半空"，宁可留一点接缝也不要飘。 */
+        if (p.baseY === undefined) p.baseY = p.y;
+        const lift = Math.min(poke + 0.006, 0.55 - (p.y - p.baseY));
+        if (lift <= 0) break;                        // 已到抬升上限，认了
+        p.y += lift;
+      }
     }
   }
   const hitPair = (a, b) => {
@@ -606,8 +677,42 @@ function separateLilyPads(){
     }
     if (!any) break;
   }
+  /* ③ 水平推开（2026-11-07 新增）—— 上面两步都对"中心距本来就太近"无解。
+     实测：修完坐标系后残留 11 对交叠，**14 片全部已经缩到 0.32 下限、两两都在下限**，
+     最近的一对中心只差 0.15m —— 两片要各缩到 0.19 才够，而 0.32 已是有意为"蜻蜓落脚"留的
+     保底（见 06d-corridor 的 uCorrFloor 注释）⇒ 再缩既不动、也不该动。
+     根因：两套叶盘各自独立生成、互不避让 —— makeAquatic 撒 36 片（组 −2.5,+2.2），
+     makePondPads 沿 12 株荷花各撒 3 片（组 0,0），两套的圆心大概率撞在池腰那一带。
+     ⇒ 收尾沿两者连线**各推开所需距离的一半**，反复到没有交叠或达到迭代上限。
+     纯几何、零随机数、不动 y（高度差不动就还是同一层水面），只改实例矩阵的 x/z。 */
+  for (let round = 0; round < 40; round++){
+    let any = false;
+    for (let i = 0; i < pads.length; i++){
+      for (let j = i + 1; j < pads.length; j++){
+        const a = pads[i], b = pads[j];
+        if (!hitPair(a, b)) continue;
+        let dx = b.x - a.x, dz = b.z - a.z;
+        let d = Math.hypot(dx, dz);
+        /* 中心几乎重合时方向是噪声 ⇒ 用确定性方向（按索引奇偶选一个轴），仍零随机数 */
+        if (d < 1e-4){ dx = (i % 2 ? 1 : -1); dz = (j % 2 ? 1 : -1); d = Math.hypot(dx, dz); }
+        /* 把两片推到"水平恰好不重叠"：需要中心距 = PAD_R*(sa+sb)*0.95（与 hitPair 同口径） */
+        const need = PAD_R * (a.s + b.s) * 0.95;
+        if (d >= need) continue;
+        const push = (need - d) * 0.5 + 0.002;
+        const ux = dx / d, uz = dz / d;
+        a.x -= ux * push; a.z -= uz * push;
+        b.x += ux * push; b.z += uz * push;
+        any = true;
+      }
+    }
+    if (!any) break;
+  }
+  /* 回写：pads 里的 x/y/z 是**世界**坐标，实例矩阵要的是**局部** ⇒ 用组 matrixWorld 的逆转回去
+     （见上面 2026-11-07 的注释；组只有平移，逆变换是精确的，仍然零随机数）。 */
+  const inv = new THREE.Matrix4();
   for (const p of pads){
-    pos.set(p.x, p.y, p.z);
+    inv.copy(p.im.matrixWorld).invert();
+    pos.set(p.x, p.y, p.z).applyMatrix4(inv);
     m.compose(pos, p.q, new THREE.Vector3(p.s, p.s, p.s));
     p.im.setMatrixAt(p.i, m);
   }

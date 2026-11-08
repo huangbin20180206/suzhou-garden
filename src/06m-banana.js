@@ -297,7 +297,14 @@ export function makeLotusPod(x, z, h = 0.85){
     new THREE.Vector3(bend * 0.9, h * 0.72, lean * 0.9),
     new THREE.Vector3(bend, h, lean),
   ]);
-  g.add(mesh(new THREE.TubeGeometry(stemCurve, 8, 0.016, 6, false), MAT.lily, { name:'podStem' }));
+  /* ⚠️ 2026-11-08：莲蓬的杆/伴生荷花的杆花蕾全部改用 MAT.lotusStem（细节见 01-materials
+     的 lotusStem 注释）。原来它们用 MAT.lily —— 那是**叶盘**材质、由 lilyShow 管，
+     而莲蓬头走 lotusPodShow、伴生花瓣走 lotusShow，三个通道各自独立 ⇒ 春/秋会出现
+     "只有杆、没有头"的光杆（春季 lily=0.56 / lotus=0 / pod=0 正是这种组合）。
+     ⚠️ podPad（浮叶）**保持 MAT.lily 不动** —— 叶盘本来就该跟 lilyShow 走。 */
+  const podStemM = mesh(new THREE.TubeGeometry(stemCurve, 8, 0.016, 6, false), MAT.lotusStem, { name:'podStem' });
+  podStemM.userData.noMerge = true;      // 同 06j 的 lotusStem：身份带季节语义，不许被材质桶焊掉
+  g.add(podStemM);
 
   // 莲房头（第十一轮：**强倾**——旧版只倾 7°，岸边看到的永远是椭球侧面、
   // 籽孔面朝天不可读，用户蓝框判"光秃秃小圆球看不出来是莲蓬"。
@@ -370,7 +377,8 @@ export function makeLotusPod(x, z, h = 0.85){
     const fh = rr(0.45, 0.8);
     /* 茎顶收到花底内（2026-10-14 同 06j 的修法：旧 +0.06 茎尖戳出花头 5cm）。 */
     const stemH = fh + 0.01;
-    const fStem = mesh(new THREE.CylinderGeometry(0.008, 0.013, stemH, 5), MAT.lily, { name:'flowerStem' });
+    const fStem = mesh(new THREE.CylinderGeometry(0.008, 0.013, stemH, 5), MAT.lotusStem, { name:'flowerStem' });
+    fStem.userData.noMerge = true;
     fStem.position.set(fx, stemH / 2, fz);
     g.add(fStem);
     // 伴花基座补叶（第二验收轮：花基部落水处不裸）
@@ -416,7 +424,8 @@ export function makeLotusPod(x, z, h = 0.85){
     const fa = rr(0, TAU), fRad = rr(0.30, 0.5);
     const fx = Math.cos(fa) * fRad, fz = Math.sin(fa) * fRad;
     const fh = rr(0.35, 0.65);
-    const bStem = mesh(new THREE.CylinderGeometry(0.007, 0.012, fh + 0.08, 5), MAT.lily, { name:'budStem' });
+    const bStem = mesh(new THREE.CylinderGeometry(0.007, 0.012, fh + 0.08, 5), MAT.lotusStem, { name:'budStem' });
+    bStem.userData.noMerge = true;
     bStem.position.set(fx, (fh + 0.08) / 2, fz);
     bStem.rotation.z = fx * 0.06;
     g.add(bStem);

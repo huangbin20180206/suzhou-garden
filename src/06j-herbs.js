@@ -552,12 +552,19 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
        旧 +0.06 让茎尖高出花萼顶约 5cm —— 近看花心里竖着一截棍尖。花萼只盖到 +0.0095，
        茎必须止于萼内：+0.01。茎与花心的 xy 本来同轴（fx/fz 一致），错的是 z 这 6cm。 */
     const stemH = fy - CFG.water + 0.01;
-    const stemM = mesh(new THREE.CylinderGeometry(0.026, 0.040, stemH, 12), MAT.lily, { name:'lotusStem' });
+    /* ⚠️ 2026-11-08 noMerge 必须加：杆/萼走自己的季节通道（lotusStem → lotusPodShow），
+       而 mergeStatics 的第 ③ 条路按材质桶合并时会**把同材质的杆焊成一个网格**，
+       焊完之后显隐只能整组开关、也不再跟着季节走（实测合并后 stemMeshes=1、
+       visible=true 恒为真 ⇒ 春季照样一排光杆）。与 09-lights 里 INSTANCE_MERGE_SKIP_MATS
+       那条注释是同一个道理：身份本身带语义的网格不能焊。 */
+    const stemM = mesh(new THREE.CylinderGeometry(0.026, 0.040, stemH, 12), MAT.lotusStem, { name:'lotusStem' });
+    stemM.userData.noMerge = true;
     stemM.position.set(fx, CFG.water + stemH/2, fz);
     g.add(stemM);
     // 花萼/花托（2026-09-29 修"花与杆硬接显歪"）：小绿萼盖住杆顶与花的交接缝，
     // 顺带把"花瓣外圈外翻造成的视觉偏斜"读成自然倒垂
-    const calyx = mesh(new THREE.CylinderGeometry(0.018, 0.052, 0.075, 10), MAT.lily, { name:'lotusCalyx' });
+    const calyx = mesh(new THREE.CylinderGeometry(0.018, 0.052, 0.075, 10), MAT.lotusStem, { name:'lotusCalyx' });
+    calyx.userData.noMerge = true;
     calyx.position.set(fx, fy - 0.028, fz);
     g.add(calyx);
     let slot = 0;
