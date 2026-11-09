@@ -990,6 +990,39 @@ const RELAXED_ARM = {
   guest:   { x: -0.55, z: 0.25, hx: 0, hy: Math.PI, hz: 0, ex: 0.06 },
   scholar: { x: -0.30, z: 0.30, hx: 0, hy: Math.PI, hz: 0, ex: 0.06 },
 };
+/* ── 坐姿手位（2026-11-09 老黄："坐姿穿模（主、客人都要确认和修复）"）─────────────
+   ⚠️⚠️ 真因：**坐姿一直没有手臂角度**。sitW 只把髋骨沉下去（见 hipsDown 那段），
+   两条胳膊继续按 RELAXED_ARM 的"站着手自然垂在大腿旁"摆 —— 人一坐，髋降 0.36m，
+   垂着的手就整个插进坐面板里。逐顶点定位（outputs/_diag/seat-vert-map-20261109）：
+     主人 174 个穿模顶点里，**手/手指 46 个**（左手 13 陷在靠背 z −0.28 那层、
+     右手 17 陷在坐面 y +0.47 那层）+ 前臂 18 + 手指零碎若干；
+     袍摆（Skirt*）一共只有 9 个，且都在前椅腿外沿。
+   ⇒ 这一条是"端坐该有的手位"缺失，不是家具尺寸问题（实测扩椅子 0.74→0.80 后
+      穿模 180→176，几乎不变：袍子和手把多出来的空间整个填满了，已回退）。
+   做法：坐姿把手收到**大腿面上**（肘微屈、前臂搭在大腿、手落在膝盖后方），
+   用独立一组角、按 st2 与 RELAXED_ARM 做**加权过渡**（坐下/起身时不会"啪"地跳手）。
+   ⚠️ 这组数是**补偿量**（叠在 RELAXED_ARM 之上），不是绝对角 —— 这样站→坐→站
+      的插值是连续的一维混合，不会在中间某帧两只手打架。
+   ⚠️ 与 end 的手（捧卷/端茶/抚琴/对弈/端盏）互斥：那些通道在 st2 高时也会跑，
+      所以本组只在"没在做事"时叠加（见 _sitArm 的使用点）。 */
+const SIT_ARM = {
+  /* ⚠️ 2026-11-09 这组数只做**一件事**：把原本垂在坐面板里的手挪到大腿上。
+       取值经过网格扫描（outputs/_diag/seat-hand-metric-20261109，四组对照）：
+             x      ex    z   | 主人穿模  其中手   其中臂 | 客人
+         A −0.20  0.28  0.50 |    96      13       8   |  5   ← 采用
+         B −0.20  0.75  0.35 |    99      21       4   |  5
+         C −0.50  1.05  0.25 |   114      75      14   |  5
+         D −0.30  1.30  0.20 |   141     104      12   |  5
+       原始（无本组）主人 = 176。手骨落点 y = 台基 +0.46（坐面 +0.50）、z ≈ 椅心，
+       即"手在大腿面上"—— 位置正确。
+       ⚠️ 不要继续追"穿模为 0"：比 A 更极端的组合全是"把手收进袖子里看不见"，
+          那是拿可见性换数字，出图上反而更差（B/C/D 就是这么被淘汰的）。
+       ⚠️ 剩下的残余大头是 Hips/UpperChest 压在坐面板上 —— 人坐在板子上的物理必然。
+     x  上臂前摆（负 = 往前）
+     ex 屈肘：前臂抬到接近水平
+     z  上臂外展（**这一条才是把手放到大腿外侧的主轴**） */
+  x: -0.20, ex: 0.28, z: 0.50, hx: 0.18,
+};
 
 /* 贴地软影的材质（全部人物共用一份，只建一次）。
    ⚠️ 用 map 不用 alphaMap：makeSoftAlphaTex 的渐变在 **alpha 通道**里，
@@ -2067,9 +2100,14 @@ function pairPointAt(P, s){
       "到了新路线的起点却永远站着"（tickRoute 见 arrived 直接早退）。
    ⚠️ floorMax 也要跟着路走：客人原本只走地面（1.20），并排要过 2.10m 的拱桥。 */
 function giveRoute(a, pts, speed, waitT, floorMax, faceAfter){
-  a.def.route = { pts, speed, pause: [0, 0], mode: 'once',
-                  ...(faceAfter !== undefined ? { faceAfter } : {}) };
-  a.faceTo = undefined;          // 新路线清掉上一条的到岗朝向，别让它再转身
+  a.def.route = { pts, speed, pause: [0, 0], mode: 'once' };
+  /* ⚠️ 2026-11-09 老黄："奉茶童子在送茶完毕和送客阶段站姿朝向不对"。
+     真因：faceAfter 以前只写进 route.faceAfter，而 tickRoute 到岗转身读的是
+     **a.faceTo** —— 两个名字，全项目没有任何一处把前者搬到后者，
+     所以每次传进来的"到岗朝东"其实一次都没生效，他停在了走路的末朝向。
+     （这正是 2026-11-03 那条"绿衣孩童在门口面朝东"没治好的原因。）
+     修法：直接写 a.faceTo，route 里不再留一份死字段。 */
+  a.faceTo = faceAfter;          // undefined = 到岗不转身（保持走上来的朝向）
   a.target = pts.length > 1 ? 1 : 0;
   a.arrived = false;
   a.walkOff = false;
@@ -4140,14 +4178,27 @@ function advance(dt){
            让掌心朝向身体 —— 直臂摆动像机器人，掌心朝外像"端着架子"。 */
       if (relaxed){
         /* 自然垂手（站与走共用同一组基准角）：手在大腿旁、掌心朝内；走路只叠前后摆。
-           基准角由 arm-2axis / hand-sweep 两个探针实测解出（见 RELAXED_ARM 注释）。 */
+           基准角由 arm-2axis / hand-sweep 两个探针实测解出（见 RELAXED_ARM 注释）。
+           ⚠️ 2026-11-09 坐姿补偿（见 SIT_ARM 注释）：坐下时髋降了 0.36m 而手还按
+              站着的高度垂着 ⇒ 整只手插进坐面板（实测主人 46 个手/指顶点、18 个前臂）。
+              按 st2 把肘收起来、手放大腿上；stand→sit 是一维加权，不会跳。 */
+        const sl = st2;
         const swing = Math.sin(p) * 0.16 * w;
-        set('LeftUpperArm',  relaxed.x - swing, 0,  relaxed.z);
-        set('RightUpperArm', relaxed.x + swing, 0, -relaxed.z);
-        set('LeftLowerArm',  relaxed.ex + 0.05 * Math.max(0,  Math.sin(p)) * w, 0, 0);
-        set('RightLowerArm', relaxed.ex + 0.05 * Math.max(0, -Math.sin(p)) * w, 0, 0);
-        set('LeftHand',  relaxed.hx,  relaxed.hy,  relaxed.hz);
-        set('RightHand', relaxed.hx, -relaxed.hy, -relaxed.hz);
+        set('LeftUpperArm',  relaxed.x - swing + SIT_ARM.x * sl, 0,  relaxed.z + SIT_ARM.z * sl);
+        /* ⚠️ 右臂的 x 是**反号**的（见上面"左右反号"那条实测：左 x 更负 = 手往前、
+              右 x 更正 = 手往后）。
+           ⚠️⚠️ 2026-11-09 这里两侧都取 +x 是**试出来的**，不是推出来的：按 −x 给右边
+              虽然把手从背后救回来了，却把手臂甩进扶手（armL 上 90 个刚性件，
+              rx −0.41~−0.35 正好是扶手内沿）。原因是这条臂的骨骼轴在左右两侧
+              不是纯反号关系（RELAXED_ARM 的 z 是反号的、x 的正负与摆动同向）。
+              最终两个符号组合的实测（out/_diag/seat-clip2-20261109）：
+                +x / +x → 268、+x / −x → 268、−x / +x（本条）→ 最低。
+              再动这两个符号之前，先把这三种组合重跑一遍，别凭"应该反号"直接改。 */
+        set('RightUpperArm', relaxed.x + swing + SIT_ARM.x * sl, 0, -relaxed.z - SIT_ARM.z * sl);
+        set('LeftLowerArm',  relaxed.ex + 0.05 * Math.max(0,  Math.sin(p)) * w + SIT_ARM.ex * sl, 0, 0);
+        set('RightLowerArm', relaxed.ex + 0.05 * Math.max(0, -Math.sin(p)) * w + SIT_ARM.ex * sl, 0, 0);
+        set('LeftHand',  relaxed.hx + SIT_ARM.hx * sl,  relaxed.hy,  relaxed.hz);
+        set('RightHand', relaxed.hx + SIT_ARM.hx * sl, -relaxed.hy, -relaxed.hz);
         for (const sd of ['Left','Right']){
           set(sd + 'IndexProximal', 0.45, 0, 0);
           set(sd + 'MiddleProximal', 0.45, 0, 0);
@@ -4886,8 +4937,10 @@ export function actorPose(id, pose){
   }
 }
 
-/* 探针用：坐姿/对弈的参数对象（反解它们时要能改一改再看几何，不用改文件重跑） */
-export function actorTune(){ return { SIT, GO_ARM, QIN_HAND, QIN_ARM }; }
+/* 探针用：坐姿/对弈的参数对象（反解它们时要能改一改再看几何，不用改文件重跑）
+   ⚠️ 2026-11-09 追加 SIT_ARM：坐姿手位的四个角是**扫出来的**（不是推出来的），
+      扫参数必须能在页内改完立刻重测，否则每换一组都要重开浏览器（一次 40s）。 */
+export function actorTune(){ return { SIT, GO_ARM, QIN_HAND, QIN_ARM, SIT_ARM }; }
 
 /* 探针用：某个人物的骨骼表与**绑定姿态**（只在页内用 —— 返回的是 THREE 对象，
    跨 evaluate 序列化不了）。抚琴的肩/肘角度是"手落到弦上"反解出来的，

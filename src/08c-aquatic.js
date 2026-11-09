@@ -636,6 +636,55 @@ function separateLilyPads(){
       }
     }
   }
+  /* ── ⓪b 荷花花梗避让（2026-11-09 老黄："荷花穿模"，红框里那朵花插在叶盘正中间）─────
+     现象：13 处花梗穿过叶盘，最狠的两处离叶盘中心只有 0.07m / 0.15m
+     （花 (-0.24,0.51) 与叶盘 (-0.36,0.45) —— 等于从盘心直插进去），
+     近景就是"一朵花从荷叶里长出来、杆和叶子糊成一片"。
+     根因与上面坐标那件事同源：**两套东西各自独立随机布点、互不避让** ——
+       · 荷花（杆/萼/花头）在 06j 的 makeAquatic 循环里撒；
+       · 叶盘另外在 makePondPads 里沿 lotusSpots 撒，还有 makeAquatic 那 36 片。
+     两侧都不知道对方在哪，池腰那一带必然撞上。
+     修法：把叶盘从花梗上推开，推距 = 叶盘半径 + 杆半径 + 余量 − 当前中心距。
+       ⚠️ **不能像驳岸石那样往上抬**：花梗是从水面笔直竖到花头的一整根，
+          叶盘抬多高都还套在同一根杆上（抬起来反而更明显：一片叶子卡在半截杆上）。
+          水平推开是唯一正确的自由度。
+       ⚠️ 推开方向：沿"花梗 → 叶盘"连线往外；中心几乎重合时方向是噪声 ⇒
+          退到"叶盘 → 组原点"的方向（也不消耗随机数），实在没有才按索引定一个轴。
+       ⚠️ 纯几何、零随机数（铁律 1）；放在分层之前，后面的分层会基于新位置重算交叠。
+       ⚠️ 杆半径按实测最粗的那一档取 0.040（makeAquatic 的 CylinderGeometry 底半径），
+          再留 0.02 余量 —— 与"碟沿厚度"同量级，近景看不出来。 */
+  const _stems = [];
+  world.traverse(o => {
+    if (o.isMesh && !o.isInstancedMesh && o.material === MAT.lotusStem && o.name === 'lotusStem'){
+      const wp = o.getWorldPosition(new THREE.Vector3());
+      _stems.push({ x: wp.x, z: wp.z });
+    }
+  });
+  if (_stems.length){
+    const STEM_R = 0.040, GAP = 0.02;
+    for (let pass = 0; pass < 3; pass++){          // 推开一片可能撞进另一根，反复几轮收敛
+      let moved = false;
+      for (const p of pads){
+        for (const st of _stems){
+          const need = p.r + STEM_R + GAP;
+          let dx = p.x - st.x, dz = p.z - st.z;
+          let d = Math.hypot(dx, dz);
+          if (d >= need) continue;
+          if (d < 1e-4){
+            /* 中心几乎重合：改用"叶盘 → 组原点"方向（绝大多数叶盘离原点是米级距离） */
+            const gx = -p.im.matrixWorld.elements[12], gz = -p.im.matrixWorld.elements[14];
+            dx = p.x - gx; dz = p.z - gz; d = Math.hypot(dx, dz);
+            if (d < 1e-4){ dx = 1; dz = 0; d = 1; }   // 真的一点方向都没有了
+          }
+          const push = need - d + 0.004;
+          p.x += dx / d * push;
+          p.z += dz / d * push;
+          moved = true;
+        }
+      }
+      if (!moved) break;
+    }
+  }
   const hitPair = (a, b) => {
     const need = PAD_R * (a.s + b.s) * 0.95;
     if (Math.hypot(a.x - b.x, a.z - b.z) >= need) return false;
