@@ -1,0 +1,76 @@
+// 临时诊断（2026-11-10）：巡游门为何在低帧机器上走不满 10 站。
+// 假设：固定步长丢步 ⇒ 仿真钟落后墙钟 ⇒ 每站墙钟时长 = dwell / (fps × maxFrame)。
+// 只读，不改项目文件。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { launchChromium, listenEphemeral } from '../../probe/_harness.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+function loadPlaywright(){
+  const require = createRequire(import.meta.url);
+  try { return require('playwright'); } catch { /* 全局 */ }
+  const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+  return require(path.join(globalRoot, 'playwright'));
+}
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
+               '.glb': 'model/gltf-binary', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err){ res.writeHead(404); res.end('not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+(async () => {
+  const port = await listenEphemeral(server);
+  const { chromium } = loadPlaywright();
+  const browser = await launchChromium(chromium);
+  const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
+  page.setDefaultTimeout(150000);
+  await page.goto(`http://127.0.0.1:${port}/index.html?tier=low`, { waitUntil: 'load', timeout: 120000 });
+  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
+    null, { timeout: 120000, polling: 300 });
+
+  /* 帧率：3 秒空转采样 */
+  const fps = await page.evaluate(() => new Promise(res => {
+    let n = 0; const t0 = performance.now();
+    const tick = () => { n++; if (performance.now() - t0 < 3000) requestAnimationFrame(tick);
+                         else res({ frames: n, fps: +(n / ((performance.now() - t0) / 1000)).toFixed(2) }); };
+    requestAnimationFrame(tick);
+  }));
+  console.log('FPS', JSON.stringify(fps));
+
+  const stepCfg = await page.evaluate(() => {
+    const g = window.__garden || {};
+    return { fixedStep: g.FIXED_STEP || null,
+             quality: (g.ACTIVE_QUALITY && g.ACTIVE_QUALITY.name) || null,
+             drawCalls: (() => { try { return g.renderer && g.renderer.info.render.calls; } catch { return null; } })() };
+  });
+  console.log('STEPCFG', JSON.stringify(stepCfg));
+
+  /* 巡游：记录 idx 变化的时间点 */
+  await page.evaluate(() => window.__garden.tourStart());
+  const t0 = Date.now(); const marks = []; let lastIdx = null;
+  while (Date.now() - t0 < 40000){
+    const s = await page.evaluate(() => { const st = window.__garden.tourState(); return { idx: st.idx, on: st.on }; });
+    if (s.idx !== lastIdx){ marks.push({ idx: s.idx, at: +((Date.now() - t0) / 1000).toFixed(2) }); lastIdx = s.idx; }
+    if (!s.on) break;
+    await sleep(200);
+  }
+  await page.evaluate(() => window.__garden.tourStop());
+  console.log('MARKS', JSON.stringify(marks));
+  const gaps = [];
+  for (let i = 1; i < marks.length; i++) gaps.push(+(marks[i].at - marks[i - 1].at).toFixed(2));
+  const avg = gaps.reduce((a, b) => a + b, 0) / (gaps.length || 1);
+  console.log('GAPS', JSON.stringify(gaps), 'avg=', avg.toFixed(2));
+  console.log('SIM/WALL ≈', (6 / avg).toFixed(3), '｜ fps × maxFrame(0.1) =', (fps.fps * 0.1).toFixed(3));
+  await browser.close(); server.close();
+  process.exit(0);
+})().catch(e => { console.error('ERR', e); process.exit(1); });

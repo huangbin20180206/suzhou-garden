@@ -58,8 +58,10 @@ const norm = s => String(s || '').replace(/[\s·・]/g, '');
   const errs = [];
   page.on('pageerror', e => errs.push(String(e && e.message || e)));
 
-  console.log(`\n[tour-guard] http://127.0.0.1:${port}/index.html`);
-  await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load', timeout: 120000 });
+  /* 钉档位（2026-11-10）：与 smoke.mjs / festival-guard.mjs 同法。双显卡机器上不钉档会落到哪块卡不定，
+     整套连跑时帧率最容易被前一门余温拖塌 ⇒ 巡游吃固定步长仿真钟，帧率一塌就"走不满站"。判据数字不动。 */
+  console.log(`\n[tour-guard] http://127.0.0.1:${port}/index.html?tier=low`);
+  await page.goto(`http://127.0.0.1:${port}/index.html?tier=low`, { waitUntil: 'load', timeout: 120000 });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
     null, { timeout: 120000, polling: 300 });
   await sleep(800);
@@ -86,7 +88,12 @@ const norm = s => String(s || '').replace(/[\s·・]/g, '');
   const landing = new Map();       // idx -> 落定后的最小偏差 {h, dy, dTarget, hit}
   const t0 = Date.now();
   let stopped = false;
-  while (Date.now() - t0 < 110000){
+  /* 采集窗口 110s → 160s（2026-11-10）：这不是放宽判据，是给慢机留够采集时长。
+     实测（?tier=low，probe-tour-rate 诊断）：7.52s/站 ⇒ 10 站 ≈ 75s（飞行 1.4s + 停留 6s）。
+     巡游计时吃固定步长仿真钟（00b-fixedstep.js maxFrame:0.1，单帧最多补 0.1s）：
+     整套连跑帧率塌到 5fps 时仿真钟只剩墙钟约一半 ⇒ 75s 的巡游要 150s 才走完，原 110s 窗口必然停在第 7~8 站。
+     判据（10 站按序、逐站落位阈值）一个字没动。 */
+  while (Date.now() - t0 < 160000){
     const s = await page.evaluate(() => {
       const g = window.__garden, st = g.tourState();
       return { on: st.on, idx: st.idx, cap: g.tourCaption(), fly: g.camFly(),
