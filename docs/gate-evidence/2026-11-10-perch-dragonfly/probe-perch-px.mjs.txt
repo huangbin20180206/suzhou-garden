@@ -1,0 +1,102 @@
+// 临时诊断（2026-11-10）：停栖蜻蜓在默认机位只有 14px，找"它停在哪、离镜头多远、放大能不能救"。
+// 只读，不改项目文件。用法：node outputs/_diag/perch-px-20261110.mjs
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { launchChromium, listenEphemeral } from '../../probe/_harness.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+function loadPlaywright(){
+  const require = createRequire(import.meta.url);
+  try { return require('playwright'); } catch { /* 全局 */ }
+  const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+  return require(path.join(globalRoot, 'playwright'));
+}
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.mjs': 'text/javascript',
+               '.glb': 'model/gltf-binary', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err){ res.writeHead(404); res.end('not found'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+
+(async () => {
+  const port = await listenEphemeral(server);
+  const { chromium } = loadPlaywright();
+  const browser = await launchChromium(chromium);
+  const page = await browser.newPage({ viewport: { width: 900, height: 600 } });
+  page.setDefaultTimeout(150000);
+  await page.goto(`http://127.0.0.1:${port}/index.html?tier=low`, { waitUntil: 'load', timeout: 120000 });
+  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
+    null, { timeout: 120000, polling: 300 });
+
+  const out = await page.evaluate(() => {
+    const G = window.__garden, THREE = G.THREE;
+    const cv = document.createElement('canvas');
+    cv.width = G.renderer.domElement.width; cv.height = G.renderer.domElement.height;
+    const ctx = cv.getContext('2d');
+    const grab = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0);
+      return ctx.getImageData(0, 0, cv.width, cv.height); };
+    const hot = (A, B) => { let n = 0;
+      for (let i = 0; i < A.data.length; i += 4){
+        const d = Math.abs(A.data[i]-B.data[i]) + Math.abs(A.data[i+1]-B.data[i+1]) + Math.abs(A.data[i+2]-B.data[i+2]);
+        if (d > 12) n++;
+      } return n; };
+
+    const cam = G.camera;
+    const camPos = cam.position.clone();
+    const A = grab();
+    const per = [];
+    G.perchingDragonflies.forEach((g, i) => {
+      const keep = g.visible;
+      g.visible = false; grab(); const B = grab();
+      g.visible = keep;
+      const p = new THREE.Vector3(); g.getWorldPosition(p);
+      const ndc = p.clone().project(cam);
+      // 遮挡检测：从相机射向这只蜻蜓，看第一个命中的是不是它自己（不是 ⇒ 被挡）
+      const dir = p.clone().sub(camPos).normalize();
+      const rc = new THREE.Raycaster(camPos.clone(), dir, 0.01, 200);
+      const hits = rc.intersectObjects(G.scene.children, true)
+        .filter(h => h.object.visible && h.object.type !== 'Sprite');
+      const firstHit = hits[0] ? {
+        dist: +hits[0].distance.toFixed(2),
+        name: hits[0].object.name || hits[0].object.type,
+        isSelf: (() => { let o = hits[0].object; while (o){ if (o === g) return true; o = o.parent; } return false; })(),
+      } : null;
+      per.push({
+        i, visible: keep,
+        px: hot(A, B),
+        ndc: [+ndc.x.toFixed(3), +ndc.y.toFixed(3), +ndc.z.toFixed(3)],
+        onScreen: Math.abs(ndc.x) <= 1 && Math.abs(ndc.y) <= 1 && ndc.z > -1 && ndc.z < 1,
+        dist: +p.distanceTo(camPos).toFixed(2),
+        firstHit,
+        world: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)],
+        scale: [+g.scale.x.toFixed(3), +g.scale.y.toFixed(3), +g.scale.z.toFixed(3)],
+        anchor: g.userData.perch && g.userData.perch.anchor
+          ? { id: g.userData.perch.anchor.id, kind: g.userData.perch.anchor.kind } : null,
+      });
+    });
+    // 候选锚点：按到镜头的距离排序，看最近几个在哪、是否在画面内
+    const anchors = (G.perchingAnchors || []).map(a => {
+      const p = new THREE.Vector3().copy(a.local).applyMatrix4(a.object.matrixWorld);
+      return { id: a.id, kind: a.kind, dist: +p.distanceTo(camPos).toFixed(2),
+               world: [+p.x.toFixed(2), +p.y.toFixed(2), +p.z.toFixed(2)] };
+    }).sort((x, y) => x.dist - y.dist);
+    return {
+      cam: [+camPos.x.toFixed(2), +camPos.y.toFixed(2), +camPos.z.toFixed(2)],
+      camFov: cam.fov, per, anchorCount: anchors.length,
+      nearestAnchors: anchors.slice(0, 8), farthestAnchor: anchors[anchors.length - 1],
+    };
+  });
+  console.log('CAM ' + JSON.stringify({ pos: out.cam, fov: out.camFov }));
+  console.log('PERCH ' + JSON.stringify(out.per));
+  console.log('ANCHORS n=' + out.anchorCount + ' nearest=' + JSON.stringify(out.nearestAnchors));
+  console.log('FARTHEST ' + JSON.stringify(out.farthestAnchor));
+  await browser.close(); server.close();
+})().catch(e => { console.error('FAIL', e && e.stack || e); process.exit(1); });

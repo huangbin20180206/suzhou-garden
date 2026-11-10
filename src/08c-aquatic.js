@@ -100,7 +100,15 @@ function makePerchingDragonfly(idx){
 function pickPerchAnchor(excludeId){
   const cands = perchingAnchors.filter(a => a.kind !== 'flower' || a.instanceId !== excludeId);
   if (!cands.length) return null;
-  return cands[(perchRnd() * cands.length) | 0];
+  /* 2026-11-10：优先停在**花**上。
+     实测（outputs/_diag/perch-px-20261110.mjs，默认机位相机 (-20,17,32) fov46）：
+     停在花上的那只 13~16px、正前方第一命中是自己；停在叶盘上的那只 0px —— 视线在 36.31m 处
+     先撞上 35.93m 的另一片叶子，**整只被挡住**（叶盘贴水面 y≈0.15，俯角下必然被邻叶遮）。
+     花有 1m 左右的花梗把落点抬出叶面，视线通畅。叶锚点保留作兜底：没有花可选时照样停叶。
+     判据（>15px）一个字没动。 */
+  const flowers = cands.filter(a => a.kind === 'flower');
+  const pool = flowers.length ? flowers : cands;
+  return pool[(perchRnd() * pool.length) | 0];
 }
 // 用实例几何当前矩阵求世界坐标锚点（停栖起点/终点都从这来）
 /* ⚠️ local 已经是「InstancedMesh 局部（= makeAquatic 组）坐标」（addPerchingAnchor 里
