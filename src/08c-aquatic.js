@@ -97,6 +97,13 @@ function makePerchingDragonfly(idx){
   return g;
 }
 
+/* 锚点所在的网格**现在画不画**：花瓣（MAT.lotus）与叶盘（MAT.lily）都受季节存在性通道
+   管 visible（12f-season 的 SEASON_PRESENCE，阈值 p[key] > 0.03）。
+   ⚠️ 必须逐级往上问——光团/实例挂在组下面，藏的可能是不带锚点的父组。 */
+function anchorVisible(a){
+  for (let o = a.object; o; o = o.parent) if (o.visible === false) return false;
+  return true;
+}
 function pickPerchAnchor(excludeId){
   const cands = perchingAnchors.filter(a => a.kind !== 'flower' || a.instanceId !== excludeId);
   if (!cands.length) return null;
@@ -105,9 +112,17 @@ function pickPerchAnchor(excludeId){
      停在花上的那只 13~16px、正前方第一命中是自己；停在叶盘上的那只 0px —— 视线在 36.31m 处
      先撞上 35.93m 的另一片叶子，**整只被挡住**（叶盘贴水面 y≈0.15，俯角下必然被邻叶遮）。
      花有 1m 左右的花梗把落点抬出叶面，视线通畅。叶锚点保留作兜底：没有花可选时照样停叶。
-     判据（>15px）一个字没动。 */
-  const flowers = cands.filter(a => a.kind === 'flower');
-  const pool = flowers.length ? flowers : cands;
+     判据（>15px）一个字没动。
+     ⚠️⚠️ 2026-11-10 同日补：优先停花必须**先过滤掉当前画不出来的锚点**。
+       春/秋 lotusShow=0 ⇒ 花瓣网格被季节通道藏了，而 dragonflyShow 仍是 0.35（蜻蜓在飞）。
+       不加这道过滤时"有花必停花"等于让两只蜻蜓 100% 悬在半空
+       （实测 outputs/_diag/perch-season-20261110.mjs：春/秋两只 anchorMeshVisible=false；
+        改前是 12 花 : 36 叶的随机，落花概率 25%，本次提交把它放大成了 100%）。
+       过滤掉不可见的锚点后，春/秋自动落到仍可见的叶盘上。 */
+  const shown = cands.filter(anchorVisible);
+  const poolAll = shown.length ? shown : cands;        // 全都不可见时退回全集（冬/暴雨本就整组隐藏）
+  const flowers = poolAll.filter(a => a.kind === 'flower');
+  const pool = flowers.length ? flowers : poolAll;
   return pool[(perchRnd() * pool.length) | 0];
 }
 // 用实例几何当前矩阵求世界坐标锚点（停栖起点/终点都从这来）
