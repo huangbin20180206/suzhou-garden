@@ -362,6 +362,49 @@ export function makeLanterns(){
     pivot.add(grp);
     world.add(pivot);
     lanternGroups.push(pivot);
+
+    /* 墙面光斑（2026-11-10）：灯笼的光该落在**墙**上，不只在脚下地面。
+       做法：从灯芯朝 ±x / ±z 各打一条 3.2m 的射线，命中的第一个"近似竖直的面"
+       （|法线.y| < 0.35）且距离 > 0.6m，就在那个面上贴一张圆斑。
+       · 复用地面光斑的材质与几何（`_groundSplashMat` / `_groundSplashGeo`）——
+         uLamp / uTime 由既有 tickLampVol 统一喂，不新增 uniform、不新增接线点；
+         同一盏灯照出去的光不该有两种脾气（亮度/闪烁必须一致）。
+       · 一盏灯只贴**最近的一面**墙（命中即 break）：两面都贴会读成"两头亮"，
+         而且走廊两侧对穿的光斑比没有更假。
+       · 过滤：屋顶/树冠/别的灯笼/已贴的光斑都不是"被照亮的墙"，一律跳过。
+       · 代价：每盏灯 4 条射线、只在建场期跑一次（约 8 盏 × 4），不进每帧路径。 */
+    if (WITH_VOL && _groundSplashMat){
+      const _from = new THREE.Vector3(x, y, z);
+      const _dirs = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+                     new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
+      const _wr = new THREE.Raycaster();
+      _wr.far = 3.2;
+      for (const dir of _dirs){
+        _wr.set(_from, dir);
+        const hits = _wr.intersectObject(world, true);
+        let hit = null;
+        for (const h of hits){
+          if (!h.face) continue;
+          if (h.object.name === 'wallSplash' || h.object.name === 'lampVol') continue;
+          if (h.object.material === _groundSplashMat || h.object.material === lampVolMat) continue;
+          if (h.distance <= 0.6) continue;
+          const ny = Math.abs(h.face.normal.clone().transformDirection(h.object.matrixWorld).y);
+          if (ny >= 0.35) continue;                    // 只认近似竖直的面
+          hit = h; break;
+        }
+        if (!hit) continue;
+        const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+        const patch = new THREE.Mesh(_groundSplashGeo, _groundSplashMat);
+        patch.position.copy(hit.point).addScaledVector(n, 0.02);
+        patch.lookAt(_from);                            // 圆面朝向灯芯
+        const pr = Math.min(1.35, 0.5 + (3.2 - hit.distance) * 0.35);
+        patch.scale.set(pr, pr, pr);
+        patch.name = 'wallSplash';
+        world.add(patch);
+        _splashMeshes.push(patch);
+        break;
+      }
+    }
   }
 }
 /* 每帧喂时间给体积光/地面光斑（驱动湍流漂移与微闪烁）。渲染循环里 composer.render 前调用。
