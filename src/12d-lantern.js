@@ -184,10 +184,21 @@ export function makeLanterns(){
     uniforms: { uLamp: { value: 0 }, uRain: { value: 0 }, uTime: { value: 0 }, uTint: { value: new THREE.Color(0xFFAA33) } },
     vertexShader: `
       varying vec3 vP;
-      void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      varying vec3 vViewPos;     // 本片元在视图空间的位置（相机在原点）
+      varying vec3 vCenterView;  // 光团球心在视图空间的位置
+      varying float vRadView;    // 球半径在视图空间的长度（等比例缩放 ⇒ 取矩阵第一列的长度）
+      void main(){
+        vP = position;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vViewPos = mv.xyz;
+        vCenterView = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        vRadView = length(modelViewMatrix[0].xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
     fragmentShader: `
       uniform float uLamp; uniform float uRain; uniform float uTime; uniform vec3 uTint;
       varying vec3 vP;
+      varying vec3 vViewPos; varying vec3 vCenterView; varying float vRadView;
       float hash13(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
       float vnoise(vec3 x){
         vec3 i = floor(x), f = fract(x);
@@ -203,10 +214,19 @@ export function makeLanterns(){
         return s;
       }
       void main(){
-        float rl = length(vP);                             // vP 以球心（灯笼发光中心）为原点
-        if (rl > 1.0) discard;                             // 光团球面之外
-        /* 各向同性径向散射：光随距离指数衰减，拢着灯向外快快散开 —— 不是向下收窄的光束 */
-        float atten = exp(-rl * 3.0);
+        /* 各向同性径向散射：光随距离指数衰减，拢着灯向外快快散开 —— 不是向下收窄的光束。
+           ⚠ 2026-11-10 修：原写法 atten = exp(-rl * 3.0) 里 rl 是**球面片元到球心的距离**，
+           而光团是单位球（SphereGeometry(1,…)，等比缩放）⇒ rl 恒等于 1 ⇒ atten 恒等于
+           exp(-3)=0.0498，注释说的"随距离衰减"从未生效，整团光是一片均匀涂层（没有芯亮边暗）。
+           现在改量**撞击参数**：球心到"相机→本片元"这条视线的垂距 b（视图空间），
+           rn = b / 球半径 ∈[0,1] —— 视线正穿球心时 rn=0（穿过最厚的一层光），擦过边缘时 rn=1。
+           atten = 0.28 × exp(-rn × 3.0)：中心 0.28、边缘 0.014，指数衰减这才真的在跑。
+           0.28 这个系数不是随手写的：使全盘面积加权均值 = 0.28 × 2∫₀¹ r·e^(-3r)dr = 0.0498，
+           与原实现的总光量一致 ⇒ 门禁的抬亮读数不该因为是"修 bug"而整体位移。 */
+        vec3 rayDir = normalize(vViewPos);
+        float impact = length(cross(vCenterView, rayDir));   // 球心到该视线的垂距
+        float rn = clamp(impact / max(vRadView, 1e-4), 0.0, 1.0);
+        float atten = 0.28 * exp(-rn * 3.0);
         /* 微弱下偏：灯要照亮脚下空气与地面，但只偏一点点（下半略亮、上半仍有光），
            不会构成"反光碗聚光"的方向性。 */
         float dn = normalize(vP).y;
