@@ -39,8 +39,9 @@ import { makeLanterns, tickLampVol, lampVolState, setLampVol, lanternGroups, has
          lanternMat, _lampVol, _groundSplashMat, worldLights } from './12d-lantern.js';
 export { makeLanterns, tickLampVol, lampVolState, setLampVol, lanternGroups, hash21Lantern };
 /* 2026-10-05 拆分：雨/雪粒子 + 雨后檐滴与积水已搬进 12e-precip.js（那边不能 import 本模块，故由本模块注入 ENV）。 */
-import { bindPrecipEnv, PRECIP, updatePrecip, POSTRAIN, updatePostRain } from './12e-precip.js';
-export { PRECIP, updatePrecip, POSTRAIN, updatePostRain };
+import { bindPrecipEnv, PRECIP, updatePrecip, POSTRAIN, updatePostRain,
+         LOTUS_DROPS, bindLotusDrops, bindDropRipple } from './12e-precip.js';
+export { PRECIP, updatePrecip, POSTRAIN, updatePostRain, LOTUS_DROPS, bindLotusDrops, bindDropRipple };
 /* 2026-10-05 拆分：环境三轴预设 + 合成规则已搬进 12a-presets.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, composeEnv, resolveEnv, mixInto,
          baseParamsAt, timeKeyNow, syncTimeAnchors, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,

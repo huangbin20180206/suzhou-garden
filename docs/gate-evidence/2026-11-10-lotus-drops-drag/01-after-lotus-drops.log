@@ -1,0 +1,6 @@
+AFTER_BOOT {"pads":36,"N":16,"im":true,"visible":false,"landed":0,"rolls":0}
+CLEAR {"wet":0,"visible":false,"op":0}
+AFTERRAIN_T0 {"wet":0.3209785997732426,"visible":true,"op":0.145,"landed":0,"rolls":1}
+AFTERRAIN_T14 {"visible":true,"landed":36,"rolls":40}
+DRAG {"at":47096.40000000037,"x":1.0903028209501073,"z":6.402504390363966}
+PAGEERRORS []

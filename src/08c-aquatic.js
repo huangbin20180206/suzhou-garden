@@ -26,7 +26,7 @@ import { makeWaterGrass, makeBananaPlant } from './06i-trees.js';
 import { makeAquatic, makePondPads } from './06j-herbs.js';
 import { MAT } from './01-materials.js';
 import { makeDragonfly, makeGoose, makeSmallBirdGeo, makeDuckGeo, makeDuckWakeGeo } from './07-ground.js';
-import { onAssetAttached } from './12-env.js';
+import { onAssetAttached, bindLotusDrops } from './12-env.js';
 import {setSmallBirdMesh, N_GRASS_BIRD, perchRnd, perchingDragonflies, DF_PATROL, geese, gRnd, GN, gooseSlot, GOOSE, gooseStartWave, updateGooseFlock, smallBirds, smallBirdMeshRef, bRnd, BIRD_PALETTE, ROCK_BIRD_PALETTE, ROCK_SPOTS, GRASS_SPOTS, N_ROCK_BIRD, BIRD_CAP, BIRD_FOOT_LIFT, birdState, updateSmallBirds} from './08e-birds.js';
 import { MACAW_SPOTS, MACAWS, MACAW_COUNT, MACAW_WING, macawWantPerch, updateMacaws, macawSpots, macawState } from './08f-macaw.js';
 /* 写意艺术处理登记（金刚鹦鹉：展示保留、标注为艺术处理，替代候选见 src/art-license.js） */
@@ -560,7 +560,12 @@ loadAssetOnce('assets/lotus-bloom.glb', 1.65, (src) => attachLotusState('lotusBl
 loadAssetOnce('assets/lotus-bud.glb',   1.50, (src) => attachLotusState('lotusBud',   src));
 loadAssetOnce('assets/lotus-pod.glb',   1.60, (src) => attachLotusState('lotusPod',   src));
 /* 旧 LotusPlant.glb 已退役删除（git 历史可回退）。 */
-world.add(makePondPads(lotusSpots));
+/* 叶盘顶面交给 12e 的水珠系统（2026-11-10）：makePondPads 把每片的 {x,y,z,r} 登记在
+   group.userData.padTops 上，这里装配完就交出去，12e 才知道水珠该滚向哪个盘沿。
+   ⚠️ 必须放在 world.add 之后、且传的是同一个 group（不是拷贝）。 */
+const pondPads = makePondPads(lotusSpots);
+world.add(pondPads);
+bindLotusDrops(pondPads);
 
 /* ── 叶盘自动分层（2026-10-26 老黄："这一片荷叶是不是有穿模问题"）──────────────
    现象：池里 70 多片叶盘叠着，高度差只有 1~2cm，而叶盘是**浅碟**（碟沿上翘

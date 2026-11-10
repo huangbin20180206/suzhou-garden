@@ -4,7 +4,7 @@ import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PR
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 /* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
 import { worldLights } from './12d-lantern.js';
@@ -126,9 +126,18 @@ let frameT = 0;                                // 最近一帧的墙钟 t，供�
 const _pondRay = new THREE.Raycaster();
 const _pondNdc = new THREE.Vector2();
 let _pondDown = null;
+/* 荷叶水珠落水时的涟漪回调（2026-11-10）：12e 不 import 06f（会成环），由这里注入。 */
+bindDropRipple(spawnRipple);
 /* 最近一次「点击水面」判定结果（供门禁验证整条链路：手势过滤 → 射线 → 池域 → spawnRipple）。
    真实 pointerup 才写；拖拽/未命中水面也记 hit=false，便于区分"没点到"和"接线断了"。 */
 let lastClickRipple = null;
+/* ── 拖拽划水（2026-11-10）──
+   按住拖动时沿轨迹留下水痕：每 70ms、且位移超过 ~0.35m 才起一圈**小**涟漪（2 环 / 强度 0.55，
+   与点击那一下的 5 环 / 1.6 明显区分）。设计取舍：拖拽本身仍然是"转视角"（08d 的 look），
+   这里不抢手势、只在水面上补痕迹 —— 所以"划过水面"和"转视角"可以同时发生。
+   ⚠️ 判域口径与点击那条**逐字一致**：insidePond(世界 x, 世界 z − 3.0)（池心在世界 z=+3）。 */
+let _dragAt = 0, _dragX = 0, _dragZ = 0;
+let lastDragRipple = null;
 renderer.domElement.addEventListener('pointerdown', (e)=>{
   if (e.button === 0) _pondDown = { x:e.clientX, y:e.clientY };
 });
@@ -2118,6 +2127,10 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   fireflyOpacity: () => fireflies.material.uniforms.uOpacity.value,
                   lensLevel: () => lensWeather.level(),
                   clickRippleLast: () => lastClickRipple,
+                  /* 拖拽划水（2026-11-10）：门禁断言"按住拖过水面会留下水痕" */
+                  dragRippleLast: () => lastDragRipple,
+                  /* 荷叶水珠（2026-11-10）：门禁断言"雨后叶盘上有水珠、会滚到盘沿落下" */
+                  lotusDrops: () => LOTUS_DROPS,
                   /* 投喂（计划书 Phase 3 第 6 项）：门禁要断言"饵落水 / 鱼转向 / 不游上岸 /
                      散后归队"。**必须显式暴露** —— 靠 traverse 猜对象会漏（灯笼那次踩过）。 */
                   dropBait, baitsActive, BAITS,
@@ -2452,6 +2465,22 @@ renderer.domElement.addEventListener('pointermove', (e)=>{
   _hoverNdc.set(((e.clientX - r.left) / r.width) * 2 - 1,
                -((e.clientY - r.top) / r.height) * 2 + 1);
   _hoverDirty = true;                 // 鼠标动了才需要重算射线（见 _hoverDirty 注释）
+  /* 拖拽划水：按住 + 命中水面 + 位移够 + 节流 70ms ⇒ 补一圈小涟漪（不抢转视角手势）。 */
+  if (_pondDown && waterSurface){
+    const now = performance.now();
+    if (now - _dragAt > 70){
+      _pondRay.setFromCamera(_hoverNdc, camera);
+      const h = _pondRay.intersectObject(waterSurface, false)[0];
+      if (h && insidePond(h.point.x, h.point.z - 3.0)){
+        const dx = h.point.x - _dragX, dz = h.point.z - _dragZ;
+        if (_dragAt === 0 || dx * dx + dz * dz > 0.12){        // ~0.35m 一跳，避免原地抖动堆圈
+          spawnRipple(h.point.x, h.point.z, frameT, 2, 0.55, 'drag');
+          _dragX = h.point.x; _dragZ = h.point.z; _dragAt = now;
+          lastDragRipple = { at: now, x: h.point.x, z: h.point.z };
+        }
+      }
+    }
+  }
 });
 
 function _labelOf(hit){

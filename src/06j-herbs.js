@@ -38,6 +38,10 @@ export function makePondPads(spots){
   const AY = new THREE.Vector3(0, 1, 0);
   const jr = mulberry32(20260931);              // 独立流（铁律 1：不吃全局 rnd）
   let slot = 0;
+  /* 叶盘顶面清单（2026-11-10）：给"荷叶水珠"用 —— 12e-precip 的 LOTUS_DROPS 需要
+     每片叶盘的世界圆心、盘面高度与半径，才能把水珠摆在盘上、滚到盘沿再落下。
+     只记数据、不加几何；r 用夹回岸线时的同一口径 sc*0.62。 */
+  const tops = [];
   for (const sp of spots){
     for (let k = 0; k < padsPer; k++){
       const a = jr() * TAU, rad = 0.45 + jr() * 1.15;
@@ -49,16 +53,19 @@ export function makePondPads(spots){
       const cl = clampAquaticToPond(0, 0, wx, wz, sc * 0.62);
       wx = cl.x; wz = cl.z;
       /* 高度差 2cm → 7.5cm（水位 +0.055~0.13）：叠在一起的叶盘拉开层次，碟沿不再互相切 */
-      p.set(wx, CFG.water + 0.055 + jr() * 0.075, wz);
+      const py = CFG.water + 0.055 + jr() * 0.075;   // ⚠️ 保持 jr() 调用次数不变（只把结果接出来）
+      p.set(wx, py, wz);
       q.setFromAxisAngle(AY, jr() * TAU);
       s.setScalar(sc);
       m.compose(p, q, s);
       pads.setMatrixAt(slot++, m);
+      tops.push({ x: wx, y: py, z: wz, r: sc * 0.62 });
     }
   }
   pads.instanceMatrix.needsUpdate = true;
   pads.frustumCulled = false;                    // 实例位置由矩阵给出、由 shader 风摆，CPU 包围球不可靠
   g.add(pads);
+  g.userData.padTops = tops;                     // 叶盘顶面清单（见上：给荷叶水珠用）
   return g;
 }
 
