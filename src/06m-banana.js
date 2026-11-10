@@ -305,6 +305,10 @@ export function makeLotusPod(x, z, h = 0.85){
   const podStemM = mesh(new THREE.TubeGeometry(stemCurve, 8, 0.016, 6, false), MAT.lotusStem, { name:'podStem' });
   podStemM.userData.noMerge = true;      // 同 06j 的 lotusStem：身份带季节语义，不许被材质桶焊掉
   g.add(podStemM);
+  /* ⚠️ 2026-11-10：莲蓬杆的根部扎在池底、下探水面以下约 0.16m，必须进折射层，
+     否则从水面望下去这根杆会像浮在水上（refract-coverage 抓到 5 处「无理由缺席」）。
+     同文件 456 行造水草时已有同样一笔，此处是漏打。 */
+  markUnderwater(podStemM);
 
   // 莲房头（第十一轮：**强倾**——旧版只倾 7°，岸边看到的永远是椭球侧面、
   // 籽孔面朝天不可读，用户蓝框判"光秃秃小圆球看不出来是莲蓬"。
