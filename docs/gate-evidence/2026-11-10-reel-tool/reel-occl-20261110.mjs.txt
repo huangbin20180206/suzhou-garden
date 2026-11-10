@@ -1,0 +1,129 @@
+// 诊断：时光流转「画面不跟」到底是不是被 #env 抽屉挡住了
+// 目的：量三件事 —— ①抽屉展开后占多大面积 ②画布可见区里的均值差 ③同样 3 秒、抽屉关着时的全屏均值差
+// 只读，不改项目源码、不改门禁。跑法：node outputs/_diag/reel-occl-20261110.mjs
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { launchChromium, listenEphemeral } from '../../probe/_harness.mjs';
+import { decodePNG } from '../../probe/_png.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const OUT = path.join(ROOT, 'outputs', '_diag', 'reel-occl');
+fs.mkdirSync(OUT, { recursive: true });
+
+function loadPlaywright() {
+  const require = createRequire(import.meta.url);
+  try { return require('playwright'); } catch { /* 走全局 */ }
+  const globalRoot = execSync('npm root -g', { encoding: 'utf8' }).trim();
+  return require(path.join(globalRoot, 'playwright'));
+}
+const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.glb': 'model/gltf-binary',
+               '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end(); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+const meanRect = (im, x0, y0, x1, y1) => {
+  const st = im.bpp || 3; const d = im.data; let s = 0, n = 0;
+  for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) {
+    const i = (y * im.w + x) * st;
+    if (i + 2 >= d.length) continue;
+    s += (d[i] + d[i + 1] + d[i + 2]) / 3; n++;
+  }
+  return n ? s / n : 0;
+};
+const meanAll = im => meanRect(im, 0, 0, im.w, im.h);
+const shift = (a, b) => Math.abs(meanAll(a) - meanAll(b));
+
+(async () => {
+  const port = await listenEphemeral(server);
+  const { chromium } = loadPlaywright();
+  const browser = await launchChromium(chromium);
+  const page = await browser.newPage({ viewport: { width: 640, height: 480 } });
+  const shot = async name => {
+    const b = await page.screenshot();
+    if (name) fs.writeFileSync(path.join(OUT, name + '.png'), b);
+    return decodePNG(b);
+  };
+  const settled = () => page.waitForFunction(() => window.__garden.ENV.t >= 1,
+    null, { timeout: 40000, polling: 200 }).then(() => true).catch(() => false);
+
+  await page.goto(`http://127.0.0.1:${port}/index.html?tier=low`, { waitUntil: 'load' });
+  await page.waitForFunction(() => window.__garden && document.getElementById('loading').classList.contains('done'),
+    null, { timeout: 120000, polling: 300 });
+  await sleep(1500);
+  await page.evaluate(() => window.__garden.setEnv('time', 'morning'));
+  await settled(); await sleep(800);
+
+  // ① 抽屉先不展开，量一次「关着」的 3s 流转
+  const rectsClosed = await page.evaluate(() => {
+    const c = document.querySelector('canvas');
+    const cr = c.getBoundingClientRect();
+    return { canvas: [cr.x, cr.y, cr.width, cr.height] };
+  });
+  // 抽屉关着时按钮不可见 ⇒ 只走快捷键 L
+  await page.keyboard.press('l');
+  const on = await page.evaluate(() => window.__garden.REEL.on);
+  const hA = await page.evaluate(() => window.__garden.ENV.hour);
+  const aC = await shot('closed-t0');
+  await sleep(3000);
+  const hB = await page.evaluate(() => window.__garden.ENV.hour);
+  const bC = await shot('closed-t3');
+  const dClosed = shift(aC, bC);
+  await page.keyboard.press('l');
+  await page.evaluate(() => { window.__garden.REEL.on = false; });
+
+  // ② 抽屉展开，量同样 3s
+  await page.click('#env .drawer-toggle');
+  await sleep(600);
+  const rectsOpen = await page.evaluate(() => {
+    const r = el => { const b = el.getBoundingClientRect(); return [b.x, b.y, b.width, b.height]; };
+    const dc = document.querySelector('#env .drawer-content');
+    const env = document.querySelector('#env');
+    const c = document.querySelector('canvas');
+    return { drawer: r(dc), envPanel: r(env), canvas: r(c),
+             open: getComputedStyle(dc).visibility + '/' + getComputedStyle(dc).opacity };
+  });
+  // 噪声底：抽屉开着、流转关，两次 3s
+  const nz = [];
+  for (let i = 0; i < 2; i++) {
+    const x = await shot(`open-idle-${i}a`); await sleep(3000); const y = await shot(`open-idle-${i}b`);
+    nz.push(shift(x, y));
+  }
+  await page.click('button[data-act="reel"]');
+  const hC = await page.evaluate(() => window.__garden.ENV.hour);
+  const aO = await shot('open-t0');
+  await sleep(3000);
+  const hD = await page.evaluate(() => window.__garden.ENV.hour);
+  const bO = await shot('open-t3');
+  const dOpen = shift(aO, bO);
+  await page.click('button[data-act="reel"]');
+
+  // ③ 只算画布「没被抽屉盖住」的那块：抽屉在右侧时取左侧条带
+  const W = aO.w, H = aO.h;
+  const dr = rectsOpen.drawer;
+  const coveredX = Math.max(0, Math.min(W, dr[0]));
+  const stripX1 = Math.max(8, Math.floor(coveredX));
+  const canvasOnlyOpen = Math.abs(meanRect(aO, 0, 0, stripX1, H) - meanRect(bO, 0, 0, stripX1, H));
+
+  console.log(JSON.stringify({
+    hour: { a: hA, b: hB, c: hC, d: hD },
+    rectsClosed, rectsOpen,
+    shifted: { closed3s: +dClosed.toFixed(4), open3s: +dOpen.toFixed(4),
+               openNoise3s: nz.map(v => +v.toFixed(4)),
+               openCanvasStripOnly: +canvasOnlyOpen.toFixed(4),
+               stripWidthPx: stripX1, image: [W, H] },
+  }, null, 2));
+
+  await browser.close();
+  server.close();
+})().catch(e => { console.error('DIAG FAILED', e); process.exit(1); });

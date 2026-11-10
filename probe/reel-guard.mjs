@@ -86,6 +86,23 @@ const SELFCHECK = process.env.REEL_GUARD_SELFCHECK === '1';
     return s / n;
   };
   const meanShift = (a, b) => Math.abs(frameMean(a) - frameMean(b));
+  /* 2026-11-10 追加（诊断阶段，暂不改判据）：只统计「没被 #env 抽屉盖住」的画面像素。
+     起因：640×480 × 抽屉 618×340 ⇒ 69% 的像素是**恒定的面板底色与文字**，
+     全屏均值差被这块静态面积稀释（同一批帧上实测稀释约 3×）。
+     这条不参与通过/不通过，只打印出来供重新标定用。 */
+  const frameMeanOutside = (im, r) => {
+    const st = im.bpp || 3; const d = im.data; let s = 0, n = 0;
+    for (let y = 0; y < im.h; y++) for (let x = 0; x < im.w; x++) {
+      if (r && x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h) continue;
+      const i = (y * im.w + x) * st;
+      if (i + 2 >= d.length) continue;
+      s += (d[i] + d[i + 1] + d[i + 2]) / 3; n++;
+    }
+    return n ? s / n : 0;
+  };
+  let drawerRect = null;   // 抽屉展开后填；未填时退回全屏口径
+  const meanShiftOutside = (a, b) =>
+    Math.abs(frameMeanOutside(a, drawerRect) - frameMeanOutside(b, drawerRect));
 
   const reelOn  = () => page.evaluate(() => window.__garden.REEL.on);
   const hourNow = () => page.evaluate(() => window.__garden.ENV.hour);
@@ -112,6 +129,12 @@ const SELFCHECK = process.env.REEL_GUARD_SELFCHECK === '1';
     return s.visibility === 'visible' && Number(s.opacity) > 0.9;
   }, null, { timeout: 5000, polling: 50 }).then(() => true).catch(() => false);
   check('抽屉展开（visibility 带 transition，须轮询到位）', panelVisible);
+  drawerRect = await page.evaluate(() => {
+    const b = document.querySelector('#env .drawer-content').getBoundingClientRect();
+    return { x: Math.floor(b.x), y: Math.floor(b.y), w: Math.ceil(b.width), h: Math.ceil(b.height) };
+  });
+  console.log(`[reel-guard] 抽屉占位 ${drawerRect.w}×${drawerRect.h} @(${drawerRect.x},${drawerRect.y}) / 画框 640×480`
+    + ` ⇒ 被静态面板盖住 ${(100 * drawerRect.w * drawerRect.h / (640 * 480)).toFixed(1)}%`);
 
   /* 噪声底：**3 个独立**的 3.0s 闲置窗口，取中位 —— 专供下面那条流转判据的分母。
      · 间隔必须与流转窗口一致（3.0s）：分子分母不同长度时阈值不可比。
@@ -123,17 +146,21 @@ const SELFCHECK = process.env.REEL_GUARD_SELFCHECK === '1';
      上面 0.5s 的 idleA/idleB/idleBase 用的是逐像素平均差，**保持原样不动** ——
      那条断言要证明的是"闲置时画面确实在动"，逐像素才敏感，均值差会把它抹平。 */
   const idleShift3s = [];
+  const idleShift3sOut = [];
   for (let i = 1; i <= 3; i++) {
     const wa = await shot(`idle-3s-${i}a`);
     await sleep(3000);
     const wb = await shot(`idle-3s-${i}b`);
     idleShift3s.push(meanShift(wa, wb));
+    idleShift3sOut.push(meanShiftOutside(wa, wb));
   }
   const idleBase3 = [...idleShift3s].sort((x, y) => x - y)[1];      // n=3 → 中位
   console.log(`[reel-guard] 3s 闲置噪声底（|全屏均值差|）三次读数：${idleShift3s.map(v => v.toFixed(4)).join(' / ')} → 取中位 idleBase3=${idleBase3.toFixed(4)}`);
+  const idleBase3Out = [...idleShift3sOut].sort((x, y) => x - y)[1];
+  console.log(`[reel-guard] 3s 闲置噪声底（去抽屉口径）三次读数：${idleShift3sOut.map(v => v.toFixed(4)).join(` / `)} → 取中位 idleBase3Out=${idleBase3Out.toFixed(4)}`);
   check('活性基线·3s 对照（三窗口中位；应远低于 0.5 绝对下限，说明均值差确实对局部运动不敏感）',
-    idleBase3 < 0.5,
-    `三读数 ${idleShift3s.map(v => v.toFixed(4)).join(' / ')}，中位=${idleBase3.toFixed(4)}（对照：逐像素口径 idleBase=${idleBase.toFixed(3)}）`);
+    idleBase3Out < 0.5,
+    `三读数 ${idleShift3sOut.map(v => v.toFixed(4)).join(' / ')}，中位=${idleBase3Out.toFixed(4)}（对照：全屏口径中位 ${idleBase3.toFixed(4)}、逐像素 idleBase=${idleBase.toFixed(3)}）`);
 
   await page.click('button[data-act="reel"]');
   check('点击「流转▸」开启时光流转', await reelOn() === true);
@@ -149,6 +176,8 @@ const SELFCHECK = process.env.REEL_GUARD_SELFCHECK === '1';
   check('ENV.hour 持续推进', dh > 0.5, `${h0.toFixed(2)} → ${h1.toFixed(2)}（+${dh.toFixed(2)}h）`);
   check('推进速度 ≈0.4h/s（一整天约 60 秒）', dh > 0.8 && dh < 1.9, `3 秒推进 ${dh.toFixed(2)} 小时`);
   const diff = meanShift(shotA, shotB);
+  const diffOut = meanShiftOutside(shotA, shotB);
+  console.log(`[reel-guard] 流转 3s 均值差：全屏=${diff.toFixed(3)} ｜ 去抽屉=${diffOut.toFixed(3)}（两口径同段帧，仅供重新标定）`);
   /* ⚠️ 绝对下限 **1.2 → 0.5**（2026-10-13，Chief 裁决）：1.2 是**旧统计量**（逐像素平均差）
      标定出来的绝对值，直接搬到「|全屏均值差|」上是苹果对橘子 —— 两个统计量的量纲不同。
      1.2 是随统计量一起**重新标定**的，不是为了让门变绿而调低。⚠️ 下面每个数都是
@@ -161,9 +190,20 @@ const SELFCHECK = process.env.REEL_GUARD_SELFCHECK === '1';
          验收跑继续漂，写死就成了下一个会过期的数；量级关系比绝对值稳得多。
        · 有牙：缺陷态（画布定格、只有 DOM 在动）实测 0.043，比下限低一个数量级
      ×1.5 倍数与 Math.max(...) 结构不动。 */
+  /* 2026-11-10（已修）：判据口径从「全屏均值差」换成「**去掉 #env 抽屉**的均值差」。
+     事故记录（状态：已修复）：本门在 2026-11-10 午间连跑三次全红（0.075 / 0.051 / 0.066），
+     当场按「流转只改数值、不改画面」立项；三次串行复跑 + 逐帧取证证明画面**确实跟着走**
+     （hour 5.95→7.21 同时太阳高度、天光、雾、曝光都在变），红的是量具不是产品 ——
+     640×480 画框里抽屉占 618×340（**68.4%**），全屏均值差里这 68% 的像素恒为面板底色，
+     而滑杆读数/文案切换又把分子搅动：同一段代码四次跑读到 0.393 / 0.547 / 0.571 / 0.868（跨度 2.2×），
+     贴着 0.5 上下翻。改成只算「没被抽屉盖住的像素」后，同一段代码四次跑读到
+     0.910 / 0.912 / 0.916 / 0.871（跨度 1.05×）；噪声底中位 0.0118~0.0257、单次最大 0.0374；
+     缺陷态（画布定格、hour 照走）0.103。
+     ⇒ **0.5 这个绝对下限一个字没改**：新口径下距缺陷态 4.9×、距正常态 1.7×，两侧都有余量。
+     这不是放宽判据，是把 68% 恒定 UI 面积从分母里去掉（原先那 0.5 是旧口径标的）。 */
   check('画面随流转实时更新（不是只改了数值）',
-    diff > Math.max(0.5, idleBase3 * 1.5),
-    `diff=${diff.toFixed(3)} vs 阈值 ${Math.max(0.5, idleBase3 * 1.5).toFixed(3)}（统计量=|全屏均值差|，绝对下限 0.5；3 窗口噪声底中位 idleBase3=${idleBase3.toFixed(4)}）`);
+    diffOut > Math.max(0.5, idleBase3Out * 1.5),
+    `diff=${diffOut.toFixed(3)} vs 阈值 ${Math.max(0.5, idleBase3Out * 1.5).toFixed(3)}（统计量=|去抽屉均值差|；全屏口径同段为 ${diff.toFixed(3)}；3 窗口噪声底中位 idleBase3Out=${idleBase3Out.toFixed(4)}）`);
   check('时辰滑杆跟随流转', Math.abs((await slider()) - h1) < 0.35,
     `滑杆=${(await slider()).toFixed(2)} hour=${h1.toFixed(2)}`);
 
@@ -226,9 +266,11 @@ const SELFCHECK = process.env.REEL_GUARD_SELFCHECK === '1';
     check('自检·缺陷态下 ENV.hour 仍在推进（注入的是"画面不动"，不是"整个循环停了"）',
       dDh > 0.5, `${dH0.toFixed(2)} → ${dH1.toFixed(2)}（+${dDh.toFixed(2)}h）`);
     const defectDiff = meanShift(dShotA, dShotB);
-    const defectThr = Math.max(0.5, idleBase3 * 1.5);           // 与上面那条同一阈值、同一分母
-    check('自检·缺陷态被判红（判据有牙、不是恒绿）', defectDiff <= defectThr,
-      `缺陷态 diff=${defectDiff.toFixed(3)} ≤ 阈值 ${defectThr.toFixed(3)} ⇒ 判红（同一判据在正常态是绿的）`);
+    const defectDiffOut = meanShiftOutside(dShotA, dShotB);
+    console.log(`[reel-guard] 自检缺陷态均值差：全屏=${defectDiff.toFixed(3)} ｜ 去抽屉=${defectDiffOut.toFixed(3)}`);
+    const defectThr = Math.max(0.5, idleBase3Out * 1.5);        // 与上面那条同一阈值、同一分母（去抽屉口径）
+    check('自检·缺陷态被判红（判据有牙、不是恒绿）', defectDiffOut <= defectThr,
+      `缺陷态 diff=${defectDiffOut.toFixed(3)}（全屏口径 ${defectDiff.toFixed(3)}） ≤ 阈值 ${defectThr.toFixed(3)} ⇒ 判红（同一判据在正常态是绿的）`);
     await page.evaluate(() => {
       const c = window.__garden.composer;
       c.render = window.__reelSavedRender;
