@@ -3981,8 +3981,14 @@ function advance(dt){
             这是老黄指定的豁免。
          ③ 其余情况：按各人的 def.hours 时段表（缺省 = 白昼 6~18）决定，夜里收工回家。
        都走同一条"值变了才写"的路径，避免每帧无谓地翻 visible（会连带 shadowMap 重算）。 */
+    /* 2026-11-10 · 避镜头延时复亮被昼夜门控抢回（事故记录 → 当日已修）：
+       resetVisit 把主人藏进 _avoidReveal 等 0.9s 再亮，但复位后 phase 已是 idle ⇒
+       这一位落到③白昼时段规则，同一帧就被写回 visible=true，等于"藏了 0 毫秒"，
+       近景里仍旧闪现（actor-tick-unit「主人近镜头复位时先隐藏，再按延时恢复」长期红）。
+       复亮的所有权归计时器：进了名单的对象，这一路不写它。 */
     const vis = actorVisibleNow(a);
-    if (vis !== null && a.holder.visible !== vis){
+    const pendingReveal = _avoidReveal.some(r => r.o === a.holder);
+    if (vis !== null && !pendingReveal && a.holder.visible !== vis){
       a.holder.visible = vis;
       markCasterBoxDirty();
       renderer.shadowMap.needsUpdate = true;
