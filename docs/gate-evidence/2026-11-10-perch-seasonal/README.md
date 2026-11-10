@@ -46,7 +46,24 @@
   （停栖蜻蜓 23→25px，余量更宽）
 - 本目录 `01-after-fix.log` 为四季逐季读数
 
-## 6. 没做的
+## 6. 复核补正（Chief，2026-11-10 16:40）
+上面第 3 节的「修前：春/秋两只都是 kind:"flower" 且 anchorMeshVisible:false」当时只有推算，
+本目录缺一份**改前读数**——按 `docs/gate-evidence/README.md` 的约定，这是不合格的证据形态。
+现已补齐：`00-before-8ee865a.log` 取自独立工作副本
+（`git worktree add E:/ai_test/sg-before-seasonal 8ee865a`，node_modules 用 junction 指回主仓库），
+在改前那份代码上跑同一个诊断脚本 `outputs/_diag/perch-season-20261110.mjs`，读数：
+
+```
+春：kind=flower anchorMeshVisible=false  y=0.945 / 0.699   ← 悬在看不见的花上
+夏：kind=flower anchorMeshVisible=true   y=0.722 / 1.089
+秋：kind=flower anchorMeshVisible=false  y=0.562 / 0.699   ← 悬在看不见的花上
+冬：visible=false（整组隐藏）
+```
+
+与第 3 节所述完全一致，**"改前 25% 落花概率被放大到 100%" 这个结论成立**，
+但现在它是两个文件（00-before 与 01-after）对照出来的，不再是自述。
+
+## 7. 没做的
 - 没有在 `legibility-guard` 里加春/秋两档。加档会让这道门的时间成本 ×3，且当前缺陷
   已由上面这份逐季读数覆盖；若将来再出现"某元素只在单季可见"的问题，再考虑把它做成
   季节参数化的门。
