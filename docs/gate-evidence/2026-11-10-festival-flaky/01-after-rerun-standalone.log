@@ -1,0 +1,25 @@
+
+[festival-guard] http://127.0.0.1:44357/index.html
+  ✓ 前提：帧首 reset 钩子装载成功（否则三态读数全是部分和，本门读数作废）
+  ✓ 前置：默认（未开灯会）河灯/烛焰/灯串/桃树挂灯 count=0（零 draw call） — river=0 flame=0 string=0 · tree=0/425 · draw calls=870
+  ✓ 真光源：廊灯 5 盏（不变的基础灯） — lampLights=5 roadLights=8（路灯数由源码报；若 roadLights=0 先查 ?tier=high 是否生效 —— 低档按设计不建路灯光源）
+  ✓ ⑥ 开灯会：自动切到夜（灯会是夜的 plus 版）且存在性通道 = 1 — time=night festival=true festivalShow=1.00
+  ✓ ⑥ 开灯会同帧同步环境 UI：夜按钮选中、时辰显示 21:30 — 夜按钮=true · hourReadout=21:30
+  ✓ ⑥ 换场景（切季节）⇒ 灯会**必须收起**：按钮回落 + 存在性目标归 0 — 灯会 true→false · 按钮 true→false · festivalShow 目标 1→0（旧契约是"与季节正交、不许收起"，2026-10-06 老黄改的）
+  ✓ ① 河灯 ≥20 盏（计划书原文） — 河灯 24 盏 · 灯串 28 颗 · draw calls(中位)=947
+  ✓ ① 两株桃树的枯枝挂灯全部显现（count=fullCount） — tree=425/425
+  ✓ ④ 灯会态 draw calls 仍 < 1600（预算没被顶破） — 最坏帧 1461 / 上限 1600（余量 139） · 连续 60 帧 · 帧总量分布 min~med~max = 947~947~1461
+  ✓ ① 所有河灯都在池域内（没漂到岸上） — 24 盏全在池内
+  ✓ ② 河灯不与桥体/汀步石/立峰石组重叠（含 1m 余量） — 桥 0 / 汀步 0 / 立峰 0 处重叠（24 盏）
+  ✓ ② 判据有牙：桥体中心点必须被判为"在禁区内"（注入反例自检） — 桥体中心 (8.4,4.6) inRect=true
+  ✓ ① 河灯**随波漂移**（45 帧内 ≥3 盏位置明显变化） — 21/24 盏移动，最大位移 0.07m（跑了 1 帧）
+  ✓ ① 判据有牙 · 负例自检：冻结漂移时钟后河灯必须**完全不动**（漂移判据会因此报红） — 冻结 20 帧后最大位移 0m（应 ≈ 0）
+  ✓ ⑤ bloom 未溢出成死白（近白像素 < 1.2%） — 近白像素 0%
+  ✓ ④ 口径自证：同帧逐样本 total[i] ≥ main[i]（composer 增量 ⊆ 帧累计）· 四态均成立 — 四态 main 抖动 490/514/632/628 · total 抖动 490/514/632/628
+  ✓ ④ 四态 composer 增量（noon/夜 × 灯会关/开）+ 纯灯会边际 + A≈D 便宜自证 — A noon·灯会关 870（870~1360） · B 夜·灯会关 821（817~1445） · C 夜·灯会开 947（947~1461） · D noon·灯会关 759（745~1377） ｜ 纯灯会边际 C−B = 126 · 时段份 B−A = -49 · A−D = 111
+  ✓ ⑥a 关灯会：回到**进来之前**的时段（不是留在夜里，也不是跳到别的时段） — time=noon（进来前=noon · 退出前快照 prevTime=noon）festival=false festivalShow=0.00
+  ✓ ④ 关灯会后河灯/烛焰/灯串/桃树挂灯 count 归 0（draw call 回落） — river=0 flame=0 string=0 · tree=0/425 · draw calls=759
+  ✓ ⑥b 灯会里自己改时段 ⇒ 灯会同样收起，且时段**以他的改动为准**（不拽回 noon） — 灯会 true→false · 时段 night→morning（应 morning） · festivalShow 目标 0
+  ✓ 零 pageerror / console error
+
+[festival-guard] ALL PASS（21 项）
