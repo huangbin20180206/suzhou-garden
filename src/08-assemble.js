@@ -92,33 +92,48 @@ function deferBootFirst(label, fn){ bootJobs.unshift({ label, fn }); }
 export function runDeferredBoot(){
   if (!bootJobs.length){ markBootDone(); return; }   // 无延迟批也要发信号（幂等，T0）
   let i = 0, spent = 0;
-  const step = () => {
-    if (i >= bootJobs.length){
-      mergeStatics(deferRoot);
-      /* 季节缓存重收（2026-09-19 冬柳回归）：柳/竹/苇这些延迟批物件此刻才进 world，
-         模块期收的 willowLeafInsts / seasonMeshCache 全是空的 —— 不重收，
-         冬季 willowLeaf=0.02 永远写不进去（柳树照旧满树垂帘）。 */
-      collectSeasonCaches();
-      applyEnv(ENV.cur);                          // 立刻按当前季节/天气套一遍，不等下一次切换
-      collectAOSkip();
-      renderer.shadowMap.needsUpdate = true;      // 迟到的真投射物
-      console.log('[启动分段·延迟] 合计 ' + spent.toFixed(1) + 'ms（' + bootJobs.length + ' 批）');
-      /* ── T0：装配完成信号就发在这里 ──────────────────────────────
-         ⚠️ 必须在这四步**之后**，不能提前：
-           · mergeStatics(deferRoot) 会**改变对象组成**（多个网格并成 1 个）；
-           · collectSeasonCaches() 会**重收季节叶量**（冬季 willowLeaf 写不进去的那个坑）；
-           · applyEnv(ENV.cur) 按当前季节/天气套一遍（影响季节显隐与叶量）；
-           · collectAOSkip() 影响遍历时的可见集合。
-         早 resolve = 把噪声交给探针，那 T0 就白做了。 */
-      markBootDone();
-      bootJobs.length = 0;
-      return;
-    }
+  /* 收尾：合并 + 季节缓存重收 + 套环境 + AO 排除表 + 补阴影。 */
+  const finish = () => {
+    mergeStatics(deferRoot);
+    /* 季节缓存重收（2026-09-19 冬柳回归）：柳/竹/苇这些延迟批物件此刻才进 world，
+       模块期收的 willowLeafInsts / seasonMeshCache 全是空的 —— 不重收，
+       冬季 willowLeaf=0.02 永远写不进去（柳树照旧满树垂帘）。 */
+    collectSeasonCaches();
+    applyEnv(ENV.cur);                          // 立刻按当前季节/天气套一遍，不等下一次切换
+    collectAOSkip();
+    renderer.shadowMap.needsUpdate = true;      // 迟到的真投射物
+    console.log('[启动分段·延迟] 合计 ' + spent.toFixed(1) + 'ms（' + bootJobs.length + ' 批）');
+    /* ── T0：装配完成信号就发在这里 ──────────────────────────────
+       ⚠️ 必须在这四步**之后**，不能提前：
+         · mergeStatics(deferRoot) 会**改变对象组成**（多个网格并成 1 个）；
+         · collectSeasonCaches() 会**重收季节叶量**（冬季 willowLeaf 写不进去的那个坑）；
+         · applyEnv(ENV.cur) 按当前季节/天气套一遍（影响季节显隐与叶量）；
+         · collectAOSkip() 影响遍历时的可见集合。
+       早 resolve = 把噪声交给探针，那 T0 就白做了。 */
+    markBootDone();
+    bootJobs.length = 0;
+  };
+  /* 单批执行（不推进队列）。 */
+  const runOne = () => {
     const job = bootJobs[i++];
     const t = performance.now();
     try { job.fn(); } catch (e){ console.warn('[延迟装配] ' + job.label + ' 失败：', e && e.message); }
     spent += performance.now() - t;
     console.log('[启动分段·延迟] ' + job.label + ' ' + (performance.now() - t).toFixed(1) + 'ms');
+  };
+  const step = () => {
+    if (i >= bootJobs.length){ finish(); return; }
+    /* ── 2026-11-10：一帧内按时间预算连跑多批（原版严格"每帧一批"）───────────
+       实测（outputs/_diag/defer-cost-20261110.mjs，Intel Iris Xe / low 档）：
+       30 批的**执行**共 978ms，但批与批之间的空转合计 **4399ms** —— 是本段的 4.5 倍。
+       空转来自 rAF 抢到推进权时要等一个完整渲染帧（实测 0.5~2.4s/帧，本段最长 2417ms）。
+       原版"每帧一批"意味着 30 批最多要等 30 个这样的帧。
+       改为"预算内连跑"后，同一帧里能把多个 3~7ms 的小批（竹/兰）一次做完，
+       空转帧数随之下降；**每帧仍至少推进一批**，所以"不会被饿死"这条不变量保留。
+       预算取 24ms：约两帧的交互预算，且远小于单帧渲染成本 —— 不会把主线程占死。 */
+    const t0 = performance.now();
+    do { runOne(); } while (i < bootJobs.length && performance.now() - t0 < 24);
+    if (i >= bootJobs.length){ finish(); return; }
     next();
   };
   /* 推进方式（2026-10-30 · visit-carriage-guard bootDone 不兑现）：原来只靠 setTimeout(step,0)。
@@ -126,7 +141,7 @@ export function runDeferredBoot(){
      普通优先级的定时器任务被饿住 —— 一个 2ms 的 job 要隔 15～90 秒、几十帧才轮到一次，
      且只在有外部任务（CDP evaluate）插进来时才"顺带"跑掉；25 批跑不完 900s。c58c3ca 同样如此
      （与本轮改动无关，属既有缺陷）。改为 rAF + setTimeout 双保险、谁先到谁跑（令牌去重）：
-     · 前台：rAF 每帧必到 ⇒ 严格"每帧一个 job"，不再被饿；
+     · 前台：rAF 每帧必到 ⇒ 每帧至少推进一批，不再被饿；
      · 后台标签页 rAF 暂停：setTimeout 仍会（节流地）推进，不会卡死在后台。 */
   function next(){
     let fired = false;
