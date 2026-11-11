@@ -10,7 +10,7 @@
 import { decorateHorseGeometry, horseWeights, horsePivots, bakeHorseShading } from './15b-horse-rig.js';
 import { horseLifeDebug, horseLifeState, holdHorse, tinkerPoseDebug, horseBreathMesh, tickStableLife, loadStableHorses, makeHorse } from './15c-horse-life.js';
 import { stableTravel, travelCarriagePlace, travelCarriagePark, travelCarriageVisible, travelCarriageTied, makeCarriage, makeFeedBale } from './15d-carriage.js';
-import { STABLE_ROAD_PTS, makeStableRoad, makeStable, STABLE_EXIT_PTS, makeStableExitRoad } from './15e-stable.js';
+import { STABLE_ROAD_PTS, makeStableRoad, makeStable, STABLE_EXIT_PTS, makeStableExitRoad, prebuildStableRoadLamps } from './15e-stable.js';
 
 export {
   decorateHorseGeometry,
@@ -36,5 +36,6 @@ export {
   makeStableRoad,
   STABLE_EXIT_PTS,
   makeStableExitRoad,
+  prebuildStableRoadLamps,
   makeStable
 };

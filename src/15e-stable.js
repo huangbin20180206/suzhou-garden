@@ -9,7 +9,7 @@ import { pavingNormalTex, registerWeatherRoles, MAT } from './01-materials.js';
 import { groundHeight } from './05-water.js';
 import { mesh, box, makeColumn, makeLatticePanel } from './03-factory.js';
 import { loadAssetOnce } from './06-vegetation.js';
-import { ACTIVE_QUALITY, renderer } from './02-scene.js';
+import { ACTIVE_QUALITY, renderer, world } from './02-scene.js';
 import { worldLights } from './12d-lantern.js';
 import { markCasterBoxDirty } from './09-lights.js';
 import { makeHorse } from './15c-horse-life.js';
@@ -152,6 +152,101 @@ export function makeStableExitRoad(){
   /* 写意艺术处理（art-license 'stable'）：整条出园路都只为马车进出而铺，组上打标即可。只写 userData。 */
   markArtLicense(g, 'stable');
   return g;
+}
+
+/* ── 路旁石灯笼的**桩位表**（2026-11-11 抽出，纯函数）───────────────────────────
+   为什么单独提出来：桩位表原先只在 `makeStableRoad()` 的花括号块里算一次，于是
+   "8 盏真光源"只能跟石板路一起、在**首帧之后的延迟批**里创建。而在 three.js 里
+   **灯数会写进每个材质的着色器宏** —— 场景里 0 盏 PointLight → 8 盏，全场 program
+   全部作废重编。实测（outputs/_diag/light-recompile2-20261111.mjs，冷缓存）：
+     · 那一次重编落在**单帧 26.4s** 里，冷启动总时长 52.6s → 关掉这 8 盏 26.9s；
+     · 暖机（warmBoot）完全覆盖不到它，因为马厩比暖机**更晚**建。
+   修法是把**灯光**提到暖机之前建（见 `prebuildStableRoadLamps`），而石板路本身
+   仍在延迟批里。两条路径必须用**同一份**桩位表，否则灯会跟模型错位 —— 故提到这里，
+   成为两份调用方共用的单份真值。`curve` 由调用方传入（两条路径各自建自己的曲线，
+   控制点表相同 ⇒ 桩位逐位一致）。 */
+export function stableRoadLampSpots(curve){
+  /* ⚠️ 2026-10-19：N=5 → 4（老黄："如果摆放位置有石头灯挡住了，就把这一组石头灯去掉"）。
+     去掉的是**最后、最靠南门口那一对**（原 (3.6,23.7)/(2.6,26.7)）——
+     石狮改摆到南门口之后，那一对正好挤在东侧幼狮与门槛之间的落位上。
+     其余 4 对（8 盏）保持原间距与朝向，巡回第 2 对锚点不受影响。 */
+  const N = 4, LR = curve.getLength();
+  const OFF = 1.55;
+  const spots = [];
+  for (let i = 0; i < N; i++){
+    /* ⚠️ 2026-10-19：末站从 LR−3 收到 **LR−9**。只把 N 从 5 改 4 是不够的 ——
+       等分公式会把 4 对重新铺满整条路，最后一对仍然落在南门口（约 z=25.5），
+       正好继续挡着石狮。收到 LR−9 ⇒ 最后一对停在 z≈25 以北 6m，门口留空。 */
+    const d = 6.0 + (LR - 15.0) * (i / (N - 1));
+    const p = curve.getPointAt(Math.min(0.999, d / LR));
+    const tan = curve.getTangentAt(Math.min(0.999, d / LR));
+    const side = new THREE.Vector3(-tan.z, 0, tan.x).normalize();
+    for (const s of [1, -1]){
+      const q = p.clone().addScaledVector(side, s * OFF);
+      spots.push({ x: q.x, z: q.z, ry: Math.atan2(tan.x, tan.z) });
+    }
+  }
+  return spots;
+}
+
+/* ── 路旁石灯笼的 **8 盏真光源**：提前到暖机之前建（2026-11-11）───────────────
+   为什么必须提前 —— 这是本轮找到的启动瓶颈，之前一直没人定位到：
+
+   three.js 把**灯光数量**写进每个材质的着色器编译宏（`NUM_POINT_LIGHTS` 等）。
+   场景里 0 盏 PointLight → 8 盏，**全场每个 program 都作废、重编一遍**。
+   原先这 8 盏是在 `makeStable()` 里建的（`08-assemble` 的「马厩」延迟批，
+   `deferBootFirst`），而那已经**过了暖机**（warmBoot）—— 于是这轮重编谁也盖不住，
+   落在首帧后的某一帧里同步阻塞。冷缓存实测（outputs/_diag/light-recompile2-20261111.mjs）：
+     · 那一帧 **26.4s**，新增 61 个 program（含 physical/basic/normal/depth 全族）；
+     · 关掉这 8 盏（0 盏）后：冷启动总时长 **52.6s → 26.9s**，最长帧 26.4s → 2.8s。
+   也就是说：**冷启动有一半时间花在"凭空多出来的 8 盏灯"导致的全场重编上。**
+
+   修法：把「建灯」与「建模型」拆开。灯在 08 body 里、`mergeStatics` 之后立刻建
+   （见 08-assemble 的调用点），于是暖机扫场景时它们**已经在场** —— 暖机编出来的
+   program 直接就是带 8 盏灯的版本，延迟批里的模型进场时零重编。
+   灯的位置由 `stableRoadLampSpots()` 从同一份控制点表算出，与模型逐位一致。
+
+   ⚠️ 灯的**父节点**变了（原来挂在 makeStable() 返回的组 `g` 上，现在挂 `world`）。
+     这安全：那盏组本身在世界原点、不缩放，且外部没有任何代码按路径找这些灯 ——
+     `worldLights` 数组是唯一权威引用面（12-env 按它发强度、11-loop 按它写摇曳、
+     12c 按它报 roadLights 数）。`probe/lamp-guard.mjs` 也只在 scene 上按 name 数。
+
+   ⚠️ 性能档（low）**一盏都不建**（2026-10-18 · 补 P1「10 盏常驻真光源没有低画质验收」）。
+     实测（outputs/_diag/lowfps.mjs，1600×900 · ?tier=low · 夜间 · 同一帧位；当时是 10 盏）:
+         正午（10 盏 intensity=0，但仍参与着色） 13.3 fps
+         夜间 开 10 盏                            14.7 fps
+         夜间 关 10 盏（visible=false）           22.7 fps
+     即"常驻真光源"在性能档吃掉约 **8~11 fps（约 35~50%）** —— 白天强度为 0
+     也照付 shader 前向光照循环的钱。所以性能档直接不建，只保留模型自带的
+     火袋 emissive（灯仍然"亮着"，只是不往地面投光）。
+     ⚠️ 这条判据必须在**建灯之前**求值，且与暖机看到的状态一致 —— 两条路径都走本函数，
+        不会出现"暖机时 0 盏、延迟批时 8 盏"的错位。
+   ⚠️ 灯数启动时定死、运行期只改 intensity（与廊灯同一条铁律，绝不 add/remove）。
+     QOS 运行期把 mid/high 降到 low 时，已经建好的灯不会消失（改灯数会当场重编译，
+     换来一次卡顿）；这是有意的取舍，见 11-loop QOS 段的口径。
+   幂等：重复调用直接返回 false，不重复建灯（延迟批会再调一次以覆盖"08 没调到"的情形）。 */
+export function prebuildStableRoadLamps(){
+  if (worldLights.some(L => L.userData && L.userData.road)) return false;
+  const curve = new THREE.CatmullRomCurve3(STABLE_ROAD_PTS.map(p => new THREE.Vector3(p[0], 0, p[1])));
+  const spots = stableRoadLampSpots(curve);
+  const budget = ACTIVE_QUALITY.key === 'low' ? 0 : spots.length;
+  for (let i = 0; i < budget; i++){
+    const st = spots[i];
+    const L = new THREE.PointLight(0xFFB45A, 0, 7, 2.0);
+    L.position.set(st.x, groundHeight(st.x, st.z) + 0.68, st.z);
+    L.castShadow = false;      // 点光阴影是 6 面立方体贴图，8 盏全开 = 每帧多渲 48 张深度图
+    L.name = 'roadLamp';
+    L.userData.base = 1.6;
+    L.userData.road = true;
+    L.userData.flick = 1;
+    L.userData.flickPh = [i * 2.39, i * 1.73 + 1.1, i * 0.91 + 2.2];
+    world.add(L);
+    worldLights.push(L);
+  }
+  console.log('[路旁石灯笼] 真光源 ' + budget + ' 盏（暖机前预建）' +
+    (budget ? '（PointLight，无阴影，lamp 通道 + 摇曳）'
+            : '（性能档：只留火袋 emissive，省 8 盏前向光照）'));
+  return true;
 }
 
 export function makeStableRoad(){
@@ -475,24 +570,9 @@ export function makeStableRoad(){
      ⚠️ 8 盏按**材质合并成 2 个网格**（石身 + 火袋，座石并进石身那个桶），不是 10 棵节点树。
      火袋 emissive 模型自带；真光源见下面 ④b（2026-10-18 起每盏一盏 PointLight；2026-10-19 南门口一对撤掉，10→8）。 */
   {
-    /* ⚠️ 2026-10-19：N=5 → 4（老黄："如果摆放位置有石头灯挡住了，就把这一组石头灯去掉"）。
-       去掉的是**最后、最靠南门口那一对**（原 (3.6,23.7)/(2.6,26.7)）——
-       石狮改摆到南门口之后，那一对正好挤在东侧幼狮与门槛之间的落位上。
-       其余 4 对（8 盏）保持原间距与朝向，巡回第 2 对锚点不受影响。 */
-    const N = 4, LR = curve.getLength();
-    const OFF = 1.55;
-    const spots = [];
-    for (let i = 0; i < N; i++){
-      /* ⚠️ 2026-10-19：末站从 LR−3 收到 **LR−9**。只把 N 从 5 改 4 是不够的 ——
-         等分公式会把 4 对重新铺满整条路，最后一对仍然落在南门口（约 z=25.5），
-         正好继续挡着石狮。收到 LR−9 ⇒ 最后一对停在 z≈25 以北 6m，门口留空。 */
-      const d = 6.0 + (LR - 15.0) * (i / (N - 1));
-      const { p, tan, side } = frameAt(Math.min(0.999, d / LR));
-      for (const s of [1, -1]){
-        const q = p.clone().addScaledVector(side, s * OFF);
-        spots.push({ x: q.x, z: q.z, ry: Math.atan2(tan.x, tan.z) });
-      }
-    }
+    /* 桩位表已抽成模块级纯函数 `stableRoadLampSpots`（灯与模型共用同一份真值，
+       原因见那个函数上方的注释）。 */
+    const spots = stableRoadLampSpots(curve);
     /* 给"看灯笼"入口留一个**稳定的锚点**：合并后的网格没有单盏位置可言，
        而手机端那个浮动按钮要飞到一个具体近前。锚点取第一对（离院门最近的一对）。 */
     const anchor = new THREE.Object3D();
@@ -540,42 +620,11 @@ export function makeStableRoad(){
       }
       console.log('[路旁石灯笼] ' + spots.length + ' 盏（含座石）· 合并成 ' + buckets.size + ' 个网格');
     });
-    /* 8 盏真光源与上面的模型一一同位（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）。
-       每盏一个 PointLight，暖橙 0xFFB45A（与火袋 emissive 同色），灯位 = 火袋中心（地面 +0.68m）。
-       · castShadow 全 false：点光阴影是 6 面立方体贴图，8 盏全开等于每帧多渲 48 张深度图。
-       · distance=7 + decay=2：光只落在灯下路面一圈，不把整片草坡染成橘色。
-       · 灯数启动时定死、运行期只改 intensity（与廊灯同一条铁律，不触发材质重编译）。
-       · 时段开关：推进 worldLights（12-env :303 按 lamp 通道发强度，白天全灭、夜里全亮）。
-       · 摇曳：userData.flick 由 11-loop 逐帧写（烛火式 ±10%，每盏相位用布点序号派生、确定性）。
-
-       ⚠️ 性能档（low）**一盏都不建**（2026-10-18 · 补 P1「10 盏常驻真光源没有低画质验收」）。
-       实测（outputs/_diag/lowfps.mjs，1600×900 · ?tier=low · 夜间 · 同一帧位；当时是 10 盏，现在 8 盏）:
-           正午（10 盏 intensity=0，但仍参与着色） 13.3 fps
-           夜间 开 10 盏                            14.7 fps
-           夜间 关 10 盏（visible=false）           22.7 fps
-       即"10 盏 PointLight 常驻（现 8 盏）"在性能档吃掉约 **8~11 fps（约 35~50%）** —— 白天强度为 0
-       也照付 shader 前向光照循环的钱。所以性能档直接不建这 8 盏，只保留模型自带的
-       火袋 emissive（灯仍然"亮着"，只是不往地面投光）。
-       灯数仍在启动时定死（只有初次画质档决定），运行期不增删 ⇒ 不会触发材质重编译。
-       注：QOS 运行期把 mid/high 降到 low 时，已经建好的灯不会消失（改灯数会当场重编译，
-       换来一次卡顿）；这是有意的取舍，见 11-loop QOS 段的口径。 */
-    const LAMP_LIGHT_BUDGET = ACTIVE_QUALITY.key === 'low' ? 0 : spots.length;
-    for (let i = 0; i < LAMP_LIGHT_BUDGET; i++){
-      const st = spots[i];
-      const L = new THREE.PointLight(0xFFB45A, 0, 7, 2.0);
-      L.position.set(st.x, groundHeight(st.x, st.z) + 0.68, st.z);
-      L.castShadow = false;
-      L.name = 'roadLamp';
-      L.userData.base = 1.6;
-      L.userData.road = true;
-      L.userData.flick = 1;
-      L.userData.flickPh = [i * 2.39, i * 1.73 + 1.1, i * 0.91 + 2.2];
-      g.add(L);
-      worldLights.push(L);
-    }
-    console.log('[路旁石灯笼] 真光源 ' + LAMP_LIGHT_BUDGET + ' 盏' +
-      (LAMP_LIGHT_BUDGET ? '（PointLight，无阴影，lamp 通道 + 摇曳）'
-                         : '（性能档：只留火袋 emissive，省 8 盏前向光照）'));
+    /* 8 盏真光源：**已提前到 `prebuildStableRoadLamps()` 建**（2026-11-11）。
+       见该函数上方的注释 —— 灯数一变全场重编着色器，必须赶在暖机之前进场。
+       这里只保留"为什么当初这么设计"的原始说明。 */
+    console.log('[路旁石灯笼] 真光源由 prebuildStableRoadLamps 预建（roadLights=' +
+      worldLights.filter(L => L.userData.road).length + ' 盏）');
   }
   /* ── ④c 月洞门前铺装（2026-10-20 重做 v2）───────────────────────────────────────
      v1（同日早）仍歪：路尾 x=0.35 本身没对准门心（月洞门圆心 x=0），铺装中心又接着

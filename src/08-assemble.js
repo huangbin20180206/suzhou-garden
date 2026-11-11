@@ -26,7 +26,7 @@ import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './04-buildin
 /* 15-stable（2026-10-09 · 老黄："院子外围做一个马厩：停 4 匹马、2 驾双轮马车、一个马夫喂草料"）：
    建筑 + 马 + 马车 + 场院杂物整组在那个模块里；**马夫不在这里建** —— 人物工厂 makeScholar
    就在本文件下方，马厩模块持有它会造成循环 import。这里只import 马厩整体与"手里的草料捆"。 */
-import { makeStable, loadStableHorses, makeStableRoad, makeStableExitRoad } from './15-stable.js';
+import { makeStable, loadStableHorses, makeStableRoad, makeStableExitRoad, prebuildStableRoadLamps } from './15-stable.js';
 import { mesh } from './03-factory.js';
 /* 写意艺术处理登记（马厩/马车/外国马种：展示保留、标注为艺术处理，见 src/art-license.js） */
 import { markArtLicense } from './art-license.js';
@@ -370,6 +370,11 @@ buildAquatic();
      院中两匹休息吃草（一匹低头吃、一匹由马夫递草料）+ **厩内只占 2 个槽位**（另 2 个空着放干草）。
    落点高度不再由这里给（旧版传 baseY）：场地跟着草坡走，马夫的落脚高度由马厩算出来回填。 */
 deferBootFirst('马厩', () => {
+  /* 路旁石灯笼的 8 盏真光源**已经在暖机前建好了**（见 15e-stable 的
+     `prebuildStableRoadLamps` 与本文件下方的调用点）。这里再调一次只是为了兜底：
+     万一哪天 08 的调用点被挪走/被条件跳过，灯也不会凭空消失 —— 函数是幂等的，
+     已建过就直接返回 false，不会重复加灯（重复加灯 = 改灯数 = 全场重编，必须防住）。 */
+  prebuildStableRoadLamps();
   /* ⚠️ 2026-10-10 二批（老黄："整个马厩的方向逆时针旋转 90 度"）：yaw π/2 → **π**。
      转后**院门朝南**（世界 +z），正对园子南门（月洞门 x=0 / 南墙 z=22.5 的西南方向）
      ⇒ 院外那条石板路（makeStableRoad）顺理成章地接到南门。
@@ -877,6 +882,19 @@ world.traverse(o=>{
 bootMark('场景几何');
 mergeStatics(world);
 bootMark('几何合并');
+/* ── 路旁石灯笼的 8 盏真光源：**必须在这里建**（2026-11-11 启动提速）─────────────
+   位置要求（三条同时满足，缺一条就白建）：
+     ① **在暖机之前** —— 暖机（11-loop 的 warmBoot）走真实 composer 渲染来编着色器；
+        灯若晚于它进场，就是"0 盏 → 8 盏"，全场 program 作废重编一遍。
+        实测那一帧同步阻塞 **26.4s**，冷启动总时长 52.6s → 26.9s（关灯）。
+     ② **在 mergeStatics(world) 之后** —— 合并只看网格；灯不是网格，
+        但放在合并之后可以保证它们不会被任何"遍历 world 收集静态件"的逻辑误伤。
+     ③ 在 initEnvScene() 之前 —— 那里 collectSeasonCaches/applyEnv 会遍历场景，
+        灯提前在场能让第一遍环境应用就看到它们。
+   为什么不是在建马厩时顺手建：马厩是 deferBootFirst 的**延迟批**，比暖机更晚。
+   详见 15e-stable 里 `prebuildStableRoadLamps` 的注释。 */
+prebuildStableRoadLamps();
+bootMark('路灯真光源');
 /* 这一段原在 09-lights 顶层（§9 段首），因环改到本模块 body 末尾；
    此刻 world 已填满，对应"§8 跑完"的原时序。 */
 fitShadowCamera();

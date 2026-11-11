@@ -1,0 +1,96 @@
+// outputs/_diag/lamps-prebuild-ab-20261111.mjs
+// 冷缓存 A/B：灯提前建（HEAD 改动） vs 灯在延迟批里建（上一提交）。
+// 每轮全新 userDataDir，绝不共享 GPUCache —— 热缓存会把 26s 那段吃掉，看不见真相。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { listenEphemeral } from '../../probe/_harness.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const ROUNDS = +(process.argv[2] || 2);
+const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.glb':'model/gltf-binary',
+               '.mp3':'audio/mpeg', '.webmanifest':'application/webmanifest', '.svg':'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end('nf'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+
+/* 旧版：从 HEAD 取（未改动的 15e-stable + 08-assemble） */
+const OLD_15E = execSync('git show HEAD:src/15e-stable.js', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8 });
+const OLD_08  = execSync('git show HEAD:src/08-assemble.js',  { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8 });
+const OLD_15  = execSync('git show HEAD:src/15-stable.js',    { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8 });
+
+const port = await listenEphemeral(server);
+const { chromium } = createRequire(import.meta.url)('playwright');
+
+async function run(useOld, tag){
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-'));
+  const ctx = await chromium.launchPersistentContext(dir, {
+    headless: true, viewport: { width: 1280, height: 720 },
+    args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'],
+  });
+  const page = ctx.pages()[0] || await ctx.newPage();
+  page.setDefaultTimeout(400000);
+  await page.addInitScript(() => {
+    window.__fr = [];
+    const orig = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb) => orig((ts) => {
+      const R = window.__garden && window.__garden.renderer;
+      const p0 = R ? R.info.programs.length : -1;
+      const a = performance.now();
+      try { cb(ts); } finally {
+        const d = performance.now() - a;
+        if (window.__fr.length < 20000) window.__fr.push({
+          a:+a.toFixed(0), d:+d.toFixed(0), dp:(R ? R.info.programs.length : -1) - p0,
+          p: R ? R.info.programs.length : -1 });
+      }
+    });
+  });
+  if (useOld){
+    for (const [f, body] of [['/15e-stable.js', OLD_15E], ['/08-assemble.js', OLD_08], ['/15-stable.js', OLD_15]])
+      await page.route(u => u.pathname.endsWith(f), r =>
+        r.fulfill({ status: 200, contentType: 'text/javascript', body }));
+  }
+  const t0 = Date.now();
+  await page.goto(`http://127.0.0.1:${port}/index.html?intro=0`, { waitUntil: 'load' });
+  await page.waitForFunction(() => document.getElementById('loading').classList.contains('done'),
+    null, { timeout: 400000, polling: 100 });
+  const total = Date.now() - t0;
+  const fr = await page.evaluate(() => window.__fr || []);
+  /* 同时取路灯数，确认两条路径灯数一致 */
+  const lamps = await page.evaluate(() => {
+    let road = 0, all = 0;
+    window.__garden.scene.traverse(o => {
+      if (o.isPointLight || o.isSpotLight){ all++; if (o.name === 'roadLamp') road++; }
+    });
+    return { road, all };
+  });
+  await ctx.close();
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  const big = fr.filter(f => f.d > 300).sort((a,b) => b.d - a.d);
+  const maxF = big[0] || { d:0, dp:0 };
+  const sum = big.reduce((s,f) => s+f.d, 0);
+  console.log(`${tag.padEnd(20)} 总 ${String(total).padStart(6)}ms ｜ 最长帧 ${String(maxF.d).padStart(6)}ms(+${maxF.dp}prog) ｜ >300ms 帧 ${String(big.length).padStart(2)}个/${String(sum).padStart(6)}ms ｜ program ${fr.length?fr[fr.length-1].p:0} ｜ 路灯 ${lamps.road}`);
+  return { total, max: maxF.d, sum, road: lamps.road, tag };
+}
+
+const rows = [];
+for (let r = 1; r <= ROUNDS; r++){
+  rows.push({ ...(await run(true,  `#${r} 旧·灯在延迟批`)), tag: '旧·灯在延迟批' });
+  rows.push({ ...(await run(false, `#${r} 新·灯提前建`)), tag: '新·灯提前建' });
+}
+const med = a => { const s=[...a].sort((x,y)=>x-y), n=s.length; return n%2 ? s[(n-1)/2] : (s[n/2-1]+s[n/2])/2; };
+console.log('');
+for (const t of ['旧·灯在延迟批', '新·灯提前建']){
+  const g = rows.filter(r => r.tag.includes(t));
+  console.log(`${t}  总中位 ${med(g.map(r=>r.total))}ms ｜ 最长帧中位 ${med(g.map(r=>r.max))}ms ｜ 路灯 ${g[0].road}`);
+}
+server.close();
