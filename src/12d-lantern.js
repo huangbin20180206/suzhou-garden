@@ -122,7 +122,7 @@ export let _groundSplashMat = null, _groundSplashGeo = null;   // 灯下地面�
 /* 已挂到灯笼上的光团 / 光斑实例（2026-09-22 · 为门禁收）。
    ⚠️ 不收这个清单，门禁就只能靠 traverse 猜对象 —— 而"猜"在本项目已经栽过
    （灯笼那次"引用没暴露 → found:false"）。清单必须由创建处自己登记。 */
-const _volMeshes = [], _splashMeshes = [];
+const _volMeshes = [], _splashMeshes = [], _wallSplashMeshes = [];
 /* 灯笼在风里微摆：存**摆动支点**（pivot）到数组，渲染循环里统一做单摆。
    ⚠️ 支点必须是挂点、不是灯笼中心（2026-09-17 用户："能感觉到微弱的悬挂绳索与屋梁的
    连接处在动（这个不科学，这个地方应该不动）"）。原实现把 rotation 写在原点位于
@@ -355,6 +355,11 @@ export function makeLanterns(){
       const sr = Math.min(1.7, 0.55 + y * 0.16);
       splash.scale.set(sr, sr, sr);
       splash.rotation.x = -Math.PI / 2;
+      /* 命名 + 分账（2026-11-11）：`_splashMeshes` 只装"灯下地面光斑"，墙面光斑进
+         `_wallSplashMeshes`。两者混在一个计数里 ⇒ lampvol-guard 的
+         「5 盏灯各 1 个光斑」读到 9、`splashFlat`（全平躺）读到 false —— 那是 2026-11-10
+         加墙面光斑时漏跑全量门禁留下的假红，判据本身没错，是回读口径该分开。 */
+      splash.name = 'groundSplash';
       grp.add(splash);
       _splashMeshes.push(splash);
     }
@@ -400,8 +405,9 @@ export function makeLanterns(){
         const pr = Math.min(1.35, 0.5 + (3.2 - hit.distance) * 0.35);
         patch.scale.set(pr, pr, pr);
         patch.name = 'wallSplash';
+        patch.userData.lampPos = [+x, +y, +z];   // 探针要判"离自己的灯多近"（射程 3.2m）
         world.add(patch);
-        _splashMeshes.push(patch);
+        _wallSplashMeshes.push(patch);
         break;
       }
     }
@@ -443,6 +449,21 @@ export function lampVolState(){
     splashGeo: _splashMeshes[0] ? _splashMeshes[0].geometry.type : null,
     splashFlat: _splashMeshes.length
       ? _splashMeshes.every(m => Math.abs(m.rotation.x + Math.PI / 2) < 1e-6) : null,
+    /* 墙面光斑单独回读（2026-11-11）：一盏灯最多贴**一面**墙，所以数量 0..灯数都合法
+       —— 没墙的灯不贴，不是缺件。回读三项可判定的量：
+         · ny —— 面法线的竖直分量：≈0 才是"竖在墙上"（地面光斑是 ≈1）；
+         · mat —— 是否复用地面光斑那份材质（亮度/闪烁必须同一套，不许各写一份）；
+         · lampDist —— 离自己那盏灯多远（射线射程 3.2m，超了说明贴错了墙）。 */
+    wallSplashCount: _wallSplashMeshes.length,
+    wallSplash: _wallSplashMeshes.map(m => {
+      const v = new THREE.Vector3(); m.getWorldPosition(v);
+      const n = new THREE.Vector3(0, 0, 1).applyQuaternion(m.quaternion);
+      const lp = m.userData.lampPos;
+      const d = lp ? Math.hypot(v.x - lp[0], v.y - lp[1], v.z - lp[2]) : null;
+      return { ny: +Math.abs(n.y).toFixed(3), mat: m.material === _groundSplashMat,
+               lampDist: d === null ? null : +d.toFixed(3),
+               pos: [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)] };
+    }),
   };
 }
 /* 只改 uLamp 的强制通道 —— 门禁的**阳性对照**专用。

@@ -41,8 +41,17 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 
   await page.goto(`http://127.0.0.1:${port}/index.html?intro=0`, { waitUntil: 'domcontentloaded' });
+  /* boot 单独给 120s 预算（2026-11-11 修）：本门跑的是**默认档（tier=auto）**，
+     要跑满暖编译 + 预载（含 6 匹 Tinker 马的 GLB），实测 20~35s；沿用 page 默认的 30s
+     会在机器稍忙时假红 —— 全量 verify 就是这么报的：
+       [season-demo-guard] 探针异常： page.waitForFunction: Timeout 30000ms exceeded.
+     其它场景探针都靠 `?tier=low` 把启动压到几秒，本门**不能**这么做：它测的是"用户
+     默认打开就是这一档"的行为（自动演示不该在默认档里自己跑起来）。故只放宽等待，
+     并把实测秒数打进 detail —— 数字只作读数、不作判据（并发负载下墙钟读数无效）。 */
+  const tBoot = Date.now();
   await page.waitForFunction(() => window.__garden && document.getElementById('loading')
-    && document.getElementById('loading').classList.contains('done'));
+    && document.getElementById('loading').classList.contains('done'), null, { timeout: 120000 });
+  const bootSec = (Date.now() - tBoot) / 1000;
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
 
   const state = () => page.evaluate(() => window.__garden.seasonDemoState());
@@ -54,6 +63,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   /* 探针态默认不自动播：否则所有场景探针都会在自动运镜中取样。 */
   await sleep(500);
+  console.log(`  · 读数：默认档启动耗时 ${bootSec.toFixed(1)}s（不作判据）`);
   const idle = await state();
   check('默认不自动播放（webdriver 下保持手动）',
     !idle.on && idle.phase === 'idle' && idle.history.length === 0,

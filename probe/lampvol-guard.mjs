@@ -241,6 +241,25 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
     S.splashGeo === 'CircleGeometry' && S.splashFlat === true,
     `splashGeo=${S.splashGeo} flat=${S.splashFlat}`);
 
+  /* ── ①b 墙面光斑（2026-11-11 补判据；功能来自 7289853）──
+     背景：2026-11-10 给每盏灯加了"朝 ±x/±z 打 3.2m 射线、命中竖直面就贴一张圆斑"，
+     但它和地面光斑共用 `_splashMeshes` ⇒ 上面两条判据读到 光斑=9 / flat=false 而假红。
+     正解是回读口径分开（src/12d-lantern.js 里 wallSplash 单独成账），并补上这组判据：
+     数量 0..灯数合法（没墙的灯不贴，不是缺件），但**贴上来的必须真的是墙上的斑**。 */
+  const wall = S.wallSplash || [];
+  check('墙面光斑数量不越界（一盏灯最多贴一面墙 ⇒ 0..灯数）',
+    S.wallSplashCount === wall.length && wall.length <= LANTERNS,
+    `wallSplashCount=${S.wallSplashCount}（灯 ${LANTERNS} 盏，0..${LANTERNS} 合法）`);
+  check('墙面光斑是"竖在墙上"而不是又一张躺地圆斑（面法线 |n.y| ≤ 0.35）',
+    wall.length > 0 && wall.every(w => w.ny <= 0.35),
+    wall.length ? wall.map(w => `ny=${w.ny}`).join(' · ') : '一个都没有（射线没命中墙？）');
+  check('墙面光斑复用地面光斑那份材质（亮度/闪烁同一套 uniform，不许各写一份）',
+    wall.length > 0 && wall.every(w => w.mat === true),
+    wall.length ? wall.map(w => w.mat ? '共用 ✓' : '另有材质 ✗').join(' · ') : '无样本');
+  check('墙面光斑贴在自己那盏灯的射程内（≤3.2m，超了说明贴到了别人的墙）',
+    wall.length > 0 && wall.every(w => w.lampDist !== null && w.lampDist <= 3.2),
+    wall.length ? wall.map(w => `${w.lampDist}m`).join(' · ') : '无样本');
+
   /* ── ② 联动：时段 / 天气 / 色温 ── */
   check('夜：光团 uLamp > 0（体光在亮）', S.uLamp > 0, `uLamp=${S.uLamp}`);
   check('夜：地面光斑 uLamp 与光团同步（漏跟时段 → 白天不会透明）',
