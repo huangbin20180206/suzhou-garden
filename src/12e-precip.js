@@ -493,6 +493,11 @@ export function bindLotusDrops(group){
     color: 0xdff0ff, roughness: 0.06, metalness: 0.0,
     transparent: true, opacity: 0.0, depthWrite: false });
   const im = new THREE.InstancedMesh(geo, mat, DROP_N);
+  /* 命名（2026-11-11）：布局指纹门禁按 name 排除"每帧写矩阵"的实例网格
+     （同 mistField / smallBirdMesh / horseBreath）。不命名 ⇒ 它那 16 个单位阵/逐帧矩阵
+     会被当成"布局"入指纹，晴天天刚好看不出（全单位阵、首实例在原点），
+     一下雨矩阵就在动 ⇒ 偶发红。 */
+  im.name = 'lotusDrops';
   im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
   im.frustumCulled = false;                    // 实例位置每帧变，包围球不可靠
   im.visible = false;
