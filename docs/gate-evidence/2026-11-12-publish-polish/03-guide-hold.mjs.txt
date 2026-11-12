@@ -1,0 +1,42 @@
+// 验证引导静置期：出现后 2.5s 内的点击不关，之后正常关。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { listenEphemeral } from '../../probe/_harness.mjs';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.glb':'model/gltf-binary',
+               '.mp3':'audio/mpeg', '.webmanifest':'application/webmanifest', '.svg':'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end('nf'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+const port = await listenEphemeral(server);
+const { chromium } = createRequire(import.meta.url)('playwright');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gh-'));
+const ctx = await chromium.launchPersistentContext(dir, { headless: true, viewport:{width:1280,height:800},
+  args: ['--use-angle=d3d11','--ignore-gpu-blocklist','--enable-gpu-rasterization'] });
+const page = ctx.pages()[0] || await ctx.newPage();
+page.setDefaultTimeout(600000);
+/* ?guide=1 强制弹（无头下 webdriver=true 默认不弹） */
+await page.goto(`http://127.0.0.1:${port}/index.html?tier=low&guide=1`, { waitUntil: 'load' });
+await page.waitForFunction(() => document.getElementById('loading') && document.getElementById('loading').classList.contains('done'), null, {timeout:600000, polling:100});
+const on = () => page.evaluate(() => document.getElementById('guide').classList.contains('on'));
+console.log('收层后引导显示:', await on());
+/* 1) 静置期内点画布中央 —— 不该关 */
+await page.mouse.click(640, 400);
+await page.waitForTimeout(120);
+console.log('  静置期内点击画布 =>', await on() ? '仍显示 ✓' : '被关 ✗');
+/* 2) 等过静置期再点 —— 应该关 */
+await page.waitForTimeout(2700);
+await page.mouse.click(640, 400);
+await page.waitForTimeout(150);
+console.log('  静置期后点击画布 =>', await on() ? '仍显示 ✗' : '被关 ✓');
+await ctx.close(); try { fs.rmSync(dir,{recursive:true,force:true}); } catch {}
+server.close();

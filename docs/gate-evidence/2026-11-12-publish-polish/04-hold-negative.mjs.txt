@@ -1,0 +1,22 @@
+// 负例自检：把 GUIDE_HOLD_MS 改成 0，guide-guard 的「静置期内不消失」必须报红。
+import { execSync } from 'node:child_process';
+import fs from 'node:fs';
+const ROOT = 'E:/ai_test/codex_test/suzhou-garden';
+const p = ROOT + '/src/11-loop.js';
+const orig = fs.readFileSync(p, 'utf8');
+const patched = orig.replace('const GUIDE_HOLD_MS = 2500;', 'const GUIDE_HOLD_MS = 0;');
+if (patched === orig) { console.log('锚点没找到'); process.exit(1); }
+fs.writeFileSync(p, patched);
+try {
+  const out = execSync('node probe/guide-guard.mjs', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8, timeout: 300000 });
+  const red = /静置期内出现.*✗|FAIL/.test(out) || !/ALL PASS/.test(out);
+  console.log('HOLD=0 时 guide-guard 结果:', /ALL PASS/.test(out) ? 'ALL PASS（判据没牙 ✗）' : 'FAILED（判据有牙 ✓）');
+  out.split('\n').filter(l => /静置期|FAIL|ALL PASS/.test(l)).slice(0,6).forEach(l => console.log('  ' + l.trim()));
+} catch (e) {
+  const out = (e.stdout || '') + (e.stderr || '');
+  console.log('HOLD=0 时 guide-guard 结果: FAILED（判据有牙 ✓）');
+  out.split('\n').filter(l => /静置期|FAIL/.test(l)).slice(0,6).forEach(l => console.log('  ' + l.trim()));
+} finally {
+  fs.writeFileSync(p, orig);
+  console.log('已还原 GUIDE_HOLD_MS');
+}

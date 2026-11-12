@@ -1617,14 +1617,28 @@ function frameWork(){
     /* 帧率自适应：把 stats 已算好的真实 fps 交给 QOS（软渲染下 QOS 自动免疫） */
     QOS.sample(fps);
     const q = QOS.state();
+    /* ── 右下角这块文字：**操作提示给所有人，技术指标只给调试态**（2026-11-12）──
+       老黄把项目发到 Cloudflare Pages 给朋友体验，截图里右下角挂着
+       「fps / draw calls / triangles / geometries / textures」——那是给开发看的，
+       普通访客看到只会觉得"这是半成品"。
+       但整块删掉也不行：下面三行操作提示（复位视角 / 拖动缩放 / 双击聚焦）是**唯一**
+       告诉用户"这个画面可以动"的常驻线索，删了更不知所措。
+       判据复用 GARDEN_DEBUG（= isDebugSurface）：`?debug=1` / 被自动化驱动 / 本机打开
+       （localhost 与 file://）时仍显示全量 —— 老黄本机调试体验一位不变；
+       从公网访问 ⇒ 只留操作提示。
+       ⚠️ 隐藏技术指标**不影响** QOS：QOS.sample(fps) 在上一行照常跑，
+          只是不再把那一串数字写进 DOM。 */
+    const techOnly = GARDEN_DEBUG
+      ? `${fps} fps\n` +
+        `draw calls  ${info.render.calls}\n` +
+        `triangles   ${info.render.triangles.toLocaleString()}\n` +
+        `geometries  ${info.memory.geometries}\n` +
+        `textures    ${info.memory.textures}\n` +
+        `${weatherTag()} · ${timeLabelNow()}${ENV_SEASON[ENV.season].label}\n` +
+        `画质 ${q.mode === 'auto' ? '自动' : q.mode === 'high' ? '高' : q.mode === 'balanced' ? '均衡' : '性能'} · ${q.tierLabel}档 · ${q.ao ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n`
+      : '';
     statsEl.textContent =
-      `${fps} fps\n` +
-      `draw calls  ${info.render.calls}\n` +
-      `triangles   ${info.render.triangles.toLocaleString()}\n` +
-      `geometries  ${info.memory.geometries}\n` +
-      `textures    ${info.memory.textures}\n` +
-      `${weatherTag()} · ${timeLabelNow()}${ENV_SEASON[ENV.season].label}\n` +
-      `画质 ${q.mode === 'auto' ? '自动' : q.mode === 'high' ? '高' : q.mode === 'balanced' ? '均衡' : '性能'} · ${q.tierLabel}档 · ${q.ao ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n` +
+      techOnly +
       `按 0 复位视角 · 拖动旋转 / 滚轮缩放（可推到 1.6m）\n` +
       `双击任意物体＝聚焦到它 · 右键拖动＝平移（走到院角看细节）`;
     acc = 0; frames = 0;
@@ -2233,7 +2247,7 @@ const GUIDE_KEY = 'garden.guided.v1';
 /* ?guide=1 强制弹出：给门禁（以及想预览引导的人）一条绕过"自动化下不自动弹"的路。
    没有它，guide-guard 就只能测 `guideStart()`，测不到真实用户会走的那条自动弹路径。 */
 const GUIDE_FORCE = (() => { try { return /[?&]guide=1/.test(location.search); } catch { return false; } })();
-const GUIDE = { on:false, i:0 };
+const GUIDE = { on:false, i:0, shownAt:0 };   // shownAt：本轮引导出现的时刻（静置期用，见 bindGuide）
 /* ── 引导要不要按"触控口径"说话/动手？ ──
    判据与 CSS 那条窄屏/触控媒体查询**同一条件**（单一真值来源）：面板在
    `(max-width:768px)` 或 `(hover:none)` 时走的是"手机版式"（见 index.html 同名媒体查询），
@@ -2312,6 +2326,7 @@ function guideRender(){
 function guideStart(){
   const el = guideEl(); if (!el) return false;
   GUIDE.on = true; GUIDE.i = 0;
+  GUIDE.shownAt = performance.now();   // 静置期起点（见 bindGuide 的 dismiss）
   el.classList.add('on');
   guideRender();
   return true;
@@ -2350,8 +2365,28 @@ function guideMaybeAuto(){
     if (!b) return;
     if (b.dataset.g === 'skip') guideStop(); else guideNext();
   });
-  /* 首次交互即消失。⚠️ 落在气泡上的交互不算 —— 否则点「下一步」会自己把自己关掉 */
-  const dismiss = (e)=>{ if (GUIDE.on && !(e.target && e.target.closest && e.target.closest('#guide'))) guideStop(); };
+  /* 首次交互即消失。⚠️ 落在气泡上的交互不算 —— 否则点「下一步」会自己把自己关掉。
+     ⚠️⚠️ 2026-11-12 加"静置期"（GUIDE_HOLD_MS）：老黄把项目发朋友体验时反馈
+     "加载完不知所措" —— 根因是这条 dismiss 监听的是 capture 阶段的 pointerdown：
+     用户**任何**点击（哪怕只是想拖一下画面看看）都会当场把引导关掉，
+     而他还没读到第一句在讲什么。引导一旦关掉就写 localStorage，之后再也不弹。
+     这不是"用户已经会用了"，是"用户还没开始看就被拿走了"。
+     现在的口径：引导出现后 **2.5 秒内**的交互不关闭它（让第一句至少被看见），
+     2.5 秒之后恢复"首次交互即消失"（该行为是原来明确设计过的，不改）。
+     点气泡上的「跳过 / 下一步」不受静置期限制 —— 那是用户的主动选择。
+     ⚠️ 静置期只影响"关不关"，**不影响**底下画布的拖动：引导容器是
+        pointer-events:none，只有气泡自己接管点击，所以这 2.5 秒里用户照样能转视角。 */
+  const GUIDE_HOLD_MS = 2500;
+  const dismiss = (e)=>{
+    if (!GUIDE.on) return;
+    if (e.target && e.target.closest && e.target.closest('#guide')) return;   // 气泡上不算
+    /* 静置期：从**这一轮引导出现**算起不足 GUIDE_HOLD_MS 时不关。
+       ⚠️ 用 GUIDE.shownAt（在 guideStart 里写）而不是在这里劫持 guideStart ——
+          guideStart 在 2115 行就被拷进 __GARDEN_FULL 暴露给门禁了，
+          在这里重赋值只会改到本地名，门禁拿到的仍是原函数，两边行为不一致。 */
+    if (performance.now() - (GUIDE.shownAt || 0) < GUIDE_HOLD_MS) return;
+    guideStop();
+  };
   addEventListener('pointerdown', dismiss, true);
   addEventListener('wheel', dismiss, { passive:true, capture:true });
   addEventListener('keydown', dismiss, true);

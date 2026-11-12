@@ -1,0 +1,18 @@
+# 调试面板：技术指标只给调试态
+
+## 判据（00a-quality 的 isDebugSurface，npm run unit 已覆盖）
+✓ 公网访客      hostname=x.pages.dev        => false
+✓ 本机          hostname=localhost          => true
+✓ 本机 IP       hostname=127.0.0.1          => true
+✓ 显式 debug    search=?debug=1             => true
+✓ 自动化驱动    webdriver=true              => true
+✓ file://       hostname=空                 => true
+
+## 实测（?debug=1，无头）
+技术指标=true  操作提示=true
+内容: "40 fps / draw calls 590 / triangles 3,357,567 / geometries 464 / textures 121
+       风和日丽 · 午夏 / 画质 自动 · 性能档 · 无 AO · 超采样 1x · QoS L0
+       按 0 复位视角 · 拖动旋转 / 滚轮缩放（可推到 1.6m）
+       双击任意物体＝聚焦到它 · 右键拖动＝平移（走到院角看细节）"
+
+⇒ 公网访客只看到最后两行操作提示，看不到 fps/draw calls/triangles。
