@@ -1,0 +1,10 @@
+# 收尾降级守卫的负例自检
+# 脚本：outputs/_diag/finish-guard-test-20261112.mjs
+# 做法：page.route 注入，让收尾第一步 mergeStatics 强制抛错
+
+正常                       收层=true （21.4s） bootDone=true loopErr=0
+负例·收尾第一步抛错         收层=true （21.4s） bootDone=true loopErr=0
+   ⚠ [延迟装配·收尾] mergeStatics 失败（已降级继续）： Error: 负例：故意让收尾抛错
+
+⇒ 修复前：收尾抛错 ⇒ markBootDone() 永不执行 ⇒ 加载层永久停在「即将开园」
+⇒ 修复后：同样抛错，加载层 21.4s 正常收起，只降级并告警

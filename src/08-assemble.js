@@ -92,26 +92,51 @@ function deferBootFirst(label, fn){ bootJobs.unshift({ label, fn }); }
 export function runDeferredBoot(){
   if (!bootJobs.length){ markBootDone(); return; }   // 无延迟批也要发信号（幂等，T0）
   let i = 0, spent = 0;
-  /* 收尾：合并 + 季节缓存重收 + 套环境 + AO 排除表 + 补阴影。 */
+  /* 收尾：合并 + 季节缓存重收 + 套环境 + AO 排除表 + 补阴影。
+     ⚠️⚠️ 2026-11-12 老黄真机报障「加载页停在『即将开园』1~2 分钟不动」：
+     本函数原来四步收尾**裸跑**（没有 try/catch）。任何一步抛异常 ⇒ 后面的
+     `markBootDone()` 永远执行不到 ⇒ `bootDonePromise` 永挂 ⇒ 11-loop 里
+     `document.getElementById('loading').classList.add('done')` 永不执行
+     ⇒ **加载层永久盖在画面上，用户永远进不来**。
+     `runOne()` 一直有 try/catch（单批失败只跳过那一批），唯独收尾这段没有 ——
+     这是结构性的不对称，不是某一次偶发。
+     现在的取舍（老黄拍板口径：宁可降级也别卡死）：
+       · 四步各自 try/catch，**失败只降级、不阻断**；
+       · `markBootDone()` 放进 finally ⇒ **无论前面发生什么，加载层一定收**；
+       · 失败明细进 console.warn + 汇总成一行，便于事后定位是哪一步坏了。
+     为什么可以降级：这四步是在**已经能渲染的场景**上做"补正"（合并省 draw call、
+     重收季节缓存、套一遍环境、重算 AO 排除表、补一次阴影）。任何一步失败，
+     画面仍然完整可看、只是不最优 —— 这远好过永远卡在加载页。 */
   const finish = () => {
-    mergeStatics(deferRoot);
-    /* 季节缓存重收（2026-09-19 冬柳回归）：柳/竹/苇这些延迟批物件此刻才进 world，
-       模块期收的 willowLeafInsts / seasonMeshCache 全是空的 —— 不重收，
-       冬季 willowLeaf=0.02 永远写不进去（柳树照旧满树垂帘）。 */
-    collectSeasonCaches();
-    applyEnv(ENV.cur);                          // 立刻按当前季节/天气套一遍，不等下一次切换
-    collectAOSkip();
-    renderer.shadowMap.needsUpdate = true;      // 迟到的真投射物
-    console.log('[启动分段·延迟] 合计 ' + spent.toFixed(1) + 'ms（' + bootJobs.length + ' 批）');
-    /* ── T0：装配完成信号就发在这里 ──────────────────────────────
-       ⚠️ 必须在这四步**之后**，不能提前：
-         · mergeStatics(deferRoot) 会**改变对象组成**（多个网格并成 1 个）；
-         · collectSeasonCaches() 会**重收季节叶量**（冬季 willowLeaf 写不进去的那个坑）；
-         · applyEnv(ENV.cur) 按当前季节/天气套一遍（影响季节显隐与叶量）；
-         · collectAOSkip() 影响遍历时的可见集合。
-       早 resolve = 把噪声交给探针，那 T0 就白做了。 */
-    markBootDone();
-    bootJobs.length = 0;
+    const fails = [];
+    const guard = (label, fn) => {
+      try { fn(); }
+      catch (e){ fails.push(label + '：' + (e && e.message ? e.message : e));
+                 console.warn('[延迟装配·收尾] ' + label + ' 失败（已降级继续）：', e); }
+    };
+    try {
+      guard('mergeStatics', () => mergeStatics(deferRoot));
+      /* 季节缓存重收（2026-09-19 冬柳回归）：柳/竹/苇这些延迟批物件此刻才进 world，
+         模块期收的 willowLeafInsts / seasonMeshCache 全是空的 —— 不重收，
+         冬季 willowLeaf=0.02 永远写不进去（柳树照旧满树垂帘）。 */
+      guard('collectSeasonCaches', () => collectSeasonCaches());
+      guard('applyEnv', () => applyEnv(ENV.cur));   // 立刻按当前季节/天气套一遍，不等下一次切换
+      guard('collectAOSkip', () => collectAOSkip());
+      guard('shadowMap', () => { renderer.shadowMap.needsUpdate = true; });  // 迟到的真投射物
+    } finally {
+      console.log('[启动分段·延迟] 合计 ' + spent.toFixed(1) + 'ms（' + bootJobs.length + ' 批）' +
+                  (fails.length ? ' ｜ 收尾降级 ' + fails.length + ' 处：' + fails.join('；') : ''));
+      /* ── T0：装配完成信号 ──────────────────────────────────────────
+         语义变更（2026-11-12）：原来它只在四步**全部成功**后发出；现在放 finally，
+         **四步失败也发**。理由是"卡死"比"降级"严重得多 —— 探针要的是
+         "装配结束了"这个事实，而不是"装配完美成功"。
+         四步各自的语义（老注释，保留）：mergeStatics 改变对象组成、
+         collectSeasonCaches 重收季节叶量、applyEnv 套当前季节天气、
+         collectAOSkip 影响可见集合 —— 所以它们仍排在发信号**之前**，
+         只是失败不再阻断。 */
+      markBootDone();
+      bootJobs.length = 0;
+    }
   };
   /* 单批执行（不推进队列）。 */
   const runOne = () => {
