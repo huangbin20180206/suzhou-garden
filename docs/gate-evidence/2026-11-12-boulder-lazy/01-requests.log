@@ -1,0 +1,16 @@
+# 首次访问实际请求（?tier=high，无头 ANGLE / RTX 4060）
+
+## 改前
+请求数 83 ｜ 合计 14.18 MB
+    5.21 MB  /assets/boulder-hero.glb      ← 占 37%，且默认路径根本不用
+    0.99 MB  /vendor.js
+    0.91 MB  /assets/Macaw.glb
+    ...
+按类型：.glb 10.56 MB ｜ .js 3.42 MB ｜ .jpg 0.13 MB
+
+## 改后
+请求数 82 ｜ 合计 8.97 MB  （−5.21MB / −37%）
+    0.99 MB  /vendor.js
+    0.91 MB  /assets/Macaw.glb
+    0.34 MB  /assets/stone-lion-male.glb
+    ...

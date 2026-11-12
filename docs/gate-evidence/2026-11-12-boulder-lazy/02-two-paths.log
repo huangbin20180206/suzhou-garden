@@ -1,0 +1,7 @@
+# 两条 heroSrc 路径验证（改后）
+
+默认(proc)           32.3s ｜ boulder请求 0 ｜ 立峰 true（子节点0）｜ 报错 0
+?heroSrc=glb       31.3s ｜ boulder请求 1 ｜ 立峰 true（子节点1）｜ 报错 0
+
+· 默认路径完全不请求 boulder，立峰走程序化（无子节点 = 直接是 Mesh）
+· ?heroSrc=glb 仍然预取并加载（有 1 个子节点 = GLB 容器 group），不死锁

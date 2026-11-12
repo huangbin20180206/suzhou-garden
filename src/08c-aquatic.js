@@ -797,14 +797,27 @@ function separateLilyPads(){
 }
 separateLilyPads();
 
-/* ── boulder-hero 预取（2026-10-14 · 试水单死锁修复，Chief 实测裁定）──
-   预载清单（13-preload）在**模块求值期**就把 7 件计入预算，warmBoot（11-loop）等
-   全部 settle 或 180s 超时才放行；而本文件里 boulder 的 fetch 只住在 deferred
+/* ── boulder-hero 预取（2026-10-14 · 试水单死锁修复，Chief 实测裁定）──────────
+   ⚠️ 2026-11-12：**默认档不再预取**（省 5.21MB 首次下载，实测冷启动 −16s）。
+   背景：2026-10-30 起主峰默认走**程序化**（`?heroSrc=glb` 才用这个 GLB），
+   两份预载清单当时已同步撤下（见 08-assemble 的「源选择」注释 / 13-preload），
+   **唯独这里这行预取没撤** ⇒ 每次开园都白下 5.21MB，占首次下载量 37%。
+
+   下面的死锁说明仍然有效，只是**现在只对 `?heroSrc=glb` 那条路径成立**：
+   预载清单（13-preload）在**模块求值期**把资产计入预算，warmBoot（11-loop）等
+   全部 settle 或 180s 超时才放行；而 boulder 的 fetch 只住在 deferred
    heroStones（deferBootFirst，首帧之后才跑）里 ⇒ warmBoot 不放行 ⇒ 首帧不出 ⇒
    heroStones 不跑 ⇒ fetch 不发起 ⇒ settle 不到 ⇒ 循环等到 180s 才按失败结算。
-   修法：**模块期先预取一份**（空回调），等摆位分支跑同 key 时命中 assetCache
-   同步落位 —— 与 Macaw 同机制、同一条先到先得。原程序化回滚档不动。 */
-loadAssetOnce('assets/boulder-hero.glb', 4.49, () => {});
+   修法（保留）：走 glb 档时**模块期先预取一份**（空回调），等摆位分支跑同 key 时
+   命中 assetCache 同步落位 —— 与 Macaw 同机制、同一条先到先得。
+
+   ⚠️ 判定必须与 08-assemble 的 `heroSrc` **同一条口径**（`?heroSrc=glb` 才为 glb），
+      两处不一致就会出现"预取了但不用"或"用了但没预取（死锁）"。 */
+{
+  let wantGlb = false;
+  try { wantGlb = new URLSearchParams(location.search).get('heroSrc') === 'glb'; } catch {}
+  if (wantGlb) loadAssetOnce('assets/boulder-hero.glb', 4.49, () => {});
+}
 /* 石灯笼（2026-10-14）：与 boulder 同一条规矩 —— 预载清单在**模块求值期**计数，
    若 fetch 只住在 deferred 批里就会 warmBoot 死锁（boulder 已踩过一次）。 */
 loadAssetOnce('assets/stone-lantern.glb', 1.05, () => {});

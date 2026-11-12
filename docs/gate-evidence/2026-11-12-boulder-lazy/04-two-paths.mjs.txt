@@ -1,0 +1,51 @@
+// 两条路径都验：默认(proc) 不请求 boulder；?heroSrc=glb 仍能正常加载且不死锁。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { listenEphemeral } from '../../probe/_harness.mjs';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const MIME = { '.html':'text/html', '.js':'text/javascript', '.glb':'model/gltf-binary',
+               '.mp3':'audio/mpeg', '.webmanifest':'application/webmanifest', '.svg':'image/svg+xml' };
+let hits = 0;
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  if (p.includes('boulder-hero')) hits++;
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end('nf'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+const port = await listenEphemeral(server);
+const { chromium } = createRequire(import.meta.url)('playwright');
+async function run(qs, label){
+  hits = 0;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hp-'));
+  const ctx = await chromium.launchPersistentContext(dir, { headless: true, viewport:{width:1280,height:720},
+    args: ['--use-angle=d3d11','--ignore-gpu-blocklist','--enable-gpu-rasterization'] });
+  const page = ctx.pages()[0] || await ctx.newPage();
+  page.setDefaultTimeout(600000);
+  const errs = [];
+  page.on('pageerror', e => errs.push(e.message));
+  page.on('console', m => { if (m.type()==='error') errs.push(m.text()); });
+  const t0 = Date.now();
+  await page.goto(`http://127.0.0.1:${port}/index.html?tier=high${qs}`, { waitUntil: 'load' });
+  await page.waitForFunction(() => document.getElementById('loading') && document.getElementById('loading').classList.contains('done'),
+    null, {timeout:600000, polling:100});
+  const t = Date.now()-t0;
+  const st = await page.evaluate(() => {
+    const G = window.__garden;
+    let hero = null;
+    G.scene.traverse(o => { if (o.name === 'taihuHero') hero = o; });
+    return { hasHero: !!hero, children: hero ? hero.children.length : -1 };
+  });
+  console.log(`${label.padEnd(18)} ${(t/1000).toFixed(1)}s ｜ boulder请求 ${hits} ｜ 立峰 ${st.hasHero}（子节点${st.children}）｜ 报错 ${errs.length}`);
+  errs.slice(0,3).forEach(e => console.log('    ✗ ' + e.slice(0,120)));
+  await ctx.close(); try { fs.rmSync(dir,{recursive:true,force:true}); } catch {}
+}
+await run('', '默认(proc)');
+await run('&heroSrc=glb', '?heroSrc=glb');
+server.close();
