@@ -302,7 +302,7 @@ export function onAssetFailed(url, fn){
   const it = items.get(url);
   if (it && it.settled === false){
     failSubs.delete(url);
-    try { fn(it.err); } catch (e){}
+    try { fn(it.err); } catch (e){ /* 刻意吞：补订阅回调抛错不能打断订阅链（失败已经发生，这一刀只是补通知） */ }
     return () => {};
   }
   return () => { const a = failSubs.get(url); if (!a) return; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };
@@ -472,7 +472,7 @@ export function preloadPhase(onTick, timeoutMs, coalesceMs){
       if (a.settled >= a.count || timedOut){
         finished = true; clearInterval(timer);
         const fa = aggregate();
-        try { onTick && onTick({ ...fa, pctInt: 100, notice: null, final: true }); } catch (e){}
+        try { onTick && onTick({ ...fa, pctInt: 100, notice: null, final: true }); } catch (e){ /* 刻意吞：收尾播报失败不能让 preload 的 Promise 卡住不 resolve */ }
         resolve(fa);
       }
     }
