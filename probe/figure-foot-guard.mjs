@@ -10,10 +10,9 @@
 //   两例的共同点是"状态全对、不报错、断言全绿，只有量脚下才看得见"。
 //
 // 手法（纯状态 + 射线，零像素）：
-//   ① 对每个点景人物，从 y=20 向下打射线，取**第一个 y<3.0 的命中**当"脚下那个面"
-//      （3.0 是为了跳过屋顶/檐口 —— 水榭/游廊的人头上都有顶）；
-//   ② 散步的人**沿整条散步区间扫描**（逐点把 position 摆过去再量：同一个 evaluate 任务内
-//      渲染循环跑不到，所以摆位是有效的），不能只量起点 —— 起点对不代表全程对；
+//   ① 对每个点景人物，从 y=20 向下打射线：3.0 只做"滤屋顶/檐口"（水榭/游廊的人头上都有顶）；
+//      地面取 y<3.0 命中里**离脚底最近**的（2026-10-13 修：灯笼体积光 lampVol 按名排除，非可站面）；
+//   ② 散步的人**沿整条散步区间扫描**（采样点按公式静态算出，不移动人物），不能只量起点 —— 起点对不代表全程对；
 //   ③ 判据两条：脚下那个面**不能是 waterSurface**；|脚底 − 脚下那个面| ≤ TOL。
 //
 // ⚠️ 射线必须**排除人物自己**：Raycaster 不认 .visible（父级隐藏也照样命中），
@@ -48,11 +47,15 @@ const SELFTEST = process.env.FIGURE_FOOT_SELFTEST === '1';
 /* 脚下面与脚底的允许偏差。标定：静态人物实测 0.003~0.006；散步者沿全程实测 ≤0.11
    （他走的是**廊道铺装**，比地形公式平，取常数 y 比跟地形更准）。0.15 留约 1.4 倍余量。 */
 const TOL = Number(process.env.FIGURE_FOOT_TOL || 0.15);
-const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴（坐姿 3）
+const EXPECT_FIGS = 14;                     // 先生 + 2 书童 + 夜步 + 对弈二人（坐姿）2
                                             // + 看烟花的一家 5（2 大人 + 3 孩童，2026-10-05 春节烟花配套）
                                             // + 观鱼人（拱桥）+ 仕女（井边）（2026-10-05）
                                             // + 马夫（南墙外马厩，2026-10-09 —— 他站在**马厩台基**上
                                             //   而不是地形上，本门用"向下射线取真实命中面"量，所以照过）
+                                            // 2026-10-25 起抚琴人由 16-actors 的 AI 人物承担，不在点景人物之列，故 16→15
+                                            // ⚠️ 2026-10-28 15→14：水榭那位程序化"品茗"站像下线（老黄截图
+                                            //   红框"低模人物去掉" —— 与搬进水榭的 AI 抚琴人在同一间亭子里重复）。
+                                            //   要恢复它，这里同步改回 15。
 
 (async () => {
   const t0 = Date.now();
@@ -74,6 +77,7 @@ const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜�
   const data = await page.evaluate(async (selftest) => {
     const G = window.__garden, T = G.THREE;
     const A = await import('/src/08-assemble.js');   // 取产品自己的 walkPointAt（见文件头"巡游者"一条）
+    const SC = await import('/src/02-scene.js');   // 只读画质档（前提断言：volume:true 档下 lampVol 才存在）
     const figs = G.figures || [];
     /* 复现缺陷态：人全按回 y=0（修复前就是这个值），
        并把散步区间换回修复前的 [1.3, −3.8]（那段有 2.5m 在池面上）——
@@ -95,13 +99,25 @@ const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜�
 
     const rc = new T.Raycaster();
     const down = new T.Vector3(0, -1, 0);
-    const surfaceAt = (x, z) => {
+    let lampVolSkipped = 0;   // 前提断言用：本轮按名排除掉多少个 lampVol 命中
+    /* 前提断言用：场景里此刻真的挂着几个可见的 lampVol 网格。
+       "没排到"有两种原因 —— ①过滤器坏了；②当时场景里压根没有 lampVol（时刻/档位/机位不同）。
+       只有 ① 才算问题，所以断言必须先排掉 ②，否则它会随场景状态乱红（2026-10-13 自检模式实测就是这么红的）。 */
+    let lampVolInScene = 0;
+    G.scene.traverse(o => { if (o.isMesh && o.name === 'lampVol' && shown(o)) lampVolInScene++; });
+    /* 2026-10-13 口径修复（A 为主 + B 按名排除 lampVol）：3.0 只干"滤屋顶/檐口"一件事；
+       "哪块是地面"改由离脚最近决定。TOL/gap 公式/check 名与阈值一字未动。 */
+    const surfaceAt = (x, z, foot) => {
       rc.set(new T.Vector3(x, 20, z), down); rc.far = 40;
+      const cands = [];
       for (const h of rc.intersectObject(G.scene, true)) {
         if (!shown(h.object)) continue;                 // 沿父链查可见性（hidden 的 figure 在此被排除）
-        if (h.point.y < 3.0) return { y: h.point.y, name: h.object.name || '(无名)', isWater: h.object.name === 'waterSurface' };
+        if (h.object.name === 'lampVol') { lampVolSkipped++; continue; }  // B：灯笼体积光球不是可站面
+        if (h.point.y < 3.0) cands.push({ y: h.point.y, name: h.object.name || '(无名)', isWater: h.object.name === 'waterSurface' });
       }
-      return null;
+      if (!cands.length) return null;
+      cands.sort((a, b) => Math.abs(a.y - foot) - Math.abs(b.y - foot));  // A：离脚最近的当作地面
+      return cands[0];
     };
 
     const out = [];
@@ -120,7 +136,6 @@ const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜�
         pts.push([p.x, p.z]);
       }
       const rows = pts.map(([x, z]) => {
-        const s = surfaceAt(x, z);
         /* 脚底：baseY 是权威值（渲染循环每帧就写它）；散步时另有 ≤0.028 的迈步起伏，
            这里取 baseY，起伏当噪声不予计入（0.028 远小于 TOL）。 */
         /* ⚠️ 接地面高度 = baseY + contactY。站姿人物 contactY 未定义（= 0，脚底即接地面）；
@@ -130,6 +145,7 @@ const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜�
            报一个 gap −0.452 的假红。 */
         const contactY = f.userData.contactY || 0;
         const foot = f.userData.baseY + contactY;
+        const s = surfaceAt(x, z, foot);
         return { x: +x.toFixed(2), z: +z.toFixed(2),
                  surf: s ? +s.y.toFixed(3) : null, name: s ? s.name : '—', isWater: !!(s && s.isWater),
                  gap: s ? +(foot - s.y).toFixed(3) : null };
@@ -148,7 +164,7 @@ const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜�
       const P = A.WALK_PATH, cur = { i: 0 }, rows = [];
       for (let s = 0; s < P.len; s += 0.02){
         const p = A.walkPointAt(s, cur);
-        const sf = surfaceAt(p.x, p.z);
+        const sf = surfaceAt(p.x, p.z, p.y);
         if (sf) rows.push({ s: +s.toFixed(2), x: +p.x.toFixed(2), z: +p.z.toFixed(2),
                             gap: +(p.y - sf.y).toFixed(4), isWater: sf.isWater });
       }
@@ -163,10 +179,10 @@ const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜�
       }
     }
     figs.forEach((f, i) => { f.visible = was[i]; });
-    return { figs: out, walkerScan };
+    return { figs: out, walkerScan, lampVolSkipped, lampVolInScene, volOn: SC.ACTIVE_QUALITY.volume };
   }, SELFTEST);
 
-  check(`点景人物数量 = ${EXPECT_FIGS}（先生 + 2 书童 + 品茗 + 夜步 + 对弈二人 + 抚琴 + 看烟花的一家 5 + 观鱼人 + 仕女 + 马夫）`,
+  check(`点景人物数量 = ${EXPECT_FIGS}（先生 + 2 书童 + 夜步 + 对弈二人 + 看烟花的一家 5 + 观鱼人 + 仕女 + 马夫）`,
     data.figs.length === EXPECT_FIGS, `实测 ${data.figs.length} 个：${data.figs.map(d => d.pose).join('、')}`);
 
   let worstGap = 0, worstWhere = '', waterHits = [];
@@ -180,6 +196,16 @@ const EXPECT_FIGS = 16;                     // 先生 + 2 书童 + 品茗 + 夜�
     waterHits.length ? `${waterHits.length} 处：${waterHits.slice(0, 4).join('、')}` : '0 处');
   check(`人物脚底贴着脚下的面（|脚底 − 面| ≤ ${TOL}，含散步全程扫描）`,
     Math.abs(worstGap) <= TOL, `最差 ${worstGap} @ ${worstWhere || '—'}`);
+  /* 前提断言（2026-10-13 口径修复配套）：lampVol 按名排除必须真实生效过，否则过滤器静默失效无人知。
+     volume:false 档下光团根本不挂，豁免；volume:true 档下排除数必须 >0。阈值与产品判据无关。 */
+  /* ⚠️ 自检模式下这条前提不适用：自检把人物全部下陷到 baseY=0，射线的落点集合随之改变
+     （实测正常跑排除 4 次、自检跑排除 0 次，而场景里两次都挂着 5 个可见 lampVol）
+     ⇒ 在自检里要求"必须排到过"会引入一条与注入缺陷无关的红，把"有牙"的证据搅浑。
+     它守的是**正常测量路径**，所以只在非自检模式判定。 */
+  check('前提：lampVol 按名排除真实生效（场景里有 lampVol 时，排除次数必须 >0）',
+    SELFTEST || (data.lampVolInScene || 0) === 0 || (data.lampVolSkipped || 0) > 0,
+    `场景内可见 lampVol ${(data.lampVolInScene || 0)} 个 · 本轮排除 ${(data.lampVolSkipped || 0)} 次 · volume=${data.volOn}`
+    + `（场景内为 0 ⇒ 该条件下不适用；自检模式 ⇒ 人物被下陷、射线落点改变，不适用）`);
   /* ── 巡游观鱼者：沿整条闭合路径扫描（2026-10-06 新增）─────────────────────
      标定（修复前 → 修复后，0.02m 一档复算产品自己的 walkPointAt，outputs/_diag/walk-step-check.mjs）：
        · **最大下陷 −0.161 → −0.019**（"脚陷进石板里"就是老黄说的"过桥头时陷一下"）；

@@ -57,6 +57,14 @@ MAT.bronze    = registerWeatherRoles(new THREE.MeshStandardMaterial({
    一张贴图既干净又只多一个 draw call。棋盘是户外陈设，照旧登记天气角色。 */
 MAT.goBoardFace = registerWeatherRoles(new THREE.MeshStandardMaterial({
   map: makeGoBoardTex(), roughness: 0.62, metalness: 0.0, envMapIntensity: 0.55 }), { snow: 1, wet: 1 });
+/* 围棋子的两色（2026-10-22 · P2"坐着的动作"补的）：黑子取墨玉感（低粗糙 + 高一点的环境
+   反射，近景才有一星高光）；白子不用纯白 —— 晴日直射下纯白会过曝成一片、和盘面木色糊在一起，
+   给米白（0xE6DFCC）。子径 21mm（真实尺寸），在 0.9m 的近景里约 10px、在默认机位不到 2px，
+   所以**只靠明度差**读出来就够了，不贴图。 */
+MAT.goStoneBlack = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0x24272B, roughness: 0.34, metalness: 0.0, envMapIntensity: 0.75 }), { snow: 1, wet: 1 });
+MAT.goStoneWhite = registerWeatherRoles(new THREE.MeshStandardMaterial({
+  color: 0xE6DFCC, roughness: 0.30, metalness: 0.0, envMapIntensity: 0.60 }), { snow: 1, wet: 1 });
 
 /* ── 古井 / 花街铺地的四份专用材质（2026-10-05 ·「③ 景」批）──
    一律**新建**而不是就地改共享材质（理由同上面 MAT.celadonVat 那条注释：改 MAT.stone
@@ -92,6 +100,33 @@ export const SEAT_SPOTS = [];
    与 08 里坐姿人物的 SEAT_H 是**同一个数**：改轮廓必须同步改 SEAT_H。 */
 export const QIN_SEAT = [];
 
+/* ── 低案抚琴（P2 第二件动作：跪坐弹琴）──────────────────────────────────────
+   为什么另起一套而不是把水榭那套琴案压低：水榭那套是**坐凳**用的（桌面 0.72、
+   配 0.452 的鼓凳），而 GLB 人物现在能可靠做出来的坐姿是**跪坐**（research/
+   characters/README.md §12.2）。跪坐的髋高只有 0.46，0.72 的桌面顶在胸口上，
+   手够不到弦。低案的桌面按"跪坐时弦在腰腹高度"配 0.36。
+   ⚠️ 桌面/坐位/抬肘幅度是**一组**数：改一个就要重量"手到弦"的距离（见
+      outputs/_diag/actor-qin.mjs 的量法与实测值），别只改桌子。 */
+const QIN_LOW = {
+  /* 2026-10-25：从「堂前月台东次间 (8.0,−7.78)」搬进**水榭** —— 老黄要求抚琴人坐在右侧
+     凉亭里，并替代原来看凉亭那套「高琴案 + 鼓凳 + 低模人」。坐标直接沿用那套琴案的实测点
+     (13.4,8.2)（台基顶面 0.62、不在池域内）。
+     2026-10-26：朝向转至桥/池（-2.20rad 西南，面桥），原 π/2 面东与“临水”不符，特改。
+     ⚠️ 换位置**不改桌面高与坐位关系**：桌面 0.36、坐位后撤 0.42 是"跪坐时手能落到弦上"
+     反解出来的一组数，挪位置不用重解；改 top / seatBack 才要重跑 actor-qin 那一套探测。 */
+  x: 13.4, z: 8.2, y: 0.62, yaw: -2.20,
+  top: 0.36,        // 桌面高（相对台面）
+  seatBack: 0.42,   // 坐位中心在桌面中心**身后**多远（局部 −z；反解见 actor-qin.mjs）
+  seatOut: 0.0,     // 坐位的左右偏移（0 = 与琴心对齐；弹琴是两手分开、人不偏）
+};
+/* 跪坐位（供 16-actors 直接用；与桌子同源，不另写一份坐标）。 */
+export const QIN_LOW_SEAT = {
+  x: +(QIN_LOW.x - QIN_LOW.seatBack * Math.sin(QIN_LOW.yaw) + QIN_LOW.seatOut * Math.cos(QIN_LOW.yaw)).toFixed(4),
+  z: +(QIN_LOW.z - QIN_LOW.seatBack * Math.cos(QIN_LOW.yaw) - QIN_LOW.seatOut * Math.sin(QIN_LOW.yaw)).toFixed(4),
+  y: QIN_LOW.y,
+  yaw: +QIN_LOW.yaw.toFixed(4),
+};
+
 /* ── 棋子（棋钵）的**降水门控**（2026-10-06 · 老黄反馈第 3 条前半）───────────────
    老黄："狂风暴雨场景象棋是不是应该收起来而不是放桌上淋雨"。
    口径**与 12-env 里大雁落地那条判据（fowlGrounded）逐字一致**：
@@ -109,8 +144,9 @@ export const QIN_SEAT = [];
       这条链成环（项目在 01/12f 的文件头都记着同一类事故）。
    ⚠️ 必须**每帧**重申而不是切换时设一次：applyPresence 的注释里记着那条教训（别处的
       旁路 pass 会保存/还原 visible），而且雨量本来就是逐帧变的连续量，门就该每帧跟一次。
-   ⚠️ 本组几何里"棋子"就是这两只**棋钵**（钵中盛着棋子）—— 桌上没有单独的棋子网格。
-      所以"收起棋子"= 收这两只钵；**棋盘按老黄"不是棋盘"保留**（桌面还是那张棋局）。
+   ⚠️ 本组几何里"棋子"= 两只**棋钵** + 盘面上**已下的子**（2026-10-22 起：
+      黑/白各一个合并网格，见 makeStoneTableSet 里"一局中盘"那段）。
+      所以"收起棋子"= 收两只钵 + 两批子；**棋盘按老黄"不是棋盘"保留**（桌面还是那张棋局）。
       石桌/石凳一件都不动。 */
 export const GO_PIECE_MESHES = [];
 export function setGoPiecesVisible(on){
@@ -125,9 +161,11 @@ const STOOL_PROF = [
   [0.221, 0.310], [0.204, 0.385], [0.196, 0.425], [0.212, 0.445],
   [0.150, 0.452], [0.000, 0.452],
 ].map(([r, h]) => new THREE.Vector2(r, h));
-export function makeStoneTableSet(x, z, yaw = 0){
+export function makeStoneTableSet(x, z, yaw = 0, baseY){
   const g = new THREE.Group();
-  const y = groundHeight(x, z);
+  /* 默认仍按地形落地（草坪/月台以外的调用不受影响）；
+     搬进水榭这类"浮在地形上的台基"时必须显式给台面高，否则整桌会沉到台基下面。 */
+  const y = baseY === undefined ? groundHeight(x, z) : baseY;
   g.position.set(x, y, z);
   g.rotation.y = yaw;
 
@@ -148,7 +186,13 @@ export function makeStoneTableSet(x, z, yaw = 0){
   const nailGeo  = new THREE.SphereGeometry(0.024, 8, 6);
   for (let i = 0; i < 4; i++){
     const a = Math.PI / 4 + i * Math.PI / 2 + jr(0.07);
-    const r = 1.02 + jr(0.04);
+    /* 0 / 2 号是**对弈那两位**的凳子（08-assemble 与 16-actors 都取这一对）：拉到 0.88。
+       原值 1.02 时凳心离桌心 1.02、离盘心 1.09，而人坐着肩→指尖只有 ~0.65m
+       ⇒ 手够不到盘面（actor-go-solve 实测差 0.10m，人只能俯身趴桌）。
+       0.88 时凳外缘 0.65 仍在桌面（半径 0.62）之外 3cm，不会插进桌腿。
+       另两张凳子维持 1.02 —— 那两位不是对弈者，"玩家把凳子拉近桌"本来就该只有两张。
+       ⚠️ jr(0.04) 的**调用次数与顺序一个字都没动**（铁律 1），只是基数改了。 */
+    const r = (i === 0 || i === 2 ? 0.88 : 1.02) + jr(0.04);
     const sx = Math.cos(a) * r, sz = Math.sin(a) * r;
     const st = mesh(stoolGeo, MAT.stone, { name:'propStool' });
     st.position.set(sx, 0, sz); g.add(st);
@@ -195,17 +239,106 @@ export function makeStoneTableSet(x, z, yaw = 0){
      mergeStatics 会把它们并进 MAT.celadon 的静态大网 —— 网格从组里被搬走、名字与引用一起
      丢掉 ⇒ 之后**再也开关不了**，而且不报错、状态全对（竹帘条 / 手持木桶同一类坑）。
      noMerge 的代价是 2 个 draw call，换"雨里真的能把棋子收起来"。 */
-  for (const [bx, bz] of [[0.34, 0.10], [0.30, -0.16]]){
+  /* 2026-10-27：两只钵原来都在棋盘**远侧** —— 等于两个人的棋子盒都放在 go1 手边，
+     go2 想"伸手探钵"够不到。改成一人一只：go1 那只留在远侧，go2 那只放到**他左手指尖**
+     正下方（反解结果 世界 (6.556,−5.74) ⇒ 桌面局部 (−0.514,−0.010)，钵心半径 0.514 < 桌面 0.60）。
+     2026-10-28（老黄："下棋的时候盒子盖应该是打开状态的"）：钵口给一圈深色内腔 +
+     盖子取下来**斜搁在钵边** —— 盖着的钵读作"封着口的罐子"，不像棋盒。
+     盖子一律搁在**棋盘外侧**（远侧那只往 +x 搁、近侧那只往 −x 搁），都不与棋盘互穿；
+     盖/内腔也进 GO_PIECE_MESHES —— 暴雨收棋时一起消失，不然"子收了盖还开着"。 */
+  for (const [bx, bz, lx, lz] of [[0.34, 0.10, 0.16, 0.24], [-0.514, -0.010, -0.15, -0.10]]){
     const bowl = mesh(new THREE.CylinderGeometry(0.072, 0.060, 0.062, 14), MAT.celadon, { name:'propGoBowl', cast:false });
     bowl.position.set(bx, 0.751, bz);
     bowl.userData.noMerge = true;
     g.add(bowl);
     GO_PIECE_MESHES.push(bowl);
+    /* 钵口内腔：深色圆片凹进钵口 3mm，读出"里面有子/空的腔" */
+    const inner = mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.004, 14), MAT.woodDark, { name:'propGoBowlInner', cast:false });
+    inner.position.set(bx, 0.779, bz);
+    inner.userData.noMerge = true;
+    g.add(inner);
+    GO_PIECE_MESHES.push(inner);
+    /* 盖子：薄圆片，斜搁在钵边的桌面上（rotation 立起 70°读作"随手靠放"） */
+    const lid = mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.014, 14), MAT.celadon, { name:'propGoBowlLid', cast:false });
+    lid.position.set(bx + lx, 0.784, bz + lz);
+    lid.rotation.set(0.30, 0.5, 1.15);
+    lid.userData.noMerge = true;
+    g.add(lid);
+    GO_PIECE_MESHES.push(lid);
+  }
+
+  /* ── 棋子：19 路盘面上的一局**中盘**（黑 25 / 白 21），每颗都压在交叉点上 ─────────
+     ⚠️ 落位不能按"盘宽 ÷ 19"估 —— 盘面贴图（01b 的 makeGoBoardTex）边距是**整幅的 1/22**、
+        18 道间隔等分内区；盘面是 box(0.43, 0.006, 0.41)，BoxGeometry 顶面
+        uv.x = (x + w/2)/w、uv.y = 1 − (z + h/2)/h，而纹理默认 flipY ⇒ 画布第 k 道线落在
+        盘面局部 x = ((1/22) + k·(20/22)/18 − 0.5)·0.43、z = 同一系数·0.41。
+        按"板宽/19"算会大 10%，四个盘角偏出近 4cm（≈ 两个子宽），子就骑到线外了。
+     ⚠️ 成团而不是均匀撒：均匀随机撒点读作"一把子洒在盘上"，只有**成团 + 留空**才像在下棋。
+     ⚠️ 抖动走**独立私有流** mulberry32(20261022)：不能借上面的 PR —— 那会把 PR 后面所有抽取
+        （凳子方位、茶具错位…）整体前移，四张凳子一挪，两位对弈者就坐歪了（铁律 1）。
+     ⚠️ noMerge + 进 GO_PIECE_MESHES（与棋钵同理）：`setGoPiecesVisible` 要在暴雨/大雪里
+        把整副棋收掉；并进 mergedStatic 之后连引用都没有了、再也关不掉。代价 2 个 draw call。 */
+  {
+    const BX = -0.14, BZ = 0.02, BYAW = 0.12, BTOP = 0.766;   // 与上面 bd / bdFace 同一组数
+    const line = (k) => (1 / 22 + (k / 18) * (20 / 22) - 0.5); // 第 k 路在盘面上的归一化坐标
+    const gs = mulberry32(20261022);
+    const gu = (a, b) => a + gs() * (b - a);
+    const taken = new Set();
+    const stones = { b: [], w: [] };
+    /* 五处成团 + 两处引征：四角挂角、中腹缠斗。偏置表让每团有厚有薄（不摆成方块）。 */
+    const GROUPS = [
+      ['b', 3, 3, 5], ['w', 5, 4, 4],        // 角部挂角
+      ['b', 15, 4, 4], ['w', 14, 6, 5],      // 另一角定式
+      ['b', 9, 10, 6], ['w', 10, 11, 5],     // 中腹缠斗
+      ['w', 4, 15, 4], ['b', 6, 14, 3],      // 边上一带
+      ['w', 15, 15, 3], ['b', 16, 13, 4],
+      ['w', 8, 6, 3], ['b', 11, 7, 3],       // 两处引征
+    ];
+    const OFF = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1],
+      [2, 0], [-2, 0], [0, 2], [0, -2], [2, 1], [-2, -1], [1, 2], [-1, -2]];
+    for (const [col, ci, cj, n] of GROUPS){
+      let placed = 0;
+      for (let tries = 0; tries < 90 && placed < n; tries++){
+        const o = OFF[Math.min(OFF.length - 1, (gu(0, OFF.length) | 0))];
+        const i = Math.max(0, Math.min(18, ci + o[0]));
+        const j = Math.max(0, Math.min(18, cj + o[1]));
+        const key = i * 19 + j;
+        if (taken.has(key)) continue;
+        taken.add(key); placed++;
+        stones[col].push([i, j]);
+      }
+    }
+    /* 子：真实尺寸（直径 21mm / 厚 5mm）。10 段够圆 —— 再细分在 3m 外看不出，
+       只是白烧顶点。两色各合并成**一个**网格（每个 draw call 一批子）。 */
+    const stoneGeo = new THREE.CylinderGeometry(0.0096, 0.0105, 0.005, 10);
+    const cy = Math.cos(BYAW), sy = Math.sin(BYAW);
+    for (const col of ['b', 'w']){
+      const parts = [];
+      for (const [i, j] of stones[col]){
+        const lx = line(i) * 0.43, lz = line(j) * 0.41;
+        const p = stoneGeo.clone();
+        /* 盘面自身的 yaw 0.12：世界偏移 (x·cos + z·sin, −x·sin + z·cos) —— 与 SEAT_SPOTS 同一套映射 */
+        p.translate(BX + lx * cy + lz * sy, BTOP + 0.0021, BZ - lx * sy + lz * cy);
+        parts.push(p);
+      }
+      if (!parts.length) continue;
+      const m = mesh(mergeGeometries(parts, false),
+        col === 'b' ? MAT.goStoneBlack : MAT.goStoneWhite,
+        { name: col === 'b' ? 'propGoStoneB' : 'propGoStoneW', cast: false });
+      m.userData.noMerge = true;
+      g.add(m);
+      GO_PIECE_MESHES.push(m);
+      for (const p of parts) p.dispose();      // 已经并进新几何，克隆件可以回收
+    }
+    stoneGeo.dispose();
   }
 
   /* 茶具：一壶两盏（青白瓷）。棋盘占 x∈[−0.37,0.09]、z∈[−0.20,0.24]，棋钵占 x≈0.23~0.41；
      所以茶具整体摆到棋盘**外侧的前缘空位**（z < −0.20），与棋盘/棋钵都不互穿。
-     桌面面高 0.72 ⇒ 壶心 0.790、盏心 0.752（骑在盏托 0.724 上）。 */
+     桌面面高 0.72 ⇒ 壶心 0.790、盏心 0.752（骑在盏托 0.724 上）。
+     2026-10-28（老黄："为啥两个杯子都在一个人这边"）：第二盏从壶边挪到**对面棋手那侧**
+     （局部 (0.42,−0.30)：r=0.516<桌面 0.60、距棋钵 (0.34,0.10) 0.41m，互不穿插），
+     壶留在中缝偏 go2 侧 —— 两人各有一盏。 */
   const pot = mesh(new THREE.SphereGeometry(0.085, 14, 10), MAT.porcelain, { name:'propTeapot', cast:false });
   pot.scale.set(1.0, 0.82, 1.0);
   pot.position.set(-0.30, 0.790, -0.34); g.add(pot);
@@ -215,7 +348,7 @@ export function makeStoneTableSet(x, z, yaw = 0){
   spout.position.set(-0.385, 0.812, -0.34);
   spout.rotation.z = Math.PI / 2 - 0.42;
   g.add(spout);
-  for (const [cx, cz] of [[-0.06, -0.44], [-0.44, -0.20]]){
+  for (const [cx, cz] of [[-0.06, -0.44], [0.42, -0.30]]){
     const cup = mesh(new THREE.CylinderGeometry(0.043, 0.032, 0.048, 12), MAT.porcelain, { name:'propTeaCup', cast:false });
     cup.position.set(cx, 0.752, cz); g.add(cup);
     const saucer = mesh(new THREE.CylinderGeometry(0.058, 0.052, 0.008, 12), MAT.porcelain, { name:'propTeaSaucer', cast:false });
@@ -230,6 +363,26 @@ export function makeStoneTableSet(x, z, yaw = 0){
    ⚠️ 落点 y 必须**显式给**（水榭台基顶面），不吃 groundHeight —— 台基是浮在地形上的
    独立网格，走地形公式会陷进去 0.62m（2026-10-04 品茗的人踩过这个坑，见 08 的
    PAV_FLOOR_Y 注释）。所以本函数第二组参数收 y。 */
+/* 古琴本身（桌面以上那部分）：通长 1.22m、额宽 0.20 尾宽 0.14、厚 0.055。
+   做成"尾端收窄"的两截，不是一块方板 —— 收窄是琴最好认的剪影特征（远看就是个束腰长条）。
+   topY = 桌面标高，其余尺寸全部相对它；两处琴案（水榭高案 / 堂前低案）共用这一份。 */
+function addQinModel(g, topY){
+  const body = mesh(box(0.86, 0.055, 0.20), MAT.woodDark, { name:'propQinBody' });
+  body.position.set(-0.18, topY + 0.028, 0); g.add(body);
+  const tail = mesh(box(0.36, 0.052, 0.15), MAT.woodDark, { name:'propQinTail' });
+  tail.position.set(0.43, topY + 0.0265, 0); g.add(tail);
+  /* 岳山/龙龈（两端承弦的木条）+ 七弦。弦在 15m 外不足 1px，但近景特写要能读出"弦"。 */
+  const yue = mesh(box(0.030, 0.020, 0.20), MAT.wood, { name:'propQinYue', cast:false });
+  yue.position.set(-0.575, topY + 0.065, 0); g.add(yue);
+  const yin = mesh(box(0.030, 0.018, 0.15), MAT.wood, { name:'propQinYin', cast:false });
+  yin.position.set(0.588, topY + 0.062, 0); g.add(yin);
+  for (let i = 0; i < 7; i++){
+    const s = mesh(box(1.16, 0.004, 0.004), MAT.porcelain, { name:'propQinString', cast:false });
+    s.position.set(0.006, topY + 0.0705, -0.072 + i * 0.024);
+    g.add(s);
+  }
+}
+
 export function makeQinSet(x, z, y, yaw = 0){
   const g = new THREE.Group();
   g.position.set(x, y, z);
@@ -253,22 +406,8 @@ export function makeQinSet(x, z, y, yaw = 0){
     st.position.set(0, 0.26, sz * 0.16); g.add(st);
   }
 
-  /* 古琴：通长 1.22m、额宽 0.20 尾宽 0.14、厚 0.055。做成"尾端收窄"的两截，
-     不是一块方板 —— 收窄是琴最好认的剪影特征（远看就是一个"束腰的长条"）。 */
-  const body = mesh(box(0.86, 0.055, 0.20), MAT.woodDark, { name:'propQinBody' });
-  body.position.set(-0.18, 0.748, 0); g.add(body);
-  const tail = mesh(box(0.36, 0.052, 0.15), MAT.woodDark, { name:'propQinTail' });
-  tail.position.set(0.43, 0.7465, 0); g.add(tail);
-  /* 岳山/龙龈（两端承弦的木条）+ 七弦。弦在 15m 外不足 1px，但近景特写要能读出"弦"。 */
-  const yue = mesh(box(0.030, 0.020, 0.20), MAT.wood, { name:'propQinYue', cast:false });
-  yue.position.set(-0.575, 0.785, 0); g.add(yue);
-  const yin = mesh(box(0.030, 0.018, 0.15), MAT.wood, { name:'propQinYin', cast:false });
-  yin.position.set(0.588, 0.782, 0); g.add(yin);
-  for (let i = 0; i < 7; i++){
-    const s = mesh(box(1.16, 0.004, 0.004), MAT.porcelain, { name:'propQinString', cast:false });
-    s.position.set(0.006, 0.7905, -0.072 + i * 0.024);
-    g.add(s);
-  }
+  /* 古琴（几何在 addQinModel 里，两处琴案共用；0.72 是这张桌的桌面标高） */
+  addQinModel(g, 0.72);
   /* 琴凳（2026-10-05 补）：抚琴必须**坐**着，而琴桌原来只有桌、没有座。
      用与石桌四张**同一个鼓凳轮廓**做，摆在琴桌的 +z 侧（本组 yaw=π/2 ⇒ 世界 −x 侧），
      即"人朝池面坐、琴在人与池之间"—— 临水抚琴。坐面高仍 0.452，落在水榭台基面 y 上。
@@ -282,6 +421,57 @@ export function makeQinSet(x, z, y, yaw = 0){
     QIN_SEAT.push({ x: +(x + 0.48 * sy).toFixed(4), z: +(z + 0.48 * cy).toFixed(4),
                     y: +y.toFixed(4), yaw: +Math.atan2(fdx, fdz).toFixed(4) });
   }
+  return g;
+}
+
+/* ── 低案抚琴（跪坐）：一张 0.36 高的板足小案 + 同款古琴 + 一张草席 ───────────
+   y 同样**显式给**（堂前月台面 1.30：台基是浮在地形上的独立网格，走 groundHeight
+   会陷进去 1.5m —— 水缸与品茗桌都踩过这个坑）。
+   案腿用**板足**（两端各一块竖板）而不是四条腿：低案的板足是最好认的特征，
+   四条细腿在 0.3m 高度上会读成"小凳子"。草席铺在坐位下方，既压住袍摆与地面的
+   接缝、也是"席地而坐"的道具；案面下的净空留给膝盖（案沿离坐位 0.62−0.22=0.40，
+   跪坐时膝在 0.35~0.45 ⇒ 膝盖正好探到案沿之下，与真实跪坐弹琴一致）。 */
+export function makeLowQinSet(x, z, y, yaw = 0){
+  const g = new THREE.Group();
+  g.position.set(x, y, z);
+  g.rotation.y = yaw;
+  const top = QIN_LOW.top;
+
+  /* 案面 + 压边 + 一圈牙板 + 四条腿（马蹄足）。
+     ⚠️ 腿不能做成"两端各一块竖板"（板足）：0.3m 高的板足在侧视里是一整块深色方块，
+        读作"箱子/柜子"而不是案（2026-10-22 出图复核）。低案的识别特征恰恰是
+        **面 + 窄牙板 + 细腿**，腿越细越读得出"这是张桌子"。 */
+  const panel = mesh(box(1.30, 0.055, 0.44), MAT.wood, { name:'propLowQinTop' });
+  panel.position.y = top - 0.0275; g.add(panel);
+  const edge = mesh(box(1.34, 0.020, 0.48), MAT.woodDark, { name:'propLowQinEdge', cast:false });
+  edge.position.y = top - 0.065; g.add(edge);
+  const legH = top - 0.13;
+  for (const sz of [-1, 1]){
+    const ap = mesh(box(1.14, 0.072, 0.024), MAT.wood, { name:'propLowQinApron', cast:false });
+    ap.position.set(0, top - 0.111, sz * 0.196); g.add(ap);
+  }
+  for (const sx of [-1, 1]){
+    const ap = mesh(box(0.024, 0.072, 0.36), MAT.wood, { name:'propLowQinApron', cast:false });
+    ap.position.set(sx * 0.565, top - 0.111, 0); g.add(ap);
+  }
+  for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]){
+    const leg = mesh(box(0.046, legH, 0.046), MAT.woodDark, { name:'propLowQinLeg' });
+    leg.position.set(sx * 0.548, legH / 2, sz * 0.168); g.add(leg);
+    const hoof = mesh(box(0.058, 0.026, 0.058), MAT.woodDark, { name:'propLowQinHoof', cast:false });
+    hoof.position.set(sx * 0.548, 0.013, sz * 0.168); g.add(hoof);
+  }
+  for (const sx of [-1, 1]){
+    const rail = mesh(box(0.034, 0.032, 0.372), MAT.wood, { name:'propLowQinRail', cast:false });
+    rail.position.set(sx * 0.548, 0.095, 0); g.add(rail);
+  }
+
+  addQinModel(g, top);
+
+  /* 草席：只比袍摆宽一点（大了会读成"一块白板垫在地上"），向后多留 0.16 收脚跟 */
+  const mat = mesh(box(0.80, 0.014, 0.72), MAT.straw, { name:'propQinMat', cast:false });
+  mat.position.set(0, 0.007, -QIN_LOW.seatBack - 0.02);
+  g.add(mat);
+
   return g;
 }
 
@@ -354,7 +544,7 @@ export function makeWaterVat(x, z, y, yaw = 0, withLotus = true){
   g.position.set(x, y, z);
   g.rotation.y = yaw;
 
-  const R = 0.44, H = 0.62;
+  const H = 0.62;
   const prof = [
     [0.20, 0.00], [0.28, 0.03], [0.36, 0.11], [0.42, 0.26],
     [0.44, 0.42], [0.43, 0.52], [0.42, 0.58], [0.47, 0.62],   // 口沿外撇
@@ -948,10 +1138,18 @@ export function makeFlowerLane(x, z, y, len, wid, yaw = 0){
    ⚠️ 本表同时是门禁的**唯一真值源**：probe/props-guard.mjs 直接 import 本模块读它，
    再去场景里射线复核"每件是不是真坐落在它该在的面上"。 */
 export const PROP_SPOTS = {
-  /* 堂前东草坪（实测 (6.6,−5.4) 首个命中 ground 0.096 = 地形 0.099，开阔无遮挡） */
-  stoneTable: { x: 6.6,  z: -5.4,  yaw: 0.55 },
-  /* 水榭台基顶面（实测 (13.4,8.2) 命中 0.62 —— 台基顶面；且不在池域内） */
-  qin:        { x: 13.4, z: 8.2,   y: 0.62, yaw: Math.PI * 0.5 },
+  /* 石桌石凳原在东草坪 (7.0,−6.0)；2026-10-29 老黄："把下棋的两个人和石凳石桌
+     全部移到右侧亭子里面去，放在抚琴的人旁边"。
+     水榭台基面 0.62（不是地形）；中心 (15.4,7.0) 在抚琴低案 (13.4,8.2) 东南侧约 2.3m，
+     桌凳外缘 1.3m ⇒ 离东墙 0.65m、离南北坐槛最小 1.75m、离两盆兰花最近 1.65m，
+     不碰四角柱（最近 (17.35,10.05)，中心距 3.64m）。yaw 0.55 保持原来的错位摆法。 */
+  stoneTable: { x: 15.4, z: 7.0, yaw: 0.55, y: 0.62 },
+  /* 水榭台基顶面 (13.4,8.2) 那套**高琴案 + 鼓凳**已于 2026-10-25 撤掉：
+     改成"低案 + 跪坐"（AI 人物），见下面的 qinLow。留档：原来那套的落点与朝向就是
+     qinLow 现在用的这一对坐标（同一处台面，只是换了案型与人）。 */
+  /* 堂前低案抚琴（P2 跪坐）：桌面中心 + 跪坐位，两个点由 QIN_LOW 一处推出。 */
+  qinLow:     { x: QIN_LOW.x, z: QIN_LOW.z, y: QIN_LOW.y, yaw: QIN_LOW.yaw },
+  qinLowSeat: QIN_LOW_SEAT,
   /* 游廊东腿（x=24 那条；实测 (24.6,z) 屋面之下首个实体命中就是地面 ⇒ 廊内净空无栏杆） */
   stands:     [{ x: 24.6, z: 2.0 }, { x: 24.6, z: 6.0 }, { x: 24.6, z: 10.0 }],
   /* 堂前台基（实测 (±3.7,−7.4) 命中 1.30@paving —— 堂前月台面，踏跺两侧）。
@@ -960,7 +1158,10 @@ export const PROP_SPOTS = {
      ⚠️ z 从 −6.95 收到 −7.4：细扫（x=3.7 一线）显示月台前缘/压顶在 z ≈ −6.52，
      缸半径 0.44 ⇒ 圆心 −6.95 时缸沿刚好压在台边（外挑 0.09m）。退到 −7.4 后
      缸前沿 −6.96，离台边 0.44m，稳在月台面上。 */
-  vats:       [{ x: 3.7, y: 1.30, z: -7.4 }, { x: -3.7, y: 1.30, z: -7.4 }],
+  /* 2026-11-03 老黄"景观水缸悬空"：y 1.30 是 10-05 的实测，但 10-29 复核椅心那块
+     月台面时实测只有 **1.24**（SEAT.floor，旧 1.30 是把门槛/铺地砖层的高当成面了）
+     —— 缸底 1.30 挂在台面 1.24 之上，悬空 6cm（老黄红框的缝）。两口一起压到 1.24。 */
+  vats:       [{ x: 3.7, y: 1.24, z: -7.4 }, { x: -3.7, y: 1.24, z: -7.4 }],
   /* 堂前中轴草地（实测 (0,−4.7) 命中 ground −0.232，正对踏跺与匾额） */
   censer:     { x: 0, z: -4.7 },
   /* 竹帘：水榭西向敞开面（额枋世界 x=11.05、y=4.25）三幅；游廊 z=−3.14 檐下两幅 */
@@ -1007,12 +1208,17 @@ export function buildProps(){
   g.name = 'props';
 
   const st = PROP_SPOTS.stoneTable;
-  g.add(makeStoneTableSet(st.x, st.z, st.yaw));
-  reg('石桌石凳', st.x, groundHeight(st.x, st.z), st.z, 1.30, 0.78);
+  g.add(makeStoneTableSet(st.x, st.z, st.yaw, st.y));
+  reg('石桌石凳', st.x, st.y, st.z, 1.30, 0.78);
 
-  const qn = PROP_SPOTS.qin;
-  g.add(makeQinSet(qn.x, qn.z, qn.y, qn.yaw));
-  reg('古琴琴桌', qn.x, qn.y, qn.z, 0.85, 0.85);   // top = 桌面 0.72 + 琴厚（2026-10-05 桌面抬高 0.10）
+  /* 古琴琴桌（高案 + 鼓凳）已于 2026-10-25 撤下：水榭改用"低案 + 跪坐"，
+     由下面的 qinLow 一处承担（老黄："抚琴人应该在右侧凉亭里面，替代原有的低模"）。 */
+
+  /* 水榭低案（跪坐抚琴）：桌面 0.36、案长 1.30 ⇒ 占地半径取 0.72、顶高 0.36+琴 0.10。
+     y 用表里的台基顶面 0.62（不是地形 —— 台基是浮在地形上的独立网格）。 */
+  const ql = PROP_SPOTS.qinLow;
+  g.add(makeLowQinSet(ql.x, ql.z, ql.y, ql.yaw));
+  reg('低案古琴', ql.x, ql.y, ql.z, 0.72, 0.46);
 
   PROP_SPOTS.stands.forEach((s, i) => {
     g.add(makeFlowerStand(s.x, s.z, groundHeight(s.x, s.z), i % 2 ? 0.35 : -0.25, i % 2));

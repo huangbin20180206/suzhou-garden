@@ -17,8 +17,9 @@
    ── 单一真值：bytes 是开发期写入的常量 ─────────────────────────────────
    运行时不发 HEAD 去问大小（慢网上那多一个 RTT 会直接变成几百毫秒的等待，
    而且 Content-Length 缺失时还会让进度条跳变）。清单里的 bytes 由
-   `outputs/_diag/gen-manifest-bytes.mjs` 从磁盘实测写入，改资产后重跑该脚本即可。
-   ⚠️ 改 GLB 之后**必须**重跑，否则清单的总量与真实下载量不符（进度条会卡在 90% 之类的怪数）。
+   `node tools/gen-asset-manifest.mjs --write` 从磁盘实测写入（2026-10-31 起，源头是 assets/manifest.json）。
+   ⚠️ 改 GLB 之后**必须**重跑，否则清单的总量与真实下载量不符（进度条会卡在 90% 之类的怪数）；
+      preload-manifest-sync 门会红。
 
    ── required 的含义（决定失败后要不要替身）────────────────────────────
    `required: true`  = 失败后场景照常跑，只是少一点细节（**不接受**"缺失即穿帮"）。
@@ -165,33 +166,34 @@ const SLOW_WINDOW_MS = 5000;
    "网速不够"变成"**这条网络基本不可用**"，那时降级才是对的判断。 */
 const PRELOAD_TIMEOUT_MS = 180000;
 
-/* ══ 预载清单（单一真值）══════════════════════════════════════════════════
-   bytes  = 磁盘实测（2026-09-27），由 gen-manifest-bytes.mjs 写入
-   stage  = 进度文案里的那一个动词（"取"/"取"…），不是 WARM_STAGES 的值 ——
-            **下载段绝不能出现 `%`**，否则会被 loading-guard 的
-            /营 造 中 · (\S+) (\d+)%/ 误捕获成一个非法阶段名而报红。 */
+/* ══ 预载清单 ═════════════════════════════════════════════════════════════
+   2026-10-31 起**单一真值是 assets/manifest.json**（url / bytes / sha256 / phase / stage / label /
+   required / precache / note）。下面夹在标记之间的那段由 `node tools/gen-asset-manifest.mjs --write`
+   生成（bytes 磁盘实测），sw.js 的 GLBS 也由同一份 JSON 生成；门禁 preload-manifest-sync 校验三者一致。
+   每件的来历与取舍写在 manifest.json 的 note 里（原先散在这里的长注释已迁过去，完整沿革见 git 历史）。
+   stage = 进度文案里的那一个动词 —— **下载段绝不能出现 `%`**，否则会被 loading-guard 的
+   /营 造 中 · (\S+) (\d+)%/ 误捕获成一个非法阶段名而报红（生成器会拒绝含 % 的 stage）。 */
 export const PRELOAD_MANIFEST = [
-  /* 2026-09-30 三轮：LotusPlant.glb 回归（老黄："之前有个版本有好多株树立的荷花，
-     虽然有点假但是至少能看"——撤空版他判"荷花还是没有修好"）。与 sw.js 的 GLBS 同步。
-     required: false —— GLB 拉不到时页面不该停在加载页，荷花丛缺位即缺位。 */
-  { url: 'assets/koi.glb',         bytes: 208000, stage: '取', label: '锦鲤', required: true  },
-  { url: 'assets/BananaPlant.glb', bytes: 267032, stage: '取', label: '芭蕉', required: false },
-  { url: 'assets/LotusPlant.glb',  bytes: 267300, stage: '取', label: '荷花', required: false },
-  { url: 'assets/Turtle.glb',      bytes: 407400, stage: '取', label: '池龟', required: true  },
-  /* 金刚鹦鹉（2026-10-02 第九轮，老黄："草皮上和假山顶部的小鸟还是没有看到，
-     要不你加几只金刚鹦鹉，我给你参考图，这个好像更显眼一点，3D 效果也挺好"）：
-     AI 生成（rodin，text_to_3d，绿翅金刚鹦鹉），1.49MB。
-     required:false —— 拉不到时页面正常，只是假山上没有鹦鹉。 */
-  { url: 'assets/Macaw.glb',       bytes: 1561572, stage: '取', label: '鹦鹉', required: false },
-  /* 马厩的真马（2026-10-10，老黄："你至少去网站上帮我下个 3d 的马吧，哪怕低模的也行"）：
-     AI 生成（Rodin Gen-2.5-Medium，站立姿态）+ 减面到 4 千面，**无贴图单材质**（逐匹上色）。
-     与 sw.js 的 GLBS 同步（preload-manifest-sync 的 G3 会反向扫磁盘）;
-     required:false —— 拉不到时马厩里站的是**程序化替身**（15-stable 的 makeHorse）。
-     ⚠️⚠️ 2026-10-11：这一件**必须**在**模块求值期**发起请求，否则预载段会死等到超时 ——
-     它的加载原来是写在**延迟批**（loadStableHorses，开园之后才跑）里的，
-     而预载段在前面等它 ⇒ 互相等 ⇒ 每次进项目白等 180s（见 15-stable 的 horseSrcOnce 注释）。
-     `preload-manifest-sync` 的 G6 守这条。 */
-  { url: 'assets/Horse.glb',       bytes: 813652,  stage: '取', label: '马',   required: false },
+  /* <asset-manifest:preload> 由 tools/gen-asset-manifest.mjs 从 assets/manifest.json 生成，勿手改（改 JSON 后跑 --write） */
+  { url: 'assets/koi.glb', bytes: 208000, stage: '取', label: '锦鲤', required: true },
+  { url: 'assets/stone-lantern.glb', bytes: 162876, stage: '取', label: '石灯笼', required: false },
+  { url: 'assets/stone-lion-male.glb', bytes: 359604, stage: '取', label: '石狮雄', required: false },
+  { url: 'assets/stone-lion-female.glb', bytes: 344100, stage: '取', label: '石狮雌', required: false },
+  { url: 'assets/BananaPlant.glb', bytes: 168816, stage: '取', label: '芭蕉', required: false },
+  { url: 'assets/lotus-bloom.glb', bytes: 329964, stage: '取', label: '荷花·盛开', required: false },
+  { url: 'assets/lotus-bud.glb', bytes: 195240, stage: '取', label: '荷花·花苞', required: false },
+  { url: 'assets/lotus-pod.glb', bytes: 293752, stage: '取', label: '荷花·莲蓬', required: false },
+  { url: 'assets/Turtle.glb', bytes: 266372, stage: '取', label: '池龟', required: true },
+  { url: 'assets/Macaw.glb', bytes: 954840, stage: '取', label: '鹦鹉', required: false },
+  { url: 'assets/horse-camargue.glb', bytes: 310912, stage: '取', label: '马·白', required: false },
+  { url: 'assets/horse-mongolian.glb', bytes: 287396, stage: '取', label: '马·栗', required: false },
+  { url: 'assets/horse-criollo-saddle.glb', bytes: 337004, stage: '取', label: '马·鞍', required: false },
+  { url: 'assets/fig-scholar.glb', bytes: 259428, stage: '取', label: '文士', required: false },
+  { url: 'assets/fig-lady.glb', bytes: 287864, stage: '取', label: '仕女', required: false },
+  { url: 'assets/fig-laborer.glb', bytes: 345496, stage: '取', label: '马夫', required: false },
+  { url: 'assets/fig-child.glb', bytes: 256240, stage: '取', label: '书童', required: false },
+  { url: 'assets/fig-guest.glb', bytes: 243392, stage: '取', label: '客人', required: false },
+  /* </asset-manifest:preload> */
 ];
 
 /* 按 url 索引的运行态。settled = null(在飞) | true(成功) | false(失败) */
@@ -265,6 +267,28 @@ export function settleAsset(url, ok, err){
       try { fn(err); } catch (e){ /* 替身失败不阻断开园：整页白屏才是最坏结果 */ }
     }
   }
+  /* 最后一件结算 ⇒ 请 SW 回填离线资产（见 requestAssetPrecache） */
+  if (aggregate().settled >= items.size) requestAssetPrecache();
+}
+
+/* ── SW 资产回填请求（2026-10-31）──────────────────────────────────────────
+   sw.js 的 install 不再下载 GLB（首访时 SW 在 load 后注册，与页面并行会把同一批下两遍）。
+   预载段**全部结算**（成功/失败/超时/「先用基础版进入」都算）的那一刻，给 SW 发一次
+   `precache-assets`，由 SW 用 force-cache 把资产桶缺的件串行补齐 —— 命中页面刚下过的
+   HTTP 缓存，不重复走网络。
+   · 本模块仍不发网络请求：这里只 postMessage；
+   · SW 还没注册/没激活时 `ready` 会等它激活后再发（注册在 load 事件后，常晚于预载完成）；
+   · 不支持 SW、file://、纯 Node 探针：navigator.serviceWorker 不存在 ⇒ 什么都不做；
+   · 只发一次（模块级闸）。 */
+let precacheAsked = false;
+function requestAssetPrecache(){
+  if (precacheAsked) return;
+  precacheAsked = true;
+  try {
+    const sw = typeof navigator !== 'undefined' ? navigator.serviceWorker : null;
+    if (!sw || !sw.ready) return;
+    sw.ready.then((reg) => { if (reg && reg.active) reg.active.postMessage({ type: 'precache-assets' }); }).catch(() => {});
+  } catch (e) { /* 回填只是离线兜底，任何异常都不影响开园 */ }
 }
 
 /* 订阅"某个 URL 的资产失败了"。返回退订函数（务必在不再需要时调用）。 */
@@ -278,7 +302,7 @@ export function onAssetFailed(url, fn){
   const it = items.get(url);
   if (it && it.settled === false){
     failSubs.delete(url);
-    try { fn(it.err); } catch (e){}
+    try { fn(it.err); } catch (e){ /* 刻意吞：补订阅回调抛错不能打断订阅链（失败已经发生，这一刀只是补通知） */ }
     return () => {};
   }
   return () => { const a = failSubs.get(url); if (!a) return; const i = a.indexOf(fn); if (i >= 0) a.splice(i, 1); };
@@ -412,7 +436,7 @@ export function describe(agg){
    同步返回 ⇒ 快照时序与改动前**逐帧一致** ⇒ 本地档/SW 预缓存档零行为变化。
    两种触发场景（都应当零等待）：
      · 本地不限速：1.1 MB 早已下完（实测 GLB 在 1645ms 就全到位，warmBoot 远在其后）；
-     · 装成 PWA 后：.glb 走 cache-first，install 期就预缓存好了，**从来没有网络发生**。
+     · 装成 PWA 后：.glb 走 cache-first，资产桶早已回填好（首访预载结算后由 SW 补齐），**从来没有网络发生**。
    ⚠️ 零等待时**不写** .ld-text / .ld-prog（`silent:true`）—— 让暖编译段从 45% 起
    自己的第一桶来铺满整条 bar，避免"0 → 45 跳一下 → 45 → 51…"这种无信息量的抖动。 */
 export function preloadPhase(onTick, timeoutMs, coalesceMs){
@@ -431,7 +455,6 @@ export function preloadPhase(onTick, timeoutMs, coalesceMs){
        enterBasic() 已把还在飞的全部 settle 成失败，所以下一次 tick 的
        `a.settled >= a.count` 自然成立；这里只把**等待上限**压到 0，
        让它在下一个 tick（≤COALESCE，250ms 内）就走收尾，而不是等满 180s。 */
-    const release = () => { if (!finished) tick(); };
     function tick(){
       if (finished) return;
       const a = aggregate();
@@ -449,7 +472,7 @@ export function preloadPhase(onTick, timeoutMs, coalesceMs){
       if (a.settled >= a.count || timedOut){
         finished = true; clearInterval(timer);
         const fa = aggregate();
-        try { onTick && onTick({ ...fa, pctInt: 100, notice: null, final: true }); } catch (e){}
+        try { onTick && onTick({ ...fa, pctInt: 100, notice: null, final: true }); } catch (e){ /* 刻意吞：收尾播报失败不能让 preload 的 Promise 卡住不 resolve */ }
         resolve(fa);
       }
     }

@@ -1,30 +1,47 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
-import { camera, renderer, RENDER_SCALE, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
-         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState } from './02-scene.js';
-import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled } from './10-post.js';
+import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
+         QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
+import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
+/* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
+import { worldLights } from './12d-lantern.js';
 import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TIERS, DIR_N, DIR_STEP, forceBand, windGain, updateWindDir, updateWindForce } from './2b-wind.js';
-import { MIST, MIST_WHITE, KOI_ORBITS, spawnRipple, updateRipples, assetFailures, perchingAnchors, ripplesActive, lastRippleAge, dropBait, updateBaits, nearestBait, baitsActive, BAITS, rippleCapacity, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06-vegetation.js';
+import { MIST, MIST_WHITE } from './06j-herbs.js';
+import { perchingAnchors } from './06d-corridor.js';
+import { assetFailures } from './06e-assets.js';
+import { spawnRipple, updateRipples, ripplesActive, lastRippleAge, rippleCapacity } from './06f-ripple.js';
+import { KOI_ORBITS, dropBait, updateBaits, nearestBait, baitsActive, BAITS, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06g-koi.js';
 /* 2026-10-05 拆分：氛围特效（雾团 / 香炉白烟 / 萤火虫 / 镜头天气层）已统一搬进 06b-atmos.js。 */
 import { FOG_BANKS, CENSER_SMOKE, makeFireflies, makeLensWeather } from './06b-atmos.js';
-import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawWantPerch } from './08-assemble.js';
+import { koiGroup, dragonflies, updatePerchingDragonflies, perchShowOK, swimTurtles, swimDucks, figures, updateCamFly, updateTour, runDeferredBoot, flyTo, gotoViewpoint, VIEWPOINTS, HERO_POS, FIG_PALETTE, FIG_HAIR, GLB_LOTUS_STEM_H, perchingDragonflies, PERCH_LIFT, CAM_FLY, tourStart, tourStop, tourPlan, TOUR, captionEl, updateIntro, introMaybeAuto, introActive, introStart, introCancel, INTRO, bootDone, bootDonePromise, updateGooseFlock, updateSmallBirds, updateWatchers, geese, smallBirds, smallBirdMeshRef, GOOSE, updateMacaws, macawState, macawSpots, macawWantPerch } from './08-assemble.js';
 /* 电闪雷鸣（2026-09-30）：闪电事件/推进从 12-env 取用（另起一行 import 同一模块，
    ESM 单例 —— 只是避免改动那行很长的既有导入）。 */
 import { tickLightning, LIGHTNING, lightningStrikeNow, tickFireworks, fireworksState, setFireworksForce, fireworksFinaleNow, tickMeteors, meteorState, setMeteorsForce } from './12-env.js';
 /* 竹帘升降：状态与动画都住在 14-props（它拿着帘条子组与卷捆的引用），
    这里只负责每帧推进；UI 侧经 HOOKS.blind 转发（同音景/明信片的既有做法）。 */
 import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } from './14-props.js';
-/* 马厩里那 6 匹真马的"生活"（2026-10-11 · 老黄："低头吃草、尾巴摇晃、抬蹄、仰天抖颈、
-   冬天口鼻白雾"）：姿态是**着色器伪蒙皮**（真模型无骨骼），本模块每帧只推几个角度；
-   白雾的位置也在那边按同一套枢轴复算。放在 15-stable 里（它持有马的材质/几何/槽位）。 */
-import { tickStableLife } from './15-stable.js';
+/* 马厩里那 6 匹真马的"生活"（2026-10-11 建 · 2026-10-19 换 Tinker 骨骼马）：
+   老黄："低头吃草、撅嘴、摇尾巴、动前蹄、抬头晃脑袋和马鬃、冬天口鼻白气"。
+   Tinker 走**真实骨骼**（454 根，见 15-stable 的 applyTinkerPose）；离线/失败时的
+   程序化替身仍走着色器伪蒙皮，同一套状态机分支。白雾位置也在那边算（鼻骨世界坐标）。 */
+import { tickStableLife, horseLifeState, horseLifeDebug, stableTravel, travelCarriagePlace, travelCarriagePark,
+         travelCarriageVisible, travelCarriageTied } from './15-stable.js';
+/* P1 半写实人物（2026-10-21）：加载成功后每帧只写骨骼的呼吸/转头。 */
+import { tickActors, actorState, actorWalk, actorStep, actorPose, actorRig, actorTune, actorVisit } from './16-actors.js';
 /* 马夫"递草料"的摆臂（2026-10-11 · 老黄："人喂马"）：肩枢轴组住在 08-assemble（人物几何是
    那边建的），本模块每帧只推一个角度。 */
 import { tickGroomFeed } from './08-assemble.js';
+/* 人物动作层（2026-10-21 · 人物 P0）：作揖 / 抚琴 / 对弈 / 品茗 / 孩童小跳。
+   直接从 08b 取（08-assemble 没有转出它，而本次只允许动 08b 与 11）；
+   08b 不 import 11-loop ⇒ 不成环。逐帧只在下面 figures 循环里调一次，
+   写的是 08b 新加的 pivot（肩/髋/跳），与循环里写 root 的那几行互不重叠。 */
+import { tickFigureAction } from './08b-figures.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
+import { isDebugSurface, qosThresholds, qosVerdict, estimateRefreshHz } from './00a-quality.js';
+import { FIXED_STEP, planFixedSteps, maxStepsFor } from './00b-fixedstep.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
 import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL, enterBasic as preloadEnterBasic, assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
@@ -38,6 +55,9 @@ const timer = new THREE.Timer();
 timer.connect(document);
 const statsEl = document.getElementById('stats');
 let acc = 0, frames = 0, fps = 0, sndAcc = 0;
+/* 锦鲤"两遍走"的暂存（2026-10-27 复核 C1）：数组本体模块级复用，
+   元素对象挂在每条鱼的 userData（d.base / d.peer）上持久复用 —— 每帧零新建。 */
+const _koiBases = [], _koiPeers = [];
 
 function onResize(){
   const w = innerWidth, h = innerHeight;
@@ -47,6 +67,45 @@ function onResize(){
   composer.setSize(w, h);
 }
 addEventListener('resize', onResize);
+
+/* ── WebGL 上下文丢失/恢复（2026-10-30 · 架构收口）──────────────────────────
+   ⚠️ 此前**一行都没有**。浏览器会在显存耗尽时丢掉上下文（驱动重置、开太多标签页、
+   或**跑完一整套 89 道门禁之后**的这台机器），而 three 的默认行为是：
+     · `webglcontextlost` 之后所有 GL 调用静默失败；
+     · **rAF 循环照常跑**（它不是 GL 调用）、`renderer.info` 的 draw calls 照常累加、
+       stats 照常显示 27fps；
+     · 画布停在**最后一次成功呈现的那一帧**或干脆全黑。
+   2026-10-30 的真实观测：全量 verify 跑到第 26 道时 pageerror-guard 拍到一张全黑的
+   正午截图（luma 16，正常 125），而同一次运行的 stats 显示 `27 fps / draw calls 856`；
+   同一道门单独跑则 18/18 全绿。这正是"状态全对、计数全对、只有画面不动"的形状。
+   ── 做了两件事 ──
+   ① `webglcontextlost` ⇒ preventDefault（**不 preventDefault 浏览器永远不会再给回上下文**）
+      + 置位 `_ctxLost`，循环改为跳过渲染但继续排程（保留状态，恢复后接着跑）；
+   ② `webglcontextrestored` ⇒ 把 renderer/composer 的尺寸与像素比重新下发一遍
+      （RT 与贴图由 three 自己重建；`setSize` 是让 composer 的 RT 按当前视口重建）。
+   ⚠️ 如实声明边界：three 能自动重建**它自己创建的** GPU 资源；但本项目里有若干
+     手写的 RenderTarget / CanvasTexture / PMREM 环境图，**没有逐个验证**它们在恢复后
+     是否都还活着。真要在生产里抗住上下文丢失，还需要按资源类型逐个重烘 ——
+     那是另一件事（本轮不做，写在这里免得下一个人以为"已经处理了"）。 */
+let _ctxLost = false;
+try {
+  renderer.domElement.addEventListener('webglcontextlost', (e) => {
+    e.preventDefault();                 // ← 必须：不拦就再也不会收到 restored
+    _ctxLost = true;
+    console.warn('[渲染] WebGL 上下文丢失（显存耗尽 / 驱动重置）。画面会停在最后一帧，' +
+                 '等浏览器给回上下文后自动恢复。');
+  }, false);
+  renderer.domElement.addEventListener('webglcontextrestored', () => {
+    _ctxLost = false;
+    try {
+      renderer.setPixelRatio(renderer.getPixelRatio());
+      renderer.setSize(innerWidth, innerHeight);
+      composer.setPixelRatio(renderer.getPixelRatio());
+      composer.setSize(innerWidth, innerHeight);
+    } catch (err) { console.warn('[渲染] 上下文恢复后重设尺寸失败：', err); }
+    console.info('[渲染] WebGL 上下文已恢复。');
+  }, false);
+} catch (err) { console.warn('[渲染] 上下文丢失监听挂不上（不影响正常渲染）：', err); }
 
 const _swimmerWorld = new THREE.Vector3();   // 鱼/龟起涟漪要世界坐标（holder 是 koiGroup 的子节点）
 
@@ -67,9 +126,18 @@ let frameT = 0;                                // 最近一帧的墙钟 t，供�
 const _pondRay = new THREE.Raycaster();
 const _pondNdc = new THREE.Vector2();
 let _pondDown = null;
+/* 荷叶水珠落水时的涟漪回调（2026-11-10）：12e 不 import 06f（会成环），由这里注入。 */
+bindDropRipple(spawnRipple);
 /* 最近一次「点击水面」判定结果（供门禁验证整条链路：手势过滤 → 射线 → 池域 → spawnRipple）。
    真实 pointerup 才写；拖拽/未命中水面也记 hit=false，便于区分"没点到"和"接线断了"。 */
 let lastClickRipple = null;
+/* ── 拖拽划水（2026-11-10）──
+   按住拖动时沿轨迹留下水痕：每 70ms、且位移超过 ~0.35m 才起一圈**小**涟漪（2 环 / 强度 0.55，
+   与点击那一下的 5 环 / 1.6 明显区分）。设计取舍：拖拽本身仍然是"转视角"（08d 的 look），
+   这里不抢手势、只在水面上补痕迹 —— 所以"划过水面"和"转视角"可以同时发生。
+   ⚠️ 判域口径与点击那条**逐字一致**：insidePond(世界 x, 世界 z − 3.0)（池心在世界 z=+3）。 */
+let _dragAt = 0, _dragX = 0, _dragZ = 0;
+let lastDragRipple = null;
 renderer.domElement.addEventListener('pointerdown', (e)=>{
   if (e.button === 0) _pondDown = { x:e.clientX, y:e.clientY };
 });
@@ -357,9 +425,14 @@ export function queuePostcard(){ takePostcard(); }
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.sound = toggleSound;
+HOOKS.soundState = () => Snd.on;
 /* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
 HOOKS.blind = toggleBlinds;
 HOOKS.blindState = blindsRolled;
+/* 烟花是否正在放（2026-11-07）：16-actors 的昼夜人物门控要读它 —— "夜里只有灯会和烟花
+   才有人"。走 HOOKS 而不是让 16-actors 静态 import 12-env（那会成环，见 00-config 注释）。
+   本模块已经从 12-env 静态 import 了 fireworksState，这里只是转发一层。 */
+HOOKS.fireworksOn = () => !!(fireworksState && fireworksState().on);
 /* 鱼趣（2026-10-06 老黄）：面板按钮"随机位置撒饵"经这个钩子转发到与水面上点击**同一个**
    dropBait（时间取 frameT —— 与 pointerdown 那条路径逐字一致，否则饵的存活/吸引相位会不同）。 */
 HOOKS.feedBait = (x, z) => dropBait(x, z, frameT);
@@ -577,8 +650,8 @@ export function queueLongExposurePostcard(){
    也管不住移动端越跑越烫。这里加一层带**滞回**的服务质量控制：
 
    · 采样源：animate 里 stats 已经算好的真实 fps（用 rawDt 记账，不受 dt 钳制污染）；
-   · 降档：连续 6 个窗口（≈3s）fps < 45 → 降一档；
-     升档：连续 12 个窗口（≈6s）fps > 58 → 升一档（升档门槛比降档严得多，
+   · 降档：连续 6 个窗口（≈3s）fps < 目标×75% → 降一档；
+     升档：连续 12 个窗口（≈6s）fps > 目标×96.5% → 升一档（升档门槛比降档严得多，
            因为"偶尔一帧快"不代表稳定，宁可慢一点升）；
    · 每次变档后冷却 10 个窗口（≈5s）只采样不动作 —— 否则会在阈值附近来回抖；
    · 4 档：L0 初始 / L1 关 AO / L2 分辨率 ×0.85 + 阴影 2048 / L3 分辨率 ×0.72 + 阴影 1024；
@@ -588,7 +661,37 @@ export function queueLongExposurePostcard(){
    · 页签隐藏即停渲染（见 animate 顶部）：移动端长时间挂后台是发热与掉电主因。 */
 /* AA 的反向句柄：QOS 需要在改档时让 AA 归零，而 AA 定义在 QOS 之后。
    用可空变量而不是直接引用后面的 const（会撞 TDZ），也不靠 typeof（对 TDZ 无效）。 */
+/* 显示器刷新率（2026-10-31 · B3：QOS 阈值改相对值）。
+   加载页阶段（主循环未起）收 rAF 间隔：那时帧间隔就是屏幕/浏览器给的节拍 ——
+   30Hz 屏、低电量限帧在这里就是 30，后面不会被当成"GPU 吃力"。
+   主循环首帧（startAfterWarm）收口：估计交给 00a-quality.estimateRefreshHz（第 10 百分位，
+   暖机长帧不污染）；样本不足按 60。目标帧率 = min(刷新率, 60)，60Hz 下阈值恰为旧的 45/58。 */
+const REFRESH = { samples: [], last: 0, sampling: true, hz: 60, measured: false };
+function refreshSampler(ts){
+  if (!REFRESH.sampling) return;
+  if (REFRESH.last) REFRESH.samples.push((ts - REFRESH.last) / 1000);
+  REFRESH.last = ts;
+  if (REFRESH.samples.length < 240) requestAnimationFrame(refreshSampler);
+  else finishRefreshProbe();
+}
+requestAnimationFrame(refreshSampler);
+function finishRefreshProbe(){
+  if (!REFRESH.sampling) return REFRESH.hz;
+  REFRESH.sampling = false;
+  const hz = estimateRefreshHz(REFRESH.samples);
+  if (hz > 0){ REFRESH.hz = hz; REFRESH.measured = true; }
+  return REFRESH.hz;
+}
 let AA_HOOK = null;
+/* 2026-11-02：拖动看园子的过程中不切 QOS 档。
+   切档要重建画布与全部 RenderTarget，正按着鼠标时换分辨率，观感就是"顿一下 + 闪一下"，
+   而用户此刻盯着看的正是这块画面。等松开手再降档，代价只是拖动期间多跑几帧。
+   ⚠️ 光靠这一条不够：真正消掉黑框的是 QOS.flush()（把重建挪到帧首），这条只是少制造打断。 */
+let _pointerDown = false;
+renderer.domElement.addEventListener('pointerdown', ()=>{ _pointerDown = true; });
+addEventListener('pointerup', ()=>{ _pointerDown = false; });
+addEventListener('pointercancel', ()=>{ _pointerDown = false; });
+addEventListener('blur', ()=>{ _pointerDown = false; });   // 拖到一半切走窗口：别把 QOS 永久冻住
 const QOS = (()=>{
   const P = ACTIVE_QUALITY;
   /* 平滑退化：先轻降倍率，再逐步关 AO / 降阴影。避免旧 L1→L2 一步同时砍掉
@@ -607,6 +710,7 @@ const QOS = (()=>{
     });
   }
   function applyShadow(size){
+    size = Math.min(size, SHADOW_CAP);   // 2026-10-30：与 09-lights 初始化同一条封顶（声明值=真实值）
     if (sun.shadow.mapSize.width === size) return;
     sun.shadow.mapSize.set(size, size);
     if (sun.shadow.map){ sun.shadow.map.dispose(); sun.shadow.map = null; }
@@ -622,6 +726,23 @@ const QOS = (()=>{
     if (gtaoPass) gtaoPass.enabled = L.ao;
     applyShadow(L.shadow);
     syncQualityButtons();
+  }
+  /* 2026-11-02 老黄报障：左键拖动视角出现黑框 / 黑屏闪烁，位置和大小无规律。
+     真因：自适应降档走的是 sample() → apply() → renderer.setSize()/composer.setSize()，
+     而 sample() 在 animate() 里**排在 composer.render() 之后**（stats 那一段）。
+     画布 alpha 恒为 true（three r184 硬写），setSize 会把绘图缓冲换成一张空白的：
+     这一帧已经画好的内容随之作废，浏览器合成出来的就是一块纯色 —— 也就是用户看到的黑框
+     （#app canvas 的 CSS 底色 #0B0E12 正好把它染成黑色）。位置/大小无规律，是因为
+     Chrome 按脏矩形分块重绘，只为其中一部分补了内容。
+     修法：sample() 只记账（queue），真正的重建挪到**下一帧渲染之前**的 flush()，
+     这样"换缓冲"和"画这一帧"发生在同一个 rAF 里，浏览器不可能合到半张空画布。
+     用户手动切画质仍走 apply()（同步）—— 那是一次性动作，门禁也是在同步读状态。 */
+  let pending = -1;
+  function queue(level){ pending = level; }
+  function flush(){
+    if (pending < 0) return;
+    const i = pending; pending = -1;
+    if (i !== st.level) apply(i);
   }
   function state(){
     const L = LEVELS[Math.max(0, Math.min(LEVELS.length - 1, st.level))];
@@ -656,17 +777,20 @@ const QOS = (()=>{
   }
   function sample(fps){
     if (!st.active) return;
+    /* 手正按在画布上拖动时不切档（见上方 _pointerDown 处说明）。 */
+    if (_pointerDown) return;
     st.fps = fps;
     if (st.cool > 0){ st.cool--; return; }
-    if (fps < 45){ st.low++; st.high = 0; }
-    else if (fps > 58){ st.high++; st.low = 0; }
+    const v = qosVerdict(fps, qosThresholds(REFRESH.hz));   // 相对阈值：60Hz 下 = 旧 45/58
+    if (v === 'down'){ st.low++; st.high = 0; }
+    else if (v === 'up'){ st.high++; st.low = 0; }
     else { st.low = 0; st.high = 0; }
     if (st.low >= 6 && st.level < LEVELS.length - 1){
-      apply(st.level + 1); st.low = 0; st.cool = 10; st.changes++;
-      console.log('[QOS] 降档 → L' + st.level + '（fps ' + fps + '）');
+      queue(st.level + 1); st.low = 0; st.cool = 10; st.changes++;
+      console.log('[QOS] 降档 → L' + (st.level + 1) + '（fps ' + fps + '）');
     } else if (st.high >= 12 && st.level > 0){
-      apply(st.level - 1); st.high = 0; st.cool = 10; st.changes++;
-      console.log('[QOS] 升档 → L' + st.level + '（fps ' + fps + '）');
+      queue(st.level - 1); st.high = 0; st.cool = 10; st.changes++;
+      console.log('[QOS] 升档 → L' + (st.level - 1) + '（fps ' + fps + '）');
     }
   }
   function state(){
@@ -677,11 +801,14 @@ const QOS = (()=>{
              pixelRatio:renderer.getPixelRatio(), pixelBudget:P.pixelBudget,
              presetShadow:P.shadow, presetAO:P.ao, shadow:sun.shadow.mapSize.width,
              ao:!!(gtaoPass && gtaoPass.enabled), software:SOFTWARE_GL,
-             probeDriven:PROBE_DRIVEN, immune:QOS_IMMUNE };
+             probeDriven:PROBE_DRIVEN, immune:QOS_IMMUNE,
+             refreshHz:REFRESH.hz, refreshMeasured:REFRESH.measured,
+             downFps:qosThresholds(REFRESH.hz).down, upFps:qosThresholds(REFRESH.hz).up };
   }
   const saved = (()=>{ if (GPU_TIER_FORCED) return 'auto'; try { return localStorage.getItem('garden.quality.v1') || 'auto'; } catch { return 'auto'; } })();
   setMode(saved);
-  return { sample, apply, setMode, state };
+  function desiredAO(){ return LEVELS[st.level].ao; }
+  return { sample, apply, flush, setMode, state, desiredAO };
 })();
 HOOKS.setQuality = QOS.setMode;
 HOOKS.qualityState = QOS.state;
@@ -870,29 +997,65 @@ if (document.hidden) pageHidden = true;      // 启动即在后台（如后台�
    否则切回标签页/断点调试后一帧补几百步会把相位、涟漪、鱼群一次性推穿。
    ⚠️ 渲染仍每帧一次（不插值）：本项目所有运动都是"按 dt 积分"，多帧补步与单帧大步
       在数学上等价，插值只会带来额外状态。 */
-const FIXED_DT = 1 / 60;
-const MAX_STEPS = 6;                 // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
-let simAccum = 0, simTime = 0, simSteps = 0;
+/* 2026-10-31 · B3 真固定步长：步数计算抽到 00b-fixedstep（纯函数，进 npm run unit）。
+   相对旧版的两处行为变化：
+   · 0.25 步吸附容差：60Hz 下 rAF 抖动不再造成"0 步 / 2 步"交替（旧版累加量差一点不到 1/60 就是 0 步）；
+   · 上限按"每帧最多 100ms 仿真"表述（= 6 步，与旧 MAX_STEPS 同值），超出部分丢弃并记账（simState().dropped）。
+   接口不变：stepSim(rawDt) 仍返回本帧推进秒数（整步 × FIXED_DT），simClock / simState 字段只增不减。 */
+const FIXED_DT = FIXED_STEP.dt;
+const MAX_STEPS = maxStepsFor(FIXED_STEP);   // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
+let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
 /** 推进仿真时钟；返回本帧实际推进的秒数（供风钟等读数同源）。
     ⚠️ 风钟也在这里推进：仿真与风**必须共用同一条时间线** —— 拆成两条时，
        任何一处漏调都会让"风在吹但相位不走"这类现象出现，且不报错。 */
 function stepSim(rawDt){
-  simAccum += Math.max(0, rawDt);
-  let advanced = 0, n = 0;
-  while (simAccum >= FIXED_DT && n < MAX_STEPS){ simAccum -= FIXED_DT; advanced += FIXED_DT; n++; }
-  if (n >= MAX_STEPS) simAccum = 0;   // 补步用尽：丢弃余量，宁可慢也不要雪崩
-  simTime += advanced; simSteps = n;
+  const plan = planFixedSteps(simAccum, rawDt, FIXED_STEP);
+  simAccum = plan.accum;
+  simDropped += plan.dropped;
+  const advanced = plan.steps * FIXED_DT;
+  simTime += advanced; simSteps = plan.steps;
   advanceWindClock(advanced);         // 走 2b-wind 的推进函数：导入绑定只读，不能就地 +=
   return advanced;
 }
+/* 运行期错误账本（2026-10-30 第 0 周热修）：单帧兜错之后，子系统报错不再冒泡成
+   pageerror —— 门禁（与 smoke）要从"只看 pageerror"迁到 `__garden.loopErrors()`
+   才能继续看见循环内的病。账本记最近 20 条（满员挤最旧），count 单调累加。 */
+const _loopErrs = [];
+let _loopErrCount = 0;
+function recordLoopError(err){
+  const msg = String((err && (err.stack || err.message)) || err).slice(0, 400);
+  _loopErrCount++;
+  if (_loopErrs.length >= 20) _loopErrs.shift();
+  _loopErrs.push(msg);
+  /* 刷屏控制：第一条完整报，之后每 120 帧提醒一次计数（持续报错的子系统不刷屏） */
+  if (_loopErrCount === 1 || _loopErrCount % 120 === 0){
+    console.error(`[loop] 子系统报错 #${_loopErrCount}（画面继续，不再冻帧）：`, msg.split('\n')[0]);
+  }
+}
 function animate(){
   requestAnimationFrame(animate);
+  /* 单个子系统报错不再冻住画面（2026-10-30 第 0 周热修）：
+     帧循环靠 animate 第一行的 requestAnimationFrame(animate) 自续，所以任何一处抛错
+     循环本身不会停 —— 但抛错点**之后**的本体当帧全部跳过，且每帧都在同一处再抛：
+     抛错点若在 composer.render() 之前（几乎总在），画布永远停在最后一次成功呈现的
+     那一帧 ⇒ 用户看到的就是"画面冻死"，控制台只有一条报错，只能强刷。
+     现在把本体挪进 frameWork()，这里只负责排帧 + 兜错：报错记进上面的账本，
+     当帧丢的是出错那一个子系统，其余系统与渲染照常跑。
+     ⚠️ 门禁断言"零报错"请改看 loopErrors()（pageerror 从此抓不到循环内的病）。 */
+  try { frameWork(); }
+  catch (err){ recordLoopError(err); }
+}
+function frameWork(){
   timer.update();                        // 先 update，getDelta/getElapsed 同帧多次调用值不变
   const rawDt = timer.getDelta();        // 真实帧间隔 —— 统计必须用它
   const dt = stepSim(rawDt);             // 仿真时间（固定步长累加；60fps 下与 rawDt 同值）
   const t = timer.getElapsed();
   frameT = t;
   if (pageHidden) return;                // 后台：不推进仿真、不渲染（发热主因）
+  /* 上下文丢失期间：状态照推（仿真/风/人物都不该冻住），但**不碰 GL**。
+     见文件顶部 webglcontextlost 那段 —— 少了这一条，丢失后每帧仍是几百笔静默失败的
+     GL 调用，控制台刷屏且恢复后状态错乱。 */
+  if (_ctxLost) return;
 
   /* 风：风钟已由 stepSim 随仿真一起推进（同一时间线），这里只把相位刷进材质并跑调度。
      ⚠️ 必须吃**累加的 dt**，不能吃墙钟 t：软渲染一帧 8.4 秒，用墙钟会让所有相位每帧
@@ -951,6 +1114,21 @@ function animate(){
     applyEnv(ENV.cur);
     renderer.shadowMap.needsUpdate = true;   // 过渡中 sunPos/存在性逐帧在动，阴影跟渲
   }
+  /* 路灯烛火摇曳（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）：
+     8 盏路灯各有确定性相位（布点序号派生，不吃随机流，保证门禁复现；2026-10-19 南门口一对撤掉）。
+     双层正弦（11.3/27.7 rad/s 两档抖）+ 偶发下凹（pow12 只在波峰附近开口，
+     烛火被风压一下的闪），合成钳在 [0.80, 1.12]，白天 lamp=0 时恒 0。
+     ⚠️ 必须放在过渡块**之后**：过渡里 applyEnv 会按旧 flick 重写 intensity，
+     这里按新 flick 再合成一次，以这里为准。 */
+  for (const L of worldLights){
+    const ph = L.userData.flickPh;
+    if (!ph) continue;
+    const f = 1 + 0.05 * Math.sin(simTime * 11.3 + ph[0])
+              + 0.035 * Math.sin(simTime * 27.7 + ph[1])
+              - 0.18 * Math.pow(Math.max(0, Math.sin(simTime * 0.63 + ph[2])), 12);
+    L.userData.flick = Math.min(1.12, Math.max(0.80, f));
+    L.intensity = L.userData.base * ENV.cur.lamp * L.userData.flick;
+  }
   /* 电闪雷鸣（2026-09-30）：必须在 ENV 过渡块**之后**推进 —— 过渡里的 applyEnv 会覆写
      sun/amb/hemi/曝光，顺序反了闪光会被压掉。只在 weather==='thunder' 时真正触发。 */
   tickLightning(dt, simTime);
@@ -966,6 +1144,8 @@ function animate(){
      ⚠️ 它只写**自己的**材质 uniform（着色器伪蒙皮）与自己的白雾实例矩阵 —— 不碰 root 的
      visible/position/rotation，也不写任何全局灯光（与闪电/烟花/流星同一条纪律）。 */
   tickStableLife(dt);
+  /* P1 半写实人物：只写骨骼（以绑定姿态为基准），不碰 root / 灯光 / 材质。 */
+  tickActors(dt);
   /* 马夫递草料（2026-10-11）：只转他自己的肩枢轴组 —— 不碰 root、不写灯光。 */
   tickGroomFeed(dt);
   /* 看烟花的一家人（2026-10-05 · 老黄："大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃"）：
@@ -1048,7 +1228,7 @@ function animate(){
      的"抽搐/瞬间提速移位"；只关 cohesion 后跳位归 0，avoid/startle 无辜
      （只关它们：7917 / 5214，与基线同级）。改用"同伴 = 同帧**基准点**"后，
      推不推只由平滑推进的轨道位置决定、与偏移自身无关 ⇒ 回路断开，不抖。 */
-  const bases = [];
+  const bases = _koiBases; bases.length = 0;
   for (const f of fishes){
     const d = f.userData;
     /* 惊鱼加速：读取本鱼当前惊扰能量（0 起，上限约 1.6），乘进推进速度。
@@ -1064,12 +1244,25 @@ function animate(){
        z_local≈5.54 越过 4.1 的腰，鱼就骑到草皮上了。
        轨道参数 cx/cz 本来就是**池局部坐标**，直接写即可；世界坐标由父组给。
        （泳龟是 world 的直接子节点，没有父组偏移，所以下面那段必须保留 —— 别照抄删掉。） */
-    bases.push({ f, d, o,
-      bx: o.cx + Math.cos(d.t) * o.a * j,
-      bz: o.cz + Math.sin(d.t) * o.b * j });
+    /* 2026-10-27 复核 C1：base/peer 对象改成每条鱼一份持久复用（d.base / d.peer），
+       不再每帧新建 —— 字段口径不变。 */
+    const b = d.base || (d.base = { f, d, o, bx: 0, bz: 0 });
+    b.o = o;
+    b.bx = o.cx + Math.cos(d.t) * o.a * j;
+    b.bz = o.cz + Math.sin(d.t) * o.b * j;
+    bases.push(b);
   }
-  /* cohesion 的"同伴位置"＝同帧**基准点**（不含任何行为偏移）—— 见上"两遍走"注释。 */
-  const koiPeers = KOI_BEHAVIOR.cohesion ? bases.map(b => ({ x: b.bx, z: b.bz })) : null;
+  /* cohesion 的"同伴位置"＝同帧**基准点**（不含任何行为偏移）—— 见上"两遍走"注释。
+     2026-10-27 复核 C1：peer 数组与其元素对象都改为复用。 */
+  let koiPeers = null;
+  if (KOI_BEHAVIOR.cohesion){
+    koiPeers = _koiPeers; koiPeers.length = 0;
+    for (const b of bases){
+      const p = b.peer || (b.peer = { x: 0, z: 0 });
+      p.x = b.bx; p.z = b.bz;
+      koiPeers.push(p);
+    }
+  }
   for (const { f, d, o, bx, bz } of bases){
     const fx0 = f.position.x, fz0 = f.position.z;      // 本帧起点 = 上一帧末位置
     f.position.x = bx; f.position.z = bz;
@@ -1313,6 +1506,19 @@ function animate(){
     // 时段门禁：晨读（7.5~12）/ 午茶（12~18）/ 夜步（18~23）；无时段 = 全天（旧样稿）
     const sl = f.userData.slot;
     let inSlot = !sl || (ENV.hour >= sl.h0 && ENV.hour < sl.h1);
+    /* 2026-11-07 老黄："夜间人物应该都休息了，不出现；只有灯会和烟花的场景夜间才出现人物"。
+       低模人物本来有 slot 时段（"夜步" 18~23 那一档仍会在夜里出现），但夜景下园子里
+       站一排人仍然不合逻辑 ⇒ 夜里（starAmount ≥ 0.5 判夜，与 12-env 的夜色深度同源）
+       一律收工，**除非**灯会或烟花正在放（那是老黄指定的例外）。
+       ⚠️ 用 ENV.cur.starAmount 判"夜"而不是 ENV.time === 'night'：时段滑杆是连续量，
+          21:42 这种非锚点时刻 time 仍是 'night' 但过渡中 starAmount 才真的代表暗到什么程度；
+          反过来 18:30 天还没黑透，starAmount 也还没起来，人还在外面是合理的。 */
+    const nightNow = (ENV.cur.starAmount || 0) >= 0.5;
+    const festNow = !!ENV.festival || !!(HOOKS.fireworksOn && HOOKS.fireworksOn());
+    if (nightNow && !festNow) inSlot = false;
+    /* 探针逃生门（2026-11-07，同 16-actors 的 actorVisibleNow）：festival-lanterns-guard
+       量"灯会 draw calls 增量"时要把人物在两态都按住，否则差值里混进一整队人。 */
+    if (HOOKS.pinPeopleHidden) inSlot = false;
     f.visible = goodWeather && inSlot;
     /* 步态（2026-09-18）：原来散步**只有 position 平移**、姿态仍是站桩负手 —— 读起来是"滑行"。
        算一遍才发现更硬的问题：z 振幅 5.1m、ω = sp·TAU·2 = 1.382 rad/s → 周期 4.55s
@@ -1337,7 +1543,9 @@ function animate(){
       const ddx = lp ? nx - lp.x : 0, ddz = lp ? nz - lp.z : 0;
       const dist = Math.hypot(ddx, ddz);
       f.position.x = nx; f.position.z = nz;
-      f.userData.lastPos = { x: nx, z: nz };
+      /* 2026-10-27 复核 C1：lastPos 对象复用，不再每帧新建。 */
+      if (lp){ lp.x = nx; lp.z = nz; }
+      else f.userData.lastPos = { x: nx, z: nz };
       /* 朝向必须跟着**行进方向**（模型正面 = +z → `atan2(dx, dz)`）。
          ⚠️ 日程里的 `yaw` 只管首帧：`D_SCHEDULES[2].yaw = π/2` 是"面朝 +x"，而人沿 z 轴来回走
          —— 那就是**侧着身子平移**。它和"相机解算漂移"是两个**互相独立**的缺陷
@@ -1371,6 +1579,12 @@ function animate(){
       f.rotation.x = f.userData.leanX || 0;
       f.rotation.z = 0.03;
     }
+    /* 动作层（2026-10-21）：作揖/抚琴/对弈/品茗/孩童小跳。
+       ⚠️ 必须放在上面两段**之后**：它只写 08b 新加的 pivot（figSpine / figArmR,L / figHop），
+       root 的 position.y / rotation.x / rotation.z / visible 仍由上面几行独占 ——
+       两处写同一个量就是"谁后跑谁赢"，改完看不见效果也不报错（本项目的老坑）。
+       角色不可见时函数内部直接 return，不推进相位：切回来是接着做，不瞬跳。 */
+    tickFigureAction(f, dt);
   }
 
   if (SEASON_DEMO.on) advanceSeasonDemo(dt);
@@ -1378,6 +1592,10 @@ function animate(){
   updateTour(dt);
   updateIntro(dt);                        // 开场运镜（controls 已被它禁用，update 只刷新阻尼）
   controls.update();
+  /* 自适应改档在这里落地（不是在上帧渲染完之后）：画布与 RT 的重建必须发生在
+     本帧 composer.render() **之前**，否则浏览器会合成一张刚清空、还没画过的缓冲 ——
+     那就是老黄 2026-11-02 报的"左键拖动出现黑框/黑屏闪烁"。 */
+  QOS.flush();
   /* 相机一切就位后再判"是否静止"：自动运镜/巡游/四季演示的飞行都会被认成运动，
      于是升采样只发生在真正的静观时刻（这正是它最该生效的地方）。 */
   AA.tick();
@@ -1399,14 +1617,28 @@ function animate(){
     /* 帧率自适应：把 stats 已算好的真实 fps 交给 QOS（软渲染下 QOS 自动免疫） */
     QOS.sample(fps);
     const q = QOS.state();
+    /* ── 右下角这块文字：**操作提示给所有人，技术指标只给调试态**（2026-11-12）──
+       老黄把项目发到 Cloudflare Pages 给朋友体验，截图里右下角挂着
+       「fps / draw calls / triangles / geometries / textures」——那是给开发看的，
+       普通访客看到只会觉得"这是半成品"。
+       但整块删掉也不行：下面三行操作提示（复位视角 / 拖动缩放 / 双击聚焦）是**唯一**
+       告诉用户"这个画面可以动"的常驻线索，删了更不知所措。
+       判据复用 GARDEN_DEBUG（= isDebugSurface）：`?debug=1` / 被自动化驱动 / 本机打开
+       （localhost 与 file://）时仍显示全量 —— 老黄本机调试体验一位不变；
+       从公网访问 ⇒ 只留操作提示。
+       ⚠️ 隐藏技术指标**不影响** QOS：QOS.sample(fps) 在上一行照常跑，
+          只是不再把那一串数字写进 DOM。 */
+    const techOnly = GARDEN_DEBUG
+      ? `${fps} fps\n` +
+        `draw calls  ${info.render.calls}\n` +
+        `triangles   ${info.render.triangles.toLocaleString()}\n` +
+        `geometries  ${info.memory.geometries}\n` +
+        `textures    ${info.memory.textures}\n` +
+        `${weatherTag()} · ${timeLabelNow()}${ENV_SEASON[ENV.season].label}\n` +
+        `画质 ${q.mode === 'auto' ? '自动' : q.mode === 'high' ? '高' : q.mode === 'balanced' ? '均衡' : '性能'} · ${q.tierLabel}档 · ${q.ao ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n`
+      : '';
     statsEl.textContent =
-      `${fps} fps\n` +
-      `draw calls  ${info.render.calls}\n` +
-      `triangles   ${info.render.triangles.toLocaleString()}\n` +
-      `geometries  ${info.memory.geometries}\n` +
-      `textures    ${info.memory.textures}\n` +
-      `${weatherTag()} · ${timeLabelNow()}${ENV_SEASON[ENV.season].label}\n` +
-      `画质 ${q.mode === 'auto' ? '自动' : q.mode === 'high' ? '高' : q.mode === 'balanced' ? '均衡' : '性能'} · ${q.tierLabel}档 · ${q.ao ? 'GTAO' : '无 AO'} · 超采样 ${SUPERSAMPLE}x · QoS L${q.level}\n` +
+      techOnly +
       `按 0 复位视角 · 拖动旋转 / 滚轮缩放（可推到 1.6m）\n` +
       `双击任意物体＝聚焦到它 · 右键拖动＝平移（走到院角看细节）`;
     acc = 0; frames = 0;
@@ -1418,6 +1650,7 @@ function animate(){
      ② 水面用的是**上一帧**的池底贴图 —— 鱼游得慢，一帧延迟肉眼无感。
      ⚠️ 在 composer 之前调会把 stats 的 draw call 记账顺序打乱（reset 在 composer 前）。 */
   renderRefraction();
+  _tickHover();
 }
 
 /* ── 首帧那 5 秒怎么治（2026-09-20 · B3）────────────────────────
@@ -1644,7 +1877,8 @@ async function warmBoot(){
     renderer.shadowMap.autoUpdate = prevAuto;
     renderer.shadowMap.needsUpdate = true;
     bloom.enabled = _prevBloom;
-    if (gtaoPass) gtaoPass.enabled = true;
+    /* 暖机暂关 AO，结束时按当前 QOS 档还原：保存的性能模式和暖机期间的改档都不能被覆盖。 */
+    if (gtaoPass) gtaoPass.enabled = QOS.desiredAO();
     if (waterSurface) waterSurface.onBeforeRender = prevWaterHook;
   };
   try {
@@ -1652,6 +1886,22 @@ async function warmBoot(){
     renderer.shadowMap.needsUpdate = false;
     if (waterSurface) waterSurface.onBeforeRender = _warmNoop;
     bloom.enabled = false;
+    /* ⚠️ 2026-10-18 · P3：**第 1 桶必须让 shadow map 建出来**。
+       分桶期 needsUpdate=false 是为了省掉 12 次整场景阴影 pass（注释见上方），
+       但代价是：此刻 `sun.shadow.map` 还是 **null**，而 WebGL2 的材质着色器里
+       shadowMap 声明成 `sampler2DShadow`；渲染器给空的 shadow uniform 绑的是默认
+       RGBA 纹理 ⇒ 每一笔 drawElements 都报
+       `GL_INVALID_OPERATION: Mismatch between texture format and sampler type`。
+       实测（outputs/_diag/gl-warn-baseline/trace/ab/prog）：
+         · 启动期 3713 次绘制报错，浏览器控制台截到 256 条后停止上报；
+         · 报错的 program 全是 STANDARD 材质 + `sampler2DShadow` +
+           `samplerCubeShadow`（gl-warn-prog.mjs 的宏组合）；
+         · 修法只给**第一桶**开一次 needsUpdate：深度纹理一次性建好，多花一次当前可见
+           集的阴影 pass（远小于"12 桶全开"的 +1.4s），GL 错误从 256 → 0。
+       试过"提前分配一张带 DepthTexture 的 RenderTarget"，结果不行：three.js 在
+       WebGL2 shadow 路径上把 `shadow.map.texture`（不是 depthTexture）绑给 uniform，
+       那张 RGBA 颜色纹理与 sampler2DShadow 仍然对不上。开关 needsUpdate 才能
+       走 WebGLShadowMap 的内部 createMap() 把 depthTexture 接好。 */
     for (let i = 0; i < buckets.length; i++){
       for (const o of buckets[i].list) o.visible = true;
       setWarmUI(i, buckets.length);
@@ -1659,7 +1909,9 @@ async function warmBoot(){
       /* 必须走真实 composer 渲染（不能用 renderer.compile 预编）：program key 含
          灯组/阴影/输出色彩空间等渲染期状态，裸 compile 编出的 program 与 RenderPass
          宏组合对不上，彩排帧会整批重编（实测 37→87，比不暖机更慢）。 */
+      if (i === 0) renderer.shadowMap.needsUpdate = true;   // 见上方 P3 注释
       composer.render(0.016);
+      if (i === 0) renderer.shadowMap.needsUpdate = false;
     }
     /* 彩排帧：对象已全部揭示，走完整生产路径——后处理链 + 阴影图 + 水面反射 + 主 pass
        + 折射——剩余 program（bloom/GTAO/depth/反射/折射变体）一次编完，animate 首帧零编译。 */
@@ -1680,28 +1932,54 @@ async function warmBoot(){
 }
 
 function startAfterWarm(){
+  finishRefreshProbe();                  // 加载页阶段的刷新率测量到此收口（主循环帧会被长帧/负载污染）
   animate();
 
-  // 首帧（暖机后第一帧几乎零编译）渲染完成后隐藏加载层
+  /* 首帧（暖机后第一帧几乎零编译）渲染完成后：**先补装延迟批，再收加载层**。
+     2026-11-02 老黄报障："资源加载完成后会卡在这个界面很长时间，画面无法响应，
+     连界面上的按钮都无法点击"（截图里正停在首次引导气泡上）。
+     取证（outputs/_diag/postboot-stall.mjs）：延迟批（立峰/马厩/柳/桃/梅/兰/竹 共 30 批）
+     是**首帧之后**才创建的对象，材质从未进过暖机；它们第一次被渲染时要现场编译着色器 ——
+     每张慢帧都伴随 +5~15 个 program，单帧最长 2.8s，合计约 9s 全程同步阻塞主线程。
+     旧顺序是"先收加载层 → 再 runDeferredBoot"⇒ 用户正好盯着一个冻住的园子、
+     按不动的引导按钮，而他并不知道后台在编着色器。
+     改成"先补装、编译完再收层"：总时长不变（编译本来就要付），但这段阻塞发生在
+     加载页背后（封面是合成线程动画，主线程被占住时它照样在动），
+     用户看到的是"即将开园"多等一会儿，而不是一块点不动的画面。 */
   requestAnimationFrame(()=>{
     requestAnimationFrame(()=>{
-      document.getElementById('loading').classList.add('done');
-      /* 开场运镜：loading 层淡出的 0.7s 正好遮住起幅跳切。探针/减弱动效默认不播（?intro=1 强制）。 */
-      introMaybeAuto();
-      /* 首次引导：首帧之后才弹（早于此时画布还是白的，教人转视角没有意义）。
-         ⚠️ 探针每次都是全新的 localStorage → 引导**一定会**出现。它非模态且首次交互即消失，
-           所以不会挡住任何门禁的点击。 */
-      guideMaybeAuto();
+      /* ⚠️ 这个刻度必须在**收层之前**打：warmboot-guard 用它量"首帧里编着色器"的耗时
+         （判据：暖机 → 首帧 ≤ FIRST_BUDGET）。它量的是首帧，不是"用户能点动"的时刻。
+         `[启动分段]` 这一行也必须在这里打印：延迟批会在后面几帧里追加自己的刻度
+         （如"立峰几何"），晚打就会把"末刻度=首帧"这条门禁判据顶掉。 */
       bootMark('首帧');
-      runDeferredBoot();                     // P1-4：首帧已出，现在补装柳/竹/立峰（分帧让出主线程）
       console.log('[启动分段] ' + BOOT.marks.map(([n, t]) => n + ' ' + t + 'ms').join(' → ') +
                   ' ｜ 合计 ' + (performance.now() - BOOT.t0).toFixed(0) + 'ms' +
                   (assetFailures ? ' ｜ 资产失败 ' + assetFailures + ' 个' : ''));
-      console.log('[远香堂] 场景就绪', {
-        GPU档位: GPU_TIER, 超采样: SUPERSAMPLE, GTAO: AO_ENABLED,
-        meshes: registry.meshes,
-        drawCalls: renderer.info.render.calls,
-        triangles: renderer.info.render.triangles,
+      runDeferredBoot();
+      /* 再让两帧渲完最后一批的编译，才收层（markBootDone 发信号时最后一帧还没渲染）。 */
+      bootDonePromise.then(()=>{
+        requestAnimationFrame(()=>{
+          requestAnimationFrame(()=>{
+            document.getElementById('loading').classList.add('done');
+            /* 开场运镜：loading 层淡出的 0.7s 正好遮住起幅跳切。探针/减弱动效默认不播（?intro=1 强制）。 */
+            introMaybeAuto();
+            /* 首次引导：首帧之后才弹（早于此时画布还是白的，教人转视角没有意义）。
+               ⚠️ 探针每次都是全新的 localStorage → 引导**一定会**出现。它非模态且首次交互即消失，
+                 所以不会挡住任何门禁的点击。 */
+            guideMaybeAuto();
+            /* 用户真正能动手的时刻（延迟批的着色器编译都在这之前付清）。
+               ⚠️ 不往 BOOT.marks 里塞新刻度：warmboot-guard 断言"末刻度=首帧"，
+                 那是对"暖机→首帧"这条链的契约，不该为了日志好看去改它。 */
+            console.log('[启动分段·收层] ' + (performance.now() - BOOT.t0).toFixed(0) + 'ms');
+            console.log('[远香堂] 场景就绪', {
+              GPU档位: GPU_TIER, 超采样: SUPERSAMPLE, GTAO: AO_ENABLED,
+              meshes: registry.meshes,
+              drawCalls: renderer.info.render.calls,
+              triangles: renderer.info.render.triangles,
+            });
+          });
+        });
       });
     });
   });
@@ -1714,13 +1992,18 @@ warmBoot().then(startAfterWarm, (err) => {
 });
 
 // 供外部检查使用（smoke 测试与采集脚本都从这里驱动）
-window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, setEnv, applyEnv,
+/* ⚠️ 名字带 __GARDEN_FULL：本块只是**构造**，最终挂到 window 上的是文件末尾那段
+   GARDEN_DEBUG 分流（生产环境只挂只读快照）。不要在这里直接 window.__garden = ... */
+const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV, setEnv, applyEnv,
                   MAT,   // 材质表：门禁要按材质身份断言（如冬季紫藤花穗 count=0），别让探针靠启发式猜
                   WIND, PRECIP, weatherAllowed, effectiveWeather, weatherMutexReason, resetCamera,
                   /* T0：装配完成信号（2026-09-23）。⚠️ bootDone 是 08-assemble 的 `let` 活绑定，
                      必须用 getter 函数读 —— 直接写 `bootDone` 会在建这个对象时把 false 定格，
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
                   bootDone: () => bootDone, bootDonePromise,
+                  /* 循环内错误账本（2026-10-30）：单帧兜错后 pageerror 不再是可靠信号，
+                     门禁断言"零报错"改看这里：`__garden.loopErrors().count === 0`。 */
+                  loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),
                   /* 反射按需更新（2026-09-24）：把"水面是否活跃"暴露给门禁 ——
                      门禁必须先**断言**这个前提（晴 + 无涟漪）才能测"观景态降频"，
                      否则测到的可能是"有涟漪/在下雨"下的满速（那是正确行为）。 */
@@ -1738,6 +2021,11 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 人物（2026-09-18）：门禁要读各角色服色与步态。**必须显式暴露**——
                      靠 traverse 猜对象会漏（灯笼那次就踩过"引用没暴露 → found:false"）。 */
                   figures, FIG_PALETTE, FIG_HAIR,
+                  /* 人物显隐按住（2026-11-07）：festival-lanterns-guard 的"灯会 draw calls
+                     增量"判据要求两态只差灯会层，而昼夜人物门控会让夜里的人物在一个态出现、
+                     另一态消失（实测把增量从 +10 推到 +109）。true = 所有人一律隐藏，
+                     探针量完自己置回 false。产品路径不碰它。 */
+                  pinPeopleHidden: (v) => { HOOKS.pinPeopleHidden = !!v; },
                   GLB_LOTUS_STEM_H,          // 杆高设计常量（wind-audit 断言"杆顶盖住花底"，防花悬空）
                   koiGroup, swimTurtles, swimDucks, KOI_ORBITS, insidePond, POND_RADII, POND_PTS,
                   /* 电闪雷鸣（2026-09-30）：门禁要断言"闪电网格先出现、照亮随之"的时序、
@@ -1785,7 +2073,11 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                     rough: +m.roughness.toFixed(4), dryRough: m.userData.dryRough,
                     metal: +m.metalness.toFixed(4), dryMetal: m.userData.dryMetal })),
                   wetNow: () => wetApplied,
-                  tourStart, tourStop, tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
+                  tourStart, tourStop, tourPlan, horseLifeState, horseLifeDebug, actorState, actorWalk, actorStep, actorPose,
+                  actorRig, actorTune, actorVisit,
+                  /* 马车版到访（2026-10-23）：探针要能读车/辕马状态、并手动摆位做 A/B */
+                  stableTravel, travelCarriagePlace, travelCarriagePark, travelCarriageVisible, travelCarriageTied,
+                  tourState: () => ({ on: TOUR.on, idx: TOUR.idx }),
                   tourCaption: () => { const el = captionEl(); return el ? el.querySelector('b').textContent : ''; },
                   qosState: () => QOS.state(), setQos: (lv) => QOS.apply(lv),
                   qualityState: () => QOS.state(), setQualityMode: (m) => QOS.setMode(m),
@@ -1794,7 +2086,8 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   /* 固定步长仿真（2026-09-25）：门禁要在**低帧率**下验证“仿真速度不膨胀”，
                      但无头浏览器很难稳定造出 20fps ⇒ 暴露纯函数让它直接按指定 dt 步进。 */
                   simClock: () => simTime, stepSim, windClockNow: () => windClock,
-                  simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS }),
+                  simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS,
+                                      snap: FIXED_STEP.snap, maxFrame: FIXED_STEP.maxFrame, dropped: simDropped }),
                   /* 涟漪容量：门禁要断言"暴雨+密集点击+鱼跃"不抢不到槽（2026-09-25 由 20 提到 64） */
                   rippleCapacity,
                   /* 渐进超采样（2026-09-26）：门禁要断言"静止升档/一动回落/性能档不上探/
@@ -1803,6 +2096,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      setEnabled(true) 依然不升档（见 AA.setEnabled 注释）。 */
                   aaState: () => AA.state(), aaSetStep: (s) => AA.setStep(s),
                   aaSetEnabled: (v) => AA.setEnabled(v), aaEnabled: () => AA.state().allowed,
+                  setGradeSoftenConfig: (c) => setGradeSoftenConfig(c),  gradeSoftenState: () => gradeSoftenState(),
                   /* PMREM 四时段缓存：门禁要断言"切时段时反射色变了但只烘一次" */
                   envBakeState,
                   probeDriven: PROBE_DRIVEN, qosImmune: QOS_IMMUNE,
@@ -1847,6 +2141,10 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   fireflyOpacity: () => fireflies.material.uniforms.uOpacity.value,
                   lensLevel: () => lensWeather.level(),
                   clickRippleLast: () => lastClickRipple,
+                  /* 拖拽划水（2026-11-10）：门禁断言"按住拖过水面会留下水痕" */
+                  dragRippleLast: () => lastDragRipple,
+                  /* 荷叶水珠（2026-11-10）：门禁断言"雨后叶盘上有水珠、会滚到盘沿落下" */
+                  lotusDrops: () => LOTUS_DROPS,
                   /* 投喂（计划书 Phase 3 第 6 项）：门禁要断言"饵落水 / 鱼转向 / 不游上岸 /
                      散后归队"。**必须显式暴露** —— 靠 traverse 猜对象会漏（灯笼那次踩过）。 */
                   dropBait, baitsActive, BAITS,
@@ -1883,7 +2181,7 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                   meteorState, setMeteorsForce,
                   /* 金刚鹦鹉作息 + 动作（2026-10-05）：门禁要断言"夜里/雨雪天不在、
                      白天在、且栖停时有动作"，靠 traverse 猜不可判 ⇒ 显式暴露状态。 */
-                  macawState, macawWantPerch,
+                  macawState, macawSpots, macawWantPerch,
                   /* 竹帘升降（2026-10-05）：门禁要断言"按钮按下后帘条真的变短、卷捆跟着走"。 */
                   blindState: () => ({ rolled: blindsRolled(), r: blindsRoll() }),
                   setBlindsRoll,
@@ -1894,6 +2192,39 @@ window.__garden = { scene, camera, renderer, composer, controls, THREE, ENV, set
                      门禁与诊断只能伸手去抠 heightFogPass 内部 —— 而抠 pass 正是本项目反对的
                      做法：探针里重调会被下一帧的参数覆盖。 */
                   setHFogEnabled };
+
+/* ── 生产环境收起调试接口（2026-10-30 · 架构收口）────────────────────────────
+   `__garden` 现在挂着 100+ 个内部对象（scene / 材质表 / 导演状态 / 各种 setXxx 后门），
+   它是**门禁与诊断的唯一驱动面**，不能删 —— 84 道浏览器门都靠它。但它也是：
+     · 每个访问者都能在控制台改场景状态（含 setKoiBreachConfig 这类权威开关）；
+     · 一个把内部实现暴露成事实标准的 API 面（改内部就得改它，谁都不敢动）。
+   所以按"是不是在被人驱动"分流：
+     · **在**被驱动（`navigator.webdriver` / `?debug=1` / localhost）⇒ 全量暴露，行为一位不变；
+     · **不在** ⇒ 只留**只读快照**：版本号 + bootDone + loopErrors。够用户报障时说
+       "它卡在营造中，loopErrors 有 3 条"，够不着任何改状态的后门。
+   ⚠️ 判据用 `navigator.webdriver`（直接信号），不用 UA 猜 —— 与 QOS 免疫判据同一个理由
+      （见 02-scene 的 PROBE_DRIVEN 注释：代理判据会随环境变化失效）。
+   ⚠️ 本机 `file://` 打开时 `location.hostname` 为空，算 localhost —— 老黄本机始终全量。 */
+const GARDEN_DEBUG = isDebugSurface({
+  search: (() => { try { return location.search; } catch { return ''; } })(),
+  webdriver: (() => { try { return navigator.webdriver === true; } catch { return false; } })(),
+  hostname: (() => { try { return location.hostname; } catch { return ''; } })(),
+});
+if (GARDEN_DEBUG){
+  window.__garden = __GARDEN_FULL;
+} else {
+  /* 只读快照：**每次读都现算**（getter），不是建对象时定格。
+     `bootDone` 尤其必须这样 —— 它是个 `let` 活绑定，定格成 false 会让外部的
+     "等它变 true"永远等不到（教训见 __GARDEN_FULL 里那段同名注释）。 */
+  window.__garden = Object.freeze({
+    version: 'suzhou-garden',
+    bootDone: () => bootDone,
+    bootDonePromise,
+    loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),
+  });
+  /* 让控制台里的探索者知道去哪找：不是错误，是一行提示 */
+  console.info('[园林] 已开园。调试接口在生产模式下收起；本机打开或加 ?debug=1 可用。');
+}
 
 /* ══ 首次引导（P2-7）══
    三步：转视角 → 换天时 → 巡游/留影。只在**第一次**进来时出现（localStorage 记账）。
@@ -1916,10 +2247,13 @@ const GUIDE_KEY = 'garden.guided.v1';
 /* ?guide=1 强制弹出：给门禁（以及想预览引导的人）一条绕过"自动化下不自动弹"的路。
    没有它，guide-guard 就只能测 `guideStart()`，测不到真实用户会走的那条自动弹路径。 */
 const GUIDE_FORCE = (() => { try { return /[?&]guide=1/.test(location.search); } catch { return false; } })();
-const GUIDE = { on:false, i:0 };
+const GUIDE = { on:false, i:0, shownAt:0 };   // shownAt：本轮引导出现的时刻（静置期用，见 bindGuide）
 /* ── 引导要不要按"触控口径"说话/动手？ ──
    判据与 CSS 那条窄屏/触控媒体查询**同一条件**（单一真值来源）：面板在
-   `(max-width:520px)` 或 `(hover:none)` 时走的是"手机版式"（见 index.html 同名媒体查询），
+   `(max-width:768px)` 或 `(hover:none)` 时走的是"手机版式"（见 index.html 同名媒体查询），
+   ⚠️ 2026-10-12：index.html 两条窄屏 @media 的断点由 520 抬到 768（补的是 521~767px 且
+      hover:hover 那一带 —— 旧断点下该带落回桌面版式、按钮约 28px）。本表达式是那条媒体
+      查询的**复制品**，必须同源同值，见 index.html:473-480 与 README:672。
    引导的文案与"要不要替用户把面板推开"必须按同一口径决定，否则手机上会出现
    "引导按桌面逻辑把面板推出来"这种自相矛盾。
    `?touch=1 / ?touch=0` 是本项目探针惯例的显式覆盖（同 ?guide=1 / ?tier=）。 */
@@ -1928,7 +2262,7 @@ function guideTouchUI(){
     if (/[?&]touch=1/.test(location.search)) return true;
     if (/[?&]touch=0/.test(location.search)) return false;
   } catch { /* 少见的 location 不可读，按媒体查询走 */ }
-  try { return matchMedia('(max-width:520px), (hover:none)').matches; } catch { return false; }
+  try { return matchMedia('(max-width:768px), (hover:none)').matches; } catch { return false; }
 }
 function guideEl(){ return document.getElementById('guide'); }
 function guideRender(){
@@ -1992,6 +2326,7 @@ function guideRender(){
 function guideStart(){
   const el = guideEl(); if (!el) return false;
   GUIDE.on = true; GUIDE.i = 0;
+  GUIDE.shownAt = performance.now();   // 静置期起点（见 bindGuide 的 dismiss）
   el.classList.add('on');
   guideRender();
   return true;
@@ -2030,13 +2365,230 @@ function guideMaybeAuto(){
     if (!b) return;
     if (b.dataset.g === 'skip') guideStop(); else guideNext();
   });
-  /* 首次交互即消失。⚠️ 落在气泡上的交互不算 —— 否则点「下一步」会自己把自己关掉 */
-  const dismiss = (e)=>{ if (GUIDE.on && !(e.target && e.target.closest && e.target.closest('#guide'))) guideStop(); };
+  /* 首次交互即消失。⚠️ 落在气泡上的交互不算 —— 否则点「下一步」会自己把自己关掉。
+     ⚠️⚠️ 2026-11-12 加"静置期"（GUIDE_HOLD_MS）：老黄把项目发朋友体验时反馈
+     "加载完不知所措" —— 根因是这条 dismiss 监听的是 capture 阶段的 pointerdown：
+     用户**任何**点击（哪怕只是想拖一下画面看看）都会当场把引导关掉，
+     而他还没读到第一句在讲什么。引导一旦关掉就写 localStorage，之后再也不弹。
+     这不是"用户已经会用了"，是"用户还没开始看就被拿走了"。
+     现在的口径：引导出现后 **2.5 秒内**的交互不关闭它（让第一句至少被看见），
+     2.5 秒之后恢复"首次交互即消失"（该行为是原来明确设计过的，不改）。
+     点气泡上的「跳过 / 下一步」不受静置期限制 —— 那是用户的主动选择。
+     ⚠️ 静置期只影响"关不关"，**不影响**底下画布的拖动：引导容器是
+        pointer-events:none，只有气泡自己接管点击，所以这 2.5 秒里用户照样能转视角。 */
+  const GUIDE_HOLD_MS = 2500;
+  const dismiss = (e)=>{
+    if (!GUIDE.on) return;
+    if (e.target && e.target.closest && e.target.closest('#guide')) return;   // 气泡上不算
+    /* 静置期：从**这一轮引导出现**算起不足 GUIDE_HOLD_MS 时不关。
+       ⚠️ 用 GUIDE.shownAt（在 guideStart 里写）而不是在这里劫持 guideStart ——
+          guideStart 在 2115 行就被拷进 __GARDEN_FULL 暴露给门禁了，
+          在这里重赋值只会改到本地名，门禁拿到的仍是原函数，两边行为不一致。 */
+    if (performance.now() - (GUIDE.shownAt || 0) < GUIDE_HOLD_MS) return;
+    guideStop();
+  };
   addEventListener('pointerdown', dismiss, true);
   addEventListener('wheel', dismiss, { passive:true, capture:true });
   addEventListener('keydown', dismiss, true);
   addEventListener('resize', ()=>{ if (GUIDE.on) guideRender(); });
 })();
+
+/* ── 悬停小字标签（2026-10-14 · 互动②）──
+   鼠标划过物体时浮出小字提示（如「荷叶」「太湖石」「远香堂」「锦鲤」「石拱桥」）。
+   非模态、pointer-events:none —— 不挡任何按钮的点击/命中区。
+   仅 matchMedia('（hover:hover）') 且非窄屏时启用；触屏/手机版式不启用。
+   Raycaster 节流（每 6 帧一次），不对全场景每帧射线。
+   文案挂场景里现有的实体命名（VIEWPOINTS 的 label 与材质名同源）。 */
+const _hoverEl = document.getElementById('hover-label');
+const _hoverRay = new THREE.Raycaster();
+const _hoverNdc = new THREE.Vector2();
+let _hoverX = 0, _hoverY = 0;
+let _hoverFrame = 0;
+const _HOVER_INTERVAL = 6;
+const _hoverTargets = [];
+let _hoverTried = false;
+/* 2026-10-27：鼠标没动就不必重算射线。原来每 6 帧无条件打一次，而这批目标里含
+   mergeStatics 合并出来的大网格（材质兜底分支按 MAT.marble/lily/taihu… 认，
+   合并网格沿用原材质 ⇒ 会被收进表），递归射线打在大几何上是毫秒级开销 ——
+   鼠标停在画面上也照样每 6 帧烧一次。改成"移动才重算"，静止时零成本。 */
+let _hoverDirty = true;
+let _hoverObjs = null;      // 目标表对应的 obj 数组（重建表时才重算，别每次 map）
+let _hoverLabels = new Map();   // obj → label（_labelOf 一次查祖先即可，不再逐目标 traverseAncestors）
+let _hoverCamSig = null;        // 上次射线时的相机位姿（相机动了也要重算，否则运镜时标签不跟手）
+
+/* 构建可拾取目标表：obj → label（2026-10-14 深夜扩面 · 用户真机反馈"只看到池水"）。
+   根因有三，前两条都在旧版这 8 行里：
+   ① 时机：表只在首帧建一次（_hoverTried 一次性闸），而立峰在 deferBootFirst 延迟批
+     （11-loop 首帧后才 runDeferredBoot）、锦鲤是 GLB 异步挂载（06g onLoad）——
+     首帧时 taihuHero 还不在 world、koiGroup 还是空 Group ⇒ traverse 什么都找不到。
+   ② 覆盖：陆上物体（荷叶/荷花/石凳/桥/灯笼/马厩/远香堂/假山/树）根本不在表里。
+   ③ 水面恒最近：raycast 按距离排序，水面永远在鱼/水下物之前 —— 旧版只看 hits[0]，
+     指向水下任何东西的射线都会先撞水面、读成"池水"（命中判定处一并修）。
+   修法：name 精确匹配 + 材质兜底匹配双通道挂标签（不硬编码坐标）；表在首帧先建兜底版，
+   bootDonePromise 兑现后重建（延迟批与 GLB 都已进场）；命中判定改"按距离序找第一个
+   有标签的命中"，水面不再是永久赢家。 */
+function _buildHoverTargets(){
+  _hoverTargets.length = 0;
+  if (waterSurface) _hoverTargets.push({ obj: waterSurface, label: '池水' });
+  if (koiGroup) _hoverTargets.push({ obj: koiGroup, label: '锦鲤' });
+  for (const pivot of (lanternGroups||[])) _hoverTargets.push({ obj: pivot, label: '灯笼' });
+  /* 用 scene.traverse 而非 world.traverse（2026-10-15）：折射克隆（KoiFish 等）挂在
+     scene 下不在 world 里 —— 用 world 只建出"正主"表，克隆命中链全落空。 */
+  scene.traverse(o => {
+    if (o.name === 'taihuHero' || o.name === 'taihuCompanion') _hoverTargets.push({ obj: o, label: '太湖石' });
+    else if (o.name === 'stoneLantern') _hoverTargets.push({ obj: o, label: '石灯笼' });
+    /* ⚠️ 锦鲤的命中体是折射克隆：renderRefraction 把水下克隆挂在主 scene 下渲染 RT，
+       它们的祖先链里没有 koiGroup ⇒ traverseAncestors 匹配不到 —— 必须按 mesh 自带名
+       'KoiFish' 直挂（06g 的 GLB 节点名）。主树里的正主仍走 koiGroup 分支。 */
+    else if (o.name === 'KoiFish') _hoverTargets.push({ obj: o, label: '锦鲤' });
+    else if (o.name === 'taihuPeak' || o.name === 'taihuBoulder') _hoverTargets.push({ obj: o, label: '假山' });
+    else if (o.name === 'bridgeBody') _hoverTargets.push({ obj: o, label: '石拱桥' });
+    else if (o.name === 'plaque') _hoverTargets.push({ obj: o, label: '匾额「远香堂」' });
+    else if (o.name === 'pavilionPlaque') _hoverTargets.push({ obj: o, label: '匾额「荷风四面」' });
+    else if (o.name === 'propTableTop' || o.name === 'propTablePed' || o.name === 'propStool'
+          || o.name === 'propQinStool') _hoverTargets.push({ obj: o, label: '石桌石凳' });
+    else if (o.name === 'lotusStem' || o.name === 'lotusCalyx') _hoverTargets.push({ obj: o, label: '荷花' });
+    /* 荷花系小件（茎/萼/瓣/蓬）会被 mergeStatics 并进合并网格而丢名 —— name 分支
+       命中率有限，真正兜住它们的是材质匹配（lotus/lily/lotusPod 系都是单例）。 */
+    else if (o.name === 'lotusBud') _hoverTargets.push({ obj: o, label: '荷花苞' });
+    else if (o.name === 'podHouse' || o.name === 'podFace') _hoverTargets.push({ obj: o, label: '莲蓬' });
+    else if (o.name && /^horse(Cheek|Muzzle|Ear|ManeTuft|Hoof|Saddle|Girth)$/.test(o.name))
+      _hoverTargets.push({ obj: o, label: '马' });
+    else if (o.name && /^carriage(Bed|Side|Back|Front|Canopy|Pole|Yoke|Shaft|Axle)/.test(o.name))
+      _hoverTargets.push({ obj: o, label: '马车' });
+    else if (o.name && !/^stableRoad/.test(o.name)
+          && /^(stable|stall|hay|feed|fence|hitch|yard|trough|plinth|stableRoof|stableRidge|stableGable|stableBeam)/.test(o.name))
+      _hoverTargets.push({ obj: o, label: '马厩' });
+    else if (o.name === 'terraceLower' || o.name === 'terraceUpper') _hoverTargets.push({ obj: o, label: '远香堂' });
+    else {
+      /* 材质兜底（树系大多没有 group name）：柳/桃/梅/竹/芭蕉 ——
+         材质是 01-materials 的模块级单例，比对 identity 零开销。 */
+      const mk = o.material || null;
+      if (mk === MAT.willowBark || mk === MAT.willowLeaf) _hoverTargets.push({ obj: o, label: '柳树' });
+      else if (mk === MAT.peachLeaf || mk === MAT.peachBlossom || mk === MAT.peachFruit) _hoverTargets.push({ obj: o, label: '桃树' });
+      else if (mk === MAT.plumTrunk || mk === MAT.plumLeaf || mk === MAT.plumBlossomRed
+            || mk === MAT.plumBlossomYellow || mk === MAT.plumBud) _hoverTargets.push({ obj: o, label: '梅树' });
+      else if (mk === MAT.bambooB && o.name === 'bambooBranch') _hoverTargets.push({ obj: o, label: '竹子' });
+      else if (mk === MAT.banana) _hoverTargets.push({ obj: o, label: '芭蕉' });
+      else if (mk === MAT.marble) _hoverTargets.push({ obj: o, label: '石拱桥' });   // 桥身独占材质（mergeStatics 并名后靠材质认）
+      else if (mk === MAT.taihuLobe || mk === MAT.taihuLobeDark || mk === MAT.taihu || mk === MAT.taihuDark) _hoverTargets.push({ obj: o, label: '假山' });
+      else if (mk === MAT.lotus) _hoverTargets.push({ obj: o, label: '荷花' });
+      else if (mk === MAT.lily) _hoverTargets.push({ obj: o, label: '荷叶' });
+      else if (mk === MAT.lotusPod || mk === MAT.lotusPodAged || mk === MAT.lotusPodDark
+            || mk === MAT.lotusSeed) _hoverTargets.push({ obj: o, label: '莲蓬' });
+    }
+  });
+  /* 表变了 ⇒ 派生缓存一起作废（obj 数组 + obj→label 映射 + 脏标记） */
+  _hoverObjs = _hoverTargets.map(t => t.obj);
+  _hoverLabels = new Map(_hoverTargets.map(t => [t.obj, t.label]));
+  _hoverDirty = true;
+}
+
+/* matchMedia 每次调用都要按 query 字符串查一遍，而这里每帧要问两次 ——
+   把 MediaQueryList **对象**缓存住即可：它的 .matches 会随视口/输入设备变化自动更新，
+   所以缓存对象不会让判据变陈旧（缓存 .matches 才会）。 */
+const _mqHover = (() => { try { return matchMedia('(hover:hover)'); } catch { return null; } })();
+const _mqNarrow = (() => { try { return matchMedia('(max-width:768px)'); } catch { return null; } })();
+function _hoverEnabled(){
+  if (!_mqHover || !_mqNarrow) return false;
+  return _mqHover.matches && !_mqNarrow.matches;
+}
+
+renderer.domElement.addEventListener('pointermove', (e)=>{
+  _hoverX = e.clientX; _hoverY = e.clientY;
+  const r = renderer.domElement.getBoundingClientRect();
+  _hoverNdc.set(((e.clientX - r.left) / r.width) * 2 - 1,
+               -((e.clientY - r.top) / r.height) * 2 + 1);
+  _hoverDirty = true;                 // 鼠标动了才需要重算射线（见 _hoverDirty 注释）
+  /* 拖拽划水：按住 + 命中水面 + 位移够 + 节流 70ms ⇒ 补一圈小涟漪（不抢转视角手势）。 */
+  if (_pondDown && waterSurface){
+    const now = performance.now();
+    if (now - _dragAt > 70){
+      _pondRay.setFromCamera(_hoverNdc, camera);
+      const h = _pondRay.intersectObject(waterSurface, false)[0];
+      if (h && insidePond(h.point.x, h.point.z - 3.0)){
+        const dx = h.point.x - _dragX, dz = h.point.z - _dragZ;
+        if (_dragAt === 0 || dx * dx + dz * dz > 0.12){        // ~0.35m 一跳，避免原地抖动堆圈
+          spawnRipple(h.point.x, h.point.z, frameT, 2, 0.55, 'drag');
+          _dragX = h.point.x; _dragZ = h.point.z; _dragAt = now;
+          lastDragRipple = { at: now, x: h.point.x, z: h.point.z };
+        }
+      }
+    }
+  }
+});
+
+function _labelOf(hit){
+  /* 一次沿祖先链上溯，命中表里的第一个即可 —— 原来是"对每个目标各跑一遍
+     traverseAncestors"，命中表有上百项时，一次悬停判定要跑上百次祖先遍历。 */
+  let o = hit.object;
+  while (o){
+    const lb = _hoverLabels.get(o);
+    if (lb !== undefined) return lb;
+    o = o.parent;
+  }
+  return null;
+}
+
+function _tickHover(){
+  if (!_hoverEl) return;
+  if (!_hoverEnabled()){ _hoverEl.classList.remove('show'); return; }
+  if (!_hoverTried){
+    _buildHoverTargets(); _hoverTried = true;
+    /* 延迟批（柳/竹/立峰）与 GLB（锦鲤/石灯笼 holder）都在首帧后才进场 ——
+       bootDone 兑现后重建一次表，兜底版作废。幂等：重复 resolve 无副作用。 */
+    import('./08-assemble.js').then(m => m.bootDonePromise).then(() => {
+      _hoverTargets.length = 0;
+      _buildHoverTargets();
+      /* GLB 异步件（石灯笼 holder / 锦鲤）可能晚于 bootDone 才进场 —— 5s 后补建一次，
+         覆盖"重建时机早于 GLB 回调"的窗口（石灯笼悬停空标签的根因）。 */
+      return new Promise(r2 => setTimeout(r2, 5000));
+    }).then(() => {
+      _hoverTargets.length = 0;
+      _buildHoverTargets();
+    }).catch(() => {});
+  }
+  if (!_hoverTargets.length) return;
+  /* 每 6 帧一次只是"上限"：真跑的条件是**鼠标动了**（或相机在动 —— 运镜/拖拽时
+     屏幕上的像素在变，同一个 NDC 指向的物体也变了）。都没有就直接跳过。 */
+  const camSig = camera.position.x + camera.position.y * 7.1 + camera.position.z * 13.7
+               + camera.quaternion.x * 31.3 + camera.quaternion.y * 47.9 + camera.quaternion.z * 61.7;
+  if (!_hoverDirty && camSig === _hoverCamSig) return;
+  if (++_hoverFrame % _HOVER_INTERVAL !== 0) return;
+  _hoverDirty = false; _hoverCamSig = camSig;
+  _hoverRay.setFromCamera(_hoverNdc, camera);
+  const objs = _hoverObjs || (_hoverObjs = _hoverTargets.map(t => t.obj));
+  const hits = _hoverRay.intersectObjects(objs, true);
+  if (!hits.length){ _hoverEl.classList.remove('show'); return; }
+  /* 按**距离序**取第一个有标签的命中 —— 修"只看到池水"：水面（透明）在射线上的距离
+     恒近于水下的一切（鱼/水草/莲蓬），旧版只看 hits[0] 就让池水成了永久赢家。
+     现在水下命中可以透过水面被读到；而陆上小物体（荷叶/石凳）不会被更远的
+     大物件抢走提示。上限 8 个命中足够覆盖"水+鱼+水草"的叠层。 */
+  /* 盖面物让位（2026-10-15 复盘）：水面/荷叶在射线距离上恒近于鱼/莲蓬，"第一个有标签"
+     仍会让它们永久赢 —— 与旧版只看 hits[0] 同病。规则：若首个命中是池水/荷叶，
+     向后扫 1.2m 找更深的鱼/莲蓬/荷花命中；找不到才回落到盖面物标签。 */
+  let label = null;
+  const l0 = _labelOf(hits[0]);
+  if (l0 === '池水' || l0 === '荷叶'){
+    const d0 = hits[0].distance;
+    for (let h = 1; h < hits.length && h < 12; h++){
+      if (hits[h].distance - d0 > 1.2) break;
+      const lb = _labelOf(hits[h]);
+      if (lb && lb !== '池水' && lb !== '荷叶'){ label = lb; break; }
+    }
+    if (!label) label = l0;
+  } else {
+    for (let h = 0; h < hits.length && h < 8; h++){
+      label = _labelOf(hits[h]);
+      if (label) break;
+    }
+  }
+  if (!label){ _hoverEl.classList.remove('show'); return; }
+  _hoverEl.textContent = label;
+  _hoverEl.style.left = (_hoverX + 14) + 'px';
+  _hoverEl.style.top = (_hoverY - 10) + 'px';
+  _hoverEl.classList.add('show');
+}
 
 /* ── PWA 离线注册（P1-3）──
    只在 http(s) 下注册（file:// 无 SW）；注册失败静默（离线能力是加分项，不是门禁）。 */

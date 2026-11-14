@@ -1,10 +1,10 @@
 // 01-materials: from index.html inline 131..1020
 import { THREE } from '../vendor.js';
-import { CFG, rnd, rr, mulberry32, TAU, registry, BOOT, bootMark } from './00-config.js';
+import { CFG, mulberry32, registry, BOOT, bootMark } from './00-config.js';
 /* ══════════════════════════════════════════════════════════════
    1 · 材质库（命名角色，全局复用）
    ══════════════════════════════════════════════════════════════ */
-import { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex, makePlumBarkTex } from './01b-textures.js';
+import { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeLotusPetalTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex, makePlumBarkTex } from './01b-textures.js';
 export { makeRoofTileTex, makePavingTex, makeGroundTex, makeDuckWakeTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, makeGoBoardTex, makeRockHoleTex, rockHoleTex, rockNormalTex, makeWaterNormalTex, roofTileTex, pavingTex, makeNormalMapFrom, roofNormalTex, pavingNormalTex, groundTex, waterNormalTex, makeWillowCurtainTex, makePeachPetalTex, makePlumPetalTex };   // 先 import 再 export：别写成 export { X } from …（探针 import-audit 会误报"用到 X 但没 import"）
 export const WATER_REFLECT_SHADER = {
   uniforms: {
@@ -16,9 +16,9 @@ export const WATER_REFLECT_SHADER = {
     uCenter:       { value: new THREE.Vector2(0, 3.0) },   // 池心（世界 XZ）
     uPondAx:       { value: 15.7 },                         // 近似椭圆池形
     uPondAz:       { value: 9.4 },
-    uAbsorb:       { value: new THREE.Vector3(0.85, 0.38, 0.28) },  // 红先被吸收 → 深水偏青
+    uAbsorb:       { value: new THREE.Vector3(0.72, 0.30, 0.24) },  // 红先被吸收 → 深水偏青（2026-10-28 全档下调：深水区不再黑成沥青）
     uShallow:      { value: 0.95 },
-    uDeep:         { value: 1.80 },
+    uDeep:         { value: 1.58 },   // 2026-10-28：1.80→1.58，深水光程缩短 ⇒ 中心区透得出池底
     uSkyTop:       { value: new THREE.Color(0xA8BDD4) },   // 低档位用：天空三停近似反射
     uSkyMid:       { value: new THREE.Color(0xBFD2E6) },
     uSkyHorizon:   { value: new THREE.Color(0xE6E2D8) },
@@ -105,7 +105,10 @@ export const WATER_REFLECT_SHADER = {
          避免把反射拉花成一片糊。 */
       vec4 uv = vUv;
       uv.xy += nrm.xz * uv.w * (0.045 + 0.065 * (1.0 - cosI));
-      vec3 refl = texture2DProj(tDiffuse, uv).rgb;
+      /* ⚠️ texture2DProj 内部做的是 xy / w，w 在"反射平面附近"理论上会跨过 0。
+         这里夹一下是**预防性**的（w 正常时与原式逐位相同）；2026-10-31 实测那次
+         整页黑屏的真凶不是这一行（见下面 gl_FragColor 前的兜底注释）。 */
+      vec3 refl = texture2DProj(tDiffuse, vec4(uv.xy, 0.0, max(uv.w, 1e-4))).rgb;
       /* 低档位（核显）不走真实平面反射：Reflector 每帧要把整个场景再渲一遍，
          实测核显上关掉它 33fps → 59fps。这里用天空双色按视线方向近似反射 ——
          水面仍有法线扰动、菲涅尔与水深吸收，只是反射来自天空而非镜像渲染。 */
@@ -151,7 +154,9 @@ export const WATER_REFLECT_SHADER = {
         vec2 ruv = vec2(uPondMin.x + uPondSize.x - vWorld.x, vWorld.z - uPondMin.y) / uPondSize;
         ruv += nrm.xz * (0.004 + 0.020 * (1.0 - cosI));
         under = texture2D(uRefract, clamp(ruv, 0.002, 0.998)).rgb;
-        under *= (0.45 + 0.55 * absorb);   // 水深吸收同样压一遍池底：光程越长越暗、越偏青
+        under *= (0.62 + 0.42 * absorb);   // 水深吸收同样压一遍池底：光程越长越暗、越偏青
+                                           // （2026-10-28：下限 0.45→0.62 —— 旧值把池底压到
+                                           //  原亮度一半以下，浅水区也黑成"墨绿沥青"）
       }
       vec3 base = mix(color, under, uRefractOn * body);
 
@@ -180,6 +185,31 @@ export const WATER_REFLECT_SHADER = {
       /* 折射开着时水面要更"盖得住"：池底已经被采进贴图里了，再让 framebuffer 里
          那张**没被掰弯的**锐利池底透 30% 出来，等于一份清晰叠一份扭曲，看起来是重影。 */
       float alpha = mix(mix(body, 0.94, uRefractOn), 0.97, fres);
+      /* ══════════════════════════════════════════════════════════════════════
+         「?tier=high 整页黑屏」的边界兜底（2026-10-31 实测定案，代价为零）
+         ── 现象 ── index.html?tier=high 整页几乎全黑，只剩最右一条 111px 有画面；
+                     tier=low / mid 正常。
+         ── 证据链（outputs/_diag/tier-high-strip-cause*.mjs，逐轮对照） ──
+           ① 逐 pass 手工复演 composer：轮到最后那次「泛光加色合成」时，读缓冲
+              从整幅（0..1749）塌成右带（1639..1749）；关掉泛光 pass 或把它改成
+              写另一张缓冲即恢复。
+           ② 泛光内部：bright 输出只有 ~3 个坏 texel，经 5 级模糊扩散后
+              mip4 60% 坏、mip0 93.6% 坏 ⇒ 加色合成把整张读缓冲抹成 NaN，
+              Output 把 NaN 渲成透明黑（画面上就是"全黑"）。
+           ③ 源头不在后处理：场景渲染本身全幅只有 9~14 个非有限像素；
+              逐图层隐藏对照，只有隐藏 waterSurface 才归零。
+              关 uReflMix / uRefractOn 都不减少 ⇒ 不是水面自己的算式。
+           ④ 真正的来源是**反射贴图**：Reflector 渲出的 1024² 里约 5 个坏 texel，
+              水面把它采进来 ⇒ 水面像素变 NaN ⇒ 上面那条扩散链。
+         ── 为什么在这里兜底而不是继续往上游挖 ──
+            水面是这张反射贴图的**唯一消费者**；非有限值无论来自镜像渲染里的哪一件
+            物件，都只能经这里进入主画面。兜底只改坏像素（正常像素逐位不变），
+            退路用的是本来就已经算好的天空近似反射，所以观感不会突兀。
+            ⚠️ 上游那 5 个坏 texel 仍未定位（它们不单独显示、只污染反射图）——
+               属于"镜像视角才出现"的缺陷，记在交接文档里继续查。
+         ══════════════════════════════════════════════════════════════════════ */
+      if (!(col.r == col.r) || !(col.g == col.g) || !(col.b == col.b) ||
+          col.r > 6.0e4 || col.g > 6.0e4 || col.b > 6.0e4) col = skyFake;
       gl_FragColor = vec4(col, alpha);
     }`,
 };
@@ -322,9 +352,10 @@ export function makeDistantMat(hex, opacity, haze, relief, freqPerM, opts = {}){
 
       void main(){
         ${opts.map ? 'if (texture2D(uMap, vHillUv).a < 0.5) discard;' : ''}
-        /* ① 谷底沉雾、脊线留实（方向纠正，见文件头）。0.62 是实测定的：
-           低于它山脚溶雾、往上收回；再高脊线又开始发白，>0.80 时山几乎溶进背景。 */
-        float hz = uHaze * (1.0 - smoothstep(0.0, 0.62, vHillUv.y));
+        /* ① 谷底沉雾、脊线留实（方向纠正，见文件头）。0.55 是 2026-11-05 定的：
+           参考水墨远山效果图加厚"山脚云带"——低于它山脚溶雾的区间从 0.62 收到 0.55，
+           云带升高变厚，山读作"从云里长出来"；峰顶照旧拿到 100% 山色。 */
+        float hz = uHaze * (1.0 - smoothstep(0.0, 0.55, vHillUv.y));
         vec3 col = mix(uColor, fogColor, hz);
 
         /* ② 层内明暗：三倍频噪声读作沟壑；山脚权重低（那里本来就白），山腰权重高
@@ -415,7 +446,7 @@ export const MAT = {
                                               color:0x9EA098, roughness:0.88, metalness:0.05,
                                               envMapIntensity:0.6, flatShading:false, vertexColors:true }),
   winCore:  new THREE.MeshStandardMaterial({ color:0x3A3A38, roughness:0.9, metalness:0.0, envMapIntensity:0.2 }),
-  winPaper: new THREE.MeshStandardMaterial({ color:0xD9D3C4, roughness:0.94, metalness:0.0, envMapIntensity:0.25 }),
+  winPaper: new THREE.MeshStandardMaterial({ color:0xD9D3C4, roughness:0.96, metalness:0.0, envMapIntensity:0.08, side: THREE.DoubleSide }),
   lotusPod: new THREE.MeshStandardMaterial({ color:0xBDD270, roughness:0.82, metalness:0.0, envMapIntensity:0.4 }),  // 新蓬黄绿、比叶亮一档（验收：旧色比叶暗，明暗逻辑反了）
   lotusPodAged: new THREE.MeshStandardMaterial({ color:0xB49A58, roughness:0.85, metalness:0.0, envMapIntensity:0.35 }), // 老蓬：黄褐（三成概率）
   lotusPodDark: new THREE.MeshStandardMaterial({ color:0x3A4A20, roughness:0.9, metalness:0.0, envMapIntensity:0.2 }), // 籽孔凹窝：压得更深（孔感靠明暗对比）
@@ -537,7 +568,19 @@ export const MAT = {
   peachFruit: new THREE.MeshStandardMaterial({ color:0xFFFFFF, roughness:0.62, metalness:0.0, envMapIntensity:0.35 }),
   peachPetal: new THREE.MeshStandardMaterial({ map:makePeachPetalTex(), color:0xFFFFFF, roughness:0.92, metalness:0.0, envMapIntensity:0.2, side:THREE.DoubleSide, alphaTest:0.45 }),
   lily:     new THREE.MeshStandardMaterial({ color:0x3E7A34, roughness:0.7,  envMapIntensity:0.5, side:THREE.DoubleSide }),
-  lotus:    new THREE.MeshStandardMaterial({ color:0xF2C7D4, roughness:0.62, envMapIntensity:0.55, side:THREE.DoubleSide }),
+  /* ── 程序化荷花的杆 + 萼（2026-11-08 新增，专治"光杆/光秃绿锥"）──────────────
+     病根：杆和萼原来用 MAT.lily —— 那是**叶盘**的材质，由 lilyShow 管。而花头
+     （花瓣/花心/莲蓬）走 lotusShow / lotusPodShow。两个通道各自独立：
+       春 lily=0.56 但 lotus=0 ⇒ **杆和萼显示、花没有** = 池面一排光杆 + 绿锥；
+       秋 lily=1.00 但 lotus=0、pod=0.51 ⇒ 荷花光杆 + 莲蓬杆混着来。
+     这与 01-materials 里 lotusSeed 那条是同一族问题（"多材质构件必须整套登记"），
+     也跟 06j 里"光秃绿锥"那次同源。但那次是整块撤掉，这次是**换材质**：
+     杆/萼本来就该跟花同生共死 ⇒ 给它们一个只属于这套荷花的材质。
+     ⚠️ 颜色与原 MAT.lily 一致（0x3E7A34）：同一片水面上的荷叶与荷杆没有色差。
+     ⚠️ 风摆参数另行 addWind（见下方 969 行附近），与 MAT.lily 同档。 */
+  lotusStem: new THREE.MeshStandardMaterial({ color:0x3E7A34, roughness:0.72, metalness:0.0, envMapIntensity:0.45 }),
+  /* 2026-10-14：加瓣面贴图（渐变+脉络，见 01b makeLotusPetalTex）—— color 仍留作 tint 基准。 */
+  lotus:    new THREE.MeshStandardMaterial({ color:0xFFFFFF, map:makeLotusPetalTex(), roughness:0.62, envMapIntensity:0.55, side:THREE.DoubleSide }),
   reed:     new THREE.MeshStandardMaterial({ color:0x3F6B34, roughness:0.86, envMapIntensity:0.3, side:THREE.DoubleSide }),
   // —— 装饰 ——
   gauze:    new THREE.MeshPhysicalMaterial({ color:0xF4F0E4, roughness:0.55, metalness:0.0,
@@ -570,14 +613,20 @@ export const MAT = {
          ⇒ 远层卡片在角度上只跨了近层的 1/2~1/3。0.075 ≈ 每张卡（~40m）3 个周期。
      ⚠️ 上一版的注释（"uTopFade 二轮，各档收约 1/3"）描述的是**已被本次推翻的**
         方向：那版把溶雾乘在高度上，越到峰顶越白，正好化掉脊线。 */
-  distantNear: makeDistantMat(0x4A5754, 0.95, 0.30, 0.40, 0.075),
-  distantDeep: makeDistantMat(0x60737A, 0.90, 0.36, 0.62, 0.075),
-  distant:     makeDistantMat(0x7A8F9C, 0.84, 0.42, 0.95, 0.075),
+  /* 2026-11-06 定稿（近浓）：haze 0.44/0.56 → 0.26/0.40。
+     haze 是"山脚中低段溶进雾色的比例"（hz = uHaze*(1-smoothstep(0,0.55,y))），峰顶不受影响。
+     ⚠️ A/B 实测定案：haze 在 mist-guard 的采样点上**像素级中性**——pow 0.30 时
+     0.26 与 0.44 两版整门禁跑出的 山/天 均 61.02/58.91 vs 61.03/58.91 逐位一致
+     （浓雾下山体像素本来就是雾色，混不混雾白看不出差别）。所以压它只影响
+     白天中低段的"浓墨"观感，不碰夜空"山≤天"门禁（那门的真凶是 pow，见 07-ground）。 */
+  distantNear: makeDistantMat(0x36423F, 0.95, 0.26, 0.62, 0.075),
+  distantDeep: makeDistantMat(0x60737A, 0.90, 0.40, 0.62, 0.075),
+  distant:     makeDistantMat(0x7A8F9C, 0.84, 0.60, 0.95, 0.075),
   /* ⚠️ 2026-10-03 V-1：最远层的固有色**不动**。实测压 10% 脊线只暗 0.04 lum、
      压 25% 也只暗 1.9 lum —— 远层脊线的颜色 **九成来自距离雾**（176m Exp2），
      固有色只占一成，这条路走不通还把"层间色阶"的余量从 5.86 吃到 2.88。
      真正的杠杆是正午 `fogColor`（12-env 的时段预设），见那边注释。 */
-  distantFar:  makeDistantMat(0x93A3AB, 0.76, 0.46, 1.25, 0.075),
+  distantFar:  makeDistantMat(0x93A3AB, 0.76, 0.62, 1.25, 0.075),
   /* ⚠️ 2026-09-23：原 distantTree（"柱状树林"的树形剪影广告牌材质）**已整层删除** ——
      它被修过三轮（矩形→树形、改深灰绿、降不透明度、并进 DISTANT_MATS 跟天光）都断不了根：
      只要这层还在，堂前池北岸就会立着一棵淡色树形剪影（并被 Reflector 镜像进水里）。
@@ -930,6 +979,9 @@ addWind(MAT.reed,   0.15, 1.10, 'base');    // 水草
    杆顶同量级 —— 全部远小于池心到岸石的距离，**不会甩到岸上草皮/石头里**。 */
 addWind(MAT.lily,  0.030, 1.15, 'tip', 0.0, 0.05);   // 睡莲浮叶/荷杆/莲蓬茎：贴水轻漾，位移硬顶 5cm
 addWind(MAT.lotus, 0.050, 1.25, 'tip', 0.0, 0.05);   // 荷花瓣/花蕾：越高越摆，位移硬顶 5cm
+/* 程序化荷花的杆+萼（2026-11-08）：参数与 MAT.lily 那行**逐字相同**——
+   杆本来就该和叶盘同频摆，换材质只是为了显隐能跟花走（见上面的 lotusStem 注释）。 */
+addWind(MAT.lotusStem, 0.030, 1.15, 'tip', 0.0, 0.05);
 /* 芭蕉（2026-09-17 用户："芭蕉树应该是叶子晃动，现在的晃动有问题"）：
    病根是**动错了对象、且权重反了** —— MAT.banana 只挂在假茎上、且用 crown 模式，
    权重 (3.6 - y)/2.5 在假茎根部 y=0 时 = 1.44（最大）、顶端 y=2.8 时只有 0.32：

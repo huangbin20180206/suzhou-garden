@@ -56,6 +56,23 @@ try {
     window.__garden.scene.traverse(o => { for (const n of ['KoiFish', 'Turtle', 'BananaPlant', 'LotusPlant']) if (o.name.includes(n)) names.add(n); });
     return names.size === 4;
   }, null, { timeout: 60000 });
+  /* 2026-10-31：SW 不再在 install 里下载 GLB，而是页面预载结算后回填（sw.js 的 precache-assets）。
+     断网之前先等回填完成：轮询缓存，直到 assets/manifest.json 里 precache 的件全部在资产桶里（≤60s）。
+     只加等待，判据不变。 */
+  const precacheUrls = JSON.parse(await fs.readFile(path.join(root, 'assets/manifest.json'), 'utf8'))
+    .assets.filter(a => a.precache).map(a => '/' + a.url);
+  const backfilled = await page.evaluate(async (urls) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 60000){
+      const keys = (await caches.keys()).filter(k => k.startsWith('suzhou-garden-assets-v'));
+      let have = 0;
+      for (const u of urls) if (await caches.match(u)) have++;
+      if (keys.length && have === urls.length) return { ok: true, have };
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return { ok: false };
+  }, precacheUrls);
+  if (!backfilled.ok) console.warn('WARN: 60s 内资产回填未完成，继续按原判据断网');
   await browser.close();
   browser = null;
   console.log('PASS: online warmup done (SW installed, 4 GLB cached); browser closed');

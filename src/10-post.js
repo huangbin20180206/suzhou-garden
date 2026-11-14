@@ -1,6 +1,6 @@
 // 10-post: from index.html inline 499..648
 import { THREE, EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass, GTAOPass } from '../vendor.js';
-import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world } from './02-scene.js';
+import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world, QOS_IMMUNE } from './02-scene.js';
 import { MAT, setAuxPass, AUX_PASS_HIDDEN, HFOG } from './01-materials.js';
 /* ⚠️ world 从 02-scene 取，**不能**从 08-assemble 取：08 import 本模块的 collectAOSkip，
    反向 import 就成环 → 本模块 body 被推迟到 08 之后，而 08 的 body 末尾要调 collectAOSkip()
@@ -33,7 +33,11 @@ function attachDepthTexture(){
      不可读的 renderbuffer（采样恒 0 ⇒ 整层静默失效）。
      ⚠️ 挂在 EffectComposer **构造之后**、且每帧对着 readBuffer 自愈 ——
         RT.setSize() 内部会 copy() 再把 depthTexture 克隆掉，不自愈就会指向旧纹理。 */
-  for (const rt of [composer.readBuffer, composer.renderTarget2]){
+  /* ⚠️ 必须点名 renderTarget1 与 renderTarget2 **两张都挂**，不能靠 composer.readBuffer：
+     全链 needsSwap=true 的 pass 恰是 3 个（grade / heightFog / Output，奇数）⇒ 换手后
+     readBuffer 逐帧在 RT1/RT2 之间对调。用 readBuffer 去遍历，当帧它是 RT2 时
+     这一轮就只遍历到 RT2，RT1 的深度附件永远补不回来（resize 会把旧的 clone 掉）。 */
+  for (const rt of [composer.renderTarget1, composer.renderTarget2]){
     if (rt && !rt.depthTexture){
       const dt = new THREE.DepthTexture(rt.width, rt.height);
       dt.type = THREE.UnsignedIntType;
@@ -43,14 +47,118 @@ function attachDepthTexture(){
       rt.depthTexture = dt;
     }
   }
-  /* ⚠️ 真正给高度雾用的，是**场景那一帧**的深度，由 gradePass.render 捕获（见该处注释）。
-     此刻回退到 readBuffer，只在"从未经过 gradePass"的旁路调用（直接 composer.render 一次）下生效。 */
+  /* ⚠️ 返回值现在**只用于诊断/溯源**（谁在链上把深度指给了谁），高度雾实际读的是
+     DEPTH_SNAPSHOT_RT（见上方 depthSnapshotPass）。保留这条回退是为了"从未经过快照
+     pass"的旁路调用（直接 composer.render 一次）不至于拿到 null。 */
   return sceneDepthTex || composer.readBuffer.depthTexture;
 }
 // 与 renderer 用同一倍率，否则超采样会在最后一次 blit 时被丢掉
 composer.setPixelRatio(RENDER_SCALE);
 composer.setSize(innerWidth, innerHeight);
 composer.addPass(new RenderPass(scene, camera));
+
+/* ══════════════════════════════════════════════════════════════
+   深度快照 —— 高度雾的深度输入源（2026-10-13 新增）
+   证据：probe/_tmp-fog-wire.mjs · 日志 outputs/_diag/fog-wire-before-20261013.log
+   ══════════════════════════════════════════════════════════════
+   【病根 · 实测，不是推断】
+   同一张场景 RT 的深度纹理，两个时刻读出来是两回事：
+     · RenderPass 刚画完那一刻读：R ∈ [0.9698, 1.0]，极差 **0.0302**，32.9% 是 1.0。
+       按 viewZFromDepth 反算：0.9698→16.25m、0.9833→28.9m、1.0→900m（天空）
+       ⇒ **有真实层次**；且 samples=4 的 MSAA 深度**确实 resolve 到 depthTexture**
+       （所以不是"挂上了但从没渲过"那种静默失效）。
+     · 整条 composer 链跑完再读**同一张**：**恒 0，极差 0，100% 最近**。
+   ⇒ 深度在链中途没了。雾于是把每个像素都当成 0.5m 以内
+     ⇒ 高度衰减恒 0 ⇒ 整层静默失效（与症状"近地面雾完全看不见"逐字对上）。
+
+   【机理 · 读 three r184 源码坐实，不是凭记忆】
+     ShaderPass.render → FullScreenQuad.render → renderer.render(mesh, orthoCam)
+       → WebGLBackground.render：
+            if (renderer.autoClear || forceClear) {
+                state.buffers.depth.setTest(true);
+                state.buffers.depth.setMask(true);
+                renderer.clear(renderer.autoClearColor, renderer.autoClearDepth,
+                               renderer.autoClearStencil);
+            }
+       autoClear 与 autoClearDepth **默认都是 true**
+       ⇒ **每个全屏 pass 都清掉目标 RT 的深度**（clear 只是其中一半）。
+     且 ShaderMaterial 的 depthTest / depthWrite **默认都是 true**，全屏三角形 z=0
+       在正交相机（near=0, far=1）下 NDC z=-1 ⇒ depth=0 ⇒ 又把整幅深度**覆写成 0**。
+   ⇒ 这与"捕获点指得对不对"**无关**：哪怕一开始就指对纹理，它也活不到雾 pass 那一帧。
+
+   【修法 · 绝不额外重画场景，代价 = 一次全屏 quad】
+     紧跟 RenderPass 插一个 needsSwap=false 的小 pass，把场景 RT 的深度**原值**
+     拷进一张**私有** RT；高度雾的 tDepth 改指这张私有纹理。雾的数学一个字没动。
+
+   【为什么必须是"私有" RT（这是选方案 B 而不是 A 的理由）】
+     composer 那两张 RT 会被 bloom（最终合成写回 readBuffer）、gradePass（写 writeBuffer）、
+     高度雾自己（隔帧写 readBuffer）**轮流**当写入目标；且全链 needsSwap=true 的 pass
+     恰是 3 个（grade / heightFog / Output）——**奇数** ⇒ 两张 RT 的角色**逐帧对调**。
+     所以任何"把深度保活到雾 pass"的方案，隔帧必然撞上**反馈回路**：
+     采样某张深度纹理的同时，它正是当前 FBO 绑定的深度附件（GL 行为未定义）。
+     私有 RT 永远不是写入目标 ⇒ 这条路从根上不存在该问题。
+     方案 A 要成立必须同时满足「全链 autoClearDepth=false」**且**「bloom / grade / GTAO /
+     Output / 高度雾 每一个材质都 depthWrite=false」，漏任何一个都静默失效且不报错。 */
+const DEPTH_SNAPSHOT_RT = new THREE.WebGLRenderTarget(1, 1, {
+  /* FloatType 的 24 位尾数与 DEPTH_COMPONENT24 一一对应 ⇒ 拷贝**无损**。
+     HalfFloat 只有 11 位尾数，近处会丢精度 —— 而门禁的 0~3m / 3~10m 分带正是靠它区分。
+     RedFormat 只占 1 个通道（1100×660 约 2.9MB），比 RGBA 省 4 倍。 */
+  type: THREE.FloatType, format: THREE.RedFormat,
+  depthBuffer: false, stencilBuffer: false,
+  minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter,
+  generateMipmaps: false,
+});
+const depthSnapshotMat = new THREE.ShaderMaterial({
+  uniforms: { tSceneDepth: { value: null } },
+  vertexShader: 'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
+  fragmentShader: 'uniform sampler2D tSceneDepth; varying vec2 vUv;\n' +
+    'void main(){ gl_FragColor = vec4(texture2D(tSceneDepth, vUv).x, 0.0, 0.0, 1.0); }',
+  depthTest: false, depthWrite: false,
+});
+/* 直接传 Mesh（不是 Scene）—— 与 three 的 FullScreenQuad.render 完全同一形状，少一次场景遍历 */
+const depthSnapshotQuad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), depthSnapshotMat);
+const depthSnapshotCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+/* ⚠️ 这里**不能**写 `class extends Pass`：vendor.js 只打包了 three 本体，
+   Pass / FullScreenQuad 这些 addons **没有**导出（试过：import 进来是 undefined，
+   `class extends undefined` 在模块求值期就抛，页面直接起不来 —— 而 npm run check 的
+   no-undef 查不出"具名导入不存在"，它只查未定义标识符）。
+   EffectComposer 对 pass 的要求只有 isPass / enabled / needsSwap / clear /
+   renderToScreen / setSize() / render() / dispose() 这几个字段，下面照单给齐。 */
+const depthSnapshotPass = {
+  isPass: true,
+  enabled: true,
+  /* ⚠️ needsSwap=false 是这条修法"不碰任何既有 pass"的关键：不换手 ⇒ 后续每个 pass 看到的
+     readBuffer / writeBuffer 与改动前**逐位相同** ⇒ bloom / grade / GTAO 的行为不受影响，
+     mist-guard / afterrain-guard 这两道旁证门也就不会被牵连。 */
+  needsSwap: false,
+  clear: false,
+  renderToScreen: false,
+  setSize(w, h){
+    DEPTH_SNAPSHOT_RT.setSize(Math.max(1, Math.round(w)), Math.max(1, Math.round(h)));
+  },
+  render(r, writeBuffer, readBuffer){
+    /* 每帧先自愈两张 RT 的深度附件（RT.setSize 内部 copy() 会把旧的 clone 掉） */
+    attachDepthTexture();
+    /* 此刻 readBuffer 就是 RenderPass 刚写完场景的那一张（needsSwap=false，还没换手），
+       它的深度纹理**此刻还活着** —— 这是全链唯一能拿到深度的时刻。 */
+    const src = readBuffer && readBuffer.depthTexture;
+    if (!src) return;
+    sceneDepthTex = src;
+    depthSnapshotMat.uniforms.tSceneDepth.value = src;
+    const prev = r.getRenderTarget();
+    r.setRenderTarget(DEPTH_SNAPSHOT_RT);
+    r.render(depthSnapshotQuad, depthSnapshotCam);
+    r.setRenderTarget(prev);
+  },
+  dispose(){
+    DEPTH_SNAPSHOT_RT.dispose();
+    depthSnapshotMat.dispose();
+    depthSnapshotQuad.geometry.dispose();
+  }
+};
+composer.insertPass(depthSnapshotPass, 1);
+/* insertPass 发生在 composer.setSize 之后 ⇒ 这一张得手动对一次尺寸 */
+depthSnapshotPass.setSize(composer.readBuffer.width, composer.readBuffer.height);
 
 /* 环境光遮蔽（GTAO）—— 治「构件像浮在地面上」这个毛病。
    建筑/石作/植被与地面的接触处会压出暗角，这是调光源参数调不出来的。
@@ -207,15 +315,36 @@ const GradeShader = {
     uSplit:{ value:0.24 },
     uVignette:{ value:0.52 },
     uVigSize:{ value:0.90 },
+    /* 换档软化（批次 2）：uSoften>0 才生效；uTexel = 1/输入 RT 尺寸（已含 pixelRatio）。
+       调色那几个 uniform 的写入方在 12-env（只写 contrast/saturation/warm/cool/split/vignette），
+       与这两个名字不重叠。 */
+    uSoften:{ value:0.0 },
+    uTexel:{ value:new THREE.Vector2(1 / Math.max(1, innerWidth), 1 / Math.max(1, innerHeight)) },
   },
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader:`
     uniform sampler2D tDiffuse;
-    uniform float uContrast, uSaturation, uSplit, uVignette, uVigSize;
+    uniform float uContrast, uSaturation, uSplit, uVignette, uVigSize, uSoften;
     uniform vec3 uWarmHi, uCoolLo;
+    uniform vec2 uTexel;
     varying vec2 vUv;
     void main(){
       vec4 src = texture2D(tDiffuse, vUv);
+      /* ── 换档软化（批次 2）─────────────────────────────────────────────
+         AA 抬档是**一帧内**把内部渲染倍率换掉（1.00→1.18→1.36），画面边缘的锐度
+         会"啪"地跳一下。这里不做两图交叉混（那要同帧渲两遍场景），而是在换档后的
+         若干帧里给一个**迅速衰减的 1 texel 十字轻糊**，把那一跳摊平（取值理由见
+         下方 GRADE_SOFTEN）。
+         ⚠️ uSoften == 0 时整段支路**不进** ⇒ 输出与加这段之前逐位一致 ——
+            全部探针帧与绝大多数生产帧都落在这条路径上，零代价、零像素差。 */
+      if (uSoften > 0.0){
+        vec3 acc = src.rgb * 2.0;                                        // 中心权重 2
+        acc += texture2D(tDiffuse, vUv + vec2(uTexel.x, 0.0)).rgb;
+        acc += texture2D(tDiffuse, vUv - vec2(uTexel.x, 0.0)).rgb;
+        acc += texture2D(tDiffuse, vUv + vec2(0.0, uTexel.y)).rgb;
+        acc += texture2D(tDiffuse, vUv - vec2(0.0, uTexel.y)).rgb;
+        src.rgb = mix(src.rgb, acc * (1.0 / 6.0), uSoften);
+      }
       vec3 c = src.rgb;
 
       // ① 对比：以 0.5 为轴的 S 曲线
@@ -244,21 +373,89 @@ const GradeShader = {
    也就是说对比 / 饱和 / 分离调色 / 暗角**从来没随时段天气变过**。必须写 pass 自己那份。 */
 export const gradePass = new ShaderPass(GradeShader);
 composer.addPass(gradePass);
-/* ── 场景深度纹理的**捕获点**（高度雾的输入）────────────────────────────────
-   ⚠️⚠️ 取深度的正确时机极容易搞错，本轮为此栽了两次，两次症状都是"整层静默失效"：
+/* ── 场景深度纹理的**捕获点** ────────────────────────────────────────────────
+   ⚠️⚠️ 取深度的正确时机极容易搞错，本项目为此栽过三次，症状每次都是"整层静默失效"：
      ① 挂在 EffectComposer **构造前** → RT.copy() 会 depthTexture.clone()，
         拿到的是一张"从没被渲染过"的图（采样恒 0）。
-     ② 每帧指 composer.readBuffer → 也错：**RenderPass 的 needsSwap 是 false**，
-        它把颜色和深度都写进 readBuffer 且**不换手**；随后 gradePass（needsSwap=true）
-        换了一次手 ⇒ 高度雾看到的 readBuffer 已经是 gradePass 的**输出缓冲**，
-        它的深度纹理从没人写过。
-   ⇒ 正确做法：在 **gradePass 渲染时**（此刻 readBuffer 仍是 RenderPass 的输出）
-     把 `composer.readBuffer.depthTexture` 存下来给高度雾用。 */
+     ② 每帧指 composer.readBuffer。
+     ③ 在 **gradePass 渲染时**存 `composer.readBuffer.depthTexture`（原来的做法）。
+   ⇒ **2026-10-13 实测把 ③ 也否掉了**（probe/_tmp-fog-wire.mjs，日志
+     outputs/_diag/fog-wire-before-20261013.log）：在本机（AO 关、gtao 不在链上）
+     ③ 指的**确实是**场景那张 RT（雾的 tDepth 与场景 RT 深度纹理 uuid 相同）——
+     捕获点本身没问题；但**这张纹理的活不过那一帧**：链条跑完再读同一张是恒 0、极差 0。
+     而对不对还随配置变：gtao 在链上时 gradePass 处 readBuffer 早已换手（③ 也会指错），
+     不在链上时才碰巧对 —— 一个"有时对有时错"的捕获点不能当判据用。
+   ⇒ 现在由 **depthSnapshotPass**（紧跟 RenderPass，needsSwap=false）在深度还活着的那一刻
+     把它存下来并立刻拷进私有 RT。变量保留只为诊断与溯源；高度雾实际读的是那张快照。 */
 let sceneDepthTex = null;
+
+/* ── 换档软化的驱动（批次 2）──────────────────────────────────────────────
+   「刚刚换档了」在 10-post 里唯一可观测的痕迹是 **renderer 的像素比变了** ——
+   全仓 setPixelRatio 只有三处：02-scene:80（初始化）、11-loop:620（QOS 改档）、
+   11-loop:770（AA.setStep）。**这里只读它，一个字节都不改**：像素比正是
+   probe/aa-progressive-guard 精确等式断言的对象，碰它必红。
+
+   触发条件取「**上抬**」（pr 变大）：那正是 AA 静观升档的方向，也是唯一会让人看到
+   "边缘忽然变锐"的方向。QOS 降档（pr 变小）不触发 —— 它在卡顿中发生，那一跳本就
+   被掉帧掩盖，而且此刻最不该再叠 4 次纹理采样。
+
+   ⚠️ QOS_IMMUNE（= SOFTWARE_GL || PROBE_DRIVEN，02-scene:30）为真时**整个特性停摆**：
+      探针语义下 AA 恒停 step0、QOS 也不动，本就不会换档；更要紧的是下面这批像素门
+      全跑在默认 Playwright 上下文（navigator.webdriver === true ⇒ PROBE_DRIVEN）里，
+      万一哪道门自己调 setQualityMode 抬了像素比，也绝不能让微糊亮起来污染它的读数。
+   ⚠️ 首帧只记基线不触发：QOS 的初始档是在 11-loop 模块求值时按存档定下的，那一刻
+      的 setPixelRatio 是"设定"不是"换档"，不能算。 */
+const GRADE_SOFTEN = { peak:0.45, frames:10 };
+/* peak / frames 的取值理由（**两层，勿混** —— 判据的每个数都要能指回自己量的那次测量）：
+   · 「要不要做」的依据是**实测**（2026-10-12，outputs/_diag/aa-step-jump-run-20261012165717.log）：
+     换档画面差 d01=1.782、d12=1.629，真实帧底噪中位 0.125（最大 0.218）
+     ⇒ 尖峰/底噪 = 14.28（保守对最大 8.16）> 1.0 ⇒ 可测可见 ⇒ 值得摊平。
+     自检全过（可复现性 0.083、luma 极差 200.2、采样期档位 2→2 稳定、零 pageerror）。
+   · 「取多大」仍是**估计值**（门禁能证"没有副作用"，证不了"更好看"）：
+     核 = 1 texel 半径十字 6 抽头（中心权重 2），1.00→1.18 的锐度差折到画布是
+     **亚像素** ⇒ peak 取 0.45（"柔一点"非"糊了"；1.0 成拉焦，0.2 以下≈没摊）。
+     frames = 10（60fps ≈ 167ms；<5 帧仍像"跳"，>20 帧像对焦）。
+   ⚠️ 按**帧**衰减 ⇒ 低帧率下墙钟变长（20fps ≈ 500ms）。这是刻意的、与 AA 自己的
+      帧数口径（RISE_FRAMES）一致；真机上若嫌长，调 frames 即可，不必改结构。
+   · 可调：setGradeSoftenConfig(peak/frames)；探针语义（QOS_IMMUNE）下恒 0，
+     像素门零污染（probe/aa-progressive-guard.mjs [P] 支实证）。 */
+
+const soften = { pr:-1, left:0 };
+/** 产品侧权威开关（本项目套路：要按住一个每帧推进的东西必须走产品侧开关）。
+    换档软化现在**尚未接到 window.__garden**（那个暴露块在 11-loop.js，不在本批写域），
+    所以门禁暂时够不到它；接线的两行由 Chief 决定何时加。 */
+export function setGradeSoftenConfig(cfg){
+  if (cfg && Number.isFinite(cfg.peak))   GRADE_SOFTEN.peak   = Math.max(0, Math.min(1, cfg.peak));
+  if (cfg && Number.isFinite(cfg.frames)) GRADE_SOFTEN.frames = Math.max(0, Math.round(cfg.frames));
+  return { ...GRADE_SOFTEN };
+}
+export function gradeSoftenState(){
+  return { left:soften.left, value:gradePass.uniforms.uSoften.value, pr:soften.pr,
+           immune:QOS_IMMUNE, ...GRADE_SOFTEN };
+}
 const gradeRenderOrig = gradePass.render.bind(gradePass);
 gradePass.render = function (...a){
   const rb = composer.readBuffer;
   if (rb && rb.depthTexture) sceneDepthTex = rb.depthTexture;
+
+  /* 换档检测（只读像素比） */
+  const pr = renderer.getPixelRatio();
+  if (soften.pr < 0) soften.pr = pr;                       // 首帧：只记基线
+  else {
+    if (pr > soften.pr + 1e-6 && !QOS_IMMUNE) soften.left = GRADE_SOFTEN.frames;
+    soften.pr = pr;                                        // 升降都更新基线
+  }
+  /* 线性衰减：换档当帧给满，之后每帧减一，frames 帧后归零 */
+  const k = soften.left > 0 ? soften.left / Math.max(1, GRADE_SOFTEN.frames) : 0;
+  if (soften.left > 0) soften.left--;
+  const u = gradePass.uniforms;
+  u.uSoften.value = k * GRADE_SOFTEN.peak;
+  if (k > 0){
+    /* 1 texel 用**本帧真正那张输入 RT** 的尺寸算（它已含 pixelRatio）：
+       换档后第一帧就得用新尺寸，否则糊的半径会跟着档位漂移。 */
+    const src = (a && a[2]) || rb;
+    if (src && src.width && src.height) u.uTexel.value.set(1 / src.width, 1 / src.height);
+  }
   return gradeRenderOrig(...a);
 };
 bootMark('后处理链');
@@ -388,9 +585,14 @@ heightFogPass.render = (function(orig){
     u.uCamUp.value.set(0, 1, 0).applyQuaternion(camera.quaternion).normalize();
     u.uAspect.value = camera.aspect;
     u.uTanHalfFov.value = Math.tan((camera.fov * Math.PI / 180) * 0.5);
-    /* ⚠️ 必须**每帧**指向 composer 当前的活跃 RT：RT.setSize 会内部 copy() ⇒
-       depthTexture 被换成新克隆体，缓存引用会指向一张"从没被渲染过"的深度图。 */
-    u.tDepth.value = attachDepthTexture();
+    /* ⚠️ 这里**不再**指向 composer 的任何一张 RT。实测见上：它们挂的 depthTexture
+       在同一条链里活不到本 pass（链条跑完再读 = 恒 0），雾于是把每个像素都当成
+       0.5m 以内 ⇒ 高度衰减恒 0 ⇒ 整层静默失效。
+       改读紧跟 RenderPass 拍下的**私有快照**（一次全屏 quad 拷贝，绝不额外重画场景）。
+       快照 RT 的尺寸由 depthSnapshotPass.setSize 跟着 composer 走（QOS 降档、AA 升档
+       都会触发 composer.setSize），这里指的永远是现役那一张。 */
+    attachDepthTexture();                       // 仍需每帧自愈两张 RT 的深度附件（下一帧的快照要用）
+    u.tDepth.value = DEPTH_SNAPSHOT_RT.texture;
     return orig.apply(this, a);
   };
 })(heightFogPass.render.bind(heightFogPass));

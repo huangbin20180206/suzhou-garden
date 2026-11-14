@@ -1,0 +1,80 @@
+// outputs/_diag/light-recompile2-20261111.mjs
+// 决定性的验证：把 8 盏 PointLight 关掉，看 26 秒那一帧是否消失。
+// 上一版把 LAMP_LIGHT_BUDGET 全局替换成 false，导致 `const false = ...` 语法错 → 页面白屏超时。
+// 这一版只改赋值那一行。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { listenEphemeral } from '../../probe/_harness.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.glb':'model/gltf-binary',
+               '.mp3':'audio/mpeg', '.webmanifest':'application/webmanifest', '.svg':'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end('nf'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+const port = await listenEphemeral(server);
+const { chromium } = createRequire(import.meta.url)('playwright');
+
+const SRC = fs.readFileSync(path.join(ROOT, 'src/15e-stable.js'), 'utf8');
+const LINE = `    const LAMP_LIGHT_BUDGET = ACTIVE_QUALITY.key === 'low' ? 0 : spots.length;`;
+if (!SRC.includes(LINE)) throw new Error('锚点没找到');
+const OFF = SRC.replace(LINE, `    const LAMP_LIGHT_BUDGET = 0;   /* 诊断：强制关灯 */`);
+
+async function run(src, tag){
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lr2-'));
+  const ctx = await chromium.launchPersistentContext(dir, {
+    headless: true, viewport: { width: 1280, height: 720 },
+    args: ['--use-angle=d3d11', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'],
+  });
+  const page = ctx.pages()[0] || await ctx.newPage();
+  page.setDefaultTimeout(400000);
+  await page.addInitScript(() => {
+    window.__fr = [];
+    const orig = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (cb) => orig((ts) => {
+      const R = window.__garden && window.__garden.renderer;
+      const p0 = R ? R.info.programs.length : -1;
+      const a = performance.now();
+      try { cb(ts); } finally {
+        const d = performance.now() - a;
+        if (window.__fr.length < 20000) window.__fr.push({
+          a:+a.toFixed(0), d:+d.toFixed(0), dp:(R ? R.info.programs.length : -1) - p0,
+          p: R ? R.info.programs.length : -1 });
+      }
+    });
+  });
+  if (src) await page.route(u => u.pathname.endsWith('/15e-stable.js'), r =>
+    r.fulfill({ status: 200, contentType: 'text/javascript', body: src }));
+
+  const t0 = Date.now();
+  await page.goto(`http://127.0.0.1:${port}/index.html?intro=0`, { waitUntil: 'load' });
+  await page.waitForFunction(() => document.getElementById('loading').classList.contains('done'),
+    null, { timeout: 400000, polling: 100 });
+  const total = Date.now() - t0;
+  const fr = await page.evaluate(() => window.__fr || []);
+  await ctx.close();
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch {}
+  const big = fr.filter(f => f.d > 300).sort((a,b) => b.d - a.d);
+  const maxF = big[0] || { d:0, dp:0 };
+  const sum = big.reduce((s,f) => s+f.d, 0);
+  const lastP = fr.length ? fr[fr.length-1].p : 0;
+  console.log(`${tag.padEnd(18)} 总 ${String(total).padStart(6)}ms ｜ 最长帧 ${String(maxF.d).padStart(6)}ms(+${maxF.dp}prog) ｜ >300ms 帧 ${String(big.length).padStart(2)}个/${String(sum).padStart(6)}ms ｜ 最终 program ${lastP}`);
+  return { total, max: maxF.d, maxDp: maxF.dp, sum, lastP };
+}
+
+const a = await run(null, '基线·8盏PointLight');
+const b = await run(OFF, '关灯·0盏');
+console.log(`\n最长帧 ${a.max}ms → ${b.max}ms`);
+console.log(`慢帧合计 ${a.sum}ms → ${b.sum}ms`);
+console.log(`总时长   ${a.total}ms → ${b.total}ms`);
+console.log(`program ${a.lastP} → ${b.lastP}`);
+server.close();

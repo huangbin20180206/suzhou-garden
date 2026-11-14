@@ -92,7 +92,24 @@ const W = 960, H = 600;
   const setEnv = (season, time, weather) => page.evaluate(([s, tt, w]) => {
     const G = window.__garden; G.setEnv('season', s); G.setEnv('time', tt); G.setEnv('weather', w);
   }, [season, time, weather]);
-  const settle = () => page.waitForTimeout(4200);        // 环境过渡 3s，留余量
+  /* 2026-11-01：改成等产品自己的过渡进度（ENV.t 从 0 爬到 1，时长 3s 是**仿真时间**）。
+     旧写法 waitForTimeout(4200) 是墙钟：软渲染一帧 0.5~3s，链内负载下常常还没落定就采样 ——
+     暮色臂实测读到 64.5（稳态 ~97），把"雷电 92.4 不高于暮色+4"判成红（重跑就绿）。
+     waitForFunction 的三个实参顺序是 (fn, arg, options)，arg 必须写 null 占位，否则 options 被当 arg。*/
+  const settle = async () => {
+    try {
+      await page.waitForFunction(() => {
+        const G = window.__garden;
+        const e = G && G.ENV;
+        return !!e && typeof e.t === 'number' && e.t >= 0.999;
+      }, null, { timeout: 90000, polling: 100 });
+    } catch {
+      console.log('  · 过渡等待超时（ENV.t 未落定），退回固定等待 4200ms');
+      await page.waitForTimeout(4200);
+    }
+    /* 落定后再等两帧，让 applyEnv 把最后一档写进材质 */
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+  };
   /* 冻结帧同任务连渲：同一 JS 任务内 composer.render + drawImage ⇒ 场景状态完全冻结。
      （单张截图相隔一帧的噪声底就有 ~3 luma，会淹没小信号 —— 见项目记忆） */
   const frozen = () => page.evaluate(() => {

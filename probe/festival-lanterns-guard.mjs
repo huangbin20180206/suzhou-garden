@@ -3,9 +3,13 @@
 //   B 院子**围栏**挂**传统红灯笼**（新形制，与花灯可区分）
 //
 // 沿用 festival-guard 的三条铁规矩：
-//   ① **不新增真光源** —— 真光源恒为灯笼那 5 盏（lampLights===5）。
+//   ① **灯会不新增真光源** —— 廊灯 5 + 路灯（2026-10-18 起；路灯是用户要加的常驻灯。
+//      ⚠️ 2026-10-30：路灯数**不要硬编码** —— 它 2026-10-19 就从 10 改成 8 了
+//      （12c-festival.js:525；南门口一对撤掉），而同批的 festival-guard 因此从那天起必红。
+//      本条改守真正要守的事：廊灯 5 盏不变 + 路灯存在 + 灯会**不新增**。
 //   ② **非灯会态零提交** —— 三个挂灯网格 count 必须全 = 0。
-//   ③ **draw calls 仍 < 800**（既有红线）。
+//   ③ **draw calls：对同态（夜）基线只有 ~10 的增量**（原"绝对值 < 800"已于 2026-10-12 作废，
+//      失效原因与证据见下方判据③的注释块）。
 //
 // 判据文化（项目规矩）：先断言前提 → 配**负例自检** → 统计量做硬。
 // 负例自检有两条，互相独立：
@@ -48,7 +52,10 @@ const check = (name, ok, detail = '') => {
   page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
   console.log(`\n[festival-lanterns-guard] http://127.0.0.1:${port}/index.html`);
 
-  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0', { waitUntil: 'domcontentloaded' });
+  /* ⚠️ 必须 `?tier=high`（2026-10-31 修，与 festival-guard 同因）：路灯 SpotLight 只在非 low 档
+     创建（低档 `LAMP_LIGHT_BUDGET=0` 是有意设计），本机常被判 low ⇒ `roadLights=0` ⇒
+     第 ③ 条 `roadLights >= 1` 恒红。 */
+  await page.goto('http://127.0.0.1:' + port + '/index.html?intro=0&tier=high', { waitUntil: 'domcontentloaded' });
   await page.waitForFunction(() => window.__garden && document.getElementById('loading')
     && document.getElementById('loading').classList.contains('done'), null, { timeout: 240000 });
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
@@ -77,8 +84,34 @@ const check = (name, ok, detail = '') => {
         return out;
       },
       calls(){ return g.renderer.info.render.calls; },
+      /* ── 整帧总量法（2026-10-12）────────────────────────────────────────────
+         renderer.info.autoReset=false（src/02-scene.js:89）+ 每帧手 reset（src/11-loop.js:1384）
+         ⇒ 在 reset 那一刻读 renderer.info.render.calls，得到的是**上一帧的整帧量**
+         （主 pass + 后处理 + 水面折射；水面 Reflector 的按需镜像那趟也含在内）。
+         随手读一次只是"帧内累计到那一刻"的快照：高画质档单次读数在 851 与 1323 之间摆
+         （实测 outputs/_diag/festival-budget-202610120653-report.log），所以必须按整帧取。 */
+      installBudget(){
+        if (window.__fl._budgetOn) return true;
+        const info = g.renderer.info, orig = info.reset.bind(info);
+        window.__fl._bf = { frames: [] };
+        info.reset = function(){
+          window.__fl._bf.frames.push(info.render.calls);   // reset 之前 = 上一帧整帧量
+          orig();
+        };
+        window.__fl._budgetOn = true;
+        return true;
+      },
+      /* 取 n 帧整帧量；丢首帧（可能落在半帧上），返回 min/med/max 与原始序列 */
+      async budget(n){
+        const bf = window.__fl._bf; bf.frames = [];
+        while (bf.frames.length < n + 1) await new Promise(r => requestAnimationFrame(r));
+        const arr = bf.frames.slice(1, n + 1).sort((x, y) => x - y);
+        const med = arr.length % 2 ? arr[(arr.length - 1) / 2] : (arr[arr.length / 2 - 1] + arr[arr.length / 2]) / 2;
+        return { n: arr.length, min: arr[0], med, max: arr[arr.length - 1], raw: arr };
+      },
     };
   });
+  await page.evaluate(() => window.__fl.installBudget());
 
   /* ── 前提：挂点已收集、三个网格都在 ── */
   const pre = await page.evaluate(() => {
@@ -101,21 +134,43 @@ const check = (name, ok, detail = '') => {
     off.counts.every(c => c === 0) && off.caps.every(c => c > 0),
     `count=${JSON.stringify(off.counts)} 容量=${JSON.stringify(off.caps)} · draw calls=${off.calls}`);
 
-  /* ── ① 不新增真光源 ── */
-  check('① 不新增真光源：真光源仍是灯笼那 5 盏',
-    off.st.lampLights === 5, `lampLights=${off.st.lampLights}`);
+  /* ── ① 灯会不新增真光源（廊灯 5 + 路灯；路灯数由源码报，不硬编码）── */
+  check('① 灯会不新增真光源：廊灯 5 盏 + 路灯（这组是常驻灯，灯会不加）',
+    off.st.lampLights === 5 && off.st.roadLights >= 1,
+    `lampLights=${off.st.lampLights} roadLights=${off.st.roadLights}` +
+    `（roadLights=0 先查 ?tier=high 是否生效 —— 低档按设计不建路灯光源）`);
 
-  /* ── 开灯会：数量显形 ── */
+  /* ── 开灯会：数量显形 + 判据③ 的两个读数（同态基线 / 灯会态）── */
   const on = await page.evaluate(async () => {
     const g = window.__garden;
+    const raf = () => new Promise(r => requestAnimationFrame(r));
+    const settle = async (ms) => { const t0 = performance.now(); while (performance.now() - t0 < ms) await raf(); };
     g.setEnv('time', 'noon'); g.setEnv('weather', 'clear');
+    await settle(4000);
+    /* 判据③ 基线：先切到**灯会会切到的那个时段（夜）**并等过渡走完，此时灯会还关着
+       ⇒ 基线态与灯会态只差"灯会层"这一件事，不把"开灯会=自动切夜"的时段差算进增量
+       （实测时段差：低画质 −121 / 高画质 −243，正是旧口径"灯会态反而更低"的来源）。 */
+    g.setEnv('time', 'night');
+    await settle(4000);
+    /* ⚠️ 2026-11-07：判据③ 的增量必须只反映"灯会层"，所以两态要先**把人物固定成隐藏**。
+       背景：16-actors 新增昼夜人物门控（老黄"夜里人物该休息，只有灯会/烟花才出现"）——
+       夜·关灯会时 10 个 GLB 人物全部收起（基线因此从 814 掉到 798），而开灯会后
+       门控判定"灯会 → 夜里也出来"，人物又回来（约 +100 draw calls）。
+       于是"灯会增量"里混进了一整队人，93~109 远超声明的 +10（红线 30）。
+       用产品侧留的探针逃生门 HOOKS.pinPeopleHidden 按住两组人物（GLB + 低模），
+       两态都没有人 ⇒ 只差灯会层本身。 */
+    g.pinPeopleHidden(true);
+    await settle(600);                       // 让门控把两组都收起来（逐帧生效）
+    const offBudget = await window.__fl.budget(12);
     g.toggleFestival(true);
-    await new Promise(r => requestAnimationFrame(r));
-    const t0 = performance.now();
-    while (performance.now() - t0 < 4000) await new Promise(r => requestAnimationFrame(r));
+    await raf();
+    await settle(4000);
+    /* 灯会开着时人物本来会被放出来，但 pinPeopleHidden 仍然按住 ⇒ 无需再动 */
+    const onBudget = await window.__fl.budget(12);
     const objs = window.__fl.hangObjs();
     return { st: g.festivalState(), counts: objs.map(o => o.count),
-             calls: window.__fl.calls(), show: g.ENV.cur.festivalShow };
+             calls: window.__fl.calls(), show: g.ENV.cur.festivalShow,
+             offBudget, onBudget, time: g.ENV.time };
   });
   const byKind = Object.fromEntries(on.st.hang.map(h => [h.kind, h]));
   check('② 开灯会：三批挂灯全部显形（count = fullCount）',
@@ -127,7 +182,32 @@ const check = (name, ok, detail = '') => {
     `紫藤花灯 ${byKind.wisteriaFlower?.n} 盏`);
   check('B 围栏红灯笼：四边成排（≥30 盏）', byKind.wallRed.n >= 30,
     `红壁灯 ${byKind.wallRed?.n} 盏`);
-  check('③ 灯会态 draw calls 仍 < 800（既有红线）', on.calls < 800, `draw calls=${on.calls}`);
+  /* ── 判据③ 口径变更（2026-10-12）：绝对值 <800 → 同态增量（≤30）+ 2500 护栏 ──────────
+     旧线 `on.calls < 800` 作废，证据 outputs/_diag/verify-final-20261012-1023.log：
+       · 同门"非灯会态"自报 draw calls=1084（:365 与 :390）—— **没开灯会就已经 >800**；
+       · 两次红 851（:371）与 1313（:396）—— 同一状态的两个帧模式，差 462 = 水面 Reflector
+         的**按需镜像那趟**（src/05-water.js:263-270：moved / busy / settle / 每 REFLECT_STATIC_EVERY 帧）。
+     失效原因是两重不可比（归因见 outputs/_diag/festival-budget-202610120653-report.log）：
+       ① **跨画质档**：800 抄自 smoke 的 min-of-6、低画质档、晴夏基线；本门那次跑在 RTX 4060
+          （high 档：reflection 1024 + GTAO + shadow 6144），而姊妹门 festival-guard 跑在 Intel
+          （low 档：reflection 0 ⇒ 水面钩子被置空，src/05-water.js:272-273）。定量：同一份代码
+          低档整帧 619 / 高档 1084（差 465）。
+       ② **帧内快照**：renderer.info.autoReset=false（src/02-scene.js:89）+ 每帧手 reset
+          （src/11-loop.js:1384）⇒ 随手读一次是"帧内累计到那一刻"，高画质档摆幅 ±462。
+     现口径：两态都用**整帧总量法**（页内包装 info.reset 取上一帧整帧量），每态 ≥12 帧；
+     增量取两态**各自的最小值**（= 不含按需镜像那趟的同一帧模式，避免两态窗口落在不同模式上
+     造出 ±462 的假增量；中位与最大值一并打进 detail）。灯会层真实代价实测 **+10 calls**
+     （116 盏挂灯 = 3 个 InstancedMesh；低档 498→508、高档 841→851）。 */
+  check('③ 灯会态 draw calls 对同态（夜）基线增量 ≤ 30（跨画质档可比；实测 +10）',
+    (on.onBudget.min - on.offBudget.min) <= 30,
+    `关灯会(夜) 整帧 min/中位/max = ${on.offBudget.min}/${on.offBudget.med}/${on.offBudget.max}`
+    + ` · 开灯会 = ${on.onBudget.min}/${on.onBudget.med}/${on.onBudget.max}`
+    + ` · 增量(min)=${on.onBudget.min - on.offBudget.min}（≤30）· 各 ${on.offBudget.n}/${on.onBudget.n} 帧`
+    + ` · 整帧总量法（包装 info.reset）· time=${on.time}`);
+  /* 绝对护栏：只当"场景失控"的粗线用，不再承担档位/时段差异。取 max（含按需镜像的最坏帧），
+     跨档实测峰值 低 619 / 高 1667 ⇒ 2500 给足余量。旧线 800 的失效留档见上。 */
+  check('③b 绝对护栏：整帧 draw calls ≤ 2500（跨档峰值实测 619 / 1667）',
+    on.onBudget.max <= 2500, `开灯会整帧 max=${on.onBudget.max}（护栏 2500）`);
 
   /* ── 一个灯笼一份几何 ⇒ 3 个对象（合并的收益，硬指标）── */
   const total = on.st.hang.reduce((a, h) => a + h.n, 0);
@@ -153,7 +233,15 @@ const check = (name, ok, detail = '') => {
        必须在 0.5m 内命中墙帽 —— 这才是"它真的挂在结构上"。
        旧实现（内缩 0.95）8/8 抽样全部 null（上面什么都没有）却一路绿灯：
        原判据只量了"在不在墙内侧那条带上"、没量"上面有没有东西"。
-       顺带量"帽底−挂点"：绳长 0.356 ⇒ 该值必须 ≤0.36（绳顶顶进墙帽），且 ≥0.28（别把灯身顶穿帽子）。 */
+       顺带量"向上射线到结构面"的间隙：它必须**很小**（灯身顶几乎贴住檐口）。
+       ⚠️⚠️ 2026-10-30 修正：这条判据的区间曾是 [0.13, 0.20]，而源码的结论恰恰相反 ——
+       12c-festival.js:199 原文："**别留缝**……第一版'绳子加粗 + 留 20cm 缝'出图复检时
+       多模态仍判'凭空吊着' —— **有缝就是悬空**，而缝里那根绳子谁也看不见。
+       ⇒ 正确做法是让灯顶直接贴住檐口，把绳子藏进帽檐里。"
+       即设计意图是缝 ≈ 0（实测 0.019~0.051 = 灯身顶到帽底的真实余量），
+       而判据要求 0.13~0.20 的"可见缝" —— **判据在要求一个产品刻意避免的状态**。
+       现改为：射线必须命中（已由 hung 保证）+ **间隙 ≤ 0.08**（灯身顶贴住檐口，
+       给挂高抖动 ±0.025 与帽底几何误差留一点余量）。 */
     const rc = new T.Raycaster(), up = new T.Vector3(0, 1, 0);
     const hangGap = wall.map(([x, y, z]) => {
       rc.set(new T.Vector3(x, y, z), up); rc.far = 0.5;
@@ -163,12 +251,12 @@ const check = (name, ok, detail = '') => {
     return { willow: stat(byK.willowFlower || []), wisteria: stat(byK.wisteriaFlower || []),
              wall: stat(wall), wallOnRing: onRing.length, wallYOK: yOK,
              hangGap, hung: hangGap.filter(v => v !== null).length,
-             gapOK: hangGap.filter(v => v !== null && v <= 0.20 && v >= 0.13).length };
+             gapOK: hangGap.filter(v => v !== null && v <= 0.08 && v >= 0).length };
   });
   check('B 围栏红灯笼：落在四面围墙内侧带、挂高 4.40~4.55m（贴帽檐下沿）',
     geo.wallOnRing === geo.wall.n && geo.wallYOK === geo.wall.n,
     `贴墙带 ${geo.wallOnRing}/${geo.wall.n} · 高度合格 ${geo.wallYOK}/${geo.wall.n}（y ${geo.wall.yMin}~${geo.wall.yMax}）`);
-  check('B 围栏红灯笼：**真的挂在墙帽上**（竖直向上 0.5m 内命中，且帽底−挂点 ≤ 0.20 = 灯身顶几乎贴住檐口）',
+  check('B 围栏红灯笼：**真的挂在墙帽上**（向上 0.5m 内命中，且间隙 ≤0.08 = 灯身顶贴住檐口、绳子藏进帽檐）',
     geo.hung === geo.wall.n && geo.gapOK === geo.wall.n,
     `${geo.hung}/${geo.wall.n} 盏上方命中结构 · 间隙合格 ${geo.gapOK}/${geo.wall.n}`
     + `（实测间隙 ${JSON.stringify(geo.hangGap.slice(0, 4))}…；修复前 8/8 抽样全 null = 一片悬空）`);
@@ -205,12 +293,13 @@ const check = (name, ok, detail = '') => {
     while (performance.now() - t0 < 4500) await new Promise(r => requestAnimationFrame(r));
     const objs = window.__fl.hangObjs();
     return { show: g.ENV.cur.festivalShow, counts: objs.map(o => o.count),
-             calls: window.__fl.calls(), lamp: g.festivalState().lampLights };
+             calls: window.__fl.calls(), lamp: g.festivalState().lampLights, road: g.festivalState().roadLights };
   });
   check('② 关灯会后三批挂灯 count 归 0（负例：零提交判据确实会因灯会开而变红）',
     back.counts.every(c => c === 0) && back.show < 0.03,
     `count=${JSON.stringify(back.counts)} festivalShow=${(+back.show).toFixed(2)} · draw calls=${back.calls}`);
-  check('① 开关两态真光源都仍是 5 盏', back.lamp === 5, `lampLights=${back.lamp}`);
+  check('① 开关两态真光源都是廊灯 5 + 路灯（数量由源码报，不硬编码）', back.lamp === 5 && back.road >= 1,
+    `lampLights=${back.lamp} roadLights=${back.road}`);
 
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));
   await browser.close();

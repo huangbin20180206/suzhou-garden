@@ -163,14 +163,16 @@ function withPos(obj, x, y, z){ obj.position.set(x, y, z); return obj; }
 export function makeDistantHills(){
   const g = new THREE.Group();
   // 远山：起伏山脊剪影（多峰、两端收拢）
-  const makeRidge = (radius, height, mat, count, seed, hLo = 0.5, hHi = 1.28) => {
+  const makeRidge = (radius, height, mat, count, seed, hLo = 0.5, hHi = 1.28, wLo = 26, wHi = 54) => {
     const grp = new THREE.Group();
     /* ⚠️ 2026-10-03 V-1：seed 给了 = 整层改走**本地种子流**（一行都不碰全局 rnd/rr）；
        不给 = 沿用全局流（最内层 78m 保持原样，少动一处是一处）。
        调用方必须先 burnRidge(原count) 把"这层原本会消耗的全局流"原位抽干，
        否则其后假山/峰石/竹柳/点景人物整批前移且不报错（铁律 1）。
        hLo/hHi：山高乘数的上下限（默认 0.5~1.28 = 原值）。外三层收得更紧，
-       是按"月轮最低仰角 2.25° 必须过"反推的 —— 见调用处注释。 */
+       是按"月轮最低仰角 2.25° 必须过"反推的 —— 见调用处注释。
+       wLo/wHi：卡片宽度米数（默认 26~54）。⚠️ 只改**范围**不改调用次数 ⇒ 全局随机流
+       消耗序列一字不差，全园布局不漂（2026-11-05 近层加宽成连绵大弧时走的这条路）。 */
     const l0 = seed === undefined ? null : mulberry32(seed);
     const R  = seed === undefined ? rr  : (lo, hi) => lo + l0() * (hi - lo);
     const RN = seed === undefined ? rnd : l0;
@@ -178,7 +180,7 @@ export function makeDistantHills(){
       const a = (i/count)*TAU + R(-0.16,0.16);
       const r = radius * R(0.9, 1.1);
       const h = height * R(hLo, hHi);
-      const w = R(26, 54);
+      const w = R(wLo, wHi);
       /* 山脊线 = 2~4 个高斯峰叠加，外包 sin 包络收两端。
          旧版每个折点独立 rr(0.35,1.05)，峰脊是随机锯齿折线，
          8~12 段在暮色里读成一排三角锥剪纸（2026-09-21 走查 F6）。
@@ -202,7 +204,14 @@ export function makeDistantHills(){
       for (let k = 0; k <= n; k++){
         const t = k / n;
         const px = -w/2 + w * t;
-        const env = Math.pow(Math.sin(Math.PI * t), 0.62);   // 两端收拢
+        /* 两端收拢的幂次 2026-11-06：0.62 → 0.45（原试 0.30 已回退）。
+           0.62 时卡片两端 10% 处高度只剩 0.48，相邻卡片重叠区两张卡都接近 0
+           ⇒ 接缝塌成谷，整圈读成"一排孤立馒头"（玩家眼高 1.7m 实拍，山间露天亮带）。
+           ⚠️ 但 0.30 把山端抬到 0.70，night+mist 门禁的"山≤天"就红了（山 61.03 vs 天 58.91，
+           预算 +1.5；A/B 定案 pow 是真凶）：夜空雾亮带是**固定海拔**的，山脊抬高后
+           门禁的脊上天空采样点上移进更暗的高空，天均掉 2.1。山端抬到 0.575（0.45）
+           是"接缝填上 + 采样不挪出雾亮带"的折中。纯函数参数，不消耗随机流，布局零漂移。 */
+        const env = Math.pow(Math.sin(Math.PI * t), 0.45);   // 两端收拢
         let ridge = 0.45;                                     // 山麓底高，避免峰间塌成尖谷
         for (const L of lobes){
           const q = (t - L.c) / L.w;
@@ -266,7 +275,10 @@ export function makeDistantHills(){
       for (let k = 0; k <= nOld; k++) rr(0.35, 1.05);
     }
   };
-  g.add(makeRidge(78, 11, MAT.distantNear, 14));
+  /* 近层（78m）2026-11-05 加宽成连绵大弧：卡宽 26~54 → 44~88（月轮约束只限外三层，
+     近层无此约束）。范围变化不改随机流抽数 ⇒ 布局零漂移。加宽后层内互相叠压，
+     半透明叠两次 = 近层更"浓墨"，正是水墨远山"近浓"的那一笔。 */
+  g.add(makeRidge(78, 11, MAT.distantNear, 14, undefined, 0.5, 1.28, 44, 88));
   /* ⚠️ 三层高度上限是**按月轮反推的**：night-sky-guard 要求 20:00~04:00 月亮
      覆盖率 ≥40%，最低的月亮在 04:00、仰角只有 2.25° ⇒ 山脊（含轮廓函数里那个
      min(1.12, ridge) 的峰顶系数）必须压在 ~1.9° 以下。按"17m 机位 + 各层半径
@@ -502,7 +514,7 @@ export function makeGoose(){
       2026-10-01 改成**分区羽色** + 会动）
    两种行为共用一套几何：**体+头+喙+尾+翅**合成 1 个网格（不做单件动画 ⇒ 可以整体合并）。
    ── 2026-10-01 改动：给几何加**顶点色分区**。理由：instanceColor 只能给整只鸟一个颜色，
-      做不出"背深腹浅、头黑尾白"���自然界没有全色无斑的鸟（老黄："颜色不对，
+      做不出"背深腹浅、头黑尾白"。自然界没有全色无斑的鸟（老黄："颜色不对，
       自然界很难找到这种纯色的鸟"。实测原版饱和度 0.98~1.00 = 纯色上限）。
       分区规则按真实鸟种：**背/体=基调色、头=头色、腹=腹色、翅=翼色、喙=暗灰、尾=深色**。
       顶点色与 instanceColor 相乘（shader 端 vertexColors + instanceColor 都开），

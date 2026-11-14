@@ -32,7 +32,6 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { launchChromium, listenEphemeral } from './_harness.mjs';
-import { decodePNG } from './_png.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript',
@@ -48,41 +47,13 @@ const server = http.createServer((req, res) => {
 });
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
-/* ROI 统计：**中位数**是主判据（抗飘雪这类逐帧随机），同时给出 p10/p90 便于判断
-   "是整块变白"还是"只有零星像素变白"。 */
-function roiStats(img, x, y, w, h){
-  const { data, bpp, w: W, h: H } = img;
-  const lum = [];
-  for (let py = Math.max(0, y); py < Math.min(H, y + h); py++){
-    for (let px = Math.max(0, x); px < Math.min(W, x + w); px++){
-      const i = (py * W + px) * bpp;
-      lum.push(0.2126 * data[i] + 0.7152 * data[i + 1] + 0.0722 * data[i + 2]);
-    }
-  }
-  if (!lum.length) return null;
-  lum.sort((a, b) => a - b);
-  return { n: lum.length,
-           med: +lum[lum.length >> 1].toFixed(1),
-           p10: +lum[Math.floor(lum.length * 0.10)].toFixed(1),
-           p90: +lum[Math.floor(lum.length * 0.90)].toFixed(1),
-           mean: +(lum.reduce((a, b) => a + b, 0) / lum.length).toFixed(1) };
-}
-
-/* ROI 内「变亮超过阈值」的像素占比 —— 回答"雪有没有盖到这块面上"，
-   而**不**要求"盖了多厚"。后者由物体的几何形状决定（太湖石以竖面为主，
-   雪的判据是"朝上程度"，本来就上不去多少），把它当判据就是拿物理事实当缺陷。 */
-function roiBrighter(a, b, x, y, w, h, thr = 15){
-  const A = a.data, B = b.data, bp = a.bpp, W = a.w, H = a.h;
-  let n = 0, up = 0;
-  for (let py = Math.max(0, y); py < Math.min(H, y + h); py++){
-    for (let px = Math.max(0, x); px < Math.min(W, x + w); px++){
-      const i = (py * W + px) * bp;
-      const la = 0.2126 * A[i] + 0.7152 * A[i + 1] + 0.0722 * A[i + 2];
-      const lb = 0.2126 * B[i] + 0.7152 * B[i + 1] + 0.0722 * B[i + 2];
-      n++;
-      if (la - lb > thr) up++;
-    }
-  }
+/* ⚠️ 2026-10-31：像素改在**页内同任务**里取（见 grabCover），Node 侧不再解码 PNG，
+   于是原来的 roiStats / roiBrighter（吃 decodePNG 的 img 对象）已无用，
+   换成下面的 brighterPct（吃"已算好的亮度数组"）。中位数仍然是主判据（抗飘雪逐帧随机）。 */
+function brighterPct(a, b, thr = 15){
+  const n = Math.min(a.length, b.length);
+  let up = 0;
+  for (let i = 0; i < n; i++) if (a[i] - b[i] > thr) up++;
   return { n, up, pct: n ? +(up / n * 100).toFixed(2) : 0 };
 }
 
@@ -323,14 +294,6 @@ const check = (name, ok, detail = '') => {
              normals: tot ? { tot, p30: +(up30 / tot).toFixed(3), p78: +(up78 / tot).toFixed(3) } : null };
   });
 
-  const setCover = (v) => page.evaluate(async (vv) => {
-    const u = window.__snowU && window.__snowU();
-    if (!u) return { err: '未捕获' };
-    u.value = vv;
-    await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
-    return { set: vv, read: u.value };      // 读回：确认没有别的地方在每帧覆盖它
-  }, v);
-
   console.log('\n── G6 行为判据（像素：雪真的画到石头上了吗）──');
   if (!roiBox || roiBox.w < 6 || roiBox.h < 6){
     check('题名石刻在 hero 机位里有可测的画面区域', false,
@@ -343,19 +306,95 @@ const check = (name, ok, detail = '') => {
     const wide = (r) => ({ x: Math.max(0, r.x - 110), y: Math.max(0, r.y - 70),
                            width: r.w + 220, height: r.h + 140 });
     /* 存证：判据红了要能直接看一眼画面到底什么样，而不是只对着数字猜 */
-    const on  = await setCover(1);
-    const onImg = decodePNG(await page.screenshot());          // 解码一次，后面几处共用
-    const imgOn   = roiStats(onImg, roiBox.x, roiBox.y, roiBox.w, roiBox.h);
-    const frameOn = roiStats(onImg, 0, 0, 4096, 4096);         // 整幅（手段有效性对照）
-    await page.screenshot({ path: path.join(OUT, 'stele-cover-on.png'), clip: wide(roiBox) });
-    const off = await setCover(0);
-    const offImg = decodePNG(await page.screenshot());
-    const imgOff   = roiStats(offImg, roiBox.x, roiBox.y, roiBox.w, roiBox.h);
-    const frameOff = roiStats(offImg, 0, 0, 4096, 4096);
-    await page.screenshot({ path: path.join(OUT, 'stele-cover-off.png'), clip: wide(roiBox) });
-    await page.screenshot({ path: path.join(OUT, 'view-winter-snow.png') });
+    /* ── 像素取样：在页内取，且**不依赖画布合成**（2026-10-31 三版迭代的结论）───────
+       ① 旧写法 `page.screenshot()` → 空画布（存证图只有 675 字节，ROI/整幅读数均匀 13.7）；
+       ② 页内同任务 `composer.render()` + `drawImage(canvas)` → 尺寸对、内容全 0
+          （three r184 给 WebGL 上下文写死 alpha:true 且 preserveDrawingBuffer=false，
+           连"同任务内绘制缓冲仍有效"这条经验在这里也不成立）；
+       ③ **定稿**：自己建一张离屏 RT → `renderer.render(scene, camera)` → `readRenderTargetPixels`。
+          不碰画布合成时机、也不碰"MSAA 默认帧缓冲不能直接 readPixels"的坑；
+          两臂走同一段直渲代码，只差 uSnowCover 一个 uniform ⇒ 差分是干净的单变量。 */
+    const grabCover = (v) => page.evaluate(async (args) => {
+      const G = window.__garden, T = G.THREE;
+      const u = window.__snowU && window.__snowU();
+      if (!u) return { err: '未捕获' };
+      u.value = args.v;
+      const canvas = G.renderer.domElement, W = canvas.width, H = canvas.height;
+      /* ⚠️ 用**离屏渲染目标**取像素（2026-10-31 第三版）：
+         第一版 `page.screenshot()` → 空画布（675 字节）；
+         第二版页内 `drawImage(canvas)` → 取到了尺寸对、内容全 0 的图（画布 alpha:true +
+            preserveDrawingBuffer:false，任务内的绘制缓冲也拿不到）。
+         现在直接渲进一张自己的 RT，再用 `readRenderTargetPixels` 读回：这条路径不依赖
+         画布合成时机、也不碰"MSAA 默认帧缓冲不能 readPixels"的坑。
+         两臂（雪开/雪关）走的是**同一段直渲代码**，只差 uSnowCover 一个值 ⇒ 差分是干净的单变量。
+         （直渲跳过 composer 的调色/高度雾，对"雪有没有盖白石头"这个 A/B 无影响。） */
+      let rt = window.__wwRT;
+      if (!rt || rt.width !== W || rt.height !== H){
+        rt = new T.WebGLRenderTarget(W, H, { type: T.UnsignedByteType, format: T.RGBAFormat });
+        window.__wwRT = rt;
+      }
+      const prevRT = G.renderer.getRenderTarget();
+      const buf = new Uint8Array(W * H * 4);
+      G.renderer.setRenderTarget(rt);
+      G.renderer.render(G.scene, G.camera);
+      G.renderer.readRenderTargetPixels(rt, 0, 0, W, H, buf);
+      G.renderer.setRenderTarget(prevRT);
+      /* WebGL 的行自下而上 ⇒ 取 ROI 时按 y 翻过来 */
+      const lumAt = (x, y, w, h) => { const out = [];
+        for (let py = Math.max(0, y); py < Math.min(H, y + h); py++){
+          const gy = H - 1 - py;
+          for (let pxx = Math.max(0, x); pxx < Math.min(W, x + w); pxx++){
+            const i = (gy * W + pxx) * 4;
+            out.push(0.2126 * buf[i] + 0.7152 * buf[i + 1] + 0.0722 * buf[i + 2]);
+          }
+        }
+        return out; };
+      const stat = (arr) => { if (!arr.length) return null;
+        const s = arr.slice().sort((a, b) => a - b);
+        return { n: s.length, med: +s[s.length >> 1].toFixed(1),
+                 p10: +s[Math.floor(s.length * 0.10)].toFixed(1),
+                 p90: +s[Math.floor(s.length * 0.90)].toFixed(1),
+                 mean: +(s.reduce((a, b) => a + b, 0) / s.length).toFixed(1) }; };
+      const r = args.roi;
+      const roiLum = lumAt(r.x, r.y, r.w, r.h);
+      /* 存证图：把 RT 的像素翻成正常朝向铺到 2D canvas（alpha 强制不透明，否则存出来是全透明） */
+      const ff = document.createElement('canvas'); ff.width = W; ff.height = H;
+      const fctx = ff.getContext('2d');
+      const img = fctx.createImageData(W, H);
+      for (let y = 0; y < H; y++){
+        const sy = (H - 1 - y) * W * 4;
+        img.data.set(buf.subarray(sy, sy + W * 4), y * W * 4);
+      }
+      for (let i = 3; i < img.data.length; i += 4) img.data[i] = 255;
+      fctx.putImageData(img, 0, 0);
+      const wd = { x: Math.max(0, args.wide.x), y: Math.max(0, args.wide.y) };
+      wd.width = Math.min(args.wide.width, W - wd.x);
+      wd.height = Math.min(args.wide.height, H - wd.y);
+      const cc = document.createElement('canvas');
+      cc.width = Math.max(1, wd.width); cc.height = Math.max(1, wd.height);
+      cc.getContext('2d').drawImage(ff, wd.x, wd.y, wd.width, wd.height, 0, 0, wd.width, wd.height);
+      return { read: u.value, roi: stat(roiLum), frame: stat(lumAt(0, 0, W, H)),
+               roiLum: roiLum.map(v2 => +v2.toFixed(1)),
+               url: cc.toDataURL('image/png'), full: ff.toDataURL('image/png') };
+    }, { v, roi: roiBox, wide: wide(roiBox) });
+
+    const writeShot = (file, dataUrl) => {
+      const b64 = String(dataUrl || '').split(',')[1];
+      if (b64) fs.writeFileSync(file, Buffer.from(b64, 'base64'));
+    };
+    const on  = await grabCover(1);
+    if (!on.err) writeShot(path.join(OUT, 'stele-cover-on.png'), on.url);
+    const off = await grabCover(0);
+    if (!off.err) writeShot(path.join(OUT, 'stele-cover-off.png'), off.url);
+    if (!off.err) writeShot(path.join(OUT, 'view-winter-snow.png'), off.full);
+    /* 取不到像素时用空统计顶住，让下面几条各自报红（而不是在 Node 侧抛 TypeError） */
+    const blank = { n: 0, med: 0, p10: 0, p90: 0, mean: 0 };
+    const imgOn = on.roi || blank, imgOff = off.roi || blank, frameOn = on.frame || blank, frameOff = off.frame || blank;
+    check('能取到像素（页内同任务读缓冲，取代 page.screenshot）',
+      !on.err && !off.err && !!imgOn.n && !!frameOn.n,
+      on.err || off.err || `ROI ${imgOn.n}px / 整幅 ${frameOn.n}px`);
     check('覆盖量可稳定控制（没被每帧覆盖）',
-          on.read === 1 && off.read === 0, `set/read ${on.set}/${on.read} 与 ${off.set}/${off.read}`);
+          on.read === 1 && off.read === 0, `read ${on.read} / ${off.read}`);
     const dMed = +(imgOn.med - imgOff.med).toFixed(1);
     const dFrame = +(frameOn.med - frameOff.med).toFixed(1);
     console.log(`   石刻·有雪 ${JSON.stringify(imgOn)}`);
@@ -382,14 +421,14 @@ const check = (name, ok, detail = '') => {
          只要求"有"，不要求"厚"：太湖石 960 个顶点里朝上(>0.30)的只占 31.6%，
          雪本来就上不去多少，要求它明显变白等于把物理事实判成缺陷。
          但这条**有牙**：一旦有人把石刻从雪表里拿掉，变亮像素会掉到 ~0，立刻红。 */
-    const bri = roiBrighter(onImg, offImg, roiBox.x, roiBox.y, roiBox.w, roiBox.h, 15);
+    const bri = brighterPct(on.roiLum || [], off.roiLum || [], 15);
     console.log(`   石刻 ROI 内变亮 >15 的像素：${bri.up}/${bri.n} = ${bri.pct}%`
               + `（石头以竖面为主，有量就够）`);
     check('切覆盖量能改变画面（手段有效性对照）', Math.abs(dFrame) > 5, `整幅 Δ=${dFrame}`);
     check('题名石刻确实分到了雪（ROI 内有像素被盖白）', bri.pct > 1, `变亮像素占比 ${bri.pct}%`);
     /* 有牙性自检：拿同一张图自己比自己，"变亮占比"必须是 0 ——
        证明这条判据读的确实是**雪的差异**，而不是噪声或图像压缩误差。 */
-    const briZero = roiBrighter(offImg, offImg, roiBox.x, roiBox.y, roiBox.w, roiBox.h, 15);
+    const briZero = brighterPct(off.roiLum || [], off.roiLum || [], 15);
     check('判据自检：无差异时变亮占比为 0', briZero.pct === 0, `${briZero.pct}%`);
   }
   await page.evaluate(() => { window.__garden.setEnv('weather', 'clear');

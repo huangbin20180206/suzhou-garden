@@ -1,8 +1,8 @@
-// P0-1 拆分守卫：算 index.html 内联模块对 src/*.js 导出名的使用缺口，
-// 并检查 src/*.js 之间的互相引用是否都有 import。
+// P0-1 拆分守卫：算页面入口 src/main.js（2026-10-31 前是 index.html 内联模块）对 src/*.js
+// 导出名的使用缺口，并检查 src/*.js 之间的互相引用是否都有 import。
 // 用法: node probe/import-audit.mjs     （npm run check 之外的第二道拆分门禁）
 //
-// 为什么需要它：内联模块与 src 模块共享**同一个词法世界**时，漏一个 import
+// 为什么需要它：入口与 src 模块共享**同一个词法世界**时，漏一个 import
 // 只在浏览器运行到那一行才炸（node --check 完全看不出）。实测踩过三次：
 // mulberry32（在 01 内被用）、makePondBedTex / makePlaqueTex / makeSteleTex / makeInkWashTex
 // （在内联里被用）—— 都是这道理。本门禁把这类错误压到"改完即知"。
@@ -12,10 +12,17 @@ import { fileURLToPath } from 'node:url';
 import { codeOnly, referencesName, topLevelDecls, localBindings, shadowCoversAll } from './_codeonly.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+/* 入口：2026-10-31 起 index.html 只剩一行 `<script type="module" src="./src/main.js">`，
+   原内联主模块的正文（含全部具名导入）在 src/main.js。入口 = ENTRY，下面的 ①④ 以它为"内联"一方。
+   ⚠️ 入口在 index.html 里怎么写由 check.mjs 断言；这里只要求它还指向 ENTRY，否则本门审的不是真入口。 */
+const ENTRY = 'main.js';
 const html = fs.readFileSync(path.join(ROOT, 'index.html'), 'utf8');
-const m = html.match(/<script type="module">([\s\S]*?)<\/script>/);
-if (!m){ console.error('import-audit: 未找到内联 module script'); process.exit(1); }
-const body = m[1];
+if (!/<script\b[^>]*\btype=["']module["'][^>]*\bsrc=["']\.\/src\/main\.js["']/.test(html)
+    && !/<script\b[^>]*\bsrc=["']\.\/src\/main\.js["'][^>]*\btype=["']module["']/.test(html)){
+  console.error(`import-audit: index.html 没有指向 src/${ENTRY} 的 module 入口（本门审的入口与页面真入口不一致）`);
+  process.exit(1);
+}
+const body = fs.readFileSync(path.join(ROOT, 'src', ENTRY), 'utf8');
 
 function declsOf(src){
   const names = new Set();
@@ -81,23 +88,26 @@ for (const f of srcFiles) exportsByFile.set(f, declsOf(fs.readFileSync(path.join
 const problems = [];
 const notes = [];
 
-// ① 内联模块用到的 src 导出名，必须已经 import
+// ① 入口 main.js 用到的 src 导出名，必须已经 import（入口与 src 同目录 ⇒ 路径是 './X.js'）
 const inlineImported = new Set();
-for (const r of body.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/src\/([^'"]+)['"]/g)){
+for (const r of body.matchAll(/import\s*\{([^}]*)\}\s*from\s*['"]\.\/([^'"]+)['"]/g)){
   for (const part of r[1].split(',')) if (part.trim()) inlineImported.add(part.trim());
 }
 const bodyVis = visibleNames(body);
 for (const [file, names] of exportsByFile){
+  if (file === ENTRY) continue;
   for (const name of names){
     if (inlineImported.has(name) || bodyVis.top.has(name)) continue;
     if (!occ(body, name)) continue;
-    if (excusedByLocal(bodyVis, name)){ notes.push(`index.html: ${name} 被本地声明整体罩住（另有同名导出）—— 不判缺 import`); continue; }
-    problems.push(`index.html 用到 ${name}（${file} 导出）但没 import`);
+    if (excusedByLocal(bodyVis, name)){ notes.push(`src/${ENTRY}: ${name} 被本地声明整体罩住（另有同名导出）—— 不判缺 import`); continue; }
+    problems.push(`src/${ENTRY}（页面入口）用到 ${name}（${file} 导出）但没 import`);
   }
 }
 
 // ② src 模块之间的引用缺口（排除自身声明 / 自身 import / 同名整体遮蔽）
+//    入口 main.js 作为"使用方"已由 ① 审过，这里跳过（避免同一缺口报两遍）。
 for (const [file, names] of exportsByFile){
+  if (file === ENTRY) continue;
   const src = fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const vis = visibleNames(src);
   for (const [other, otherNames] of exportsByFile){
@@ -137,7 +147,7 @@ for (const [file] of exportsByFile){
     problems.push(`${file} 给 import 进来的 ${name} 赋值（导入绑定只读，运行期抛 Assignment to constant variable）`);
 }
 
-// ④ src 模块不得引用 index.html 内联模块**专有**的名字
+// ④ src 模块不得引用页面入口 src/main.js（原 index.html 内联模块）**专有**的名字
 //    拆模块后 src 与内联模块不再共享词法世界：内联里的 const / function 在 src 中根本不存在，
 //    引用它 = 运行期 ReferenceError。实测踩过（2026-09-20）：06-vegetation 的
 //    createGLTFLoaderWithDecoders 读内联的 `$解码器` 抛 ReferenceError，而它在
@@ -151,6 +161,7 @@ for (const n of importsOf(body)) inlineOwn.add(n);
 const exportedAnywhere = new Set();
 for (const [, names] of exportsByFile) for (const n of names) exportedAnywhere.add(n);
 for (const [file] of exportsByFile){
+  if (file === ENTRY) continue;            // 入口自己当然看得见自己的名字
   const src = fs.readFileSync(path.join(ROOT, 'src', file), 'utf8');
   const vis = visibleNames(src);
   for (const name of inlineOwn){
@@ -158,7 +169,7 @@ for (const [file] of exportsByFile){
     if (vis.top.has(name) || vis.imp.has(name)) continue;
     if (excusedByLocal(vis, name)) continue;
     if (referencesName(vis.code, name))
-      problems.push(`${file} 引用了 index.html 内联模块专有的 ${name}（src 里没有该绑定，运行期必 ReferenceError）`);
+      problems.push(`${file} 引用了页面入口 src/${ENTRY} 专有的 ${name}（别的模块里没有该绑定，运行期必 ReferenceError）`);
   }
 }
 

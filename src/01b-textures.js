@@ -6,7 +6,7 @@
 //    少一个都会改变抽样位置 ⇒ 全园布局漂移）；01-materials 仍按原名转出（先 import 再 export），
 //    所以外部模块继续从 './01-materials.js' 取这些函数，一行都不用改。
 import { THREE } from '../vendor.js';
-import { CFG, rnd, rr, mulberry32, TAU, registry, BOOT, bootMark } from './00-config.js';
+import { rnd, rr, mulberry32, TAU, bootMark } from './00-config.js';
 
 export function makeRoofTileTex(){                      // 青灰筒瓦：筒瓦圆拱 + 板瓦底 + 岁月斑驳
   const S = 256;
@@ -51,7 +51,11 @@ export function makePavingTex(){                        // 青砖铺地：45° �
       if (((x + y) & 1) === 0) continue;         // 黑白相间
       const cx = (x + 0.5) * step, cy = (y + 0.5) * step;
       const v = rr(-12, 12);                          // 逐砖色差，避免整片死板
-      g.fillStyle = `rgb(${46+v|0},${49+v|0},${52+v|0})`;
+      /* 2026-10-24：菱形砖的明度从 rgb(46±12) 提到 rgb(132±12)。
+         原值对底色 #BEBAB0（190 上下）是 4:1 的硬对比，远看像**黑白棋盘**（"人工感"最重的一处）；
+         苏州园林的青砖拼花是"同色系深浅"，不是黑白色块。提亮后仍读得出菱形花色，
+         但不再抢戏。⚠️ 这里只改颜色字面量，rr()/rnd() 的调用次数与位置一字未动（布局流不变）。 */
+      g.fillStyle = `rgb(${132+v|0},${136+v|0},${139+v|0})`;
       g.beginPath();
       g.moveTo(cx, cy - step * 0.5);
       g.lineTo(cx + step * 0.5, cy);
@@ -167,13 +171,13 @@ export function makePondBedTex(){                       // 池底：淤泥 + 藻
   const S = 1024;
   const c = document.createElement('canvas'); c.width = c.height = S;
   const g = c.getContext('2d');
-  g.fillStyle = '#4A4E3C'; g.fillRect(0, 0, S, S);          // 淤泥（不是黑）
+  g.fillStyle = '#5A5F47'; g.fillRect(0, 0, S, S);          // 淤泥（2026-10-28 提亮一档：4A4E3C→5A5F47，池水观感不该比泥还黑）
 
   // 大尺度斑块：藻 / 深淤泥 / 沙洲
   const blobs = [
-    ['rgba(78,96,54,0.40)',   26, 30, 80],
-    ['rgba(56,60,44,0.34)',   20, 24, 64],
-    ['rgba(108,108,90,0.26)', 18, 18, 48],
+    ['rgba(92,110,64,0.40)',   26, 30, 80],
+    ['rgba(68,72,54,0.34)',   20, 24, 64],
+    ['rgba(122,122,102,0.26)', 18, 18, 48],
   ];
   for (const [col, n, rMin, rMax] of blobs){
     g.fillStyle = col;
@@ -198,7 +202,7 @@ export function makePondBedTex(){                       // 池底：淤泥 + 藻
   // 细泥点
   for (let i = 0; i < 12000; i++){
     const v = rr(-16, 16);
-    g.fillStyle = `rgba(${74+v|0},${78+v|0},${60+v|0},0.35)`;
+    g.fillStyle = `rgba(${88+v|0},${92+v|0},${72+v|0},0.35)`;
     g.fillRect(rnd()*S, rnd()*S, rr(1,2.2), rr(1,2.2));
   }
 
@@ -542,6 +546,50 @@ export function makePeachPetalTex(){
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace;
   _peachPetalTex = tex;
+  return tex;
+}
+
+/* 荷瓣贴图（2026-10-14 · 用户近看反馈"花朵是明显的几何图片叠加"）：
+   旧 MAT.lotus 是纯色 F2C7D4，20 瓣同色塑料片。本贴图给瓣面三件事：
+   ① 纵向渐变：瓣根近白 → 瓣尖粉（真实荷花瓣尖色深）；
+   ② 中脉 + 4 条侧脉的细线（放射状，读出"瓣是有结构的"）；
+   ③ 边缘一线更深的粉（瓣缘翻光）。
+   坐标约定与 makeLotusPetalGeo 的 uv 对齐：v=0 瓣根、v=1 瓣尖、u -1..1 宽向。
+   无 alpha（几何本身就是瓣形，不需要假瓣），sRGB。 */
+let _lotusPetalTex = null;
+export function makeLotusPetalTex(){
+  if (_lotusPetalTex) return _lotusPetalTex;
+  const W = 128, H = 256;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const c = cv.getContext('2d');
+  /* ① 纵向渐变：根白尖粉（linearGradient 沿 v） */
+  const g = c.createLinearGradient(0, H, 0, 0);         // y=H 瓣根 → y=0 瓣尖
+  g.addColorStop(0.00, '#FDF3F6');                      // 瓣根近白
+  g.addColorStop(0.35, '#F6D3DE');                      // 下半浅粉
+  g.addColorStop(0.80, '#EEAEC2');                      // 上半粉
+  g.addColorStop(1.00, '#E89BB5');                      // 瓣尖深粉
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  /* ② 脉络：中脉 1 条 + 侧脉 4 条，从瓣根向瓣尖放射、细、半透明深粉 */
+  c.strokeStyle = 'rgba(214,120,150,0.55)';
+  c.lineWidth = 1.6;
+  const vein = (x0, x1) => {
+    c.beginPath();
+    c.moveTo(x0, H);
+    c.quadraticCurveTo((x0 + x1) / 2 + (x1 - x0) * 0.18, H * 0.5, x1, 6);
+    c.stroke();
+  };
+  vein(W/2, W/2);                                        // 中脉（直）
+  for (let k = 1; k <= 4; k++){
+    const spread = (W * 0.44) * (k / 4);
+    vein(W/2, W/2 + (k % 2 ? 1 : -1) * spread);          // 左右各两条
+  }
+  /* ③ 瓣缘一线更深（顶端 8% 一道浅缘线，模拟瓣缘翻光） */
+  c.strokeStyle = 'rgba(199,90,130,0.5)';
+  c.lineWidth = 2.2;
+  c.beginPath(); c.moveTo(W*0.30, 4); c.quadraticCurveTo(W/2, -2, W*0.70, 4); c.stroke();
+  const tex = new THREE.CanvasTexture(cv);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  _lotusPetalTex = tex;
   return tex;
 }
 

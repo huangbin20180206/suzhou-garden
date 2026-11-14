@@ -56,7 +56,7 @@ try {
      于是断网后：
        · `index.html` 从预缓存取到 ✓（它在 SHELL 里）
        · 它 import 的 16 个 `src/*.js` 全部落空 ✗（`caches.match` 未命中 →
-         `Response.error()`）⇒ 内联主模块加载失败 ⇒ `window.__garden` 永不出现
+         `Response.error()`）⇒ 主模块（当时内联在 index.html，2026-10-31 起为 src/main.js）加载失败 ⇒ `window.__garden` 永不出现
          ⇒ `#loading` 永远拿不到 `.done` ⇒ 卡到 90s 超时。
      ⇒ 先在线把真页面加载一次（SW 装好 + src 进缓存），再断网重载。
        这也正是 `pwa-cold-restart.mjs` 一直在做、而本门漏掉的那一步，
@@ -80,6 +80,23 @@ try {
   errors.length = 0;      // 之后只统计**断网重载**那一次的错误
   console.log('PASS: online warmup boot (SW installed, src/*.js runtime-cached)');
 
+  /* 2026-10-31：SW 不再在 install 里下载 GLB，而是页面预载结算后回填（sw.js 的 precache-assets）。
+     断网之前先等回填完成：轮询缓存，直到 assets/manifest.json 里 precache 的件全部在资产桶里（≤60s）。
+     只加等待，判据不变。 */
+  const precacheUrls = JSON.parse(await fs.readFile(path.join(root, 'assets/manifest.json'), 'utf8'))
+    .assets.filter(a => a.precache).map(a => '/' + a.url);
+  const backfilled = await page.evaluate(async (urls) => {
+    const t0 = Date.now();
+    while (Date.now() - t0 < 60000){
+      const keys = (await caches.keys()).filter(k => k.startsWith('suzhou-garden-assets-v'));
+      let have = 0;
+      for (const u of urls) if (await caches.match(u)) have++;
+      if (keys.length && have === urls.length) return { ok: true, have };
+      await new Promise(r => setTimeout(r, 500));
+    }
+    return { ok: false };
+  }, precacheUrls);
+  if (!backfilled.ok) console.warn('WARN: 60s 内资产回填未完成，继续按原判据断网');
   await context.setOffline(true);
   const offline = await page.evaluate(async () => {
     /* ⚠️ 这份清单必须与 sw.js 的 SHELL + GLBS **逐项对齐** —— 它就是"装了 PWA 就该能
@@ -87,18 +104,20 @@ try {
        也不在这份清单里 ⇒ 这个"离线首开"门禁**从定义上看不见少了鹦鹉**
        （离线实测只查已声明的 8 项，自然全 200）。漏项的机器守卫另见
        probe/preload-manifest-sync.mjs（纯文本比对，不用起浏览器）。 */
-    const urls = ['/index.html', '/vendor.js', '/manifest.webmanifest', '/icons/garden.svg',
-      '/assets/BananaPlant.glb', '/assets/koi.glb', '/assets/LotusPlant.glb', '/assets/Turtle.glb',
+    /* 2026-10-31：补 /src/main.js —— 页面唯一模块入口（原 index.html 内联主模块），已进 sw.js SHELL */
+    const urls = ['/index.html', '/src/main.js', '/vendor.js', '/manifest.webmanifest', '/icons/garden.svg',
+      '/assets/BananaPlant.glb', '/assets/koi.glb', '/assets/lotus-bloom.glb', '/assets/Turtle.glb',
       '/assets/Macaw.glb'];
     return Promise.all(urls.map(async url => { const r = await fetch(url); return { url, status: r.status, bytes: (await r.arrayBuffer()).byteLength }; }));
   });
   assert.ok(offline.every(r => r.status === 200 && r.bytes > 0), 'All offline resources must be present');
-  console.log('PASS: nine offline resources available ' + JSON.stringify(offline));
+  console.log('PASS: ten offline resources available ' + JSON.stringify(offline));
 
   /* ── 断网重载：这一次才是本门真正要证的那件事 ── */
   await page.goto(`http://127.0.0.1:${server.address().port}/index.html`, { timeout: 60000 });
   await waitBoot('断网重载');
-  const MODELS = ['KoiFish', 'Turtle', 'BananaPlant', 'LotusPlant', 'Macaw'];
+  // 2026-10-30：LotusPlant 已退役（拆成三态荷花）⇒ 换 lotusState_lotusBloom
+  const MODELS = ['KoiFish', 'Turtle', 'BananaPlant', 'lotusState_lotusBloom', 'Macaw'];
   await page.waitForFunction((names5) => {
     const names = new Set();
     window.__garden.scene.traverse(o => { for (const n of names5) if (o.name.includes(n)) names.add(n); });

@@ -3,7 +3,7 @@
    第 4 层 look），与 12-env 的时段/季节/天气状态机 + 环境面板 UI 是两件事。原块 ~500 行，
    混在一起让 12-env 逼近 3300 行（改一处很难看清周围还有什么 —— 本批拆分的唯一理由）。
    ⚠️ 本文件**不能** import './12-env.js'：12-env 反过来 import 本文件，成环 = 启动期 TDZ
-   （项目多次前科，见 index.html 内联主模块顶部、00-config 的 HOOKS / ENV_REF 注释）。
+   （项目多次前科，见 src/main.js（原 index.html 内联主模块）顶部、00-config 的 HOOKS / ENV_REF 注释）。
    它需要 12-env 的 6 样东西，全部由 12-env 在自己 body 里调 bindFestival(ENV, host) 注入，
    且**刻意沿用原名字** ⇒ 下面搬来的代码一行都不用改：
      · ENV                 环境状态机（tickFestival 读 ENV.cur.festivalShow；festivalState / toggleFestival 读写）
@@ -15,10 +15,10 @@
       "季节存在性"表里还在用，所以本文件把它们 export 出去（其余一律不导出）。 */
 import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT } from './01-materials.js';
-import { world } from './08-assemble.js';
+import { world } from './02-scene.js';
 import { POND_RADII } from './05-water.js';
-import { treeLanternInsts } from './06-vegetation.js';
-import { TAU, CFG, mulberry32, rnd } from './00-config.js';
+import { treeLanternInsts } from './06i-trees.js';
+import { TAU, CFG, mulberry32 } from './00-config.js';
 
 /* ↓ 全部由 12-env.js 的 bindFestival(...) 注入（见文件头；沿用原名字是故意的，搬来的代码零改动） */
 let ENV = null;
@@ -28,11 +28,17 @@ let syncEnvUI = null;
 let resolveEnv = null;
 let cloneParams = null;   // ⚠️ 三个分开写：合并成一条多变量 let 的话，probe/import-audit 的
                           //    topLevelDecls 只认第一个名字，另外两个会被判成"用了别的模块的导出但没 import"
+/* 2026-10-30：灯会的进出也走 12-env 的统一入口 applyState（审查 S3），节令挂钩查 12g 的 festivalFor ——
+   两者都经注入拿到（本文件不能 import 12-env；12g 虽无依赖，但保持"所需外部函数一律经 host 注入"这条约定）。 */
+let applyState = null;
+let festivalFor = null;
 export function bindFestival(env, host){
   ENV = env;
   willowLeafInsts = host.willowLeafInsts;
   worldLights = host.worldLights;
   syncEnvUI = host.syncEnvUI; resolveEnv = host.resolveEnv; cloneParams = host.cloneParams;
+  applyState = host.applyState || null;
+  festivalFor = host.festivalFor || null;
 }
 
 /* ══ 上元灯会（2026-09-24 · 计划书 Phase 3 第 7 项）════════════════════════════
@@ -424,14 +430,14 @@ function addHangInst(geo, mat, pts, seed, tag, colorFn){
   inst.userData.hangKind = tag;
   inst.name = 'festivalHang_' + tag;
   inst.frustumCulled = false;
-  const jr = mulberry32(seed);
+  const jrHang = mulberry32(seed);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), up = new THREE.Vector3(0, 1, 0),
         s1 = new THREE.Vector3(1, 1, 1);
   for (let i = 0; i < pts.length; i++){
-    q.setFromAxisAngle(up, jr() * TAU);
+    q.setFromAxisAngle(up, jrHang() * TAU);
     m4.compose(pts[i], q, s1);
     inst.setMatrixAt(i, m4);
-    inst.setColorAt(i, colorFn(jr));
+    inst.setColorAt(i, colorFn(jrHang));
   }
   if (inst.instanceColor) inst.instanceColor.needsUpdate = true;
   world.add(inst);
@@ -521,7 +527,8 @@ export function festivalState(){
       objs: 1,                                  // 一份几何一个对象（合并后的 draw call 代价）
     })),
     hangBuilt: _hangAnchors.built,
-    lampLights: worldLights.length,               // 真光源数必须仍等于灯笼的 5 盏
+    lampLights: worldLights.filter(L => !L.userData.road).length,  // 廊灯 5 盏（路灯另计 roadLights）
+    roadLights: worldLights.filter(L => L.userData.road).length,   // 路灯 8 盏（2026-10-18 加灯；2026-10-19 南门口一对撤掉）
   };
 }
 
@@ -537,16 +544,28 @@ let _festPrev = null;
 export function toggleFestival(force){
   const on = force === undefined ? !ENV.festival : !!force;
   if (on === !!ENV.festival) return;
+  /* 2026-10-30：状态写入、过渡、PMREM、UI 一律交给 applyState（'festival' 策略：不收任何景，免得自己收自己）。
+     节令挂钩（审查 B4/B5）：冬天开灯会 ⇒ 日子拨到上元（2/20，望月、红梅正开）；秋天开 ⇒ 拨到中秋（9/15，望月）；
+     春夏照开、不拨日子（老黄要的"自由组合"，季节一律不动）。关灯会时只还"被我拨过、你也没再改过"的日子。 */
+  const want = { festival: on };
   if (on){
-    _festPrev = { time: ENV.time, hour: ENV.hour };
-    if (ENV.time !== 'night'){ ENV.time = 'night'; ENV.hour = 21.5; }   // 灯会 = 夜的 plus 版
-  } else if (_festPrev && ENV.time === 'night' && Math.abs(ENV.hour - 21.5) < 0.05){
-    ENV.time = _festPrev.time;                       // 回到进来之前
-    ENV.hour = _festPrev.hour;
-    _festPrev = null;
+    _festPrev = { time: ENV.time, hour: ENV.hour, doy: ENV.doy, setDoy: 0 };
+    if (ENV.time !== 'night'){ want.time = 'night'; want.hour = 21.5; }   // 灯会 = 夜的 plus 版
+    const fest = festivalFor ? festivalFor('lantern', ENV.season) : null;
+    if (fest && ENV.doy !== fest.doy){ want.doy = fest.doy; _festPrev.setDoy = fest.doy; }
+    ENV.festivalName = fest ? fest.label : '上元灯会';
   } else {
-    _festPrev = null;                                // 用户自己改过时段：不抢，直接作废
+    if (_festPrev && ENV.time === 'night' && Math.abs(ENV.hour - 21.5) < 0.05){
+      want.time = _festPrev.time;                    // 回到进来之前
+      want.hour = _festPrev.hour;
+    }                                                // 用户自己改过时段：不抢
+    if (_festPrev && _festPrev.setDoy && ENV.doy === _festPrev.setDoy) want.doy = _festPrev.doy;
+    _festPrev = null;
+    ENV.festivalName = '';
   }
+  if (applyState){ applyState(want, { via: 'festival' }); return; }
+  /* 兜底（未注入 applyState 的旧宿主）：保持原写法 */
+  if ('time' in want){ ENV.time = want.time; ENV.hour = want.hour; }
   ENV.festival = on;
   ENV.from = cloneParams(ENV.cur);
   ENV.to = resolveEnv();

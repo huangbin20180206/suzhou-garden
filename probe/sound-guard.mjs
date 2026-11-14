@@ -77,6 +77,29 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   console.log(`  音景 on=${on} ctx=${st}`);
   check('点击「音景」按钮真的开了（走真实点击，含自动播放策略）', on === true, `on=${on}`);
 
+  const soundUI = () => page.evaluate(() => {
+    const b = document.querySelector('button[data-act="sound"]');
+    return { on: window.__garden.sndState(), pressed: b.getAttribute('aria-pressed'), active: b.classList.contains('on') };
+  });
+  await page.click('button[data-axis="season"][data-v="winter"]');
+  const afterSeason = await soundUI();
+  check('音景开启后切季节，按钮状态仍与实际一致',
+    afterSeason.on && afterSeason.active && afterSeason.pressed === 'true', JSON.stringify(afterSeason));
+  await page.keyboard.press('m');
+  const afterKeyOff = await soundUI();
+  check('快捷键关闭音景时，同步按钮与无障碍状态',
+    !afterKeyOff.on && !afterKeyOff.active && afterKeyOff.pressed === 'false', JSON.stringify(afterKeyOff));
+  await page.click('button[data-axis="season"][data-v="summer"]');
+  await page.click('button[data-axis="weather"][data-v="storm"]');
+  const afterStorm = await soundUI();
+  check('点击暴雨自动开启音景，并同步按钮状态',
+    afterStorm.on && afterStorm.active && afterStorm.pressed === 'true', JSON.stringify(afterStorm));
+  await page.keyboard.press('m');
+  await page.keyboard.press('m');
+  const afterKeyOn = await soundUI();
+  check('快捷键开启音景时，同步按钮与无障碍状态',
+    afterKeyOn.on && afterKeyOn.active && afterKeyOn.pressed === 'true', JSON.stringify(afterKeyOn));
+
   const setEnv = async (axis, v) => {
     await page.evaluate(([a, x]) => window.__garden.setEnv(a, x), [axis, v]);
     await settled();

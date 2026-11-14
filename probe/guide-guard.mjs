@@ -140,7 +140,16 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   await sleep(260);
   check('「跳过」一步收起', (await st()).on === false);
 
-  /* ── 6. 首次交互即消失（三种输入各验一次）── */
+  /* ── 6. 首次交互即消失（三种输入各验一次）──
+     ⚠️ 2026-11-12：产品侧加了 **2.5s 静置期**（见 11-loop 的 bindGuide）——
+     引导出现后的头 2.5 秒内，交互**不**关闭它。原因：老黄把项目发朋友体验时反馈
+     "加载完不知所措"，根因是用户任何一次点击（哪怕只是想拖一下画面）都会当场
+     把引导关掉，而他还没读到第一句；引导一旦关掉就写 localStorage，之后再也不弹。
+     本门的判据**本身不改**（"交互即消失"仍是产品行为），只是把"先等多久再点"
+     从 220ms 抬到**静置期之后**，否则测的是静置期而不是那条规矩。
+     ⚠️ 另外单独加了一条负例：静置期内点了**不该**消失 —— 否则静置期形同虚设
+     （把 GUIDE_HOLD_MS 改成 0 这条会红，证明它有牙）。 */
+  const HOLD_MS = 2500;                    // 与 11-loop 的 GUIDE_HOLD_MS 同值（单一语义）
   for (const [how, act] of [
     ['pointerdown', async () => { await page.mouse.click(450, 300); }],
     ['wheel',       async () => { await page.mouse.wheel(0, 120); }],
@@ -149,10 +158,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     await page.evaluate(() => window.__garden.guideStart());
     await sleep(220);
     const before = (await st()).on;
+    /* ① 静置期内点一次：断言**不该**消失 */
+    await act();
+    await sleep(120);
+    const duringHold = (await st()).on;
+    check(`静置期内遇到${how}不消失（<${HOLD_MS}ms）`, before === true && duringHold === true,
+      `${before}→${duringHold}`);
+    /* ② 等过静置期再点：这次**应该**消失（原判据，一字未改） */
+    await sleep(HOLD_MS);
     await act();
     await sleep(220);
     const after = (await st()).on;
-    check(`引导显示中遇到${how}即消失`, before === true && after === false, `${before}→${after}`);
+    check(`引导显示中遇到${how}即消失（静置期后）`, before === true && after === false, `${before}→${after}`);
   }
 
   /* ── 7. 320px 窄屏不溢出，且按钮不在 #env 内 ── */

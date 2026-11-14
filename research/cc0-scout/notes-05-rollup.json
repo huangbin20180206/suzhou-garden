@@ -1,0 +1,123 @@
+[
+ {
+  "id": "boulder_01",
+  "status": "downloaded",
+  "bytesMB": 2.81,
+  "files": 2,
+  "textures": 0,
+  "vertices": 67042,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/boulder_01.png?width=630&amp;quality=95&amp;v=b3b100e5",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/boulder_01/boulder_01_1k.gltf"
+ },
+ {
+  "id": "rock_07",
+  "status": "downloaded",
+  "bytesMB": 0.45,
+  "files": 2,
+  "textures": 0,
+  "vertices": 7914,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/rock_07.png?width=630&amp;quality=95&amp;v=15fefa77",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_07/rock_07_1k.gltf"
+ },
+ {
+  "id": "rock_09",
+  "status": "downloaded",
+  "bytesMB": 0.28,
+  "files": 2,
+  "textures": 0,
+  "vertices": 6628,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/rock_09.png?width=630&amp;quality=95&amp;v=57031fbf",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_09/rock_09_1k.gltf"
+ },
+ {
+  "id": "stone_01",
+  "status": "downloaded",
+  "bytesMB": 1.16,
+  "files": 2,
+  "textures": 0,
+  "vertices": 27888,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/stone_01.png?width=630&amp;quality=95&amp;v=347a4b6f",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/stone_01/stone_01_1k.gltf"
+ },
+ {
+  "id": "rock_moss_set_01",
+  "status": "downloaded",
+  "bytesMB": 1.41,
+  "files": 2,
+  "textures": 0,
+  "vertices": 33988,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/rock_moss_set_01.png?width=630&amp;quality=95&amp;v=e99703c4",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_moss_set_01/rock_moss_set_01_1k.gltf"
+ },
+ {
+  "id": "rock_moss_set_02",
+  "status": "downloaded",
+  "bytesMB": 1.27,
+  "files": 2,
+  "textures": 0,
+  "vertices": 30334,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/rock_moss_set_02.png?width=630&amp;quality=95&amp;v=2acc6bcd",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/rock_moss_set_02/rock_moss_set_02_1k.gltf"
+ },
+ {
+  "id": "sand_rocks_small_01",
+  "status": "downloaded",
+  "bytesMB": 20.27,
+  "files": 2,
+  "textures": 0,
+  "vertices": 386857,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/sand_rocks_small_01.png?width=630&amp;quality=95&amp;v=c2fbdf35",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/sand_rocks_small_01/sand_rocks_small_01_1k.gltf"
+ },
+ {
+  "id": "namaqualand_boulders_01",
+  "status": "downloaded",
+  "bytesMB": 0.89,
+  "files": 2,
+  "textures": 0,
+  "vertices": 21332,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/namaqualand_boulders_01.png?width=630&amp;quality=95&amp;v=d06bcb19",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_boulders_01/namaqualand_boulders_01_1k.gltf"
+ },
+ {
+  "id": "namaqualand_stones_01",
+  "status": "downloaded",
+  "bytesMB": 1.53,
+  "files": 2,
+  "textures": 0,
+  "vertices": 36830,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/namaqualand_stones_01.png?width=630&amp;quality=95&amp;v=89ae1982",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_stones_01/namaqualand_stones_01_1k.gltf"
+ },
+ {
+  "id": "pine_tree_01",
+  "status": "downloaded",
+  "bytesMB": 904.92,
+  "files": 2,
+  "textures": 0,
+  "vertices": 16918358,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/pine_tree_01.png?width=630&amp;quality=95&amp;v=5a9763f6",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/pine_tree_01/pine_tree_01_1k.gltf"
+ },
+ {
+  "id": "tree_small_02",
+  "status": "downloaded",
+  "bytesMB": 90.71,
+  "files": 2,
+  "textures": 0,
+  "vertices": 1777278,
+  "ogImage": "https://cdn.polyhaven.com/asset_img/thumbs/tree_small_02.png?width=630&amp;quality=95&amp;v=3743831d",
+  "cc0Mentions": 2,
+  "gltfUrl": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/tree_small_02/tree_small_02_1k.gltf"
+ }
+]

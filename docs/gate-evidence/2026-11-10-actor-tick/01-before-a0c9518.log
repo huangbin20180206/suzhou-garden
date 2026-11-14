@@ -1,0 +1,41 @@
+✔ 100ms 一帧：导演层应推进完整 100ms (1.0532ms)
+✔ 普通帧、负时间与超长帧仍遵守原来的 100ms 上限 (0.942ms)
+✔ 到访只在太阳实际升起后的原定时段开演 (0.2811ms)
+✔ 刚切细雨、雨量尚未升起时，不应开始到访 (21.0017ms)
+✔ 停车后继续更新辕马姿势，以便腿回到站姿 (154.4932ms)
+✔ 并肩走过转角时，单帧不能横向跳位 (561.6014ms)
+✔ 驶离的里程从驶入终点继续，不重置车轮相位 (672.7704ms)
+✔ 高精仕女继承原角色的晨间与天气显隐 (0.7354ms)
+✖ 主人近镜头复位时先隐藏，再按延时恢复 (1.3377ms)
+✔ 近镜头复位马车时，不隐藏整个马厩 (8.2923ms)
+ℹ tests 10
+ℹ suites 0
+ℹ pass 9
+ℹ fail 1
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1689.2365
+
+✖ failing tests:
+
+test at probe\actor-tick-unit.mjs:116:1
+✖ 主人近镜头复位时先隐藏，再按延时恢复 (1.3377ms)
+  AssertionError [ERR_ASSERTION]: 复位当帧不应提前显现
+  
+  true !== false
+  
+      at TestContext.<anonymous> (file:///E:/ai_test/codex_test/suzhou-garden/probe/actor-tick-unit.mjs:124:10)
+      at Test.runInAsyncScope (node:async_hooks:228:14)
+      at Test.run (node:internal/test_runner/test:1118:25)
+      at Test.processPendingSubtests (node:internal/test_runner/test:787:18)
+      at Test.postRun (node:internal/test_runner/test:1247:19)
+      at Test.run (node:internal/test_runner/test:1175:12)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: true,
+    expected: false,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }

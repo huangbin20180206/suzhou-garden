@@ -1,0 +1,1034 @@
+{
+ "Diffuse": {
+  "8k": {
+   "jpg": {
+    "size": 27380162,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_diff_8k.jpg",
+    "md5": "6330867c15839bc7a822c44344da2ab1"
+   },
+   "png": {
+    "size": 185458885,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_diff_8k.png",
+    "md5": "83f1b9ad6144fd06118a99897d3db9ea"
+   },
+   "exr": {
+    "size": 44253771,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_diff_8k.exr",
+    "md5": "c49ba39004ce62bd8f50ff230db61857"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 8871970,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_diff_4k.jpg",
+    "md5": "d7631eb0b15e29e03dff795d4db82cca"
+   },
+   "png": {
+    "size": 66914293,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_diff_4k.png",
+    "md5": "42e855fa351217a10fa24eb40e9bea62"
+   },
+   "exr": {
+    "size": 14476666,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_diff_4k.exr",
+    "md5": "caa251bf2ac7a9a444cbe6062e6a0e89"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 2667129,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_diff_2k.jpg",
+    "md5": "4181823b709edec717ca04f2d4cf8aa4"
+   },
+   "png": {
+    "size": 18976585,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_diff_2k.png",
+    "md5": "3d5cb44f23246799fe2728881ea6912c"
+   },
+   "exr": {
+    "size": 4612139,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_diff_2k.exr",
+    "md5": "6ed339b45c6b1bcef44c93e87913cda3"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 761118,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_diff_1k.jpg",
+    "md5": "9646b4b939dd3936de3917762ec81bb6"
+   },
+   "png": {
+    "size": 5148435,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_diff_1k.png",
+    "md5": "373ce46ef9bd93888efbe39c2c7d1c24"
+   },
+   "exr": {
+    "size": 1389050,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_diff_1k.exr",
+    "md5": "9538b79f3f246c0fdf2ede1418060371"
+   }
+  }
+ },
+ "nor_dx": {
+  "8k": {
+   "jpg": {
+    "size": 42700283,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_8k.jpg",
+    "md5": "8f9bf46a0904f13c3f7f86583707544a"
+   },
+   "png": {
+    "size": 245176147,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_8k.png",
+    "md5": "c5d4a0ed1f697d7ca5bb769c3a003143"
+   },
+   "exr": {
+    "size": 81984761,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_8k.exr",
+    "md5": "e8796ef233f96fed08c317d4f37a911b"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 13666251,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_4k.jpg",
+    "md5": "abf6ed30260b4174cda7d0ebe33e3204"
+   },
+   "png": {
+    "size": 70657604,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_4k.png",
+    "md5": "9723f9464b84468a2bc0352c5663aacb"
+   },
+   "exr": {
+    "size": 27885070,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_4k.exr",
+    "md5": "e91f2d22bed972e770b71a1567682789"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 3970676,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_2k.jpg",
+    "md5": "0cf86b701077dd60c187001bee0fc03f"
+   },
+   "png": {
+    "size": 19726025,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_2k.png",
+    "md5": "dfd2e505b44b8d16a7731226458317ee"
+   },
+   "exr": {
+    "size": 8144785,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_2k.exr",
+    "md5": "6c5cbc8553d5127f26102615d29d5d08"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 1092568,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_1k.jpg",
+    "md5": "0bbacdc9456fad51ebb2fef96f7aad88"
+   },
+   "png": {
+    "size": 5346190,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_1k.png",
+    "md5": "3ec1b8f66620c55863d4dd3eb7c2b0fc"
+   },
+   "exr": {
+    "size": 2255709,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_nor_dx_1k.exr",
+    "md5": "6b4e88bdda841bab68b230a1235a0b2a"
+   }
+  }
+ },
+ "nor_gl": {
+  "8k": {
+   "jpg": {
+    "size": 42670290,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_8k.jpg",
+    "md5": "eb8d53440583676df60980f30bbaad7f"
+   },
+   "png": {
+    "size": 245177981,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_8k.png",
+    "md5": "8f3c78d970598d8362840e690a727cf6"
+   },
+   "exr": {
+    "size": 81989521,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_8k.exr",
+    "md5": "706d187e803316b54351d1b7b1de0a6e"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 13655338,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_4k.jpg",
+    "md5": "974cc053d5e75a6bb75aebd510b91cf6"
+   },
+   "png": {
+    "size": 70658708,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_4k.png",
+    "md5": "ff0da99654e2076483d856c2bdbfd340"
+   },
+   "exr": {
+    "size": 27890770,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_4k.exr",
+    "md5": "1733d07a456b9e645ef039104251f24d"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 3967288,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_2k.jpg",
+    "md5": "298d94717b3a79324b04189746522c93"
+   },
+   "png": {
+    "size": 19728486,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_2k.png",
+    "md5": "50444d9dfee716e02b5e0f94009d3b42"
+   },
+   "exr": {
+    "size": 8147420,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_2k.exr",
+    "md5": "0d6bdfcf0820abb7d4f140835f789876"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 1091306,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_1k.jpg",
+    "md5": "1c99a5c24e6a7531e24a5cc05cf7b39f"
+   },
+   "png": {
+    "size": 5345615,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_1k.png",
+    "md5": "67e1bba0cb07660940f049972e9045e9"
+   },
+   "exr": {
+    "size": 2256200,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_1k.exr",
+    "md5": "9485bfd9045e3909e6e22563acefb2cd"
+   }
+  }
+ },
+ "blend": {
+  "8k": {
+   "blend": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_8k.exr": {
+      "size": 81989521,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_8k.exr",
+      "md5": "706d187e803316b54351d1b7b1de0a6e"
+     },
+     "textures/namaqualand_stones_01_diff_8k.jpg": {
+      "size": 27380162,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_diff_8k.jpg",
+      "md5": "6330867c15839bc7a822c44344da2ab1"
+     },
+     "textures/namaqualand_stones_01_mask_8k.png": {
+      "size": 33774721,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_mask_8k.png",
+      "md5": "1a7ace3434a0b5b97c84d75193ba9c3b"
+     },
+     "textures/namaqualand_stones_01_rough_8k.exr": {
+      "size": 16941123,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_rough_8k.exr",
+      "md5": "2338c94fa0ac77a42301b8ef2c3994c2"
+     }
+    },
+    "size": 3155485,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/8k/namaqualand_stones_01/namaqualand_stones_01_8k.blend",
+    "md5": "194fcae4eae6f506ca497df5a06202e7"
+   }
+  },
+  "4k": {
+   "blend": {
+    "include": {
+     "textures/namaqualand_stones_01_mask_4k.png": {
+      "size": 9829145,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_mask_4k.png",
+      "md5": "aa5407b52a4881640ff0bfee15e96299"
+     },
+     "textures/namaqualand_stones_01_rough_4k.exr": {
+      "size": 5396903,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_rough_4k.exr",
+      "md5": "51851f6a67c30d59ab39964db2055bfc"
+     },
+     "textures/namaqualand_stones_01_nor_gl_4k.exr": {
+      "size": 27890770,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_4k.exr",
+      "md5": "1733d07a456b9e645ef039104251f24d"
+     },
+     "textures/namaqualand_stones_01_diff_4k.jpg": {
+      "size": 8871970,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_diff_4k.jpg",
+      "md5": "d7631eb0b15e29e03dff795d4db82cca"
+     }
+    },
+    "size": 3155646,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/4k/namaqualand_stones_01/namaqualand_stones_01_4k.blend",
+    "md5": "5b7378e426ac70d5d4f68b3dbdadebb1"
+   }
+  },
+  "2k": {
+   "blend": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_2k.exr": {
+      "size": 8147420,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_2k.exr",
+      "md5": "0d6bdfcf0820abb7d4f140835f789876"
+     },
+     "textures/namaqualand_stones_01_diff_2k.jpg": {
+      "size": 2667129,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_diff_2k.jpg",
+      "md5": "4181823b709edec717ca04f2d4cf8aa4"
+     },
+     "textures/namaqualand_stones_01_mask_2k.png": {
+      "size": 2838151,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_mask_2k.png",
+      "md5": "4e8f8c431fab48378869e2c130311bba"
+     },
+     "textures/namaqualand_stones_01_rough_2k.exr": {
+      "size": 1596117,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_rough_2k.exr",
+      "md5": "6ccbc782555a9c7306ba8b93a15d7994"
+     }
+    },
+    "size": 3155432,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/2k/namaqualand_stones_01/namaqualand_stones_01_2k.blend",
+    "md5": "6b899f339aa9e8a99db932e2a5c063d4"
+   }
+  },
+  "1k": {
+   "blend": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_1k.exr": {
+      "size": 2256200,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_1k.exr",
+      "md5": "9485bfd9045e3909e6e22563acefb2cd"
+     },
+     "textures/namaqualand_stones_01_rough_1k.exr": {
+      "size": 467939,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_rough_1k.exr",
+      "md5": "f357a621c4a03a853d2db33f3bc80693"
+     },
+     "textures/namaqualand_stones_01_diff_1k.jpg": {
+      "size": 761118,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_diff_1k.jpg",
+      "md5": "9646b4b939dd3936de3917762ec81bb6"
+     },
+     "textures/namaqualand_stones_01_mask_1k.png": {
+      "size": 821344,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_mask_1k.png",
+      "md5": "7f1fa8fcfc891ef4724368f90118d39d"
+     }
+    },
+    "size": 3155538,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/blend/1k/namaqualand_stones_01/namaqualand_stones_01_1k.blend",
+    "md5": "d7ec2597507210f9f1bc895554ea2d9e"
+   }
+  }
+ },
+ "gltf": {
+  "8k": {
+   "gltf": {
+    "include": {
+     "textures/namaqualand_stones_01_diff_8k.jpg": {
+      "size": 27380162,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_diff_8k.jpg",
+      "md5": "6330867c15839bc7a822c44344da2ab1"
+     },
+     "textures/namaqualand_stones_01_arm_8k.jpg": {
+      "size": 28701536,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_arm_8k.jpg",
+      "md5": "14b8222ad1469331806126554040c003"
+     },
+     "namaqualand_stones_01.bin": {
+      "size": 1599304,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/namaqualand_stones_01/namaqualand_stones_01.bin",
+      "md5": "65f3ea82d94ebf1113eae180aa85d68a"
+     },
+     "textures/namaqualand_stones_01_nor_gl_8k.jpg": {
+      "size": 42670290,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_8k.jpg",
+      "md5": "eb8d53440583676df60980f30bbaad7f"
+     }
+    },
+    "size": 8681,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/namaqualand_stones_01/namaqualand_stones_01_8k.gltf",
+    "md5": "2947f83e37718ec98a92297375474e08"
+   }
+  },
+  "4k": {
+   "gltf": {
+    "include": {
+     "textures/namaqualand_stones_01_arm_4k.jpg": {
+      "size": 8535256,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_arm_4k.jpg",
+      "md5": "9c53935ddcba0d218c1be408ef89e9c8"
+     },
+     "textures/namaqualand_stones_01_diff_4k.jpg": {
+      "size": 8871970,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_diff_4k.jpg",
+      "md5": "d7631eb0b15e29e03dff795d4db82cca"
+     },
+     "namaqualand_stones_01.bin": {
+      "size": 1599304,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/namaqualand_stones_01/namaqualand_stones_01.bin",
+      "md5": "65f3ea82d94ebf1113eae180aa85d68a"
+     },
+     "textures/namaqualand_stones_01_nor_gl_4k.jpg": {
+      "size": 13655338,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_4k.jpg",
+      "md5": "974cc053d5e75a6bb75aebd510b91cf6"
+     }
+    },
+    "size": 8681,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/4k/namaqualand_stones_01/namaqualand_stones_01_4k.gltf",
+    "md5": "29eb8785fb72348312aa2833f2a01e39"
+   }
+  },
+  "2k": {
+   "gltf": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_2k.jpg": {
+      "size": 3967288,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_2k.jpg",
+      "md5": "298d94717b3a79324b04189746522c93"
+     },
+     "textures/namaqualand_stones_01_arm_2k.jpg": {
+      "size": 2462431,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_arm_2k.jpg",
+      "md5": "d58f3cdf76abfe3f753282e566f66c1e"
+     },
+     "textures/namaqualand_stones_01_diff_2k.jpg": {
+      "size": 2667129,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_diff_2k.jpg",
+      "md5": "4181823b709edec717ca04f2d4cf8aa4"
+     },
+     "namaqualand_stones_01.bin": {
+      "size": 1599304,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/namaqualand_stones_01/namaqualand_stones_01.bin",
+      "md5": "65f3ea82d94ebf1113eae180aa85d68a"
+     }
+    },
+    "size": 8681,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/2k/namaqualand_stones_01/namaqualand_stones_01_2k.gltf",
+    "md5": "e2d986fe8c51a68e2823915249ac5bc8"
+   }
+  },
+  "1k": {
+   "gltf": {
+    "include": {
+     "textures/namaqualand_stones_01_arm_1k.jpg": {
+      "size": 694449,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_arm_1k.jpg",
+      "md5": "c9ca770eda12ab5919aaed3e887ab3bd"
+     },
+     "textures/namaqualand_stones_01_nor_gl_1k.jpg": {
+      "size": 1091306,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_1k.jpg",
+      "md5": "1c99a5c24e6a7531e24a5cc05cf7b39f"
+     },
+     "namaqualand_stones_01.bin": {
+      "size": 1599304,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/8k/namaqualand_stones_01/namaqualand_stones_01.bin",
+      "md5": "65f3ea82d94ebf1113eae180aa85d68a"
+     },
+     "textures/namaqualand_stones_01_diff_1k.jpg": {
+      "size": 761118,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_diff_1k.jpg",
+      "md5": "9646b4b939dd3936de3917762ec81bb6"
+     }
+    },
+    "size": 8681,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/gltf/1k/namaqualand_stones_01/namaqualand_stones_01_1k.gltf",
+    "md5": "54f6b6211437fa4798ad6513e0371064"
+   }
+  }
+ },
+ "usd": {
+  "8k": {
+   "usd": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_8k.exr": {
+      "size": 81989521,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_8k.exr",
+      "md5": "706d187e803316b54351d1b7b1de0a6e"
+     },
+     "textures/namaqualand_stones_01_diff_8k.jpg": {
+      "size": 27380162,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_diff_8k.jpg",
+      "md5": "6330867c15839bc7a822c44344da2ab1"
+     },
+     "textures/namaqualand_stones_01_mask_8k.png": {
+      "size": 33774721,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_mask_8k.png",
+      "md5": "1a7ace3434a0b5b97c84d75193ba9c3b"
+     },
+     "textures/namaqualand_stones_01_rough_8k.exr": {
+      "size": 16941123,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_rough_8k.exr",
+      "md5": "2338c94fa0ac77a42301b8ef2c3994c2"
+     }
+    },
+    "size": 4892652,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/8k/namaqualand_stones_01/namaqualand_stones_01_8k.usdc",
+    "md5": "f4e4541d92cf3cfa8ba3fef0ac4a4c0c"
+   }
+  },
+  "4k": {
+   "usd": {
+    "include": {
+     "textures/namaqualand_stones_01_mask_4k.png": {
+      "size": 9829145,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_mask_4k.png",
+      "md5": "aa5407b52a4881640ff0bfee15e96299"
+     },
+     "textures/namaqualand_stones_01_rough_4k.exr": {
+      "size": 5396903,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_rough_4k.exr",
+      "md5": "51851f6a67c30d59ab39964db2055bfc"
+     },
+     "textures/namaqualand_stones_01_nor_gl_4k.exr": {
+      "size": 27890770,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_4k.exr",
+      "md5": "1733d07a456b9e645ef039104251f24d"
+     },
+     "textures/namaqualand_stones_01_diff_4k.jpg": {
+      "size": 8871970,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_diff_4k.jpg",
+      "md5": "d7631eb0b15e29e03dff795d4db82cca"
+     }
+    },
+    "size": 4892652,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/4k/namaqualand_stones_01/namaqualand_stones_01_4k.usdc",
+    "md5": "6abe2614d773b646074aeca946b8b0bb"
+   }
+  },
+  "2k": {
+   "usd": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_2k.exr": {
+      "size": 8147420,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_2k.exr",
+      "md5": "0d6bdfcf0820abb7d4f140835f789876"
+     },
+     "textures/namaqualand_stones_01_diff_2k.jpg": {
+      "size": 2667129,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_diff_2k.jpg",
+      "md5": "4181823b709edec717ca04f2d4cf8aa4"
+     },
+     "textures/namaqualand_stones_01_mask_2k.png": {
+      "size": 2838151,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_mask_2k.png",
+      "md5": "4e8f8c431fab48378869e2c130311bba"
+     },
+     "textures/namaqualand_stones_01_rough_2k.exr": {
+      "size": 1596117,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_rough_2k.exr",
+      "md5": "6ccbc782555a9c7306ba8b93a15d7994"
+     }
+    },
+    "size": 4892652,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/2k/namaqualand_stones_01/namaqualand_stones_01_2k.usdc",
+    "md5": "608b291d2e041d4e300d91110dd7838f"
+   }
+  },
+  "1k": {
+   "usd": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_1k.exr": {
+      "size": 2256200,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_1k.exr",
+      "md5": "9485bfd9045e3909e6e22563acefb2cd"
+     },
+     "textures/namaqualand_stones_01_rough_1k.exr": {
+      "size": 467939,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_rough_1k.exr",
+      "md5": "f357a621c4a03a853d2db33f3bc80693"
+     },
+     "textures/namaqualand_stones_01_diff_1k.jpg": {
+      "size": 761118,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_diff_1k.jpg",
+      "md5": "9646b4b939dd3936de3917762ec81bb6"
+     },
+     "textures/namaqualand_stones_01_mask_1k.png": {
+      "size": 821344,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_mask_1k.png",
+      "md5": "7f1fa8fcfc891ef4724368f90118d39d"
+     }
+    },
+    "size": 4892652,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/usd/1k/namaqualand_stones_01/namaqualand_stones_01_1k.usdc",
+    "md5": "a3f39b70bd43ed545016a96da3b4c1f6"
+   }
+  }
+ },
+ "Mask": {
+  "8k": {
+   "jpg": {
+    "size": 9256098,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_mask_8k.jpg",
+    "md5": "b3450ebf632df5754770a2646715a852"
+   },
+   "png": {
+    "size": 33774721,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_mask_8k.png",
+    "md5": "1a7ace3434a0b5b97c84d75193ba9c3b"
+   },
+   "exr": {
+    "size": 11770172,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_mask_8k.exr",
+    "md5": "6a4ec4efb707f0578fab81430ff59002"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 3135654,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_mask_4k.jpg",
+    "md5": "34066641987556768669c01a0c099cc8"
+   },
+   "png": {
+    "size": 9829145,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_mask_4k.png",
+    "md5": "aa5407b52a4881640ff0bfee15e96299"
+   },
+   "exr": {
+    "size": 4142215,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_mask_4k.exr",
+    "md5": "c7963f33e5eab3f510a0710649c96bcd"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 1017017,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_mask_2k.jpg",
+    "md5": "f8602cc87165396af0054f19abc6f61f"
+   },
+   "png": {
+    "size": 2838151,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_mask_2k.png",
+    "md5": "4e8f8c431fab48378869e2c130311bba"
+   },
+   "exr": {
+    "size": 1389188,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_mask_2k.exr",
+    "md5": "7671a154e858412c95705863f6f1eaaf"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 313757,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_mask_1k.jpg",
+    "md5": "48a5de6b36c6617f589d59eb1aadb680"
+   },
+   "png": {
+    "size": 821344,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_mask_1k.png",
+    "md5": "7f1fa8fcfc891ef4724368f90118d39d"
+   },
+   "exr": {
+    "size": 448416,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_mask_1k.exr",
+    "md5": "16186425c3bb748c1f4de31339fea6e1"
+   }
+  }
+ },
+ "arm": {
+  "8k": {
+   "jpg": {
+    "size": 28701536,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_arm_8k.jpg",
+    "md5": "14b8222ad1469331806126554040c003"
+   },
+   "png": {
+    "size": 69758961,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_arm_8k.png",
+    "md5": "9b5e49b8dbc64cac82a598562875acaa"
+   },
+   "exr": {
+    "size": 47863532,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_arm_8k.exr",
+    "md5": "3d1f8be716192d9c7896e205e2b54e47"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 8535256,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_arm_4k.jpg",
+    "md5": "9c53935ddcba0d218c1be408ef89e9c8"
+   },
+   "png": {
+    "size": 39442388,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_arm_4k.png",
+    "md5": "75f4a076e3e7aaf2967d3f4b5037fb51"
+   },
+   "exr": {
+    "size": 15088418,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_arm_4k.exr",
+    "md5": "09a8d48161d561bcec4a04ef13c305fe"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 2462431,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_arm_2k.jpg",
+    "md5": "d58f3cdf76abfe3f753282e566f66c1e"
+   },
+   "png": {
+    "size": 13241427,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_arm_2k.png",
+    "md5": "e7563f2153a8afd27945c79df38fc981"
+   },
+   "exr": {
+    "size": 4550927,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_arm_2k.exr",
+    "md5": "8d78da828fa7e9da7e422ac44698e958"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 694449,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_arm_1k.jpg",
+    "md5": "c9ca770eda12ab5919aaed3e887ab3bd"
+   },
+   "png": {
+    "size": 3860880,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_arm_1k.png",
+    "md5": "cc67e851cec05d125e4c6994496b0d4c"
+   },
+   "exr": {
+    "size": 1339164,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_arm_1k.exr",
+    "md5": "efe232e1fc662b3eebba2f5a8d534d5d"
+   }
+  }
+ },
+ "fbx": {
+  "8k": {
+   "fbx": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_8k.exr": {
+      "size": 81989521,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_8k.exr",
+      "md5": "706d187e803316b54351d1b7b1de0a6e"
+     },
+     "textures/namaqualand_stones_01_diff_8k.jpg": {
+      "size": 27380162,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_diff_8k.jpg",
+      "md5": "6330867c15839bc7a822c44344da2ab1"
+     },
+     "textures/namaqualand_stones_01_mask_8k.png": {
+      "size": 33774721,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_mask_8k.png",
+      "md5": "1a7ace3434a0b5b97c84d75193ba9c3b"
+     },
+     "textures/namaqualand_stones_01_rough_8k.exr": {
+      "size": 16941123,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_rough_8k.exr",
+      "md5": "2338c94fa0ac77a42301b8ef2c3994c2"
+     }
+    },
+    "size": 2006748,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/8k/namaqualand_stones_01/namaqualand_stones_01_8k.fbx",
+    "md5": "45cd386c4c4366b1fee121ad36a0286d"
+   }
+  },
+  "4k": {
+   "fbx": {
+    "include": {
+     "textures/namaqualand_stones_01_mask_4k.png": {
+      "size": 9829145,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_mask_4k.png",
+      "md5": "aa5407b52a4881640ff0bfee15e96299"
+     },
+     "textures/namaqualand_stones_01_rough_4k.exr": {
+      "size": 5396903,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_rough_4k.exr",
+      "md5": "51851f6a67c30d59ab39964db2055bfc"
+     },
+     "textures/namaqualand_stones_01_nor_gl_4k.exr": {
+      "size": 27890770,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_4k.exr",
+      "md5": "1733d07a456b9e645ef039104251f24d"
+     },
+     "textures/namaqualand_stones_01_diff_4k.jpg": {
+      "size": 8871970,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_diff_4k.jpg",
+      "md5": "d7631eb0b15e29e03dff795d4db82cca"
+     }
+    },
+    "size": 2006748,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/4k/namaqualand_stones_01/namaqualand_stones_01_4k.fbx",
+    "md5": "a6d15d1d18dfa01fe50895cd1ef1e791"
+   }
+  },
+  "2k": {
+   "fbx": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_2k.exr": {
+      "size": 8147420,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_2k.exr",
+      "md5": "0d6bdfcf0820abb7d4f140835f789876"
+     },
+     "textures/namaqualand_stones_01_diff_2k.jpg": {
+      "size": 2667129,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_diff_2k.jpg",
+      "md5": "4181823b709edec717ca04f2d4cf8aa4"
+     },
+     "textures/namaqualand_stones_01_mask_2k.png": {
+      "size": 2838151,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_mask_2k.png",
+      "md5": "4e8f8c431fab48378869e2c130311bba"
+     },
+     "textures/namaqualand_stones_01_rough_2k.exr": {
+      "size": 1596117,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_rough_2k.exr",
+      "md5": "6ccbc782555a9c7306ba8b93a15d7994"
+     }
+    },
+    "size": 2006748,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/2k/namaqualand_stones_01/namaqualand_stones_01_2k.fbx",
+    "md5": "5dbe9442283dc4c83ce215596c05ac51"
+   }
+  },
+  "1k": {
+   "fbx": {
+    "include": {
+     "textures/namaqualand_stones_01_nor_gl_1k.exr": {
+      "size": 2256200,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_nor_gl_1k.exr",
+      "md5": "9485bfd9045e3909e6e22563acefb2cd"
+     },
+     "textures/namaqualand_stones_01_rough_1k.exr": {
+      "size": 467939,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_rough_1k.exr",
+      "md5": "f357a621c4a03a853d2db33f3bc80693"
+     },
+     "textures/namaqualand_stones_01_diff_1k.jpg": {
+      "size": 761118,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_diff_1k.jpg",
+      "md5": "9646b4b939dd3936de3917762ec81bb6"
+     },
+     "textures/namaqualand_stones_01_mask_1k.png": {
+      "size": 821344,
+      "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_mask_1k.png",
+      "md5": "7f1fa8fcfc891ef4724368f90118d39d"
+     }
+    },
+    "size": 2006748,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/fbx/1k/namaqualand_stones_01/namaqualand_stones_01_1k.fbx",
+    "md5": "dd6cacee3ea10a82a28034811a9c3e2f"
+   }
+  }
+ },
+ "AO": {
+  "8k": {
+   "jpg": {
+    "size": 28289133,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_ao_8k.jpg",
+    "md5": "53054c7aa5307d9584e7ec469d90bf35"
+   },
+   "png": {
+    "size": 36779479,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_ao_8k.png",
+    "md5": "82c28e3c4fb6ecbbf33e7c597457e891"
+   },
+   "exr": {
+    "size": 27436715,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_ao_8k.exr",
+    "md5": "f2ec2d8f5a45d8eba026bc3fe5e5411f"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 7916982,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_ao_4k.jpg",
+    "md5": "20f01f0e38da1af48a2ec0f6a1f53889"
+   },
+   "png": {
+    "size": 19293818,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_ao_4k.png",
+    "md5": "7bd301cf4327fe046ee16845f221142b"
+   },
+   "exr": {
+    "size": 7802713,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_ao_4k.exr",
+    "md5": "de57d0d7a29597da6868d15d010753cc"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 2261157,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_ao_2k.jpg",
+    "md5": "864f192b54d5a62fcf885657ca4ada76"
+   },
+   "png": {
+    "size": 6180596,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_ao_2k.png",
+    "md5": "5dca625c3425b80d032ebb94383b9a2c"
+   },
+   "exr": {
+    "size": 2275640,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_ao_2k.exr",
+    "md5": "f39c3f7ae43ff9a5809af9b30e9b0024"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 641511,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_ao_1k.jpg",
+    "md5": "6ab9623543a0eff5f5180a9b8289e20f"
+   },
+   "png": {
+    "size": 1737402,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_ao_1k.png",
+    "md5": "893b846d535562f098d1da92dbf625dc"
+   },
+   "exr": {
+    "size": 661597,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_ao_1k.exr",
+    "md5": "53cfd2d539a58e2ef44bf2c92f14ce82"
+   }
+  }
+ },
+ "Displacement": {
+  "8k": {
+   "jpg": {
+    "size": 6532954,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_disp_8k.jpg",
+    "md5": "959735d6c269c13720164be762e09131"
+   },
+   "png": {
+    "size": 39441414,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_disp_8k.png",
+    "md5": "6795d14bc42a7f21771229047e784101"
+   },
+   "exr": {
+    "size": 7018944,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_disp_8k.exr",
+    "md5": "145b0ece893d1de19672dc50ccb728c0"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 2262495,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_disp_4k.jpg",
+    "md5": "7332387a3bf1d8386f34fc2392a5f432"
+   },
+   "png": {
+    "size": 16662256,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_disp_4k.png",
+    "md5": "711f3b7a58832d15c099d3a81a791521"
+   },
+   "exr": {
+    "size": 2597538,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_disp_4k.exr",
+    "md5": "d2f141b333641cef7e6cd49276f936da"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 793038,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_disp_2k.jpg",
+    "md5": "819740c3f2dc2e16322ee868370fbf47"
+   },
+   "png": {
+    "size": 5139006,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_disp_2k.png",
+    "md5": "69c85b2b776ed066d3ffe99caa1e30f7"
+   },
+   "exr": {
+    "size": 960052,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_disp_2k.exr",
+    "md5": "496b8511dd54eb0e9ec6f3576b45ff7b"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 269244,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_disp_1k.jpg",
+    "md5": "229d971cf21332a6e05b196ed7be27c6"
+   },
+   "png": {
+    "size": 1473083,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_disp_1k.png",
+    "md5": "28decb9ac7cceb81b8c80b2dc4b87046"
+   },
+   "exr": {
+    "size": 340821,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_disp_1k.exr",
+    "md5": "cc64cff7994a9144e31855c517871674"
+   }
+  }
+ },
+ "Rough": {
+  "8k": {
+   "jpg": {
+    "size": 16943644,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/8k/namaqualand_stones_01/namaqualand_stones_01_rough_8k.jpg",
+    "md5": "a4c19b3f4d29b2991a97ec14aa3e3495"
+   },
+   "png": {
+    "size": 22883331,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/8k/namaqualand_stones_01/namaqualand_stones_01_rough_8k.png",
+    "md5": "a0858c336f526f5fd2f455e5c908e136"
+   },
+   "exr": {
+    "size": 16941123,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/8k/namaqualand_stones_01/namaqualand_stones_01_rough_8k.exr",
+    "md5": "2338c94fa0ac77a42301b8ef2c3994c2"
+   }
+  },
+  "4k": {
+   "jpg": {
+    "size": 5406877,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/4k/namaqualand_stones_01/namaqualand_stones_01_rough_4k.jpg",
+    "md5": "9dfa5b321af18114956f2e21b81755f9"
+   },
+   "png": {
+    "size": 14555967,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/4k/namaqualand_stones_01/namaqualand_stones_01_rough_4k.png",
+    "md5": "680ebccdb2e6a1fb6bc95b1ff6dad5af"
+   },
+   "exr": {
+    "size": 5396903,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/4k/namaqualand_stones_01/namaqualand_stones_01_rough_4k.exr",
+    "md5": "51851f6a67c30d59ab39964db2055bfc"
+   }
+  },
+  "2k": {
+   "jpg": {
+    "size": 1545027,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/2k/namaqualand_stones_01/namaqualand_stones_01_rough_2k.jpg",
+    "md5": "349bd667e838450a148bc52e0945f4ea"
+   },
+   "png": {
+    "size": 5361360,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/2k/namaqualand_stones_01/namaqualand_stones_01_rough_2k.png",
+    "md5": "2727e9ca6039334296669068a6607af5"
+   },
+   "exr": {
+    "size": 1596117,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/2k/namaqualand_stones_01/namaqualand_stones_01_rough_2k.exr",
+    "md5": "6ccbc782555a9c7306ba8b93a15d7994"
+   }
+  },
+  "1k": {
+   "jpg": {
+    "size": 432954,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/jpg/1k/namaqualand_stones_01/namaqualand_stones_01_rough_1k.jpg",
+    "md5": "36dd8bfa622e6e1ad5a7f157a0bfe60f"
+   },
+   "png": {
+    "size": 1607446,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/png/1k/namaqualand_stones_01/namaqualand_stones_01_rough_1k.png",
+    "md5": "137ae1640c4151c7b50d5ad07bfa0364"
+   },
+   "exr": {
+    "size": 467939,
+    "url": "https://dl.polyhaven.org/file/ph-assets/Models/exr/1k/namaqualand_stones_01/namaqualand_stones_01_rough_1k.exr",
+    "md5": "f357a621c4a03a853d2db33f3bc80693"
+   }
+  }
+ }
+}

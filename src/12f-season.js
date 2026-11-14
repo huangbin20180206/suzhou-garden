@@ -13,9 +13,9 @@
 import { THREE } from '../vendor.js';
 import { MAT, SEASON_TINT_REGISTRY, wetUniform, WET_MATS, addWind } from './01-materials.js';
 import { renderer } from './02-scene.js';
-import { world } from './08-assemble.js';
+import { world } from './02-scene.js';
 import { markCasterBoxDirty, fitShadowCamera } from './09-lights.js';
-import { treeLanternInsts } from './06-vegetation.js';
+import { treeLanternInsts } from './06i-trees.js';
 import { PRECIP_INDOOR } from './12e-precip.js';
 import { HOOKS } from './00-config.js';
 /* ⚠️ 灯会的 4 个材质与挂灯收集**住在 12c**：存在性表要按它们开合（河灯/烛焰/灯串），
@@ -63,8 +63,13 @@ for (const [mat, key] of SEASON_TINT_MATS){
    写在文件顶部那一处（守卫要求显式 import）。灯会代码要的 6 样东西由本文件 body 里的
    bindFestival(...) 注入 —— 为什么不能反过来 import：见 12c-festival.js 文件头。 */
 
+/* ⚠️ 2026-10-30 花历：表里的键全部来自 ENV.cur，其中花 / 叶 / 果由 12g-phenology 的按旬曲线按 ENV.doy 算出
+   （不再是季节表里"写了小数、却按 > 0.03 当布尔用"的那套 —— 审查 B1 的反季花事就出在这里）。
+   这次顺带把**一个键管两件事**的拆开：紫藤花串 wisteriaBloom ↔ 紫藤叶 wisteriaShow；
+   红梅 plumRedShow ↔ 腊梅 plumYellowShow（两树共用的花苞 / 凋花仍走 plumBlossomShow = 两者取大）；
+   荷花瓣 lotusShow ↔ 莲蓬 lotusPodShow（莲蓬材质也是花心托，所以 = max(荷花, 莲蓬)）。 */
 const SEASON_PRESENCE = [
-  ['lotusShow',[MAT.lotus]], ['lilyShow',[MAT.lily]], ['wisteriaShow',[MAT.wisteria]],
+  ['lotusShow',[MAT.lotus]], ['lilyShow',[MAT.lily]], ['wisteriaBloom',[MAT.wisteria]],
   /* 芭蕉假茎**不进** presence 表（第八轮用户常识反馈）：芭蕉是多年生草本，
      冬季地上部枯萎但假茎宿存 —— 假茎的颜色由 tinBanana（冬=枯黄）表达，
      消失的只是冠层（GLB 叶+果，随 bananaShow 缩放/隐藏）。
@@ -73,8 +78,12 @@ const SEASON_PRESENCE = [
   /* ⚠️ 莲蓬（莲实）必须跟着荷花一起消失。
      莲蓬的**杆**用 MAT.lily、**头与莲子**用 MAT.lotusPod —— 杆在表里、头不在，
      于是冬季 lilyShow=0 把杆藏了、头还留在水面上，看起来就是"悬空的莲蓬"。
+     ⚠️ 2026-11-08 追加 MAT.lotusStem（程序化荷花的杆 + 萼）：它挂的是**本条**通道
+        （= max(荷花瓣, 莲蓬)，因为一根杆上可能顶花也可能顶莲蓬），而不是 lilyShow。
+        换材质之前它们用 MAT.lily（叶盘材质）⇒ 春季 lily=0.56 / lotus=0 / pod=0 时，
+        池面会站着一排**只有杆和萼、没有花**的光杆。
      以后凡是"一株植物由多种材质拼成"，登记表必须把它**整套材质**都收进来。 */
-  ['lotusShow',[MAT.lotusPod, MAT.lotusPodAged, MAT.lotusPodDark, MAT.lotusSeed]], ['bananaShow',[MAT.bananaFruit]],
+  ['lotusPodShow',[MAT.lotusPod, MAT.lotusPodAged, MAT.lotusPodDark, MAT.lotusSeed, MAT.lotusStem]], ['bananaShow',[MAT.bananaFruit]],
   ['wisteriaShow',[MAT.wisteriaLeaf]],
   /* 桃花（2026-09-21）：花/果/落花/叶各自独立材质才能"只开该开的季节"——
      全植物用一种材质的话季节只能整棵树显/隐，做不出"春开花 → 夏结果 → 秋叶黄"。 */
@@ -84,7 +93,8 @@ const SEASON_PRESENCE = [
      树干与枝不进表 —— 梅是落叶小乔木，冬天要留"疏影横斜"的骨相（进表就会被整株收掉）。 */
   /* ⚠️ 花苞（MAT.plumBud）与凋谢（MAT.plumWithered）两份材质必须一起登进这张表 ——
      季节通道按**材质同一性**认领，漏一个就静默不显隐（夏天花谢了、苞与凋花还挂在枝上）。 */
-  ['plumBlossomShow',[MAT.plumBlossomRed, MAT.plumBlossomYellow, MAT.plumBud, MAT.plumWithered]],
+  ['plumRedShow',[MAT.plumBlossomRed]], ['plumYellowShow',[MAT.plumBlossomYellow]],
+  ['plumBlossomShow',[MAT.plumBud, MAT.plumWithered]],
   /* 灯会内容也走同一套存在性通道：festivalShow>0.03 才提交。 */
   ['festivalShow',[riverLampMat, riverFlameMat, stringBulbMat]],
   /* ── 2026-10-04 · 陈设（物）的季节通道 ──
@@ -125,7 +135,7 @@ export function applyPresence(p){
      3800 片叶，秋天本该落掉三成果却一个不少。
      按 count 截前缀是唯一不会被 GTAO 冲掉的做法。桃树的实例写入顺序已在 makePeachTree 里
      按乘性散列打散，所以"截前缀"在空间上就是均匀变稀，而不是只掉半边。 */
-  for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaShow', false],
+  for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaBloom', false],
                                 [MAT.peachLeaf, 'peachShow', true],
                                 [MAT.plumLeaf, 'peachShow', true],      // 梅叶跟桃叶同一季节通道（冬落尽）
                                 [MAT.peachFruit, 'peachFruitShow', true],
@@ -179,12 +189,31 @@ const seasonGLB = { LotusPlant: [], BananaPlant: [], Turtle: [] };
 /* ⚠️ 不能"一旦非空就不再搜"。莲花 12 株是同一批挂上的没问题，但**乌龟有两批**：
    岸上晒背的 placeAssets 4 只 + 池中缓游的 loadAssetOnce 2 只 —— 先到的那批把数组填满后，
    后到的那批永远进不来，冬季 turtleShow=0 就只藏了一半。改为按对象去重地追加。 */
+/* 稳态早退标记（2026-10-27 复核·过渡期每帧 2 遍全园点名）：清单收满且没有待注入
+   材质后，collectSeasonGLB 直接 return，不再 world.traverse。
+   迟到资产必须在 onAssetAttached 里先调 resetSeasonGLBSettled() 再 collect。 */
+let _glbSettled = false;
+export function resetSeasonGLBSettled(){ _glbSettled = false; }
 export function collectSeasonGLB(){
+  if (_glbSettled) return;
   for (const name in seasonGLB){
     world.traverse(o => {
       if (o.isMesh && o.name === name && seasonGLB[name].indexOf(o) < 0) seasonGLB[name].push(o);
     });
   }
+  /* 荷花三态（2026-10-24）：新方案每株是 holder(name='LotusPlant') + 三个子节点
+     (name='lotusState_lotusBud/Bloom/Pod')，**它们不再叫 LotusPlant** ——
+     上面那圈只按 o.name===name 收，收不到 ⇒ 风场注入会整片落空（花不摆）。
+     ⚠️⚠️ 三态节点是 **Group 不是 Mesh**（GLB 的根是 Scene → 节点 → 网格），
+     只判 `o.isMesh` 会把三个状态**全部漏收** —— 画面照常显示、只是花永不摆动，
+     零报错零告警（2026-10-24 实测：12 株 × 3 态都在，却一个材质都没进风场）。
+     故这里按前缀认领后**往下收网格**；与旧丛同一条 addWind 参数（tip/0.030/硬顶 5cm）。 */
+  world.traverse(o => {
+    if (typeof o.name !== 'string' || o.name.indexOf('lotusState_') !== 0) return;
+    o.traverse(c => {
+      if (c.isMesh && seasonGLB.LotusPlant.indexOf(c) < 0) seasonGLB.LotusPlant.push(c);
+    });
+  });
   /* ── GLB 荷花丛进风场（2026-09-17 用户："荷花和荷叶为啥不会随风晃动"）──
      GLB 材质的身份和芭蕉叶一样：异步挂载、材质是 GLB 自带的，
      从来没登记进风场表 —— 于是狂风里只有我们补的那根花梗在摆、花叶本体纹丝不动。
@@ -205,13 +234,23 @@ export function collectSeasonGLB(){
     addWind(nm, 0.030, 1.15, 'tip', 0.0, 0.05);
     for (const o of seasonGLB.LotusPlant) if (o.material === m) o.material = nm;
   }
+  /* 稳态判定（2026-10-27 复核）：每张名单都非空、且没有待注入材质 ⇒ 记 settled，
+     后续帧直接 return，不再每帧 2 遍 world.traverse。迟到资产由 onAssetAttached
+     先 reset 再 collect 重新收一遍。 */
+  let allFilled = true;
+  for (const name in seasonGLB) if (!seasonGLB[name].length){ allFilled = false; break; }
+  if (allFilled && pending.size === 0) _glbSettled = true;
 }
 /* 季节存在性 + 平滑缩放（GLB 用缩放而不是二值开关：冬季 lotusShow=0 才真消失，
    中间值如芭蕉 0.12 会缩到很小而不是突兀地整片闪掉）。
    独立成函数是为了"资产一到就立即套用当前状态"，不必等下一次环境切换。 */
 export function applyGLBSeason(p){
   for (const name in seasonGLB){
-    const key = name === 'LotusPlant' ? 'lotusShow' : name === 'BananaPlant' ? 'bananaShow' : 'turtleShow';
+    /* ⚠️ 荷花**不吃**这条通用通道（2026-10-24）：lotusShow 是给"池心程序化荷花"的
+       密度键（春 0.05 / 秋 0.42 / 冬 0），拿去缩放池边这 12 株三态 GLB 会让春季
+       整株缩成 5%（等于消失）。三态由下面的状态机逐子节点控制显隐与大小。 */
+    if (name === 'LotusPlant') continue;
+    const key = name === 'BananaPlant' ? 'bananaShow' : 'turtleShow';
     const v = Math.max(0.001, p[key]);
     for (const o of seasonGLB[name]){
       o.visible = p[key] > 0.02;
@@ -225,8 +264,43 @@ export function applyGLBSeason(p){
       }
     }
   }
+  /* ── 荷花三态状态机（2026-10-24）───────────────────────────────────────────
+     每株 holder 名叫 'LotusPlant'（三个子节点 lotusState_lotusBud/Bloom/Pod）。
+     上面那段通用缩放**已显式跳过 LotusPlant**（见循环开头的 continue）：花事阶段
+     用三键（lotusBud/lotusBloom/lotusPod）表达，在这里点亮对应子态。
+     ⚠️ seasonGLB.LotusPlant 收的是三态里的**网格**（collectSeasonGLB 按
+        o.name==='LotusPlant' 认领不到 Group 形式的 holder；三态节点名是
+        'lotusState_*'，那里按前缀往下收网格）。所以这里自己 traverse world 找
+        holder（首次调用建一次缓存，与上面"收集可重跑"同一族纪律）。
+     ⚠️⚠️ 缩放必须"乘在 baseScale 上"，不能 setScalar 覆盖 —— 三态克隆体各自的
+        scale 里带着 loadAssetOnce 的**归一化比例**（targetSize / 原始尺寸），
+        直接覆盖会让三态大小乱掉（2026-10-24 实测：盛开态被写成 0.85 倍，
+        比花苞大不了多少）。与芭蕉 crown 同一套"存基准再乘"的写法。 */
+  if (!applyGLBSeason._lotusHolders || !applyGLBSeason._lotusHolders.length){
+    applyGLBSeason._lotusHolders = [];
+    world.traverse(o => { if (o.name === 'LotusPlant') applyGLBSeason._lotusHolders.push(o); });
+    /* ⚠️⚠️ 不能加 `&& o.children.length` 当条件、也不能缓存空结果（2026-10-24 实测）：
+       holder 在 08c-aquatic 里是**同步建、没有子节点**的，三态 GLB 之后才异步挂上；
+       首次 applyGLBSeason 若只收"有子节点的"，会缓存下一个**空数组**（空数组是 truthy，
+       之后永不再收）⇒ 状态机整段不执行 ⇒ 三态全不可见、缩放停在归一化原值，
+       而画面只表现为"池边荷花全没了"，零报错。 */
+  }
+  const buds = Math.max(0, p.lotusBud || 0), blooms = Math.max(0, p.lotusBloom || 0), pods = Math.max(0, p.lotusPod || 0);
+  for (const h of applyGLBSeason._lotusHolders){
+    for (const c of h.children){
+      if (!c.name || c.name.indexOf('lotusState_') !== 0) continue;
+      const k = c.name.slice('lotusState_'.length);
+      c.visible = (k === 'lotusBud' && buds > 0.02) || (k === 'lotusBloom' && blooms > 0.02) || (k === 'lotusPod' && pods > 0.02);
+      /* 平滑缩放：非该态收到 0.001（几乎不可见 + visible=false 双保险），
+         该态按系数放大 —— 与芭蕉 crown 同款"缩放而不是闪现"观感 */
+      const v2 = k === 'lotusBud' ? buds : k === 'lotusBloom' ? blooms : pods;
+      if (!c.userData.baseScale) c.userData.baseScale = c.scale.clone();
+      c.scale.copy(c.userData.baseScale).multiplyScalar(Math.max(0.001, v2));
+    }
+  }
 }
 export function onAssetAttached(){
+  resetSeasonGLBSettled();
   collectSeasonGLB(); applyGLBSeason(ENV.cur);
   /* 迟到资产是**真投射物**（晒背龟/芭蕉/莲）：不光要补渲阴影图，
      包围盒也变了 —— 不重算的话阴影视体还是按旧轮廓拟合，新资产可能整个落在盒外。 */
@@ -290,7 +364,6 @@ export function collectSeasonCaches(){
    雪在标准 PBR 里着色（不改 emissive 之类），所以它照样接受阴影与雾，看上去才是"落在地上"的。
    ❗ 必须链式挂接 onBeforeCompile：叶/柳/苇已有风场注入，季节色调也在同一个钩子上。 */
 export const snowUniform = { value: 0 };
-let windBaseApplied = 0;
 export const snowTintUniform = { value: new THREE.Color(0xF2F6FA) };
 export function installSnow(list){
   for (const m of list){
@@ -323,6 +396,9 @@ export function installSnow(list){
       // 逐材质：薄叶面用自己的加成，没有登记的材质为 0（= 完全走原来的朝上判据）
       shader.uniforms.uSnowBoost = (this.userData && this.userData.snowBoost)
                                  ? this.userData.snowBoost : { value: 0 };
+      /* 逐材质：平顶面（瓦面/屋脊/墙帽）走"整片覆盖"分支，其余为 0 = 原来的斑驳（见片元里 amtFlat） */
+      shader.uniforms.uSnowFlat = (this.userData && this.userData.snowFlat)
+                                ? this.userData.snowFlat : { value: 0 };
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vSnowW;\nvarying vec3 vSnowN;')
         .replace('#include <begin_vertex>',
@@ -349,6 +425,7 @@ export function installSnow(list){
           'uniform float uSnowCover;\n' +
           'uniform vec3 uSnowTint;\n' +
           'uniform float uSnowBoost;\n' +
+          'uniform float uSnowFlat;\n' +
           'uniform vec3 uInLo[6];\n' +
           'uniform vec3 uInHi[6];\n' +
           'uniform int uInN;\n' +
@@ -370,7 +447,16 @@ export function installSnow(list){
              薄叶面的雪就一直是"隐约有点白"，撑不起"雪压竹叶"这一笔。 */
           '    float lo = mix(0.24, 0.03, uSnowBoost);\n' +
           '    float hi = mix(0.80, 0.52, uSnowBoost);\n' +
-          '    float amt = smoothstep(lo, hi, dr) * upness * uSnowCover;\n' +
+          '    float amtMottled = smoothstep(lo, hi, dr) * upness;\n' +
+          /* 平顶面（瓦面/屋脊/墙帽）要的是「一整片白」，不是斑驳 —— uSnowFlat=1 时
+             完全不吃噪声阈值，只留一层很宽松的朝上判据：瓦垄自身的凹凸法线（谷底 y 只在
+             0.6 上下）在这一档里照样算覆盖，屋面才读作"被雪盖住"而不是"霉斑"。
+             （2026-10-25 老黄总览图：正堂与游廊屋面被读成斑块状像霉斑。）
+             ⚠️ 顺带给平顶面加背面剔除：屋面是 DoubleSide，仰头看廊下看到的是同一次
+             绘制的背面 —— 不加这一句，廊内顶棚会被刷成一片白（斑驳版看不出来，平铺版一眼就穿帮）。 */
+          '    float amtFlat = smoothstep(0.05, 0.55, vSnowN.y);\n' +
+          '    if (uSnowFlat > 0.5 && !gl_FrontFacing) amtFlat = 0.0;\n' +
+          '    float amt = mix(amtMottled, amtFlat, uSnowFlat) * uSnowCover;\n' +
           '    amt *= 1.0 + 0.25 * uSnowBoost;\n' +
           /* ⚠️ 室内剔除（2026-10-02）：盒子内的片元（堂内/廊下/亭下的地面与家具顶面）
              雪量归零 —— snowCover 只认"面朝上"，没有它堂内地面会与门外台阶雪连成一片
@@ -387,7 +473,10 @@ export function installSnow(list){
           '      inK = max(inK, mm.x * mm.y * mm.z);\n' +
           '    }\n' +
           '    amt *= 1.0 - inK;\n' +
-          '    diffuseColor.rgb = mix(diffuseColor.rgb, uSnowTint * (0.72 + 0.40 * dr), amt);\n' +
+          /* 明度也跟着分档：斑驳面靠 dr 拉出深浅（0.72~1.12）；平顶面只留很轻的起伏，
+             否则一整片白里还是一块块发灰，照样读成"脏"。 */
+          '    float tintK = mix(0.72 + 0.40 * dr, 0.93 + 0.09 * dr, uSnowFlat);\n' +
+          '    diffuseColor.rgb = mix(diffuseColor.rgb, uSnowTint * tintK, amt);\n' +
           '  }');
     };
     m.customProgramCacheKey = function (){ return (prevKey ? prevKey.call(this) : '') + '|snow'; };

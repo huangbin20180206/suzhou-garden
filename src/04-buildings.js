@@ -1,10 +1,11 @@
 // 04-buildings: from index.html inline 491..936
 import { THREE } from '../vendor.js';
-import { makeWisteria } from './06-vegetation.js';
+import { makeWisteria } from './06j-herbs.js';
 import { mesh, box, makeQueTu, makeGuaLuo, makeLatticePanel, makeChangChuang, makeJiangnanWindow, makeChineseRoof, makeCeiling, instancedBoxes, instancedRoundRafters, DOUGONG_H, instancedGeo, makeDougongGeo, makeColumn, makeCorrugatedSlab } from './03-factory.js';
 import { MAT, makeInkWashTex, makePlaqueTex } from './01-materials.js';
 import { bootMark } from './00-config.js';
-import { POND_PTS, insidePond, POND_RADII, makePond, makeBankRocks, makeArchBridge, makeSteppingStones } from './05-water.js';
+/* 匾额文字取自景点名常量（主堂/凉亭以后改名只改 03a-names 一处） */
+import { SITE_LABELS, HALL_COUPLET } from './03a-names.js';
 /* ══════════════════════════════════════════════════════════════
    4 · 建筑：远香堂 / 水榭 / 游廊
    ══════════════════════════════════════════════════════════════ */
@@ -54,10 +55,23 @@ export function makeYuanxiangHall(){
     g.add(c);
   }
 
-  /* ② 踏跺（南侧两级） */
-  for (let i = 0; i < 2; i++){
-    const st = mesh(box(4.6, 0.31, 0.62), MAT.stone, { name:'step' });
-    st.position.set(0, 0.155 + i*0.31, (D + 4.4)/2 + 0.31 - i*0.62);
+  /* ② 踏跺（南侧）
+     ⚠️ 2026-11-02 老黄："这个台阶太高，主客踏上去和走下来的时候实际画面看是跳上去跳下来的"。
+     原做法是**两级**（各 0.31 高），而台面在 1.24 —— 从第二级 0.62 到台面还要再上
+     **0.62m**（而且第二级整体缩在下层台基的轮廓里，等于"站在台子里往上跳"）。
+     0.62m 是平地高差，人一步上不去；实测航点 ENTER_PTS 正好跨在 z −7.3 这一跳上
+     （stepUp 临时开到 0.70 才勉强能"迈"上去，画面上就是弹跳）。
+     改成 6 级 × 0.24（0.24 是"偏高但能自然迈步"的上限；真实石阶 0.15~0.18），
+     从草地 −0.2 一路排到台面 1.24，最高一级与上层台基齐平、不再有跳变。 */
+  const STEP_N = 6, STEP_RISE = 0.24, STEP_TREAD = 0.35;
+  const zUpper = (D + 3.0) / 2;                 // 上层台基（台面 1.24）南边缘
+  const groundY = -0.20;                        // 堂前草地实测
+  for (let i = 0; i < STEP_N; i++){
+    const topY = 1.24 - (STEP_N - 1 - i) * STEP_RISE;      // i=0 最南最低
+    const h = topY - groundY;
+    const st = mesh(box(4.6, h, STEP_TREAD), MAT.stone, { name:'step' });
+    /* i 从南往北：最高一级紧贴上层台基边缘 */
+    st.position.set(0, groundY + h / 2, zUpper + (STEP_N - 1 - i + 0.5) * STEP_TREAD);
     g.add(st);
   }
 
@@ -100,7 +114,7 @@ export function makeYuanxiangHall(){
      真实江南做法是三段：柱头出**栌斗**（方斗，承柱头）→ 上承**皿板**（圆板过渡，
      斗与额枋之间那一层）→ 再托额枋。补上后近景能读出"柱头不是插进去的"。
      尺寸按柱径推：柱顶半径 0.22 ⇒ 斗方 0.62（斗口略出柱头一线，正好"吃"住柱头）；
-     皿板 0.40/0.36 圆板、��� 0.10。两件都是实例化 ⇒ 16 根柱共 2 个对象。
+     皿板 0.40/0.36 圆板、板厚 0.10。两件都是实例化 ⇒ 16 根柱共 2 个对象。
      ⚠️ **额枋与屋顶一寸没动**：斗高 0.26 + 板厚 0.10 = 0.36，柱身相应缩短 0.36，
      栌斗顶与皿板顶仍落在原柱顶标高 `beamYCap` ⇒ 不牵动 shadow-cover / 阴影视锥。 */
   const LU_DOU = 0.26, MIN_BAN = 0.10;
@@ -160,7 +174,6 @@ export function makeYuanxiangHall(){
   }
 
   /* ⑤ 前檐：实心墙 + 中央大门（两扇敞开）+ 两侧长窗 */
-  const panelH = colH - 0.35;
   const doorW = 3.8, doorH = 3.5;
   // 前墙（带门洞）
   const fw = new THREE.Shape();
@@ -224,20 +237,71 @@ export function makeYuanxiangHall(){
   });
   const makeChair = (x, z, ry)=>{
     const ch = new THREE.Group();
-    const seat = mesh(box(0.64, 0.09, 0.58), MAT.woodRed, { name:'chairSeat' });
-    seat.position.y = 0.47; ch.add(seat);
-    const back = mesh(box(0.64, 0.66, 0.08), MAT.woodRed, { name:'chairBack' });
+    /* ⚠️ 2026-11-02 老黄："主客人坐下后，跟座椅穿模了"。
+       实测（outputs/_diag/hall-sit2-20261102）：主位髋 1.815、膝 1.701、大腿外侧到
+       x −1.567，而**扶手内侧面在 −1.61、外沿 −1.64** —— 长袍下摆从髋部垂到地面
+       （0.57m），侧向铺开就正好从扶手底下钻出去，画面上一大块蓝布穿过扶手和椅腿。
+       原尺寸是照"瘦人坐硬板椅"捏的：坐面 0.64 宽、扶手 ±0.29，扶手离身体只有 3cm。
+       改成坐面 0.74、扶手 ±0.35（太师椅本来就是宽大扶手椅）：扶手**内侧净空**从
+       ±0.26 变成 ±0.32，每侧多 6cm，长袍的侧向铺展就能落进扶手之内。
+       ⚠️⚠️ 2026-11-07 老黄第三次报（截图：袍子垂穿椅腿 + 压进坐面）。顶点级实测
+       （outputs/_diag/chair-clip-attrib-20261107，椅子实体盒做点内判定）：
+         · 主人 106 个顶点在**后椅腿**盒内、153 个在**坐面板**盒内；
+         · 客人 261 个在前椅腿、238 个坐面 —— 全部来自**蒙皮袍摆**。
+       先试过收裙摆（HALL_SIT.skirtLen 0.72→0.58、skirtRad 1.06→0.92，运行时
+       scale 实测确认生效 0.92/0.762），穿插计数**一个没少** ⇒ 袍子基宽本来就大于
+       椅子内宽，靠压缩救不回来（这正是 2026-11-02 那条注释已经说过的结论）。
+       所以这一轮改**椅子本体**，两处让位：
+         ① 坐面板厚度 0.09 → 0.05（上表面位置不变，只是底面抬高 4cm）：
+            袍摆从髋后垂下来时贴的是坐板**底面**，板越厚压得越多；
+         ② 后腿从 z −0.23 **往后**移到 −0.27（远离袍摆垂落通道），前腿从 +0.23 往外到 +0.27
+          （同一条道理：客人腿长，袍摆跨过椅面前沿后落到前腿那一圈）。
+       ⚠️ 第一版试过"后腿往椅心收 8cm"，实测反而更糟（穿后腿的顶点 106 → 209）：
+          袍摆是从髋后**往下垂**，垂落通道在椅子后方，腿往里收正好堵在这条通道上。
+          方向反了，记在这里免得下次再试。
+       ⚠️ 坐板变薄只动底面（中心 y 从 0.47 调到 0.49，上表面仍是 1.755）——
+          人坐的高度、膝的支点都不变。 */
+    /* ⚠️⚠️ 2026-11-09 老黄第四次报（截图：主人坐姿穿模，客人也有）。
+       前三次都在收裙摆、改腿位、扩椅子，**方向一直是错的** —— 这一轮用正确的量法
+       （蒙皮顶点走 applyBoneTransform；旧探针直接乘 matrixWorld 拿到的是绑定姿态，
+        数值全部不可信）把 174 个穿模顶点逐一定位到骨，真因完全不是袍摆：
+         · 主人：**手/手指 46 个**（左手 13 个陷在靠背 z −0.28 那一层、右手 17 个
+           陷在坐面 y +0.47 那一层）+ 大腿根 Hips 18 + 前臂 18 + 50 个刚性件；
+             袍摆（Skirt*）一共只有 9 个，且都在前椅腿外沿 —— 那才是椅子该让的位。
+         · 客人：只有 5 个（小腿 1.9cm），基本是干净的。
+       ⇒ 这是"坐姿手位没有下过功夫"造成的，不是家具尺寸问题。
+          实测扩椅子（坐面 0.74→0.80、靠背后移 3cm）后穿模数 180 → 176，**几乎不变**：
+          袍子和手把多出来的空间整个填满了。所以椅子**保持原尺寸**（那 9 个袍摆顶点
+          另按其位置单独处理，见 HALL_SIT 的 sideLift）。
+       ⚠️ 改这里之前务必先跑 outputs/_diag/seat-vert-map-20261109.mjs 拿逐骨分布，
+          别再用"乘 matrixWorld"那个错量法（它会给出完全不同的、假的结论）。 */
+    const CW = 0.74;
+    const seat = mesh(box(CW, 0.05, 0.58), MAT.woodRed, { name:'chairSeat' });
+    seat.position.set(0, 0.49, 0); ch.add(seat);
+    const back = mesh(box(CW, 0.66, 0.08), MAT.woodRed, { name:'chairBack' });
     back.position.set(0, 0.83, -0.25); ch.add(back);
-    [-0.27, 0.27].forEach(lx=>{
-      [0.23, -0.23].forEach(lz=>{
+    [-0.32, 0.32].forEach(lx=>{
+      [0.27, -0.27].forEach(lz=>{
         const lg = mesh(box(0.08, 0.47, 0.08), MAT.woodDark, { name:'chairLeg' });
         lg.position.set(lx, 0.235, lz); ch.add(lg);
       });
     });
     // 扶手
-    [-0.29, 0.29].forEach(lx=>{
+    /* ⚠️⚠️ 2026-11-09 老黄第五次报（坐姿穿模），这次终于量到真因：
+       前四次全在动人物（收裙摆 / 挪腿 / 扩椅子），没一次动过**扶手**。
+       逐顶点定位到骨之后才看清 —— 扶手是横在**手臂正旁边**的一道杠：
+         x ±0.35（扶手内沿 ±0.32）、y 台基 +0.69~0.75、z −0.27~+0.23。
+       人一坐下，上臂就在 x ±0.25 一带、肘的高度正好落在 +0.5~+0.7 ⇒
+       手怎么摆都会被这道杠拦住：往下垂进坐面、往上撞扶手（实测把肘抬起来
+       反而多出 90 个顶点顶进扶手内沿）。
+       修法：**扶手往外 + 往上让**，不取消（取消会让太师椅失去它最像太师椅的部件）：
+         x ±0.35 → ±0.41（内沿 ±0.32 → ±0.38，净空多 6cm）
+         y +0.72 → +0.80（抬到上臂之上，手臂从它底下穿过）
+       实测（outputs/_diag/seat-arm-sweep-20261109 + seat-clip2）：见提交说明。
+       ⚠️ 别再把扶手往回改 —— 这是"人 vs 家具"里唯一还没让过位的一方。 */
+    [-0.41, 0.41].forEach(lx=>{
       const arm = mesh(box(0.06, 0.06, 0.5), MAT.woodRed, { name:'chairArm' });
-      arm.position.set(lx, 0.72, -0.02); ch.add(arm);
+      arm.position.set(lx, 0.80, -0.02); ch.add(arm);
     });
     ch.position.set(x, furnY, z);
     ch.rotation.y = ry;
@@ -371,16 +435,16 @@ export function makeYuanxiangHall(){
 
   /* ⑧ 匾额「远香堂」+ 对联 */
   const plaqueW = 4.6, plaqueH = 1.35;
-  const plaqueTex = makePlaqueTex('远香堂');
+  const plaqueTex = makePlaqueTex(SITE_LABELS.hallPlaque);       // 主堂匾额（名字见 03a-names）
   const plaque = mesh(new THREE.PlaneGeometry(plaqueW, plaqueH),
     new THREE.MeshStandardMaterial({ map:plaqueTex, roughness:0.55, metalness:0.1, envMapIntensity:0.6 }),
     { name:'plaque' });
   plaque.position.set(0, beamY - 0.05, zFront + 0.19);
   g.add(plaque);
-  // 对联（前檐金柱，左右各一）
-  const coupletTex = makePlaqueTex('碧水涵明月清风自在', true);
-  const coupletMat = new THREE.MeshStandardMaterial({ map:coupletTex, roughness:0.55, metalness:0.1 });
-  [-1, 1].forEach(sgn=>{
+  // 自拟对联：面对堂门时右上联、左下联；两侧分别写，不复用同一串字。
+  [[1, HALL_COUPLET.upper], [-1, HALL_COUPLET.lower]].forEach(([sgn, text])=>{
+    const coupletTex = makePlaqueTex(text, true);
+    const coupletMat = new THREE.MeshStandardMaterial({ map:coupletTex, roughness:0.55, metalness:0.1 });
     const c = mesh(new THREE.PlaneGeometry(0.72, 2.9), coupletMat, { name:'couplet' });
     c.position.set(sgn*(W/bays)*0.5, 1.24 + colH*0.52, zFront + 0.17);
     g.add(c);
@@ -429,12 +493,28 @@ export function makeWaterPavilion(){
   back.position.set(0, 0.55 + 0.5 + panelH/2, D/2 - 0.35);
   g.add(back);
   // 左右侧
+  /* 2026-10-29 老黄："最后返回凉亭站在抚琴人旁边听抚琴人弹奏" ——
+     原先三面全是格窗 + 坐槛、只有临水一面敞开，从岸上根本走不进去（演出只能穿墙）。
+     这里在南侧（组局部 −X ⇒ 世界 +Z，靠岸那一侧）开一道 1.10m 的**落地门洞**：
+     两侧格窗各留 2.70m、坐槛同样断开，门洞里补一条门槛石；
+     门外再补四级石阶（台面 0.62、门外地面约 −0.19，每级 0.16m）。 */
+  const DOOR = 1.10;
   [1, -1].forEach(sx=>{
-    const s = makeLatticePanel(D - 0.5, panelH, 4, 4);
-    s.position.set(sx*(W/2 - 0.35), 0.55 + 0.5 + panelH/2, 0);
-    s.rotation.y = sx * Math.PI/2;
-    g.add(s);
-    // 格窗上方的墙板（到额枋）
+    if (sx === -1){
+      const rest = (D - 0.5 - DOOR) / 2;
+      for (const s of [1, -1]){
+        const p = makeLatticePanel(rest, panelH, 4, 4);
+        p.position.set(-(W/2 - 0.35), 0.55 + 0.5 + panelH/2, s * (DOOR/2 + rest/2));
+        p.rotation.y = -Math.PI/2;
+        g.add(p);
+      }
+    } else {
+      const s = makeLatticePanel(D - 0.5, panelH, 4, 4);
+      s.position.set(sx*(W/2 - 0.35), 0.55 + 0.5 + panelH/2, 0);
+      s.rotation.y = sx * Math.PI/2;
+      g.add(s);
+    }
+    // 格窗上方的墙板（到额枋）—— 南侧照旧通长，当门楣
     const band = mesh(box(0.26, colH - panelH - 0.52, D - 0.3), MAT.wall, { name:'pavBand' });
     band.position.set(sx*(W/2 - 0.35), 0.55 + 0.5 + panelH + (colH - panelH - 0.52)/2, 0);
     g.add(band);
@@ -442,13 +522,33 @@ export function makeWaterPavilion(){
   const bandB = mesh(box(W - 0.5, colH - panelH - 0.52, 0.26), MAT.wall, { name:'pavBandBack' });
   bandB.position.set(0, 0.55 + 0.5 + panelH + (colH - panelH - 0.52)/2, D/2 - 0.35);
   g.add(bandB);
-  // 坐槛（三面）
-  [1, -1].forEach(sx=>{
-    const seat = mesh(box(0.5, 0.16, D - 0.8), MAT.wood);
-    seat.position.set(sx*(W/2 - 0.35), 0.55 + 0.5, 0); g.add(seat);
-  });
+  // 坐槛（三面；南侧在门洞处断开）
+  {
+    const restSeat = (D - 0.8 - DOOR) / 2;
+    for (const s of [1, -1]){
+      const seat = mesh(box(0.5, 0.16, restSeat), MAT.wood);
+      seat.position.set(-(W/2 - 0.35), 0.55 + 0.5, s * (DOOR/2 + restSeat/2));
+      g.add(seat);
+    }
+    const seatN = mesh(box(0.5, 0.16, D - 0.8), MAT.wood);
+    seatN.position.set((W/2 - 0.35), 0.55 + 0.5, 0); g.add(seatN);
+  }
   const seatB = mesh(box(W - 0.8, 0.16, 0.5), MAT.wood);
   seatB.position.set(0, 0.55 + 0.5, D/2 - 0.35); g.add(seatB);
+  /* 南门洞：门槛石 + 门外四级石阶。
+     ⚠️ 台面 0.62、门外地面实测 −0.19 ⇒ 每级 0.16、踏面 0.26（1.04m 投影）。
+     石阶盒高 1.0、中心按"顶面 − 0.5"放 ⇒ 底部埋进坡里，不会在草上悬空。 */
+  {
+    const sill = mesh(box(0.62, 0.10, DOOR + 0.16), MAT.stoneDark);
+    sill.position.set(-(W/2 - 0.35), 0.62 + 0.05, 0);
+    g.add(sill);
+    const tops = [0.49, 0.33, 0.17, 0.01];
+    tops.forEach((top, i)=>{
+      const st = mesh(box(0.26, 1.0, 1.60), MAT.stone, { name: 'pavStep' + (i + 1) });
+      st.position.set(-(W + 2.2) / 2 - 0.20 - i * 0.26, top - 0.5, 0);
+      g.add(st);
+    });
+  }
 
   /* 四角歇山顶 */
   // 同上：正脊取面阔，端坡才与主坡同陡
@@ -460,7 +560,7 @@ export function makeWaterPavilion(){
   g.add(pavCeil);
 
   /* 匾额「荷风四面」（面水一侧，-Z 敞开面） */
-  const tex = makePlaqueTex('荷风四面');
+  const tex = makePlaqueTex(SITE_LABELS.pavilionPlaque);           // 凉亭匾额（名字见 03a-names）
   const pl = mesh(new THREE.PlaneGeometry(3.2, 0.95),
     new THREE.MeshStandardMaterial({ map:tex, roughness:0.55, metalness:0.1 }), { name:'pavilionPlaque' });
   pl.position.set(0, 0.55 + colH - 0.3, -(D/2 - 0.26));

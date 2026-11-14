@@ -1,4 +1,7 @@
 // 探针统一 harness（2026-09-18）。**所有浏览器探针都必须走这里，不要再自己写 launch。**
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
 //
 // 为什么要有这个文件：
 //  无头 Chromium 默认落到 **SwiftShader 软渲染 ≈2427ms/帧**（实测），一次
@@ -20,21 +23,76 @@
 //  这个已在 index.html 侧改成"认 `navigator.webdriver`"（被自动化驱动就免疫），
 //  所以探针这边**不需要任何额外动作** —— 启动即免疫。
 //
+// ── 2026-10-30 平台感知（第 0 周热修 · CI 收尾③）────────────────────────
+// 原来这仨参数是写死的：`--use-angle=d3d11` 是 **Windows 专属后端**，拿到 Linux
+// runner 上 Chromium 会忽略它、静默回退 SwiftShader 软渲染（2.4s/帧）——
+// 不是报错、是**跑得极慢**，看起来像"卡死"。同一份代码在两种系统上语义不同的东西
+// 不该写死。现在按平台分流：
+//   · win32  → d3d11（原行为，一位不动）
+//   · linux  → vulkan（CI runner 上即便没 GPU 驱动，Chromium 也会落到
+//               SwiftShader-Vulkan；比默认 GL 路径报错少）
+//   · darwin → 什么都不加（Metal 是默认后端，加 ANGLE 参数反而把它顶掉）
+// 软渲染回退仍是 `GARDEN_SOFT=1`（原有开关，语义不变）；新增 `GARDEN_GL=swiftshader`
+// 强制软渲染，便于在**有 GPU 的机器上**复现云端的慢速基线。
+export const CHROMIUM_ARGS = (() => {
+  if (process.env.GARDEN_SOFT === '1') return [];
+  const mode = (process.env.GARDEN_GL || '').toLowerCase();
+  if (mode === 'swiftshader' || mode === 'soft') return ['--use-gl=swiftshader'];
+  if (mode === 'vulkan') return ['--use-angle=vulkan', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  if (process.platform === 'linux')
+    return ['--use-angle=vulkan', '--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  if (process.platform === 'darwin') return ['--ignore-gpu-blocklist', '--enable-gpu-rasterization'];
+  return [
+    '--use-angle=d3d11',
+    '--ignore-gpu-blocklist',
+    '--enable-gpu-rasterization',
+  ];
+})();
+//
 // 用法：
 //   import { launchChromium } from './_harness.mjs';
 //   const browser = await launchChromium(chromium);
 //
 // 回退到旧的软渲染 harness（复现历史基线用）：
 //   GARDEN_SOFT=1 node probe/xxx.mjs
-export const CHROMIUM_ARGS = process.env.GARDEN_SOFT === '1' ? [] : [
-  '--use-angle=d3d11',
-  '--ignore-gpu-blocklist',
-  '--enable-gpu-rasterization',
-];
+// 强制走某个后端（见下方平台分流）：
+//   GARDEN_GL=swiftshader node probe/xxx.mjs   # 在有 GPU 的机器上复现云端慢速基线
+//   GARDEN_GL=vulkan     node probe/xxx.mjs   # 指定 ANGLE 后端
 
 /* ⚠️ 一律 headless:true。别用 headless:false —— 那会在使用者桌面弹出一个真窗口。 */
 export function launchChromium(chromium, extra = {}){
   return chromium.launch({ headless: true, args: CHROMIUM_ARGS, ...extra });
+}
+
+/* ── 静态服务器的**单一真值**（2026-10-30 第 0 周热修 · CI 收尾④）──────────
+   此前 62 个探针各自复制了同一段 `http.createServer` + MIME 表 + ROOT 解析，
+   实测有 **39 种**写法差异（有的漏 .glb 的 MIME、有的把 / 单独处理、有的 404 不回
+   Content-Type…）。这不会立刻坏事，但意味着"服务器行为"不是一处可以信任的东西：
+   将来真要改（比如加 CSP 头、加 gzip、支持 range 请求），得改 62 遍且必然漏。
+   这里把 canonical 版本收进来，新探针直接 `makeStaticServer(ROOT)`。
+   ⚠️ **不强制迁移存量探针**：它们的写法差异里有几处是刻意的（pwa-cache 要模拟
+      断网、`serve.mjs` 是给人用的开发服务器要允许 HTTP 缓存）。存量照旧跑，
+      本函数是给新代码与日后统一用的入口。 */
+export function makeStaticServer(root, mime){
+  const MIME = {
+    '.html': 'text/html', '.js': 'text/javascript', '.mjs': 'text/javascript',
+    '.glb': 'model/gltf-binary', '.webmanifest': 'application/manifest+json',
+    '.svg': 'image/svg+xml', '.png': 'image/png', '.jpg': 'image/jpeg',
+    '.css': 'text/css', '.json': 'application/json', '.mp3': 'audio/mpeg',
+    ...(mime || {}),
+  };
+  return http.createServer((req, res) => {
+    let p = decodeURIComponent(req.url.split('?')[0]);
+    if (p === '/') p = '/index.html';
+    const abs = path.join(root, p);
+    /* 目录穿越防护：探针服务的是本仓库，但 `..` 会让它变成任意文件读取 */
+    if (!abs.startsWith(root)) { res.writeHead(403); res.end(); return; }
+    fs.readFile(abs, (err, data) => {
+      if (err) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+      res.end(data);
+    });
+  });
 }
 
 /* 本地静态服务器统一走浏览器安全端口。`listen(0)` 也可能被 Windows 分到

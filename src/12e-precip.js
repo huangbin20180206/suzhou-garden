@@ -9,8 +9,8 @@
    ⚠️ PRECIP_INDOOR 同时被 12-env 的积雪覆盖层（installSnow 的 uInLo/uInHi）借用 ⇒ 本文件必须导出它。 */
 import { THREE } from '../vendor.js';
 import { scene, camera, ACTIVE_QUALITY } from './02-scene.js';
-import { groundHeight, insidePond } from './05-water.js';
-import { TAU, mulberry32 } from './00-config.js';
+import { insidePond } from './05-water.js';
+import { TAU, mulberry32, CFG } from './00-config.js';
 
 /* ↓ 由 12-env.js 的 bindPrecipEnv(...) 注入（见文件头；沿用原名字 "ENV" 是故意的，搬来的代码零改动） */
 let ENV = null;
@@ -195,16 +195,22 @@ export function updatePrecip(dt, t){
     const on = S === PRECIP.rain ? rainOn : snowOn;
     if (!on) continue;
     const amt = S === PRECIP.rain ? p.rainAmount : p.snowAmount;
+    /* 2026-10-30 细雨（梅雨 / 春雨 / 冷雨）：雨的"量"（amt：亮度、湿地、雨声）与"密"（dens：同屏粒子数）、
+       "细"（fine：粒子更小、落得更慢）拆开 —— 绵密细雨 = 量小、密高、粒细。缺键（旧参数集）时
+       dens 跟 amt 走、fine 为 0 ⇒ 暴雨 / 雪的表现一字不变。 */
+    const isRainS = S === PRECIP.rain;
+    const fine = isRainS ? Math.max(0, Math.min(1, p.rainFine || 0)) : 0;
+    const dens = isRainS ? (p.rainDensity ?? amt) : amt;
     const uu = S.points.material.uniforms;     // 雨/雪各写自己那份（见 PRECIP 内的说明）
-    uu.uIntensity.value = S.strength * Math.min(1, 0.35 + amt * 0.85);
-    uu.uSize.value = S.size;
+    uu.uIntensity.value = S.strength * Math.min(1, 0.35 + amt * 0.85) * (1 - 0.25 * fine);
+    uu.uSize.value = S.size * (1 - 0.40 * fine);
     uu.uStreak.value = (S === PRECIP.rain) ? 0
       : Math.max(0, Math.min(1, ((p.windMul || 1) - 1.5) / 2.2));
     const a = S.arr, n = S.n, X = S.spread, YT = 22, YB = -1.2, DH = YT - YB;
     /* 只推进**实际提交渲染**的那部分粒子。原来不管强度多小都遍历整个数组
        （独显档 1.4 万点/帧），小雨/小雪时 95% 的运算是白做的 —— drawRange 之外的粒子
        本来就不提交。降到小雪时 CPU 的粒子开销随之下降。 */
-    const active = Math.max(32, Math.round(n * Math.min(1, amt)));
+    const active = Math.max(32, Math.round(n * Math.min(1, Math.max(amt, dens))));
     if (!S.seeded){                       // 首帧铺满体积，否则会看到"从天上掉下来"
       S.seeded = true;
       for (let i = 0; i < n; i++){
@@ -219,7 +225,7 @@ export function updatePrecip(dt, t){
        永远保持，整层像一张网一起往下挪，落到底同批一起回顶，循环加深成"一层一层掉"。
        x/z 一直有逐粒子扰动，唯独下落速度没有，这才是分层的根因。
        给每片雪 0.55~1.50 的速度倍率：快慢互相追越，任何整齐的层都会在几帧内散掉。 */
-    const vy = isRain ? -(16 + amt * 8) : -(10 + amt * 6);
+    const vy = isRain ? -(16 + amt * 8) * (1 - 0.30 * fine) : -(10 + amt * 6);   // 细雨落得慢一些
     const sp = S.points.geometry.attributes.aSpeed;
     const spArr = sp.array;
     const drift = p.windMul * (isRain ? 1.6 : 3.4);
@@ -464,7 +470,98 @@ function placePuddlesOnce(){
   PUDDLES.im.instanceMatrix.needsUpdate = true;
   PUDDLES.placed = ok;
 }
+/* ══ 荷叶水珠（2026-11-10）════════════════════════════════════════════
+   雨停之后叶盘上会聚水：水珠先在盘上静置，被风推着往盘沿滚，到沿口失去支撑落进池子，
+   落水处起一圈小涟漪，然后换一片叶盘重生。
+   ⚠️ 叶盘位置由 06j 的 makePondPads 登记在 `group.userData.padTops`，由 08c 在装配后
+      调 bindLotusDrops(group) 交进来 —— 本文件**不** import 06j/08c（12e 是底层，
+      反向依赖会把装配期拉进环境状态机，本项目有 TDZ 前科）。
+   ⚠️ 落水涟漪走**注入**（bindDropRipple）而不是直接 import 06f：12e → 06f → 06g →
+      13-preload 这条链会把预加载器拽进依赖，成环风险高。
+   成本：单个 InstancedMesh（16 颗压扁的小球）+ 每帧 16 次状态推进，draw call 恒为 1。 */
+export const LOTUS_DROPS = { im:null, N:0, list:[], pads:[], landed:0, rolls:0, visible:false };
+let _dropRipple = null;
+export function bindDropRipple(fn){ _dropRipple = fn; }
+const DROP_N = 16;
+export function bindLotusDrops(group){
+  const pads = (group && group.userData && group.userData.padTops) || [];
+  LOTUS_DROPS.pads = pads;
+  if (!pads.length || LOTUS_DROPS.im) return pads.length;
+  const geo = new THREE.SphereGeometry(0.032, 8, 6);
+  geo.scale(1, 0.62, 1);                       // 压扁：读成"水珠"而不是"珍珠"
+  const mat = new THREE.MeshStandardMaterial({
+    color: 0xdff0ff, roughness: 0.06, metalness: 0.0,
+    transparent: true, opacity: 0.0, depthWrite: false });
+  const im = new THREE.InstancedMesh(geo, mat, DROP_N);
+  /* 命名（2026-11-11）：布局指纹门禁按 name 排除"每帧写矩阵"的实例网格
+     （同 mistField / smallBirdMesh / horseBreath）。不命名 ⇒ 它那 16 个单位阵/逐帧矩阵
+     会被当成"布局"入指纹，晴天天刚好看不出（全单位阵、首实例在原点），
+     一下雨矩阵就在动 ⇒ 偶发红。 */
+  im.name = 'lotusDrops';
+  im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  im.frustumCulled = false;                    // 实例位置每帧变，包围球不可靠
+  im.visible = false;
+  scene.add(im);
+  LOTUS_DROPS.im = im; LOTUS_DROPS.N = DROP_N;
+  const dr = mulberry32(20261110);             // 独立种子流（铁律 1：不吃全局 rnd）
+  for (let i = 0; i < DROP_N; i++){
+    const pad = (dr() * pads.length) | 0;
+    LOTUS_DROPS.list.push({ pad, ang: dr() * TAU, dist: pads[pad].r * (0.1 + dr() * 0.35),
+      y: pads[pad].y + 0.03, phase: 0, timer: dr() * 4.0, vy: 0 });
+  }
+  return pads.length;
+}
+function _dropRespawn(d, dr){
+  const pads = LOTUS_DROPS.pads;
+  d.pad = (dr() * pads.length) | 0;
+  d.ang = dr() * TAU;
+  d.dist = pads[d.pad].r * (0.15 + dr() * 0.35);
+  d.y = pads[d.pad].y + 0.03;
+  d.phase = 0; d.timer = 2.8 + dr() * 4.4; d.vy = 0;
+}
+function tickLotusDrops(dt, t){
+  const D = LOTUS_DROPS;
+  if (!D.im || !D.pads.length) return;
+  const p = ENV.cur || {};
+  /* 有水才显形：雨中 wetness=1、雨后初晴 0.85、晴 0 ⇒ 0.25 起显、0.7 满。 */
+  const k = Math.max(0, Math.min(1, ((p.wetness || 0) - 0.25) / 0.45));
+  D.visible = k > 0.02;
+  D.im.visible = D.visible;
+  D.im.material.opacity = 0.92 * k;
+  if (!D.visible) return;
+  if (!D._rnd) D._rnd = mulberry32(20261111);
+  const dr = D._rnd;
+  const m = new THREE.Matrix4(), pos = new THREE.Vector3(), q = new THREE.Quaternion(), sv = new THREE.Vector3();
+  for (let i = 0; i < D.N; i++){
+    const d = D.list[i], pad = D.pads[d.pad];
+    if (d.phase === 0){                        // 静置
+      d.timer -= dt;
+      if (d.timer <= 0){ d.phase = 1; d.timer = 0.6 + dr() * 0.5; D.rolls++; }
+    } else if (d.phase === 1){                 // 往盘沿滚
+      d.timer -= dt;
+      d.dist += dt * pad.r * 0.55;
+      if (d.dist >= pad.r * 0.92 || d.timer <= 0){ d.phase = 2; d.vy = -0.15; }
+    } else {                                   // 自由落体 → 落水
+      d.vy -= 9.8 * dt;
+      d.y += d.vy * dt;
+      if (d.y <= CFG.water + 0.02){
+        if (_dropRipple){
+          _dropRipple(pad.x + Math.cos(d.ang) * d.dist, pad.z + Math.sin(d.ang) * d.dist,
+                      t, 2, 0.45, 'lotusdrop');
+        }
+        D.landed++;
+        _dropRespawn(d, dr);
+      }
+    }
+    pos.set(pad.x + Math.cos(d.ang) * d.dist, d.y, pad.z + Math.sin(d.ang) * d.dist);
+    sv.setScalar(0.7 + 0.5 * Math.min(1, d.dist / Math.max(0.2, pad.r)));
+    m.compose(pos, q, sv);
+    D.im.setMatrixAt(i, m);
+  }
+  D.im.instanceMatrix.needsUpdate = true;
+}
 export function updatePostRain(dt, t){
+  tickLotusDrops(dt, t);        // 荷叶水珠：不看"雨停没停"，只看 wetness（雨中也湿）
   const k = postRainK();
   const D = EAVE_DRIP;
   D.im.visible = k > 0.001;

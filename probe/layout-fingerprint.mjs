@@ -119,7 +119,14 @@ async function sample(page, { poke = false } = {}){
      uPos/uDir/uSpd 算），与 mistField / fireworks 同一类 —— 矩阵里没有布局信息 ⇒ 同排除。 */
   /* ⚠️ horseBreath（2026-10-11）：冬天马口鼻白雾 —— 实例矩阵**每帧按相机朝向重写**
      （billboard）⇒ 哈希由采样相位决定、矩阵里没有布局信息 ⇒ 同排除。 */
-  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke', 'fireworks', 'meteorShower', 'horseBreath']);
+  /* ⚠️ 2026-11-11 加第七个：`lotusDrops`（荷叶水珠，16 颗压扁小球，src/12e-precip.js 的 LOTUS_DROPS）——
+     实例矩阵**逐帧按水滴在叶盘上的滚动位置重写**，晴天全单位阵、雨天全在动
+     ⇒ 哈希由"采样时下没下雨"决定，矩阵里没有布局信息 ⇒ 同族排除。
+     它是 276711e（2026-11-11 00:08）加进来的，加完没复跑本门 ⇒ 一直红到这次 verify:quick
+     （红的样子是「新增 #dff0ff|16|SphereGeometry 首实例=0,0,0」，很容易被误判成"新物件摆错位置"）。 */
+  const EXCLUDE_NAME = new Set(['mistField', 'smallBirdMesh', 'censerSmoke', 'fireworks', 'meteorShower', 'horseBreath', 'lotusDrops',
+    /* 2026-10-27：马夫手里的草料 / 马刷（挂在人物手上、跟手走的小件，与园林布局无关） */
+    'actorHayStraws', 'actorBrushSlats']);
     const EXCLUDE_GEOM = new Set(['RingGeometry']);
     const rows = [];
     let global = 0;

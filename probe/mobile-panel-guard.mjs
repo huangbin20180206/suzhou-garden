@@ -19,9 +19,14 @@
 //   ⑤ 负例对照（桌面口径）同一步**必须**展开 —— 当年就是因为"收起状态量不到矩形，
 //      光环会画在 0,0"才写成代开的，这条对照保证 ④ 不是一条恒绿的假判据。
 //
-// ⚠️ 触控口径 = 与 CSS 那条媒体查询**同一条件** `(max-width:520px), (hover:none)`
+// ⚠️ 触控口径 = 与 CSS 那条媒体查询**同一条件** `(max-width:768px), (hover:none)`
 //    （产品侧 guideTouchUI() 用的就是这个字符串）。所以手机尺寸下无需依赖
 //    Playwright 是否真的把 hover 报成 none —— 宽度那半已经命中了。
+//    ⚠️ 2026-10-12：index.html 两条窄屏 @media 的断点由 520 抬到 768（补的是
+//    521~767px 且 hover:hover 那一带 —— 旧断点下该带落回桌面版式、按钮约 28px）。
+//    本文件 panelState() 里那条 matchMedia 复制品同步抬到 768；并新增「窄桌面 640×900」
+//    一档把该带正式纳入覆盖 —— 此前 390/820/900/1440 四档没有一个落在带内，
+//    等于新断点根本没有门禁。
 // ⚠️ 就绪信号只等 `#loading.done`：本机触屏模拟档下分帧装配（每帧一个 job）
 //    可能几十秒都跑不完，要知道的面板状态在**首帧之后**就定了，不必等 bootDone。
 import http from 'node:http';
@@ -61,6 +66,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 const VIEWS = [
   { tag: '手机 390×844',   vp: { width: 390,  height: 844  }, touch: true,  touchUI: true  },
   { tag: '平板 820×1180',  vp: { width: 820,  height: 1180 }, touch: true,  touchUI: true  },
+  /* ⚠️ 2026-10-12 新增：**非触控语义**（touch:false ⇒ Playwright 报 hover:hover），
+     但宽度落在 521~767 带 ⇒ 按 CSS 的 `(max-width:768px)` 命中，故 touchUI:true。
+     这一档正是旧断点漏掉的格子（过去它拿桌面版式、按钮约 28px < 44px），
+     也是「CSS 窄屏口径 ↔ 产品 guideTouchUI()」是否同源的交叉探针：
+     两者只要有一个还停在 520px，本档的引导三条判据（不代开 / 光环打在方印上 /
+     文案指向方印）就会红 —— 那不是本档写错，那正是它要抓的东西。 */
+  { tag: '窄桌面 640×900', vp: { width: 640,  height: 900  }, touch: false, touchUI: true  },
   { tag: '桌面 900×600',   vp: { width: 900,  height: 600  }, touch: false, touchUI: false },
   /* 宽屏桌面**对照档**：老黄主要在电脑上看，这档必须与改动前逐字一致 ——
      即"面板宽度不被 max-width 夹、行内不换行"。窄窗口那两条修复不能漏进宽屏。 */
@@ -83,7 +95,7 @@ const panelState = (page) => page.evaluate(() => {
     panel: { top: +r.top.toFixed(1), right: +r.right.toFixed(1), w: +r.width.toFixed(1) },
     overflowRight: +(r.right - innerWidth).toFixed(1),
     minBtnH: btns.length ? +Math.min(...btns.map(b => b.height)).toFixed(1) : null,
-    touchUI: matchMedia('(max-width:520px), (hover:none)').matches,
+    touchUI: matchMedia('(max-width:768px), (hover:none)').matches,
   };
 });
 

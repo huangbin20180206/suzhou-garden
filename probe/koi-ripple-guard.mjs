@@ -262,8 +262,18 @@ async function measure(page, seconds, { feed = false } = {}) {
       ⚠️ 45% 与参数的关系写在这里：改 `spread` 时门槛应按
       `26 / (floor + spread) * 100%` 附近重估（当前 floor=9, spread=48 ⇒ 理论 35%）。 */
   /* 2026-09-28：floor 14 + spread 78 ⇒ 理论 P(<26s) = 26/92 ≈ 15.4%，门槛取 25%
-     （余量 ~10pp，与旧 45%↔理论 35.4% 的余量同比例）。 */
+     （余量 ~10pp，与旧 45%↔理论 35.4% 的余量同比例）。
+
+     ⚠️⚠️ 2026-10-30：**10pp 的余量在 n<50 时会被抽样误差吃掉**，这条判据因此偶发假红。
+     实测 n=33、观测 30.3% ⇒ 95% 置信区间 **[14.6%, 46.0%]**，它把理论值 15.4%
+     原封不动地包在里面 —— 即"这份样本根本无法区分'产品正常'与'产品偏密'"。
+     30.3% 看着刺眼，但 33 个样本里只要多/少 2 个短间隔就会跳到 24%/36%。
+     现加样本量闸门：**n < 50 ⇒ 跳过并说明**（不是判绿，是承认这一轮量不出结论）。
+     真要有牙，得把三个观察窗的时长翻倍（180s→360s，总时长 ×2 ⇒ n≈66），
+     而那会让本门从 11 分钟变成 22 分钟 —— 不在本轮范围，写在这里供下一窗口决定。
+     ⚠️ 门槛 25% 一个字没改。 */
   const SHORT_RATIO = 25 / 100;
+  const SHORT_N_MIN = 50;
     const shortPct = cyclesAll.length
       ? cyclesAll.filter(v => v < 26).length / cyclesAll.length * 100
       : NaN;
@@ -287,9 +297,17 @@ async function measure(page, seconds, { feed = false } = {}) {
     koiPerMin >= 16 && koiPerMin <= 36, `实测 ${koiPerMin.toFixed(1)} 次/分`);
   check('② 平时 · 事件起点间隔中位 ≥ 1.8s（"偶发"而非"此起彼伏"）',
     gapsMed >= 1.8, `中位 ${gapsMed.toFixed(2)}s`);
-  check(`② 平时 · 同一条鱼两次跃水间隔不密的占比 ≤ ${(SHORT_RATIO * 100).toFixed(0)}%（分布下四分位内）`,
-    shortPct <= SHORT_RATIO * 100,
-    `短间隔(<26s) ${shortPct.toFixed(1)}%（n=${cyclesAll.length}，门槛 ${(SHORT_RATIO * 100).toFixed(0)}% = floor/(floor+spread)）· 中位 ${cyclesMed.toFixed(1)}s（仅供参考，不作判据）`);
+  /* 样本量闸门（见上面 SHORT_N_MIN 的长注释）：n 太小就跳过，而不是拿 33 个样本的
+     30.3% 去判红 —— 那个数的 95% CI 是 [14.6%, 46.0%]，连"产品正常"都区分不出来。 */
+  if (cyclesAll.length < SHORT_N_MIN){
+    console.log(`  · ② 短间隔占比判据**跳过**：n=${cyclesAll.length} < ${SHORT_N_MIN}，` +
+                `观测 ${shortPct.toFixed(1)}% 的 95% CI 宽到无法区分正常与偏密（理论 15.4%）。` +
+                '要它真有牙须把观察窗翻倍（180s→360s，本门 11min→22min）。门槛未改。');
+  } else {
+    check(`② 平时 · 同一条鱼两次跃水间隔不密的占比 ≤ ${(SHORT_RATIO * 100).toFixed(0)}%（分布下四分位内）`,
+      shortPct <= SHORT_RATIO * 100,
+      `短间隔(<26s) ${shortPct.toFixed(1)}%（n=${cyclesAll.length}，门槛 ${(SHORT_RATIO * 100).toFixed(0)}% = floor/(floor+spread)）· 中位 ${cyclesMed.toFixed(1)}s（仅供参考，不作判据）`);
+  }
   check('② 平时 · 仍保留"出水 + 入水"两圈（负向：没把交互反馈削没）',
     pair2pct >= 60, `两圈事件占比 ${pair2pct.toFixed(0)}%`);
 

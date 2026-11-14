@@ -41,8 +41,18 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   page.on('console', m => { if (m.type() === 'error') errs.push(m.text()); });
 
   await page.goto(`http://127.0.0.1:${port}/index.html?intro=0`, { waitUntil: 'domcontentloaded' });
+  /* boot 单独给 120s 预算（2026-11-11 修）：本门跑的是**默认档（tier=auto）**，
+     要跑满暖编译 + 预载（马/人物/荷花等 GLB；HorseTinker.glb 已移进 lazy 段，不在预载里），
+     实测 20~35s；沿用 page 默认的 30s
+     会在机器稍忙时假红 —— 全量 verify 就是这么报的：
+       [season-demo-guard] 探针异常： page.waitForFunction: Timeout 30000ms exceeded.
+     其它场景探针都靠 `?tier=low` 把启动压到几秒，本门**不能**这么做：它测的是"用户
+     默认打开就是这一档"的行为（自动演示不该在默认档里自己跑起来）。故只放宽等待，
+     并把实测秒数打进 detail —— 数字只作读数、不作判据（并发负载下墙钟读数无效）。 */
+  const tBoot = Date.now();
   await page.waitForFunction(() => window.__garden && document.getElementById('loading')
-    && document.getElementById('loading').classList.contains('done'));
+    && document.getElementById('loading').classList.contains('done'), null, { timeout: 120000 });
+  const bootSec = (Date.now() - tBoot) / 1000;
   await page.evaluate(async () => { await window.__garden.bootDonePromise; });
 
   const state = () => page.evaluate(() => window.__garden.seasonDemoState());
@@ -54,6 +64,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   /* 探针态默认不自动播：否则所有场景探针都会在自动运镜中取样。 */
   await sleep(500);
+  console.log(`  · 读数：默认档启动耗时 ${bootSec.toFixed(1)}s（不作判据）`);
   const idle = await state();
   check('默认不自动播放（webdriver 下保持手动）',
     !idle.on && idle.phase === 'idle' && idle.history.length === 0,
@@ -112,6 +123,41 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   const capSync = capLog.length >= 5 && capLog.every(c => c.title.includes(capBySeason[c.season] || '×'));
   check('每次字幕变化时 ENV.season 已同步', capSync,
     capLog.slice(0, 6).map(c => `${c.season}:${c.title}`).join(' | '));
+  const winterCaption = capLog.find(c => c.season === 'winter');
+  check('晴天的冬季演示不声称正在下雪，季节标题不冒充节气',
+    winterCaption && !/雪压|积雪|惊蛰|芒种|霜降|大雪/.test(winterCaption.title + winterCaption.text)
+      && capLog.every(c => !/惊蛰|芒种|霜降|大雪/.test(c.title)),
+    winterCaption ? `${winterCaption.title}：${winterCaption.text}` : '未捕获冬季字幕');
+
+  /* 手动机位与特殊情境也应有解释；普通访问不依赖 ?notes=1。 */
+  const captions = await page.evaluate(async () => {
+    const { showCaption } = await import('/src/08d-tour.js');
+    const ids = [...new Set([...window.__garden.tourPlan().map(p => p.id),
+      'stable', 'stableNear', 'plumRed', 'plumYellow', 'rainbow', 'fireworks', 'meteor'])];
+    return ids.map(id => {
+      const shown = showCaption(id);
+      const el = document.getElementById('caption');
+      return { id, shown, text: el.querySelector('span').textContent };
+    });
+  });
+  check('手动机位与特殊情境均有字幕说明', captions.every(c => c.shown && c.text),
+    captions.filter(c => !c.shown || !c.text).map(c => c.id).join(', ') || '全部有说明');
+  check('堂、亭和马厩默认标明是写意而非实景复原',
+    ['hall', 'pavilion', 'stable'].every(id => captions.find(c => c.id === id)?.text.includes('写意')),
+    captions.filter(c => ['hall', 'pavilion', 'stable'].includes(c.id)).map(c => `${c.id}:${c.text}`).join(' | '));
+
+  /* 两次连续选机位：第一次的隐藏计时不能提前关掉第二次的字幕。 */
+  await page.click('#env .drawer-toggle');
+  await page.click('button[data-view="hall"]');
+  await sleep(3500);
+  await page.click('button[data-view="stable"]');
+  await sleep(3000);
+  const recentCaption = await page.evaluate(() => {
+    const el = document.getElementById('caption');
+    return { shown: el.classList.contains('show'), title: el.querySelector('b').textContent };
+  });
+  check('连续选择机位时，新字幕不会被旧计时提前关闭',
+    recentCaption.shown && recentCaption.title === '马厩', JSON.stringify(recentCaption));
 
   /* 镜头确实连续移动，不是状态一变就跳到终点。先回 overview，避免上一轮
      春夏秋冬后恰好已停在同一机位，出现"状态在飞、位置没动"的假红。 */
@@ -170,6 +216,23 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('启动昼夜流转会互斥停止四季演示', reelOn && !(await state()).on);
   await page.evaluate(() => window.__garden.toggleReel());
 
+  /* 新建一座未挂到场景中的堂，验证左右贴图确实分别使用上下联，而不只测常量。 */
+  const couplet = await page.evaluate(async () => {
+    const { makeYuanxiangHall } = await import('/src/04-buildings.js');
+    const { HALL_COUPLET } = await import('/src/03a-names.js');
+    const { makePlaqueTex } = await import('/src/01b-textures.js');
+    const hall = makeYuanxiangHall();
+    const pair = hall.children.filter(o => o.name === 'couplet');
+    const image = o => o.material.map.image.toDataURL();
+    const upper = makePlaqueTex(HALL_COUPLET.upper, true).image.toDataURL();
+    const lower = makePlaqueTex(HALL_COUPLET.lower, true).image.toDataURL();
+    return { count: pair.length, right: pair.find(o => o.position.x > 0) && image(pair.find(o => o.position.x > 0)) === upper,
+      left: pair.find(o => o.position.x < 0) && image(pair.find(o => o.position.x < 0)) === lower,
+      distinct: upper !== lower, upper: HALL_COUPLET.upper, lower: HALL_COUPLET.lower };
+  });
+  check('堂前对联左右各一联，贴图与自拟题联一致',
+    couplet.count === 2 && couplet.right && couplet.left && couplet.distinct
+      && [...couplet.upper].length === [...couplet.lower].length, JSON.stringify(couplet));
   check('零 pageerror / console error', errs.length === 0, errs.slice(0, 2).join(' | '));
   await browser.close();
   server.close();

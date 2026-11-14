@@ -1,6 +1,7 @@
 // 02-scene: from index.html inline 615..854
 import { THREE, OrbitControls } from '../vendor.js';
 import { CFG, bootMark } from './00-config.js';
+import { pickTier } from './00a-quality.js';
 /* ══════════════════════════════════════════════════════════════
    2 · 渲染器 / 相机 / 控制器   ══════════════════════════════════════════════════════════════ */
 export const app = document.getElementById('app');
@@ -16,6 +17,11 @@ export const GPU_NAME = (()=>{
     return d ? String(gl.getParameter(d.UNMASKED_RENDERER_WEBGL)) : '';
   } catch { return ''; }
 })();
+/* ── 阴影贴图上限（2026-10-30 第 0 周热修）──
+   GPU 纹理最大边长。high 档要 6144，一批 GPU 的上限是 4096 —— 旧写法靠驱动悄悄钳
+   （声明 6144、实际分配 4096），QOS 的 applyShadow 看 mapSize.width 就再也不会改档。
+   显式封顶让"声明值 = 真实值"：09-lights 的初始化与 11-loop QOS 的降档都用它。 */
+export const SHADOW_CAP = (() => { try { return renderer.capabilities.maxTextureSize || 4096; } catch { return 4096; } })();
 /* 软渲染（无头探针 / 无 GPU 的虚拟机）：帧率不反映真实设备能力，
    QOS 自适应必须对它免疫，否则回归条件会随机器负载漂移（见 QOS 段说明）。 */
 export const SOFTWARE_GL = /SwiftShader|llvmpipe|Software|Mesa OffScreen|Microsoft Basic/i.test(GPU_NAME);
@@ -32,9 +38,15 @@ export const QOS_IMMUNE = SOFTWARE_GL || PROBE_DRIVEN;
    误判成 low，从而跳过体积光锥等高写实效果 —— 探针带 ?tier=high 即可拍到它们。
    2026-09-25：mid 从“能解析但等同 high”改成真正独立的均衡档。 */
 export const GPU_TIER_FORCED = (() => { try { return /[?&]tier=(low|mid|high)/.exec(location.search)?.[1] || null; } catch { return null; } })();
-const autoTier = /Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i.test(GPU_NAME)
-  ? 'low'
-  : (/Apple M[1-9]|Intel Arc|GTX\s*(1[06]\d{2}|20[567]\d{2})|Radeon RX\s*[56]\d{3}/i.test(GPU_NAME) ? 'mid' : 'high');
+/* 档位判定本身挪到 00a-quality.js（纯函数、可在 node 里单测）：
+   这两条正则此前只活在本文件顶层，而本文件要 new WebGLRenderer ⇒ 它们**测不到**。
+   改错的方向两边都静默（判高 ⇒ 手机发热更卡；判低 ⇒ 独显白吃低画质），
+   2026-10-30 那次修就是在没有测试网的情况下改的。现在进 `npm run unit`。 */
+const autoTier = pickTier({
+  gpuName: GPU_NAME,
+  userAgent: (() => { try { return navigator.userAgent; } catch { return ''; } })(),
+  maxTouchPoints: (() => { try { return navigator.maxTouchPoints; } catch { return 0; } })(),
+});
 export const GPU_TIER = GPU_TIER_FORCED || autoTier;
 
 /* 电脑画质单一真值：分辨率、阴影、AO、反射、折射与粒子预算都从这里派生。
@@ -178,13 +190,13 @@ export function resetCamera(){
 }
 
 /* 渐变天空球（三停：地平线 → 中腰 → 天顶） */
-function makeSkyMat(top, mid, horizon, sunCol, sunDir){
+function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
   return new THREE.ShaderMaterial({
     side: THREE.BackSide, depthWrite:false, fog:false,
     uniforms:{
       uTop:{value:new THREE.Color(top)}, uMid:{value:new THREE.Color(mid)},
       uHorizon:{value:new THREE.Color(horizon)},
-      uSunColor:{value:new THREE.Color(sunCol)}, uSunDir:{value:sunDir.clone().normalize()},
+      uSunColor:{value:new THREE.Color(sunCol)}, uSunDir:{value:sunDirIn.clone().normalize()},
       uTime:{value:0},
       uCloudTint:{value:new THREE.Color(0xFFFBF3)},   // 云的颜色（黄昏会转暖）
       uCloudAmount:{value:0.88},                       // 云量（阴天→1，晴→低值）
@@ -624,7 +636,9 @@ function envBakeScene(preset){
   return { es, s, g };
 }
 function bakeEnvFor(preset){
-  const key = preset && preset.key ? preset.key : 'default';
+  /* 开机那张（preset=null）用的就是午时段晴天参数 ⇒ 直接记成 noon|clear（12-env syncEnvMap 的键格式），
+     免得启动后第一次 syncEnvMap 再按同参数重烘一张（2026-10-31 pmrem 门实测多烘 1 次）。 */
+  const key = preset && preset.key ? preset.key : 'noon|clear';
   const hit = ENV_BAKE.cache.get(key);
   if (hit) return hit;
   if (!ENV_BAKE.pmrem) ENV_BAKE.pmrem = new THREE.PMREMGenerator(renderer);

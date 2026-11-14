@@ -89,13 +89,15 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
   page.on('console', m => { if (m.type() === 'error') errs.push('console: ' + m.text());
     if (m.text().includes('[启动分段]')) bootLog.push(m.text()); });
   if (slowM){
-    /* 链路受限（延迟固定 100ms = 保证 GLB 在 warmBoot 跑起来时**还在飞**）。
-       ⚠️ 带宽可调，而它决定 ⑥ 负例有没有牙 —— 见文件末尾"负例刻度"那段注释：
+    /* ⚠️ 2026-10-30 改：默认带宽 6 → **20 Mbps**（第 0 周热修 · 资产压缩的连带修正）。
        撤销合并后的中位间隔 ≈ 下载段时长 / 44（整数百分比去重把写入次数封在 ~45 次），
-       所以带宽太低（下载段 >11s）时中位间隔必然 ≥250ms，**负例永远红、且证明不了①有牙**。
-       1.5Mbps（原值，下载段 ~13s）实测中位 296ms 就是踩在这个上；6Mbps 实测 80ms，
-       3 倍余量。可用 PRELOAD_NEG_MBPS 覆盖以复测。 */
-    const mb = mbps ?? Number(process.env.PRELOAD_NEG_MBPS || 6);
+       所以带宽太低（下载段 >11s）时中位间隔必然 ≥250ms ⇒ **负例永远红、且证明不了 ① 有牙**。
+       历史：1.5Mbps（下载段 ~13s）实测 296ms 踩在这条线上；改 6Mbps 后实测 80~90ms（3 倍余量）。
+       **2026-10-30 资产压缩把预载总量从 11.2MB 砍到 5.35MB（-53%）** ⇒ 同样的 6Mbps
+       下载段只剩 ~1.7s ⇒ 撤销合并后 44 次写入的中位间隔被顶到 269ms（实测），负例重新假红。
+       这不是判据变坏，是**被压缩改小了分母**。带宽提到 20Mbps 后实测中位 89ms
+       （余量 2.8×），负例恢复判定力。可用 PRELOAD_NEG_MBPS 覆盖以复测。 */
+    const mb = mbps ?? Number(process.env.PRELOAD_NEG_MBPS || 20);
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Network.enable');
     await cdp.send('Network.emulateNetworkConditions',
@@ -147,8 +149,9 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
   const t0 = Date.now();
   while (Date.now() - t0 < 60000 && !bootLog.length) await sleep(200);
   const marks = parseFirstFrame(bootLog);
+  const gpuName = await page.evaluate(() => (window.__garden && window.__garden.gpuName) || '').catch(() => '');
   await browser.close();
-  return { ...d, programs, errs, first: marks };
+  return { ...d, programs, errs, first: marks, gpuName };
 }
 
 (async () => {
@@ -245,12 +248,18 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
     `B 独有族: ${famOnlyB.join(',') || '无'}（A ${A.programs} / B ${B.programs}，`
     + `完整 key 差 A${onlyA.length}/B${onlyB.length} 属正常变体差）`);
   /* 真正对用户有意义的是"那 1 个换到别处编去了，会不会变成一次卡顿" ⇒ 断首帧段。 */
+  /* 档位分档（同 warmboot-guard）：核显 shader 编译慢一个量级，800ms 的线会假红。
+     实测 Iris Xe 全量 verify 首帧 890/1080ms、独显档 60~132ms。low 档预算 2400ms，其余 800ms。 */
+  const LOW_RE = /Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i;
+  const HIGH_RE = /Apple M[1-9]|Intel Arc|GTX\s*\d{3,4}|RTX\s*\d{3,4}|Radeon RX\s*\d+/i;
+  const tierOf = (gpuName) => LOW_RE.test(String(gpuName || '')) ? 'low' : (HIGH_RE.test(String(gpuName || '')) ? 'high' : 'mid');
+  const fbBudget = tierOf(A.gpuName) === 'low' ? 2400 : 800;
   check('前提：取得到「首帧」刻度（否则 ⑥c 是永真，不许静默通过 —— 铁律 4）',
     A.first !== null && Number.isFinite(A.first),
     A.first === null ? '启动分段里没有「首帧」刻度' : `首帧段 ${A.first.toFixed(1)}ms`);
-  check('⑥c 补编（若发生）在首帧预算内（≤800ms，与 warmboot-guard 同阈值）',
-    A.first !== null && Number.isFinite(A.first) && A.first <= 800,
-    A.first === null ? '取不到刻度，不能判' : `首帧段 ${A.first.toFixed(1)}ms`);
+  check(`⑥c 补编（若发生）在首帧预算内（≤${fbBudget}ms，档位 ${tierOf(A.gpuName)}）`,
+    A.first !== null && Number.isFinite(A.first) && A.first <= fbBudget,
+    A.first === null ? '取不到刻度，不能判' : `首帧段 ${A.first.toFixed(1)}ms ｜ GPU=${A.gpuName || '(未知)'}`);
 
   check('零 pageerror / console error', A.errs.length === 0 && B.errs.length === 0,
     (A.errs[0] || B.errs[0]) || `${A.errs.length}/${B.errs.length} 条`);
@@ -271,7 +280,7 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
         那个 250ms。
         ⇒ 带宽改 6Mbps（下载段 ~3.5s ⇒ 预计中位 ~80ms，3 倍余量）。
         标定脚本：outputs/_diag/preload-neg-sweep.mjs（扫 5 档，1.5Mbps 复现 296ms）。 */
-  console.log('\n【臂 C：负例自检（100ms 延迟 + 6Mbps）—— 撤掉 250ms 采样合并】');
+  console.log('\n【臂 C：负例自检（100ms 延迟 + 20Mbps）—— 撤掉 250ms 采样合并】');
   const C = await run(chromium, port, { chunky: true, slowM: true });
   const WC = C.pg.w.map(([t, w]) => [t, parseFloat(w)]).filter(([, v]) => !Number.isNaN(v));
   const gapsC = [];

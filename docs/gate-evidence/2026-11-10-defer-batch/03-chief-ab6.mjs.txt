@@ -1,0 +1,81 @@
+// outputs/_diag/defer-ab-chief-20261110.mjs
+// Chief 复核用：把 20c674c（旧：每帧一批）与 d0cb139（新：24ms 预算连跑）交替各跑 6 轮，
+// 除了「延迟段墙钟」，同时记录**批间最长间隔**（= 那一帧有多长），
+// 用来回答 d0cb139 没量的一个问题：一帧内连跑多批，会不会把某一帧拖出长卡顿。
+//
+// 用法: node outputs/_diag/defer-ab-chief-20261110.mjs
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import { execSync } from 'node:child_process';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { launchChromium, listenEphemeral } from '../../probe/_harness.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.glb': 'model/gltf-binary',
+               '.mp3': 'audio/mpeg', '.webmanifest': 'application/webmanifest', '.svg': 'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end('nf'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+
+const OLD = execSync('git show 20c674c:src/08-assemble.js', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8 });
+const NEW = execSync('git show d0cb139:src/08-assemble.js', { cwd: ROOT, encoding: 'utf8', maxBuffer: 1e8 });
+if (OLD === NEW) throw new Error('OLD 与 NEW 相同 —— 版本取错了，AB 无意义');
+
+const port = await listenEphemeral(server);
+const { chromium } = createRequire(import.meta.url)('playwright');
+const browser = await launchChromium(chromium);
+
+async function run(body){
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 720 } });
+  const page = await ctx.newPage();
+  page.setDefaultTimeout(300000);
+  const stamps = [];       // 每批开始时刻（ms，相对 goto）
+  let tSum = null;
+  const t0 = Date.now();
+  page.on('console', m => {
+    const t = m.text();
+    if (!t.includes('[启动分段·延迟]')) return;
+    if (t.includes('合计')) tSum = Date.now() - t0;
+    else stamps.push(Date.now() - t0);
+  });
+  await page.route(u => u.pathname.endsWith('/08-assemble.js'),
+    r => r.fulfill({ status: 200, contentType: 'text/javascript', body }));
+  await page.goto(`http://127.0.0.1:${port}/index.html`, { waitUntil: 'load' });
+  await page.waitForFunction(() => document.getElementById('loading')
+    && document.getElementById('loading').classList.contains('done'), null, { timeout: 300000 }).catch(() => {});
+  await page.waitForTimeout(300);
+  await ctx.close();
+  const gaps = stamps.slice(1).map((v, i) => v - stamps[i]);
+  return {
+    seg: tSum !== null && stamps.length ? tSum - stamps[0] : null,   // 延迟段墙钟（首批 → 合计）
+    batches: stamps.length,
+    maxGap: gaps.length ? Math.max(...gaps) : null,                   // 批间最长间隔 ≈ 最长那一帧
+    sumExec: null,
+  };
+}
+
+const rounds = [];
+for (let i = 0; i < 6; i++){
+  const a = await run(OLD);
+  const b = await run(NEW);
+  rounds.push({ i: i + 1, old: a, new: b });
+  console.log(`#${i + 1}  旧: 延迟段 ${a.seg}ms 批 ${a.batches} 最长批间 ${a.maxGap}ms` +
+              `   ｜  新: 延迟段 ${b.seg}ms 批 ${b.batches} 最长批间 ${b.maxGap}ms`);
+}
+const med = xs => { const s = xs.filter(v => v != null).sort((x, y) => x - y); return s.length ? s[(s.length / 2) | 0] : null; };
+const olds = rounds.map(r => r.old.seg), news = rounds.map(r => r.new.seg);
+const oldG = rounds.map(r => r.old.maxGap), newG = rounds.map(r => r.new.maxGap);
+console.log(`\n延迟段墙钟 中位：旧 ${med(olds)}ms ／ 新 ${med(news)}ms`);
+console.log(`延迟段墙钟 区间：旧 ${Math.min(...olds)}~${Math.max(...olds)}ms ／ 新 ${Math.min(...news)}~${Math.max(...news)}ms`);
+console.log(`批间最长间隔 中位：旧 ${med(oldG)}ms ／ 新 ${med(newG)}ms`);
+console.log(`批间最长间隔 区间：旧 ${Math.min(...oldG)}~${Math.max(...oldG)}ms ／ 新 ${Math.min(...newG)}~${Math.max(...newG)}ms`);
+await browser.close();
+server.close();
+process.exit(0);

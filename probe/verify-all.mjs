@@ -25,9 +25,9 @@
 //  引用内联模块专有名字）在浏览器里表现为"页面加载即炸"或更坏的**静默**（见下），
 //  能在这一步拦住就没必要等 7 分钟。
 //  · codeonly-unit 钉住 `_codeonly.mjs` 的"什么算引用"契约 —— 它判宽=假红、判窄=假绿，两个方向都静默。
-//  · import-audit 四条判据：①内联→src 漏 import ②src→src 漏 import
+//  · import-audit 判据：①入口 src/main.js（原 index.html 内联主模块）→src 漏 import ②src→src 漏 import
 //    ③给 import 进来的绑定赋值（导入绑定只读 → Assignment to constant variable）
-//    ④src 引用内联模块专有的名字（src 里没有该绑定 → ReferenceError）。
+//    ④src 引用入口专有的名字（别的模块里没有该绑定 → ReferenceError）⑤import 的名字对面必须真导出。
 //    ⚠️ ④ 抓到过一个**静默**事故：06-vegetation 读内联的 `$解码器`，而它是在 `new Promise` 的
 //    executor 里抛、被下游 `.catch(()=>{})` 吞掉 → 三类 GLB 资产永远挂不上，零告警、零失败计数，
 //    只有 smoke 的「四类 GLB 资产均已挂载」看得见。
@@ -123,6 +123,23 @@ const NODE = process.execPath;
 const SUITES = [
   ['语法门禁 check',         'probe/check.mjs'],
   ['语法判定单元 codeonly-unit','probe/codeonly-unit.mjs'],
+  /* 纯函数单测 unit-pure（2026-10-15 · 完结 Phase 2）：node:test，118ms，零浏览器。
+     守 00-config 的随机确定性 + 12a 的插值/边界/互斥矩阵（2b-wind 因顶层建 Canvas
+     纹理进不来 node，见 unit-pure.mjs 头注释）。 */
+  ['纯函数单测 unit-pure', 'probe/unit-pure.mjs'],
+  /* 环境单测（2026-10-31）：花历 12g（春无荷 / 秋无梅 / 夏秋无紫藤花 / 秋无桃）+ 日轨月相 12h
+     （冬夏至日落与正午高度、中秋望 / 除夕朔）。node:test，零浏览器，<0.2s。 */
+  ['花历单测 env-phenology-unit', 'probe/env-phenology-unit.mjs'],
+  ['日轨月相单测 env-solar-unit', 'probe/env-solar-unit.mjs'],
+  /* 固定步长 / 到访重播单测（2026-10-31 登记）：fixed-step-unit 守 00b-fixedstep 的 planFixedSteps
+     （11-loop stepSim 的纯函数内核，<0.1s）；actor-replay-unit 用 probe/_actor-sim 重跑到访整场、
+     与入库基线逐帧比对（马车 / 步行 / 礼仪三段，纯 node 不起浏览器，三进程并行约 13~50s）。
+     两者早已在 npm run unit 里，但不在本链上 ⇒ npm run verify 看不见它们。 */
+  ['固定步长单测 fixed-step-unit', 'probe/fixed-step-unit.mjs'],
+  ['到访重播单测 actor-replay-unit', 'probe/actor-replay-unit.mjs'],
+  /* vendor 新鲜度 vendor-fresh（2026-10-15）：vendor.js 入库但为构建产物，
+     build-entry.js/依赖版本变而 vendor 未重打时红。修：build + --record。 */
+  ['构建物新鲜度 vendor-fresh', 'probe/vendor-fresh.mjs'],
   /* ── 2026-10-03 · 预载清单一致性（纯 node / <1s）──
      守的是"sw.js 的 GLBS 与 13-preload 的 PRELOAD_MANIFEST 是同一批"这条**写在注释里、
      此前无人把守**的红线：2026-10-02 加金刚鹦鹉时只改了 13、漏了 sw.js，
@@ -130,16 +147,88 @@ const SUITES = [
      危害分场景静默：在线首开一切正常，**装成 PWA 后断网首开则少了鹦鹉**。
      自带 4 条负例自检（探针自证能红），不入浏览器、不依赖 GPU。 */
   ['预载清单一致性 preload-manifest-sync', 'probe/preload-manifest-sync.mjs'],
+  /* ── 2026-10-30 · 门数一致性（纯 node / <0.3s，第 0 周热修 CI 收尾④）──
+     README 里「全部 N 道门」「探针 M 个 .mjs」这类**指代总数**的数字，真值只有一处：
+     本文件上面那张 SUITES 表（quick 则是 QUICK 集合）。此前两者之间没有任何东西把守，
+     于是 README 一路漂 77 → 79 → 81 → 84，而实际已 88（差 4 道 —— 没人知道差哪 4 道）。
+     本门：C1 全量门数 / C2 quick 门数 / C3 探针文件数 / C1b 门名笔误（SUITES 里写了磁盘上
+     不存在的脚本 ⇒ verify-all 会静默少跑一道），外加 3 条负例自检 + 阳性对照。 */
+  ['门数一致性 gate-count-sync', 'probe/gate-count-sync.mjs'],
+  /* 2026-10-31：`--changed` 的挑选逻辑自检（纯 node <0.2s）。
+     守的是"改了什么 ⇒ 该跑哪些门"这张映射本身 —— 它最危险的失败形状是
+     **挑少了还全绿**，那比挑错门严重得多。见文件头 --changed 那段说明。 */
+  ['改动挑门映射 changed-map-unit', 'probe/changed-map-unit.mjs'],
   ['拆分守卫 import-audit',   'probe/import-audit.mjs'],
   ['风场轨迹 wind-trajectory','probe/wind-trajectory.mjs'],
+  /* ⚠️ 2026-10-13 新增 · 烘焙产物前提门（纯 node 快门）
+     上一条守的是「该不该烘焙」（跑浏览器，15s+）；本条守「前提有没有变」，
+     且是**纯 math 门**：只 import ../src/12a-presets.js 的 paramsAtHour（纯函数、不碰渲染器），
+     实测 ~220ms、零浏览器零 GPU。
+     职责边界：本条与上面那条**红因不同、不重叠** —— 上面答「前提是否成立」，本条答「前提有没有变」。
+     另：本条在**产物不存在时判绿**（烘焙尚未做属预期），不与上面那条重复判红。
+     口径提示：本条实测 18 个方向 / 300.3°，与上面那条的 11 个 / 180° **不可直接比** ——
+     后者走完整滑杆链路且排除夜间月亮接管，前者直接取参数含夜间。详见该文件内注释。 */
+  ['烘焙产物前提 shadow-product', 'probe/shadow-product-gate.mjs'],
+  /* playwright-args-guard（2026-10-13 建，毫秒级；纯静态、零浏览器零 GPU）：
+     抓 page.evaluate 实参个数超限的误用 —— 2026-10-13 云端 smoke 只跑 4m22s 就 failure
+     的真因就是它（多参同步抛 Too many arguments，本地三道门全隐形）。
+     判据：实参 ≥4 一律红；实参 3 且第 3 参不是以 { 开头的对象字面量则红。
+     只判 evaluate 不判 waitForFunction（后者本就是 (fn, arg, options) 三参，合法）。 */
+  ['playwright 实参个数 playwright-args-guard','probe/playwright-args-guard.mjs'],
   ['阴影视体覆盖 shadow-cover','probe/shadow-cover.mjs'],
   ['无头回归 smoke',         'probe/smoke.mjs'],
+  /* 巡游端到端 tour-guard（2026-10-18 建，~75s）：补 P1「新增两站没有门禁」。
+     走真实巡游节奏（10 站 × dwell 6s），守三件 smoke 看不见的事：
+       ① 10 站逐站落位（水平 Δ<5cm、注视点 Δ<30cm；y 允许被 polar 钳制抬高）；
+       ② 字幕与 tourPlan 逐站对应（顺序漂移 / 字幕配错都会红）；
+       ③ 全程逐帧采样相机位置，墙厚带内低于墙顶 = 穿墙（lantern 在院外、plaque 在园内，
+          旧版直线飞行会在 y≈1.8m 处穿过 4.5m 高的东墙）。
+     ⚠️ 这条会暴露既有的 polar 相机约定：hero / heroPeak 的机位把相机放在注视点之下，
+       落定后会被 controls.update() 抬高 ~0.6m —— 判据只允许"抬高"，不允许横向漂移。 */
+  ['巡游端到端 tour-guard',  'probe/tour-guard.mjs'],
+  /* 机位可见性 viewpoint-visibility（2026-10-24 建，~70s）：补 P1「机位看得到吗」。
+     起因：「立峰·云根」那站在实景里**看到的是一朵大荷花** —— 相机落在池中 1.18m，
+     正前方 1.8m 就是荷花丛（中心射线第一命中 LotusPlant），石峰退到背景。
+     tour-guard 只守"落点/字幕/不穿墙"，看不见"取景被前景挡住"这类缺陷。
+     本门守：① 每个官方机位中心视线不被近处物体打断；② 3m 内荷花/睡莲不得落进画面；
+     ③ 负例自检（修复前那个池中 1.18m 位姿必须被判红，实测 inFrame=20）。 */
+  ['机位可见性 viewpoint-visibility', 'probe/viewpoint-visibility.mjs'],
+  /* 院门口石狮 lion-guard（2026-10-18 建，~25s）：补 P1「石狮 404 会静默消失」。
+     13-preload 把两件石狮登记为 required:false（拉不到页面照开、门口空着），
+     而 smoke / preload-manifest-sync 都不查"实际挂载" ⇒ 文件被误删/改名/缓存失效时
+     全套门禁仍可能全绿。这条守：两件都挂上、落位 x=40±2.45、尺寸 1.08m、
+     底部落地、到门洞净空 ≥10cm（旧桩位只剩 5cm）、贴图在、无 404。 */
+  ['院门口石狮 lion-guard',  'probe/lion-guard.mjs'],
+  /* 马的动作 horse-motion-guard（2026-10-20 建，~40s）：补 P1「马的六项动作其实是空转」。
+     换 Tinker 骨骼马后，动画层按"DEF-* 命名"猜骨，而这套 Rigify 导出件**皮肤分挂在两条链上**
+     （ORG 链带头/下颌/耳/鼻，DEF 链带脖皮/上臂）⇒ 低头吃草/撅嘴嚼/抬头晃头/抖鬃毛全部打空，
+     马一直站桩（老黄："僵尸马"）。画面上不报错 ⇒ 只能靠量：口鼻相对鬐甲的高度、
+     下颌/头骨/蹄骨的角度摆幅、尾尖横摆、冬天白气。 */
+  ['马的动作 horse-motion-guard', 'probe/horse-motion-guard.mjs'],
+  /* 量化马、马夫掩膜、缰绳、车厢与取草路线的组合回归。 */
+  ['马厩回归 stable-regression', 'probe/stable-regression-guard.mjs'],
+  /* 控制台噪声 gl-warning-guard（2026-10-18 建，~20s）：补 P3「启动 256 条 WebGL 错误」。
+     修前：暖机前 12 桶 needsUpdate=false ⇒ sun.shadow.map 为 null，而 STANDARD 材质的
+     shadowMap 是 sampler2DShadow ⇒ 空 uniform 绑 RGBA 默认纹理，3713 笔 draw 报
+     "Mismatch between texture format and sampler type"（控制台截到 256 条）。
+     修法：第 1 桶开一次 shadowMap.needsUpdate（见 11-loop warmBoot 注释）。
+     本门禁守：启动期与稳态 GL 错误必须为 0；console warning 只许白名单（着色器精度提示）。 */
+  ['控制台噪声 gl-warning-guard', 'probe/gl-warning-guard.mjs'],
   /* 手机/平板控制面板（2026-10-07 建，~40s）：进场收起 / 点方印才出 / 触控命中区 /
      窄窗口不溢出 / 引导在触控档不代开面板（配桌面口径的负例对照）。
      与 smoke 的 320px 那条**不重复**：smoke 只看"收进视口 + 按钮 ≥44px"，
      这条还管"引导会不会自己把面板推出来"和"带鼠标的平板（hover:hover）在窄窗口
      会不会把面板顶出右缘" —— 两者共用同一套 CSS 媒体查询，但入口不同。 */
   ['移动端控制面板 mobile-panel', 'probe/mobile-panel-guard.mjs'],
+  /* 触控命中区（2026-10-12 建，几秒；纯样式/几何、**不启动 3D 场景**，故不进 quick 的"≤1 分钟"预算也负担得起）：
+     守 smoke 与 mobile-panel-guard 都照不到的四类元素 —— `#env .hint-toggle`（label + checkbox）、
+     `#env input[type=range]`、`#guide .g-acts button`、`#loading #ld-quick`。
+     这四处在 2026-10-12 之前**没有任何门禁在守**：两道门的命中区判据都只查 `#env button`，
+     而 guide-guard 的阈值 38px 恰好等于当时的实现值 ⇒ 恒绿（"有覆盖面错觉"）。
+     三个语义档一起判：窄屏（390 触控 / 640 非触控）四类 ≥44px；桌面 900 断言**基值未被回归**
+     （38 / 22 / 无 min-height / 6px 9px）。另在 320px 量 #stats 的文字渲染宽 vs 可用宽。
+     自带三条负例自检（逻辑喂 30px / 页内注入 30px / #stats 注入超长文本）。 */
+  ['触控命中区 touch-target', 'probe/touch-target-guard.mjs'],
   /* 梅花（2026-10-07 建，~30~110s）：远处看得见花（默认机位"藏花"必须改变画面的像素、且偏花色）
      + 近处看得出是梅花（单朵 ≥40px）+ 夏季无花 + **缺陷态负例自检**（alphaTest .42 必须报红）。
      老黄："从这个角度看两株梅花，根本看不出颜色，甚至连有花都看不出来" ⇒ 这条门禁守的是
@@ -230,8 +319,8 @@ const SUITES = [
   /* ── 2026-09-24 · 计划书 Phase 3 第 7 项：上元灯会 ──
      守的是灯会自己那三条硬规矩 + 计划书的验收标准：① 河灯 ≥20 且**随波漂移**、全在池域内、
      **不碰桥体/汀步/立峰**（计划书原文"河灯随波漂移不穿过桥体"），两株桃树枯枝挂灯也必须
-     默认隐藏、灯会时全显、关闭后归零；② **不新增真光源**（真光源恒为灯笼那 5 盏 ——
-     加真灯就必须同步改阴影方向，夜里月光是唯一主光）；③ draw calls 总数仍 < 800，
+     默认隐藏、灯会时全显、关闭后归零；② **灯会不新增真光源**（全场 = 廊灯 5 + 路灯 10 ——
+     路灯是 2026-10-18 用户要加的常驻灯，灯会自己仍只许 emissive 伪造）；③ draw calls 总数仍 < 800，
      非灯会态河灯/烛焰/灯串/挂灯全部 count=0 零提交。
      另有两条有牙自检：桥体中心点必须被判"在禁区内"；冻结漂移时钟后河灯必须**完全不动**。 */
   ['上元灯会 festival-guard', 'probe/festival-guard.mjs'],
@@ -303,6 +392,11 @@ const SUITES = [
      离线把静态阴影预烘成贴图、运行时零开销，理论上很美，实测判为**不可行**（阶段 A 诊断）：
      ① src/12-env 的 hourSeg() 在晨/午/暮/夜之间对 sunPos **线性插值** ⇒ 太阳方向连续变化
         （全天弧长 180°，8° 口径下 11 个显著独立方向），有限张烘焙图在采样之间必然错位；
+        ⚠️ 2026-10-13 溯源：上面「src/12-env 的 hourSeg()」**路径已过时** —— hourSeg 在 2026-10-06
+        拆分时迁到 **src/12a-presets.js:657**，且**模块私有未导出**（同文件 :11 注释「表内私有辅助」）
+        ⇒ 探针拿不到，只能用导出的 paramsAtHour(h)（12a-presets.js:665）间接取太阳方向。
+        按「历史记录只加注、不改写」惯例**保留原表述**（先例 sw.js:77-84）；
+        配套的纯静态版前提门见 probe/shadow-product-gate.mjs。
      ② 错位 = 投射物高度 × tan(Δθ)，要把错位压进 2 texel，实测需 **104~335 张** 2048²+ 阴影图；
      ③ 更硬的墙：Three.js 多盏方向光阴影是 `shadow *= getShadow(...)` **连乘**，没有"按权重混合
         N 张"的路径；要混合就得重写阴影采样 = 把已实测为负优化并回退的 CSM 重做一遍。
@@ -311,6 +405,7 @@ const SUITES = [
      （ENV.cur 只在 handler 里由 composeEnv 重算，直接赋值只会重放旧值、量出"太阳整天不动"的
      反向假结论）；夜里那盏"太阳灯"是**月光替身**，必须按 starAmount 剔掉。 */
   ['阴影烘焙结论 shadow-bake', 'probe/shadow-bake-guard.mjs'],
+
   /* ── 2026-09-26 · 近地面高度雾（形态②）──
      守的是"层次只加在需要的地方"：10~25m 中景的雾覆盖率必须显著高于 0~3m 近景、
      远景 60m+ 基本不动、**且近景 3~10m 总衰减在清透预算内**（保护 6d07a9c 刚做出来的
@@ -413,6 +508,13 @@ const SUITES = [
      （抽搐与正常动作的分界线；用角速度而非单帧跳幅，因为后者随帧率变）+ 作息 +
      "窗口内真的播过那些动作"的防空判据前提。 */
   ['金刚鹦鹉 macaw', 'probe/macaw-guard.mjs'],
+  /* 金刚鹦鹉翅膀扇动 macaw-wing-guard（2026-10-23 建）：Macaw.glb 单网格无骨骼，
+     "振翅"此前只是整身 roll —— 翅膀几何从未动过（老黄："起跳/换峰飞行翅膀都不动"）。
+     修法是烘 aWing 顶点权重 + 注入绕肩旋转；这类注入失效是**静默**的（零报错、画面不动），
+     所以必须有门：冻结帧 uWing=0↔0.85 的像素差（注入失效=0，必红）+ 三只独立 uniform
+     （同引用=三只同步扇）+ 行为窗里翅膀角非零/不同步/rest 收拢。改 MACAW_WING 常数后
+     本门 + macaw-guard 各重跑两遍。 */
+  ['金刚鹦鹉扇翅 macaw-wing', 'probe/macaw-wing-guard.mjs'],
   /* 园林陈设 props-guard（2026-10-05 建）：14-props 的注释一直把 PROP_SPOTS / PROP_REGISTRY
      写成"门禁的唯一真值源"，但**这道门此前在仓库里根本不存在**（磁盘递归搜、git log --all、
      docs 全无命中）⇒ 于是"表里写 1.30、实物在 −0.23"这类静默事故（水缸那次）只能靠眼睛发现。
@@ -512,6 +614,13 @@ const SUITES = [
      "长门"，已在下面的长门预算表里单独放宽。守的是用户 2026-09-28 拍板的水面涟漪水位：
      龟链 12~24 次/分（实测 17.0），且带**两条有牙负例**（旧间隔 55.0/分必红、关掉必归零）。 */
   ['泳龟尾迹节流 turtle-wake', 'probe/turtle-wake-guard.mjs'],
+  /* ── 2026-10-24：马车版到访的回归门（审核 P2-4）──
+     此前 S6 整条链**没有任何入库门禁**：583.6s、22 个相位、六项指标全来自一次性脚本，
+     所以"客人上车后掉到地面 3.5s""车轮里程两次跳变""wrap 卡死"这类缺陷谁都没人守。
+     本门用 actorStep 快进整场戏（不走真时钟），断言：相位链走到 done、车到 gone、
+     **上下车窗口里客人/马夫始终坐在座上**（正是那个掉地缺陷的判据）、
+     里程 odo 跨段连续（无跳变）、零 pageerror。 */
+  ['马车到访 visit-carriage', 'probe/visit-carriage-guard.mjs'],
 ];
 
 /* ── T7.1（2026-09-23）三条改进 + T7.4（2026-09-24）④ ────────────────────
@@ -555,7 +664,11 @@ const SELFTEST = process.env.VERIFY_SELFTEST;
      + layout-fingerprint ~12s + random-guard 10s ≈ **2 分钟出头**。 */
 const QUICK = new Set([
   'probe/check.mjs', 'probe/codeonly-unit.mjs', 'probe/import-audit.mjs',
+  'probe/changed-map-unit.mjs',        // 纯 node <0.2s：--changed 的映射自检，日常改动必跑
   'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
+  'probe/env-phenology-unit.mjs', 'probe/env-solar-unit.mjs',   // 纯 node 单测 <0.2s
+  'probe/fixed-step-unit.mjs',         // 纯 node 单测 <0.1s
+  'probe/actor-replay-unit.mjs',       // 纯 node 重播回归网，三进程并行 ~13~50s（仍在 quick 的 ≤1 分钟线内）
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
   'probe/figure-foot-guard.mjs',       // 纯射线 ~17s + 零覆盖的缺陷类（人物陷进台基/走在水上）
@@ -592,14 +705,137 @@ const byGates = GATE_KEYS.length
   ? SUITES.filter(([label, p2]) => GATE_KEYS.some(k => p2.includes(k) || label.includes(k)))
   : null;
 const QUICK_MODE = process.argv.includes('--quick');
+
+/* ══ `--changed`：按改动面挑门（2026-10-31）══════════════════════════════════
+   为什么要它：全量 93 道实测 1h50m，其中大头是**每道门各自起一次浏览器 + 装配全园**
+   （中位 48s，长的 470~618s）。而一次改动真正可能影响到的门通常不到 1/3。
+   触发场景（真实统计）：93 道门里有 10 道曾以 `exit=3221225794`（DLL 初始化失败）崩掉，
+   全部集中在队列尾段 —— 那是**反复启停进程**累计出来的，不是耗时长短。
+   按需挑门同时解决"慢"和"尾段崩"两件事。
+
+   ── 怎么知道"改了 A 要跑哪些门" ──
+   试过、都不成立的三条路（留档，免得下一个人重走）：
+     ① 静态分析 probe/*.mjs 里的 import —— 只有 17 道真 import src 模块，
+        其余 76 道全靠"页面加载后从 window.__garden 取"，静态看不见依赖；
+     ② 找 `__garden.xxx` 的调用 —— `ENV` 被 128 处引用，几乎每道门都用，区分不出东西；
+     ③ `git log` 找"源文件和门禁同一次提交" —— 本项目**一项一提交**，
+        源文件与门禁落在不同提交里，历史关联是空的。
+   ⇒ 只能**让门自己声明**。约定：门禁文件顶部写一行
+        // @guards: src/12-env.js, src/12h-solar.js
+      即"我守这些东西"。
+
+   ── 三条铁律（这个参数最怕变成"假绿的借口"）──
+     ① **没写 `@guards:` 的门 ⇒ 一律纳入。** 不知道就别假装知道；
+     ② **改了门禁自己 / 门禁共享设施（_harness、verify-all）⇒ 全量。** 那是地基本身；
+     ③ **挑出来的门 < 8 道 ⇒ 退回全量并明说。** 少到那个程度，"省时间"已经没意义，
+        而"漏掉一道"的代价远大于多跑几十道。
+   用法：
+        node probe/verify-all.mjs --changed            # 与 HEAD 比（含未提交改动）
+        node probe/verify-all.mjs --changed=origin/master  # 与某分支比
+        node probe/verify-all.mjs --changed-why        # 只打印"会跑哪些、为什么"，不执行
+   ⚠️ 永远替代不了发版前的全量。它解的是"日常改动"，不是"发版验收"。 */
+const CHANGED_ARG = (() => {
+  const a = process.argv.find(x => x === '--changed' || x.startsWith('--changed='));
+  if (!a) return null;
+  return a.includes('=') ? a.slice('--changed='.length) : 'HEAD';
+})();
+const CHANGED_WHY = process.argv.includes('--changed-why');
+
+/* 门禁共享设施：动它们等于动所有门的地基。 */
+const GATE_INFRA = /^probe\/(_harness\.mjs|verify-all\.mjs|_png\.mjs|_probe-detect\.mjs|_extract-section\.mjs|_codeonly\.mjs)$/;
+
+function parseGuards(file){
+  let txt;
+  try { txt = fs.readFileSync(path.join(ROOT, file), 'utf8'); } catch { return null; }
+  /* 只看**文件头 3KB**：@guards 是头注释的约定，正文里的同名串不算。
+     （踩过同类坑：visit-carriage-guard 早期版本扫正文里的字符串，把注释里的示例当真了。） */
+  const head = txt.slice(0, 3000);
+  const m = head.match(/^\s*\/\/\s*@guards:\s*(.+)$/m);
+  if (!m) return null;
+  return m[1].split(',').map(s => s.trim()).filter(Boolean);
+}
+
+function changedFiles(base){
+  /* 已提交的差值 + 工作区未提交的（含未跟踪）——两者都可能是有意改动。
+     ⚠️ `-uno`：未跟踪的是"新加的文件"，可能正是新模块；但 node_modules / outputs 这些
+        在 .gitignore 里，`git status --porcelain` 默认就不列。这里用 `--porcelain` 不带 -uno，
+        再自己过滤掉明显的临时产物。 */
+  const run = (args) => {
+    const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+    return (r.stdout || '').split('\n').map(s => s.trim()).filter(Boolean);
+  };
+  const committed = run(['diff', '--name-only', `${base}...HEAD`]);
+  const working = run(['diff', '--name-only', 'HEAD']);
+  const untracked = run(['ls-files', '--others', '--exclude-standard']);
+  return [...new Set([...committed, ...working, ...untracked])]
+    .filter(f => !/^(outputs\/|node_modules\/)/.test(f));
+}
+
+function selectByChange(base){
+  const files = changedFiles(base);
+  if (!files.length){
+    return { list: [], files, reason: '没有任何改动（与基线逐字节相同）', forcedAll: false };
+  }
+  const src = files.filter(f => /^src\/.*\.js$/.test(f));
+  const gateFiles = files.filter(f => /^probe\/.*\.mjs$/.test(f));
+  const infra = gateFiles.filter(f => GATE_INFRA.test(f));
+  /* 铁律②：地基被改 ⇒ 全量。 */
+  if (infra.length){
+    return { list: SUITES, files, forcedAll: true,
+             reason: `门禁共享设施被改动（${infra.join('、')}）⇒ 全量，不做挑选` };
+  }
+  /* 非代码改动（docs/、README、assets/ 等）：保守起见仍按"每条 src 都不算"处理，
+     但如果完全没有 src 也没有 probe 改动，说明这次改动跟运行时无关。
+     ⚠️ 仍不返回空 —— 交回上层按"<8 道退回全量"处理，宁可多跑。 */
+  const touchedGates = gateFiles.map(f => f.replace(/^probe\//, 'probe/'));
+  const srcSet = new Set(src);
+  const picked = [];
+  const why = [];
+  for (const [label, rel] of SUITES){
+    const g = parseGuards(rel);
+    if (g === null){
+      /* 铁律①：未声明的门一律纳入，并记下原因（--changed-why 会打印）。 */
+      picked.push([label, rel]);
+      why.push(`  ${label}（未声明 @guards，按规矩纳入）`);
+      continue;
+    }
+    const hit = g.filter(x => srcSet.has(x));
+    if (hit.length || touchedGates.includes(rel)){
+      picked.push([label, rel]);
+      why.push(`  ${label}（声明守 ${hit.length ? hit.join('、') : '（门禁自身被改）'}）`);
+    }
+  }
+  /* 铁律③：太少就退回全量。 */
+  if (picked.length < 8){
+    return { list: SUITES, files, forcedAll: true,
+             reason: `只挑出 ${picked.length} 道（<8）⇒ 退回全量；省这点时间不值得冒漏测的险`,
+             why };
+  }
+  return { list: picked, files, forcedAll: false,
+           reason: `改动 ${files.length} 个文件（其中 src ${src.length} 个）⇒ 挑出 ${picked.length}/${SUITES.length} 道`,
+           why };
+}
+
+const changedPick = CHANGED_ARG ? selectByChange(CHANGED_ARG) : null;
+const byChanged = changedPick && !changedPick.forcedAll ? changedPick.list : null;
 const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]]
               : byGates ? byGates
+              : byChanged ? byChanged
               : QUICK_MODE ? SUITES.filter(([, p2]) => QUICK.has(p2))
               : SUITES;
 if (byGates && !LIST.length){
   console.error(`[verify-all] ✗ --gates=${GATES_ARG} 没有匹配到任何门（可用名字见 SUITES 表）——拒绝以「0 道门全绿」收场`);
   process.exit(1);
 }
+/* `--changed` 挑出 0 道 ⇒ **响亮报错**，绝不静默全绿。
+   （这与上面 --gates 拼错同一条规矩：本项目的"假绿"形状里最贵的一种。） */
+if (changedPick && !changedPick.forcedAll && !LIST.length){
+  console.error('[verify-all] ✗ --changed 没能挑出任何门 —— 拒绝以「0 道门全绿」收场。改用全量或 --gates=');
+  process.exit(1);
+}
+const gitHead = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim();
+const gitDirty = spawnSync('git', ['status', '--porcelain', '-uno'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim().length > 0;
+say(`[verify-all] HEAD=${gitHead || '?'}${gitDirty ? ' DIRTY' : ''} · ${new Date().toISOString()}`);
 if (byGates) say(`[verify-all] 🎯 --gates=${GATES_ARG} ⇒ 只跑 ${LIST.length} 道：${LIST.map(([l]) => l).join('、')}`);
 if (QUICK_MODE && !SELFTEST){
   say(`[verify-all] ⚡ quick 模式：${LIST.length}/${SUITES.length} 道（快门 + 广覆盖；发布前仍须跑全量 npm run verify）`);
@@ -622,6 +858,18 @@ say('[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并
 if (SELFTEST) say(`[verify-all] ⚠️ 自检模式：只跑 ${SELFTEST}（验证红门路径，不是真跑链）`);
 if (!RETRY) say('[verify-all] ⚠️ VERIFY_NO_RETRY=1：红门**不重跑**（要第一手红时用）');
 if (STRICT) say('[verify-all] ⚠️ VERIFY_STRICT=1：FLAKY 也判红');
+if (changedPick){
+  say(`[verify-all] 🔍 --changed=${CHANGED_ARG} ⇒ ${changedPick.reason}`);
+  if (changedPick.files.length) say(`[verify-all]    改动文件：${changedPick.files.slice(0, 12).join('、')}` +
+                                     (changedPick.files.length > 12 ? ` …等 ${changedPick.files.length} 个` : ''));
+  if (CHANGED_WHY && changedPick.why && changedPick.why.length){
+    say('[verify-all]    挑选依据：');
+    for (const line of changedPick.why) say(`[verify-all] ${line}`);
+  }
+  if (changedPick.forcedAll) say('[verify-all]    ⚠️ 本次退回全量（理由见上）——这是保守设计，不是失败');
+  else say('[verify-all]    ⚠️ 挑门只用于**日常改动**；发版前仍须跑全量 npm run verify');
+}
+if (CHANGED_WHY) process.exit(0);   // 只问"会跑哪些"，不执行
 say(`[verify-all] 完整日志：${path.relative(ROOT, LOG)}`);
 say(gpuTag());
 say('');
@@ -652,8 +900,13 @@ for (const [name, rel] of LIST){
   const out = (r.stdout || '').trim();
   const ok = r.status === 0;
   if (ok){
-    const tail = out.split('\n').slice(-3).join('\n');
-    if (tail) say(tail);
+    /* 绿门也保留带 ✓/✗ 的行（这些行 — 后面就是读数），上限 40 行；末尾仍附原来的末 3 行。
+       红门行为不变（走 dumpRed 完整明细）。 */
+    const lines = out.split('\n');
+    const marked = lines.filter(l => l.includes('✓') || l.includes('✗')).slice(0, 40);
+    const tail = lines.slice(-3).filter(l => !marked.includes(l));
+    const keep = marked.concat(tail.length ? ['', ...tail] : []);
+    if (keep.length) say(keep.join('\n'));
     if (retried){
       say(`⚠⚠ **FLAKY（偶发）**：${name} —— 第 1 次 exit=1、重跑 exit=0。`);
       say('   ⚠️ 这不等于"通过"：它说明**这门不稳**。排查两条线：① GPU 档位（_harness 明说 ANGLE');

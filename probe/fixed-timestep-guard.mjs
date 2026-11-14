@@ -24,7 +24,8 @@ const check=(name,ok,detail='')=>{results.push({name,ok});console.log(`  ${ok?'�
   const {chromium}=createRequire(import.meta.url)('playwright');
   const browser=await launchChromium(chromium);
   const page=await browser.newPage({viewport:{width:900,height:600}});
-  page.setDefaultTimeout(120000);
+  /* 2026-10-31：慢机（沙箱 SwiftShader 2 核首帧 ~125s、bootDone ~380s）用 GARDEN_BOOT_MS 放大；默认不变，判据不动。 */
+  page.setDefaultTimeout(Math.max(120000, +process.env.GARDEN_BOOT_MS || 0));
   const errs=[]; page.on('pageerror',e=>errs.push(String(e))); page.on('console',m=>{if(m.type()==='error')errs.push(m.text());});
 
   await page.goto(`http://127.0.0.1:${port}/index.html?intro=0`,{waitUntil:'domcontentloaded'});

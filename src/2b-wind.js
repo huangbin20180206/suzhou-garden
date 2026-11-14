@@ -75,6 +75,22 @@ export function windGain(wf){
 const windMulNow = () => (ENV_REF.cur && ENV_REF.cur.windMul) || 1;
 export function updateWindForce(t){
   const f = WIND_FORCE;
+  /* ══ 天气切换 ⇒ 风立即响应（2026-10-14 Chief 派单："先起风、天色压暗，再落雨点"）═══
+     老的缺口：档位抽查走随机 nextAt（5~10s 保持）⇒ clear→storm 后，band 从中位
+     [0,1]（微风~中风）跳到 [1,3]（中风~台风），但当前档位 v 还停在晴天档，
+     最坏要等 10s 才换 —— 表现是"风突然弱了一下才变强"，因果链的第一环就断了。
+     gain（windGain(windMul)，随 ENV 的 2.8s 过渡连续涨） meanwhile 已经先动
+     ⇒ 风力的绝对量先渐强、档位随后跟上 —— 这才是"先起风"。
+     修法：band 变了就**立即**排一次 1.5s 换档（复用下面的 from/to/t0/dur 过渡，
+     不新增过渡机制、不碰随机流 —— 抽哪一档仍走同一条 Math.random 路径）。
+     ⚠️ 用 band 的 lo/hi 判"变"，不用 windMul 的浮点值：过渡期内 windMul 连续变化
+        但 band 不变，不误触发；band 变 = 天气真的换档了（如 clear↔storm）。 */
+  const bandNow = forceBand(windMulNow());
+  if (bandNow[0] !== f.lo || bandNow[1] !== f.hi){
+    f.lo = bandNow[0]; f.hi = bandNow[1];
+    f.nextAt = t + 0.9;                          // 0.9s 后排班：给参数层 gain 渐起留个起步差
+    f.from = f.v;                                // 从当前实测量起过渡（不是上一档的名义值）
+  }
   if (t >= f.nextAt){
     const band = forceBand(windMulNow());
     f.lo = band[0]; f.hi = band[1];

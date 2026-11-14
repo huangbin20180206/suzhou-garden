@@ -1,0 +1,2143 @@
+[verify-all] HEAD=13f0ea4 · 2026-11-10T01:54:05.116Z
+[verify-all] 串行执行（探针并行会互抢 GPU/CPU，互相拖慢并误报）
+[verify-all] 完整日志：outputs\_diag\verify-2026-11-10T01-54-04.log
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+
+── 语法门禁 check ──────────────────────────
+入口：index.html → <script type="module" src="./src/main.js">（唯一 module script，无内联）✓
+      PWA：sw.js 语法 OK · 应用壳 v45（2 件）/ 资产桶 v23（18 件）均未越过版本号 ✓
+      画布兜底底色：#0B0E12 ✓（防"没画到的区域透出网页白底"）
+      no-undef：60 个编译单元（src 58（含入口 main.js）+ build-entry.js + sw.js）无未定义标识符 ✓
+      编码：384 个文本文件均为 UTF-8 ✓
+
+check: PASS（入口 src/main.js 153 行 + build-entry.js + src 58 个模块：00-config.js, 00a-quality.js, 00b-fixedstep.js, 01-materials.js, 01b-textures.js, 02-scene.js, 03-factory.js, 03a-names.js, 04-buildings.js, 05-water.js, 06-vegetation.js, 06a-rng.js, 06b-atmos.js, 06c-organs.js, 06d-corridor.js, 06e-assets.js, 06f-ripple.js, 06g-koi.js, 06h-rock.js, 06i-trees.js, 06j-herbs.js, 06k-willow.js, 06l-orchard.js, 06m-banana.js, 07-ground.js, 08-assemble.js, 08b-figures.js, 08c-aquatic.js, 08d-tour.js, 08e-birds.js, 08f-macaw.js, 09-lights.js, 09b-batch.js, 10-post.js, 11-loop.js, 12-env.js, 12a-presets.js, 12b-sky.js, 12c-festival.js, 12d-lantern.js, 12e-precip.js, 12f-season.js, 12g-phenology.js, 12h-solar.js, 13-preload.js, 14-props.js, 15-stable.js, 15a-shared.js, 15b-horse-rig.js, 15c-horse-life.js, 15d-carriage.js, 15e-stable.js, 16-actors.js, 16a-actor-props.js, 16b-artistic-note.js, 2b-wind.js, art-license.js, main.js）
+✓ 语法门禁 check — exit=0（7.8s）
+
+── 语法判定单元 codeonly-unit ──────────────────────────
+  ✓ // 注释不算代码  got=false want=false
+  ✓ /* */ 不算代码  got=false want=false
+  ✓ 单引号串挖空  got=false want=false
+  ✓ 模板串字面挖空  got=false want=false
+  ✓ 模板串 ${} 保留  got=true want=true
+  ✓ 保长（下标对齐）  got=13 want=13
+  ✓ $ 开头的名字能匹配  got=true want=true
+  ✓ 属性访问不算引用  got=false want=false
+  ✓ 子串不算引用  got=false want=false
+  ✓ 中文名能匹配  got=true want=true
+  ✓ 普通名字能匹配  got=true want=true
+  ✓ 同名后缀不算  got=false want=false
+  ✓ 对象字面量的键不算  got=false want=false
+  ✓ 简写属性值算引用  got=true want=true
+  ✓ 只罩住一部分 → 不豁免  got=false want=false
+  ✓ 全部引用都在块内 → 豁免  got=true want=true
+  ✓ 顶层声明不由本函数负责 → false  got=false want=false
+  ✓ 顶层声明只收列 0  got="a,f" want="a,f"
+  ✓ 局部绑定收形参  got=true want=true
+  ✓ 局部绑定收解构  got=true want=true
+  ✓ identsOf 含 $ 名字  got=true want=true
+  ✓ identsOf 排除属性名  got=false want=false
+
+
+codeonly-unit: PASS（共享语法判定契约全部符合）
+✓ 语法判定单元 codeonly-unit — exit=0（0.1s）
+
+── 纯函数单测 unit-pure ──────────────────────────
+
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 11.1939
+✓ 纯函数单测 unit-pure — exit=0（0.2s）
+
+── 花历单测 env-phenology-unit ──────────────────────────
+
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4.7817
+✓ 花历单测 env-phenology-unit — exit=0（0.1s）
+
+── 日轨月相单测 env-solar-unit ──────────────────────────
+
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 4.2288
+✓ 日轨月相单测 env-solar-unit — exit=0（0.1s）
+
+── 固定步长单测 fixed-step-unit ──────────────────────────
+
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 6.2542
+✓ 固定步长单测 fixed-step-unit — exit=0（0.1s）
+
+── 到访重播单测 actor-replay-unit ──────────────────────────
+
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 8208.344
+✓ 到访重播单测 actor-replay-unit — exit=0（8.4s）
+
+── 构建物新鲜度 vendor-fresh ──────────────────────────
+
+[vendor-fresh] 自检 PASS（换行归一 + 内容变化）
+[vendor-fresh] PASS（entrySha=394cf9dadf736a22）
+✓ 构建物新鲜度 vendor-fresh — exit=0（0.1s）
+
+── 预载清单一致性 preload-manifest-sync ──────────────────────────
+  ✓ M0 结构：manifest.json 字段合法（precache ⇔ preload、lazy 写理由、stage 不含 %） — 21 件
+  ✓ G1 13-preload 的 PRELOAD_MANIFEST 生成段与 manifest 一致 — 18 件预载
+  ✓ G2 sw.js 的 GLBS 生成段与 manifest 一致（漏则 PWA 离线首开缺件） — 18 件回填
+  ✓ G3 反向扫磁盘：assets/ 每个文件都登记在 manifest.json（新资产忘了登记即红） — 磁盘 22 个文件全部已登记
+  ✓ G4 bytes / sha256：清单 = 磁盘实测 — 21 件全部吻合
+  ✓ G5 SHELL：应用壳必需成员齐全 — 6 件齐全（SHELL 共 6 项）
+  ✓ G6 接线：每件预载件都在 src 里有人 loadAssetOnce / placeAssets / settleAsset 回报 — 18 件全部接线
+  ✓ 负例 A（从 GLBS 段抹掉 assets/Macaw.glb） ⇒ G2 报红 — 不一致 ⇒ node tools/gen-asset-manifest.mjs --write
+  ✓ 负例 A2（manifest 删掉 assets/Macaw.glb） ⇒ G3 报红 — 未登记 1 件：assets/Macaw.glb
+  ✓ 负例 B（assets/koi.glb 的 bytes +12345） ⇒ G4 报红 — assets/koi.glb：清单 220345 vs 磁盘 208000（差 -12345）
+  ✓ 负例 B2（手改 PRELOAD_MANIFEST 段） ⇒ G1 报红 — 不一致 ⇒ node tools/gen-asset-manifest.mjs --write（别手改生成段）
+  ✓ 负例 C（SHELL 抹掉 vendor.js） ⇒ G5 报红 — SHELL 缺：vendor.js
+  ✓ 负例 D（抹掉 assets/koi.glb 的接线） ⇒ G6 报红 — 1 件没人回报：assets/koi.glb ⇒ 每次进项目都会死等满 PRELOAD_TIMEOUT_MS
+  ✓ 负例 E（assets/HorseTinker.glb lazy 却 precache） ⇒ M0 报红 — assets[18]（assets/HorseTinker.glb）：precache 必须与 phase=preload 一致（预载件要离线可用；懒加载件不回填）
+  ✓ 阳性对照：未变异的输入全绿
+
+[preload-manifest-sync] 自检 ALL PASS
+
+[preload-manifest-sync] ALL PASS（7 项判据 + 自检 PASS）
+✓ 预载清单一致性 preload-manifest-sync — exit=0（0.2s）
+
+── 门数一致性 gate-count-sync ──────────────────────────
+  ✓ C1 全量门数：README 的「N 道门」全部等于 SUITES.length（95） — 4 处提及全部一致（95 道）
+  ✓ C2 quick 门数：README 的 quick 口径全部等于 QUICK.size（17） — 2 处提及全部一致（17 道）
+  ✓ C3 探针文件数：README 的「探针 N 个 .mjs」等于磁盘实际（167） — 1 处提及全部一致（167 个）
+  ✓ C1b SUITES 每一条都在磁盘上（门名笔误 ⇒ verify-all 只会静默少跑一道） — 95 条全部存在
+  ✓ 负例 A：门数 +1 而 README 没跟 ⇒ C1 报红 — 4 处不符：「95 道门」、「95 道门」、「95 道门」、「95 道门」
+  ✓ 负例 A2：README 比实际多报 3 道 ⇒ C1 报红 — 4 处不符：「95 道门」、「95 道门」、「95 道门」、「95 道门」
+  ✓ 负例 B：quick 门数 +1 而 README 没跟 ⇒ C2 报红 — 2 处不符：「verify:quick` = 17」、「现在 **17 道**」
+  ✓ 负例 C：SUITES 里写错一个门名 ⇒ C1b 报红 — 1 条不存在：probe/no-such-gate.mjs
+  ✓ 阳性对照：未变异的输入 4 项全绿
+
+[gate-count-sync] 自检 ALL PASS（3 变异 + 1 阳性对照）
+
+[gate-count-sync] ALL PASS（4 项判据 + 自检 PASS）
+✓ 门数一致性 gate-count-sync — exit=0（0.1s）
+
+── 改动挑门映射 changed-map-unit ──────────────────────────
+✓ ① 能从 verify-all.mjs 里定位到 SUITES 表 — 长度 27014
+  ✓ ① SUITES 解析出条目 — 95 条
+  ✓ ① SUITES 里没有重复门禁路径 — 95 个唯一路径 / 95 条
+  ✓ ⑥ 负数：去掉「未声明⇒纳入」这条，未声明场景必须挑不出东西（证明规则有牙） — 有规则挑 95 道 / 删掉规则挑 95 道（退回全量=true）
+  ✓ ① 未声明 @guards 的门一律纳入（不知道就不假装知道） — 未声明 88 道 ⇒ 本次挑出 89/95 道（含全部未声明）
+  ✓ ① 已声明 @guards 的门数已统计（将来补声明时这条会跟着变） — 7 道已声明 / 88 道未声明
+  ✓ ② 门禁共享设施（_harness）被改 ⇒ 退回全量 — reason=infra，95/95
+  ✓ ② 门禁共享设施（verify-all）被改 ⇒ 退回全量 — reason=infra
+  ✓ ② 负数：只改某一道普通门禁时**不**退回全量（否则这条规则太宽） — reason=ok
+  ✓ ③ 挑出 0 道（<8 阈值内）⇒ 退回全量 — reason=too-few，挑出 95
+  ✓ ③ 挑出恰好 1 道 ⇒ 仍退回全量（不是"有就行"） — reason=too-few
+  ✓ ③ 负数：挑出 ≥8 道时正常返回挑选结果（不误触发退回全量） — 挑出 95 道，forcedAll=false
+  ✓ ⑤ 改 src/alpha.js ⇒ 逐门筛选只命中声明它的那一门 — A=true B=false 命中 1 道
+  ✓ ⑤ 改 src/beta.js ⇒ 只命中 beta 门（对称验证，防"总是命中第一门"） — 命中 1 道
+  ✓ ⑤ 改一条**没有任何门声明**的 src ⇒ 一道都不命中（不会误纳入） — 命中 0 道
+  ✓ ④ 没有任何改动 ⇒ 不返回「0 道门全绿」的成功形态 — 改动 0 个 ⇒ list=88（要么有门，要么退回全量）
+  ✓ ⑦ 与 verify-all 同形：两边都有 GATE_INFRA 与"挑太少退回全量"的阈值 — GATE_INFRA=true 阈值 verify-all=8 / 本门=8
+
+
+[changed-map-unit] ALL PASS（17 项）
+✓ 改动挑门映射 changed-map-unit — exit=0（0.1s）
+
+── 拆分守卫 import-audit ──────────────────────────
+
+  · 16-actors.js: box 被本地声明整体罩住（另有同名导出）—— 不判缺 import
+  · 16-actors.js: WALK_ROUTE 被本地声明整体罩住（另有同名导出）—— 不判缺 import
+  · 16-actors.js: ENV 被本地声明整体罩住（另有同名导出）—— 不判缺 import
+✓ 拆分守卫 import-audit — exit=0（50.9s）
+
+── 风场轨迹 wind-trajectory ──────────────────────────
+  ✓ L3：全材质世界轴走向比 ≤0.30（轨迹是细长条，不是椭圆） — 最差 0.22（旧公式均 0.47、抖振 0.75）
+  ✓ L3：全材质无净转圈（|净转圈/s| ≤0.12） — 最差 0.047 圈/s
+  ✓ L3：方向一致率 ≤0.66（来回摆而非单向绕圈） — 最差 0.53（0.5=完美来回摆）
+  ✓ L3：抖振通道走向比 ≤0.35（"每秒一圈"的快速小圈已消除） — 最差 0.26（旧 0.75）
+  ✓ L3：抖振通道 |净转圈/s| ≤0.12 — 最差 0.000
+  ✓ 对照：旧公式确实是"椭圆"而非细长条（回归基线，防止对照被悄悄改掉） — 旧公式走向比 0.52／抖振通道 0.75
+
+
+[wind-trajectory] ALL PASS（6 项）
+✓ 风场轨迹 wind-trajectory — exit=0（0.2s）
+
+── 烘焙产物前提 shadow-product ──────────────────────────
+✓ S1 太阳方向随时辰**连续**变化（步进中位数 > 0.2 度，非几个固定角） — 步进中位数 5.463度 / 最大 25.59度 / 全天弧长 300.3度
+  ✓ S2 8 度口径独立方向数 >= 8（低于此则离散烘焙变可行，前提①被推翻） — 纯静态实测 18 个 / 弧长 300.3度（基准 18 个 / 300.3 度，容差 ±1）｜浏览器口径基准为 11 个 / 180 度（含月亮接管，口径不同、不可直接比）
+  ✓ S3 时段分段边界与 nearestTimeKey 一致（4 个边界、顺序不变） — 实测 4 个翻转：4.5:night->morning  10:morning->noon  15:noon->dusk  19.5:dusk->night（期望 4 个：4.5:night->morning  10:morning->noon  15:noon->dusk  19.5:dusk->night）
+  ✓ S4 段内 sunPos 是**线性插值**（残差 <= 0.000001） — morning->noon 段 t=0.2/0.4/0.6/0.8 最大残差 0.00e+0（mixInto 12a-presets.js:563 是纯线性 ⇒ 理论残差 0；任一非线性改动都会让它抬头）
+  ✓ S6 实时阴影仍是**单投影**光源口径（烘焙产物不得与实时阴影叠加的前提） — 方向光共 2 盏（sun:113 投影 / fill:217 不投影）｜castShadow=true 声明 1 处｜前提③要求「投影方向光 == 1 盏」（既有门 :159）；判的是 castShadow=true 的**声明数**，不是方向光总数（fill 09-lights.js:217 刻意不投影）
+
+
+[shadow-product-gate] ALL PASS（5 项断言，1 项跳过）
+  实测总耗时 **4 ms**（纯 node / 零浏览器 / 零 GPU）；阈值出处见文件头与 T 注释。
+✓ 烘焙产物前提 shadow-product — exit=0（0.1s）
+
+── playwright 实参个数 playwright-args-guard ──────────────────────────
+[playwright-args-guard] 口径自检：waitForFunction 零误报 ✓
+
+[playwright-args-guard] 实参 2（函数 + 一个数据）合法；waitForFunction 三参合法
+[playwright-args-guard] ALL PASS（0 处超限 evaluate）
+✓ playwright 实参个数 playwright-args-guard — exit=0（0.2s）
+
+── 阴影视体覆盖 shadow-cover ──────────────────────────
+  ✓ hour=7.5 clear  新覆盖    100%  盒[-37.99,29.37]×[-26.56,27.15]  旧覆盖    100% (_sc=1)  sun=1.0575  near/far=19.2/100.6
+  ✓ hour=7.5 storm  新覆盖    100%  盒[-37.99,29.37]×[-26.56,27.15]  旧覆盖    100% (_sc=1)  sun=0.3083  near/far=19.2/100.6
+  ✓ hour=10.5 clear  新覆盖    100%  盒[-38.66,37.4]×[-50.37,38.59]  旧覆盖  86.68% (_sc=1)  sun=1.22  near/far=37.5/84.4
+  ✓ hour=12.5 clear  新覆盖    100%  盒[-39.78,55.62]×[-42.57,47.93]  旧覆盖  82.52% (_sc=1)  sun=1.22  near/far=49.2/79.2
+  ✓ hour=12.5 storm  新覆盖    100%  盒[-39.78,55.62]×[-42.57,47.93]  旧覆盖  82.52% (_sc=1)  sun=0.1708  near/far=49.2/79.2
+  ✓ hour=15 clear  新覆盖    100%  盒[-25.45,32.06]×[-26.22,43.08]  旧覆盖  97.26% (_sc=1)  sun=1.151  near/far=38.8/100.3
+  ✓ hour=18 clear  新覆盖    100%  盒[-38.18,39.09]×[-10.18,21.85]  旧覆盖    100% (_sc=1.681)  sun=1  near/far=28.9/121.3
+  ✓ hour=18 storm  新覆盖    100%  盒[-38.18,39.09]×[-10.18,21.85]  旧覆盖    100% (_sc=1.681)  sun=0.14  near/far=28.9/121.3
+
+[shadow-cover] 零 pageerror：是
+
+[shadow-cover] 18/18 项通过
+✓ 阴影视体覆盖 shadow-cover — exit=0（26.1s）
+
+── 无头回归 smoke ──────────────────────────
+  ✓ 页面启动完成（loading 层收起，__garden 就绪）
+  ✓ 零 console error / pageerror
+  ✓ 几何合并零校验告警
+  ✓ 零资产加载失败
+  ✓ draw calls 上限（373 < 800 · 晴夏基线） — 6 帧读数 373/373/373/373/373/373（取最小＝基线；大值那几帧含反射/阴影那趟）
+  ✓ 三角形上限（2,266,412 < 4,200,000 · 晴夏基线）
+  ✓ 几何/纹理数量健康 — geos=388 tex=112
+  ✓ 五类 GLB 资产均已挂载（未降级） — {"KoiFish":11,"Turtle":6,"BananaPlant":16,"LotusPlant":12,"Macaw":3}
+  ✓ 锦鲤在游动（位移 > 0.001m） — 位移 0.02066m
+  ✓ 切夜：过渡完成（ENV.t 收敛）
+  ✓ 切夜：状态落位
+  ✓ 切夜：stats 标签联动 — 风和日丽 · 夜夏
+  ✓ 切夜：环境强度随亮度下调 — environmentIntensity=0.080
+  ✓ 晴夜有月：天空月可见度>0.5 且月在地平线上 — vis=1.00 仰角=3.6°
+  ✓ 月光即主光：夜里的平行光方向 = 月亮方向 — dot=0.998
+  ✓ 切暴雨：过渡完成
+  ✓ 切暴雨：有效天气为 storm
+  ✓ 切暴雨：雨量>0 且底值风>0（审计 B03 回归） — rain=1.00 windGlobal=0.70
+  ✓ 夏季雪被拒：weatherAllowed=false 且按钮置灰
+  ✓ 冬季切雪：过渡完成
+  ✓ 冬季切雪合法且生效
+  ✓ 冬季紫藤落尽：花穗 InstancedMesh 全部 count=0 且不可见 — meshes=14 visible=0 count=0
+  ✓ 正午无月（月亮只在夜里起落） — uMoonAmount=0
+  ✓ 切晨雾：过渡完成
+  ✓ 薄雾：雾密度抬升（底 1.8×时辰档，主建筑须可读） — density=0.0103
+  ✓ 晨雾：标签联动且全季节可用 — label="薄雾烟霭 · 午夏" btnEnabled=true
+  ✓ 时辰滑杆：拖动事件受理
+  ✓ 时辰滑杆：短过渡完成
+  ✓ 时辰滑杆：ENV.hour 落位、按钮跟随最近锚点 — hour=15.299999999999997 time=dusk readout=15:18
+  ✓ 时辰滑杆：stats 显示 HH:MM — 薄雾烟霭 · 15:18夏
+  ✓ 时段按钮：把连续时辰拉回锚点 12:30 — hour=12.5448 slider=12.5
+  ✓ 明信片：可生成含题跋的 PNG — 659KB dataURL
+  ✓ 音景：开关往返状态正确
+  ✓ 按 0 键视角复位 — 复位距离 0
+  ✓ 点击涟漪：默认机位下找得到池面可点屏幕点 — {"x":144,"y":397}
+  ✓ 点击涟漪：可信点击命中池面并生成水痕 — {"at":88406.10000000056,"hit":true,"bait":true,"x":-5.593074103778703,"z":-1.5268411894031466}
+  ✓ stats 面板持续刷新
+  ✓ 视口缩放画布自适应（480×800）
+  ✓ 移动端 320px：面板收进视口且无横向溢出
+  ✓ 移动端：按钮 aria-pressed 齐全、触控命中区 ≥44px — minH=46
+
+[info] draw calls=373 triangles=2,266,412 geos=388 tex=112
+
+[smoke] ALL PASS（56 项）
+✓ 无头回归 smoke — exit=0（102.8s）
+
+── 巡游端到端 tour-guard ──────────────────────────
+⚠ 第 1 次 exit=1（139.6s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（巡游端到端 tour-guard · 第 1 次）—— 完整 stdout / stderr
+[tour-guard] http://127.0.0.1:40515/index.html
+  ✓ 巡游清单可读（10 站，逐站有 pos/target/字幕） — hero → stele → koi → lantern → plaque → bridge → heroPeak → hall → pavilion → overview
+  ✗ 巡游按序走满 10 站 — 0:立峰 · 云根 → 1:题名石 · 云根 → 2:观鱼 → 3:石灯笼 → 4:匾联 → 5:曲桥 → 6:主峰近观 → 7:远香堂
+  ✓ 10 站字幕与巡游清单逐站对应 — 逐站对应
+  ✗ 10 站逐站落位（水平 Δ<0.05m / 注视点 Δ<0.30m / y 只许被 polar 抬高） — #0 立峰 · 云根 hΔ=0.000 dy=-0.00 tgtΔ=0.000 | #1 题名石 · 云根 hΔ=0.000 dy=0.00 tgtΔ=0.000 | #2 观鱼 hΔ=0.000 dy=-0.00 tgtΔ=0.050 | #3 石灯笼 hΔ=0.000 dy=0.00 tgtΔ=0.000 | #4 匾联 hΔ=0.000 dy=0.00 tgtΔ=0.000 | #5 曲桥 hΔ=0.000 dy=-0.00 tgtΔ=0.000 | #6 主峰近观 hΔ=0.012 dy=0.63 tgtΔ=0.000 | #7 远香堂 hΔ=0.000 dy=-0.00 tgtΔ=0.000 | #8 ? hΔ=— dy=— tgtΔ=— | #9 ? hΔ=— dy=— tgtΔ=—
+  ✓ 巡游全程不穿墙（墙厚带内 y≥墙顶+0.2m） — 1802 帧采样全部在墙顶之上
+  ✓ 巡游期间无 pageerror
+
+[tour-guard] 4/6 PASS · 红：巡游按序走满 10 站、10 站逐站落位（水平 Δ<0.05m / 注视点 Δ<0.30m / y 只许被 polar 抬高）
+✗✗ 红门明细结束（巡游端到端 tour-guard · 第 1 次）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+↻ 重跑结果：exit=1（138.8s）
+✗✗ 红门明细开始（巡游端到端 tour-guard · 重跑仍红）—— 完整 stdout / stderr
+[tour-guard] http://127.0.0.1:43636/index.html
+  ✓ 巡游清单可读（10 站，逐站有 pos/target/字幕） — hero → stele → koi → lantern → plaque → bridge → heroPeak → hall → pavilion → overview
+  ✗ 巡游按序走满 10 站 — 0:立峰 · 云根 → 1:题名石 · 云根 → 2:观鱼 → 3:石灯笼 → 4:匾联 → 5:曲桥 → 6:主峰近观 → 7:远香堂 → 8:荷风四面
+  ✓ 10 站字幕与巡游清单逐站对应 — 逐站对应
+  ✗ 10 站逐站落位（水平 Δ<0.05m / 注视点 Δ<0.30m / y 只许被 polar 抬高） — #0 立峰 · 云根 hΔ=0.000 dy=-0.00 tgtΔ=0.000 | #1 题名石 · 云根 hΔ=0.000 dy=0.00 tgtΔ=0.000 | #2 观鱼 hΔ=0.000 dy=-0.00 tgtΔ=0.050 | #3 石灯笼 hΔ=0.000 dy=0.00 tgtΔ=0.000 | #4 匾联 hΔ=0.000 dy=0.00 tgtΔ=0.000 | #5 曲桥 hΔ=0.000 dy=-0.00 tgtΔ=0.000 | #6 主峰近观 hΔ=0.012 dy=0.63 tgtΔ=0.000 | #7 远香堂 hΔ=0.000 dy=-0.00 tgtΔ=0.000 | #8 荷风四面 hΔ=0.002 dy=0.08 tgtΔ=0.000 | #9 ? hΔ=— dy=— tgtΔ=—
+  ✓ 巡游全程不穿墙（墙厚带内 y≥墙顶+0.2m） — 2075 帧采样全部在墙顶之上
+  ✓ 巡游期间无 pageerror
+
+[tour-guard] 4/6 PASS · 红：巡游按序走满 10 站、10 站逐站落位（水平 Δ<0.05m / 注视点 Δ<0.30m / y 只许被 polar 抬高）
+✗✗ 红门明细结束（巡游端到端 tour-guard · 重跑仍红）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+✗ 巡游端到端 tour-guard — exit=1（138.8s · 重跑）
+
+── 机位可见性 viewpoint-visibility ──────────────────────────
+  ✓ 装配就绪（立峰 + 荷花实例都在场）
+  ✓ 前提：延迟装配已全部收尾（否则竹丛还堆在原点，会把机位前方挡成假红）
+  ✓ 官方机位清单可读 — 17 个：hero stele hall pavilion overview plumRed plumYellow stable stableNear meteor rainbow fireworks koi plaque bridge lantern heroPeak
+  ✓ 每个机位的中心视线不被近处物体**成片**打断（锥形 5 线里 ≥3 条） — hero:taihuHero@12.69 stele:stele@2.86 hall:screenPanel@19.76 pavilion:(anon)@16.52 overview:mergedStatic@48.69 plumRed:(anon)@3.7 plumYellow:mergedStatic@4.28 stable:mergedStatic@26.84 stableNear:mergedStatic@15.1 meteor:mergedStatic@101.24 rainbow:mergedStatic@48.69 fireworks:mergedStatic@107.4 koi:(anon)@11.69 plaque:mergedStatic@5.93 bridge:mergedStatic@8.5 lantern:mergedStatic@22.25 heroPeak:taihuHero@7.09
+  ✓ 3m 内没有荷花/睡莲糊在镜头前 — 全部通过
+  ✓ 负例自检：修复前的池中 1.18m 位姿必须被"近景花叶"判据抓到 — inFrame=20 cam=[-1.24,1.18,-1.95] samples=[{"tag":"lotus","d":1.37,"ndc":[0.6,-0.64]},{"tag":"lotus","d":1.4,"ndc":[0.59,-0.62]},{"tag":"lotus","d":1.43,"ndc":[0.61,-0.61]},{"tag":"lotus","d":1.44,"ndc":[0.66,-0.61]}]
+  ✓ 零 pageerror
+
+
+[viewpoint-visibility] 7/7 通过
+✓ 机位可见性 viewpoint-visibility — exit=0（34.2s）
+
+── 院门口石狮 lion-guard ──────────────────────────
+  ✓ 公母两件石狮都已挂上 — male×1 female×1
+  ✓ 公狮落位 x=+2.55 / z=23.25（园墙南月洞门，雄在左） — (2.55, 23.25)
+  ✓ 母狮落位 x=−2.55 / z=23.25（园墙南月洞门，雌在右） — (-2.55, 23.25)
+  ✓ 公母间距 5.1m — 5.10m
+  ✓ 公狮尺寸 1.08×0.56×0.85（±0.08） — 0.559 × 1.080 × 0.847
+  ✓ 母狮尺寸 1.08×0.56×0.85（±0.08，含胸前幼狮） — 0.561 × 1.080 × 0.846
+  ✓ 两件都落地（包围盒底 = holder 落点 ±5cm） — male Δ=0.000 / female Δ=0.000
+  ✓ 狮身到月洞门洞口净空 ≥0.40m — 雄内缘 65.1cm / 雌内缘 65.0cm
+  ✓ 两狮都在墙面之外（min.z > 墙外皮 22.8） — 雄 22.83 / 雌 22.83
+  ✓ 朝向：holder.rotation.y = 0（扫描狮脸朝 +z 南） — male 0.000 / female 0.000
+  ✓ 贴图已挂上（baseColor map 存在） — map=true/true
+  ✓ 网格规模合理（公 ≥12k 面、母 ≥10k 面） — 公 14998 / 母 11999 三角面
+  ✓ 两件 GLB 请求均 200 — [["stone-lion-male.glb",200],["stone-lion-female.glb",200]]
+  ✓ 无 pageerror
+
+
+[lion-guard] 14/14 PASS
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\lion-guard\gate-front.png
+✓ 院门口石狮 lion-guard — exit=0（26.4s）
+
+── 马的动作 horse-motion-guard ──────────────────────────
+  ✓ 有"低头吃草"那匹马
+  ✓ ① 低头吃草：口鼻低于鬐甲 ≥0.25m — -0.438m
+  ✓ 有"受喂"那匹马
+  ✓ ①b 受喂马也低着头 — -0.418m
+  ✓ ② 撅嘴嚼：下颌角摆动 ≥0.05rad — 0.13rad
+  ✓ ②b 受喂马也在嚼 — 0.13rad
+  ✓ ②c 厩内那匹不嚼（不该动嘴） — 0.016rad
+  ✓ ③ 摇尾巴：尾角 ≥0.2rad — max 0.8669rad
+  ✓ ③b 每匹马都在摇尾（不是只有几匹动） — min 0.6168rad
+  ✓ ④ 动前蹄：蹄骨角摆动 ≥0.15rad — max 0.36rad
+  ✓ ⑤ 抬头晃脑：六匹头骨角都在摆 ≥0.08rad — min 0.5382rad
+  ✓ ⑥ 冬天口鼻冒白气 — live 1
+  ✓ 全程零 pageerror — 无
+  ✓ 六匹马都在 — n=6
+
+
+[horse-motion-guard] ALL PASS
+✓ 马的动作 horse-motion-guard — exit=0（27.6s）
+
+── 马厩回归 stable-regression ──────────────────────────
+✓ 六匹马的顶点为米制浮点，头、前后腿权重非零 — [{"role":"stall","type":"Float32Array","height":1.7500001192092896,"head":4035,"front":3100,"hind":2823,"minHoofY":0,"hoofHead":0,"nose":[0,1.2543027284384356,0.9330066251754761],"liftScale":1,"shaderHalf":true},{"role":"stall","type":"Float32Array","height":1.75,"head":4491,"front":2996,"hind":4086,"minHoofY":0,"hoofHead":0,"nose":[0,1.2447419340348305,0.9264002847671509],"liftScale":1,"shaderHalf":true},{"role":"harnessed","type":"Float32Array","height":1.75,"head":6383,"front":2932,"hind":2683,"minHoofY":0,"hoofHead":0,"nose":[0,1.2090708951205391,1.008344750404358],"liftScale":0.5,"shaderHalf":true},{"role":"harnessed","type":"Float32Array","height":1.75,"head":4491,"front":2996,"hind":4086,"minHoofY":0,"hoofHead":0,"nose":[0,1.2447419340348305,0.9264002847671509],"liftScale":0.5,"shaderHalf":true},{"role":"graze","type":"Float32Array","height":1.75,"head":4491,"front":2996,"hind":4086,"minHoofY":0,"hoofHead":0,"nose":[0,1.2447419340348305,0.9264002847671509],"liftScale":1,"shaderHalf":true},{"role":"fed","type":"Float32Array","height":1.75,"head":6383,"front":2932,"hind":2683,"minHoofY":0,"hoofHead":0,"nose":[0,1.2090708951205391,1.008344750404358],"liftScale":1,"shaderHalf":true}]
+  ✓ 四蹄低处不再被当成头部参与低头旋转 — stall: hoofY=0.000, headWeight=0.000 | stall: hoofY=0.000, headWeight=0.000 | harnessed: hoofY=0.000, headWeight=0.000 | harnessed: hoofY=0.000, headWeight=0.000 | graze: hoofY=0.000, headWeight=0.000 | fed: hoofY=0.000, headWeight=0.000
+  ✓ 两匹辕马前腿竖直位移系数为 0.5，其他马不缩 — stall:1 | stall:1 | harnessed:0.5 | harnessed:0.5 | graze:1 | fed:1
+  ✓ 马夫和车夫脸、左右手均有保护掩膜 — [{"id":"groom","head":1063,"left":402,"right":366,"tones":{"head":446,"left":405,"right":369},"matrix":true},{"id":"laborer","head":1063,"left":402,"right":366,"tones":{"head":446,"left":405,"right":369},"matrix":true}]
+  ✓ 马夫和车夫脸、左右手均有肤色重映射掩膜 — [{"id":"groom","tones":{"head":446,"left":405,"right":369}},{"id":"laborer","tones":{"head":446,"left":405,"right":369}}]
+  ✓ 两驾车厢延长 1.5 倍，车轮和车轴位于厢体中部 — [{"length":2.4300000071525574,"front":0.7500000035762786,"center":-0.4650000000000001,"wheels":[-0.4650000000000001,-0.4650000000000001],"axle":-0.4650000000000001,"seat":0.9299999999999999},{"length":2.4300000071525574,"front":0.7500000035762786,"center":-0.4650000000000001,"wheels":[-0.4650000000000001,-0.4650000000000001],"axle":-0.4650000000000001,"seat":0.9299999999999999}]
+  ✓ 两匹辕马均有鼻箍、对称颊带和左右缰绳 — [{"bridle":true,"reins":2,"ties":2,"attached":true,"cheeks":true},{"bridle":true,"reins":2,"ties":2,"attached":true,"cheeks":true}]
+  ✓ 系绳接在实际横杆的环上，不横跨院子 — [[{"distance":0.7243624941541702,"ringError":8.082088143414335e-8,"start":[38.93980846257837,1.3088906434612186,1.3663600852587905],"end":[39.379999964732775,1.055306973798743,0.8499999523584951],"horse":[39.09340648651538,0.051974954946509166,2.249860519470632]},{"distance":0.8999385729072663,"ringError":8.082088143414335e-8,"start":[38.73934148115815,1.3088906434612186,1.4289139916689444],"end":[39.379999964732775,1.055306973798743,0.8499999523584951],"horse":[39.09340648651538,0.051974954946509166,2.249860519470632]}],[{"distance":1.0095004136197674,"ringError":2.849793993055177e-8,"start":[39.722756687769966,1.3190530716506115,1.2301098736687561],"end":[40.619999981035356,1.0553069292632213,0.8499999814474024],"horse":[39.86365161052177,0.062354463252173864,2.033706757198537]},{"distance":1.213038858333159,"ringError":2.849793993055177e-8,"start":[39.5241621704165,1.3190530716506115,1.2983756465097054],"end":[40.619999981035356,1.0553069292632213,0.8499999814474024],"horse":[39.86365161052177,0.062354463252173864,2.033706757198537]}]]
+  ✓ 马远离横杆后不显示被拉长的系绳 — true
+  ✓ 车停靠后，取草往返路线可达且不穿马车/马/围栏 — {"to":[[36.85,2.4199999999999995],[36.8,1.2000000000000002],[35.5,0.2]],"back":[[35.5,0.2],[36.8,1.4999999999999991],[36.85,2.4199999999999995]],"blocked":[0,0]}
+  ✓ 白马走动四个位置，取草路线仍可往返 — [{"d":0,"to":true,"back":true},{"d":0.25,"to":true,"back":true},{"d":0.5,"to":true,"back":true},{"d":0.75,"to":true,"back":true}]
+  ✓ 草料站被车占住时不规划穿模直线 — null
+  ✓ 真实动作中取草往返时没有进入障碍 — {"states":["idle","toBrush","brush","toHay","grab","back","feed"],"sampled":165,"unsafe":0,"lastActor":{"id":"groom","pos":[37.631,0.029,2.129],"yaw":-14.545,"bones":70,"mode":"stand","kneelW":0,"sitW":0,"floorY":0.029,"arrived":false,"target":1,"goId":null,"placeT":0,"teaT":0,"sipW":0,"brushT":0,"brushW":0,"chore":"feed","hayHeld":true,"scrollPhase":0,"scrollW":0,"moveW":0,"floorTries":0,"step":19.413},"lastGoal":[36.49,2.4199999999999995],"lastPath":[[37.631,2.129],[37.4,2.3999999999999995],[36.49,2.4199999999999995]],"lastBlocked":false,"lastCaps":[{"x":43.3,"z":-4.9,"fx":-2.4492935982947064e-16,"fz":1,"role":"stall"},{"x":38.9,"z":-4.9,"fx":-2.4492935982947064e-16,"fz":1,"role":"stall"},{"x":39.09240066048615,"z":2.250381916270288,"fx":-0.2707455769182838,"fz":-0.962650940153899,"role":"harnessed"},{"x":39.86252141260927,"z":2.0337854547356615,"fx":-0.2707455769182838,"fz":-0.962650940153899,"role":"harnessed"},{"x":36.15,"z":1.8999999999999995,"fx":1,"fz":-2.220446049250313e-16,"role":"graze"},{"x":38.5,"z":0.7999999999999998,"fx":-2.4492935982947064e-16,"fz":1,"role":"fed"}],"lastCar":{"state":"wait","s":63.11,"leg":"","odo":0,"tieOn":true,"guestOn":false,"coachOn":false,"ready":true,"pos":[40,0.08,4]}}
+  ✓ 零页面与循环错误 — {"errors":[],"loop":{"count":0,"recent":[]}}
+
+
+[stable-regression-guard] ALL PASS（14 项）
+✓ 马厩回归 stable-regression — exit=0（73.2s）
+
+── 控制台噪声 gl-warning-guard ──────────────────────────
+  ✓ 启动期零 GL 错误（Mismatch/INVALID_OPERATION） — 0 条（修前 3713 笔绘制报错 / 控制台 256 条）
+  ✓ 稳态 2s 内零新增 GL 错误 — 0 条
+  ✓ console warning 只有白名单项 — 「THREE.WebGLProgram: Program Info Log: (210,81-129): warning X4122: sum of 0.996094 and -2.」
+  ✓ console error（非 GL）为 0 — 0 条
+  ✓ 无 pageerror
+
+
+[gl-warning-guard] 5/5 PASS
+✓ 控制台噪声 gl-warning-guard — exit=0（20.3s）
+
+── 移动端控制面板 mobile-panel ──────────────────────────
+  ✓ 手机 390×844：前提——触控口径=true（与 CSS 同一条媒体查询） — 实测 true
+  ✓ 手机 390×844：进场时面板收起、不可命中 — expanded=false style=0/hidden/none
+  ✓ 手机 390×844：收起态的面板也不横向溢出视口 — 右缘超出 -12px
+  ✓ 手机 390×844：引导走到"面板里的按钮"那一步时**不替用户展开面板** — expanded=false
+  ✓ 手机 390×844：引导改把光环打在左下角方印上（误差 ≤14px） — 环心(38,806) 方印心(38,806)
+  ✓ 手机 390×844：引导文案指向"方印"（教用户点哪里） — 点开左下的方印，面板里除了四根轴，还有「巡游」和「明
+  ✓ 手机 390×844：点方印后面板可命中（轮询到位） — {"expanded":true,"aria":"true","style":"0.993949/visible/auto","toggle":{"w":56,"h":56,"cx":38},"panel":{"top":76.1,"right":378,"w":368},"overflowRight":-12,"minBtnH":46,"touchUI":true}
+  ✓ 手机 390×844：展开后 aria-expanded=true — aria=true
+  ✓ 手机 390×844：展开后仍不横向溢出视口 — 右缘超出 -12px
+  ✓ 手机 390×844：方印命中区 ≥56×56（手指可稳准点中） — 56×56
+  ✓ 手机 390×844：面板内按钮命中区 ≥44px — 最小 46px
+  ✓ 手机 390×844：面板内容一屏放得下（底部按钮不用滚动就能看到） — scrollH=688 clientH=688（超出 0px）
+  ✓ 手机 390×844：选中锚点的色块不压住滑杆圆球 — 压住 0px
+  ✓ 手机 390×844：面板里的按钮真实点得动（季节→春） — season=spring
+  ✓ 手机 390×844：点面板之外收起（触屏的收起路径） — expanded=false
+  ✓ 平板 820×1180：前提——触控口径=true（与 CSS 同一条媒体查询） — 实测 true
+  ✓ 平板 820×1180：进场时面板收起、不可命中 — expanded=false style=0/hidden/none
+  ✓ 平板 820×1180：收起态的面板也不横向溢出视口 — 右缘超出 -12px
+  ✓ 平板 820×1180：引导走到"面板里的按钮"那一步时**不替用户展开面板** — expanded=false
+  ✓ 平板 820×1180：引导改把光环打在左下角方印上（误差 ≤14px） — 环心(38,1142) 方印心(38,1142)
+  ✓ 平板 820×1180：引导文案指向"方印"（教用户点哪里） — 点开左下的方印，面板里除了四根轴，还有「巡游」和「明
+  ✓ 平板 820×1180：点方印后面板可命中（轮询到位） — {"expanded":true,"aria":"true","style":"0.999192/visible/auto","toggle":{"w":56,"h":56,"cx":38},"panel":{"top":650,"right":808,"w":798},"overflowRight":-12,"minBtnH":46,"touchUI":true}
+  ✓ 平板 820×1180：展开后 aria-expanded=true — aria=true
+  ✓ 平板 820×1180：展开后仍不横向溢出视口 — 右缘超出 -12px
+  ✓ 平板 820×1180：方印命中区 ≥56×56（手指可稳准点中） — 56×56
+  ✓ 平板 820×1180：面板内按钮命中区 ≥44px — 最小 46px
+  ✓ 平板 820×1180：面板内容一屏放得下（底部按钮不用滚动就能看到） — scrollH=450 clientH=450（超出 0px）
+  ✓ 平板 820×1180：选中锚点的色块不压住滑杆圆球 — 压住 0px
+  ✓ 平板 820×1180：面板里的按钮真实点得动（季节→春） — season=spring
+  ✓ 平板 820×1180：点面板之外收起（触屏的收起路径） — expanded=false
+  ✓ 窄桌面 640×900：前提——触控口径=true（与 CSS 同一条媒体查询） — 实测 true
+  ✓ 窄桌面 640×900：进场时面板收起、不可命中 — expanded=false style=0/hidden/none
+  ✓ 窄桌面 640×900：收起态的面板也不横向溢出视口 — 右缘超出 -12px
+  ✓ 窄桌面 640×900：引导走到"面板里的按钮"那一步时**不替用户展开面板** — expanded=false
+  ✓ 窄桌面 640×900：引导改把光环打在左下角方印上（误差 ≤14px） — 环心(38,862) 方印心(38,862)
+  ✓ 窄桌面 640×900：引导文案指向"方印"（教用户点哪里） — 点开左下的方印，面板里除了四根轴，还有「巡游」和「明
+  ✓ 窄桌面 640×900：点方印后面板可命中（轮询到位） — {"expanded":true,"aria":"true","style":"0.910953/visible/auto","toggle":{"w":56,"h":56,"cx":38},"panel":{"top":322.9,"right":628,"w":618},"overflowRight":-12,"minBtnH":46,"touchUI":true}
+  ✓ 窄桌面 640×900：展开后 aria-expanded=true — aria=true
+  ✓ 窄桌面 640×900：展开后仍不横向溢出视口 — 右缘超出 -12px
+  ✓ 窄桌面 640×900：方印命中区 ≥56×56（手指可稳准点中） — 56×56
+
+  ✓ 桌面 1440×900：点面板之外收起（触屏的收起路径） — expanded=false
+
+[mobile-panel-guard] ALL PASS（68 项，66.0s）
+✓ 移动端控制面板 mobile-panel — exit=0（66.1s）
+
+── 触控命中区 touch-target ──────────────────────────
+  ✓ #stats 夹具与 src/11-loop.js 产线文本同源（防夹具静默过期） — 9 个片段全部命中
+  ✓ 手机 390×844：前提——窄屏口径=true（与 index.html 那条媒体查询同一条） — 实测 true
+  ✓ 手机 390×844：#env .hint-toggle 命中区 ≥44px（量 label 盒，内层 checkbox 被它包裹） — label 46px / 内层 checkbox 13px / 被 label 包裹=true
+  ✓ 手机 390×844：#env input[type=range] 命中区 ≥44px — 2 个，最小 44px
+  ✓ 手机 390×844：#guide .g-acts button 命中区 ≥44px — 2 个，最小 46px
+  ✓ 手机 390×844：#loading #ld-quick 命中区 ≥44px — 46px
+  ✓ 手机 390×844：judgeNarrow 汇总（四类一次判完） — 四类全部 ≥44px
+  ✓ 320px：#stats 放得下（文字占用区间完整落在视口内） — 字号 10px / white-space:pre / 视口 320px / 可用 300px / 盒宽 286.5px / 文字 286.5px / 余量 13.5px / 文字左缘 23.5px / 文字右缘 310px
+  ✓ 负例 C1（量测层）：#stats 注入超长文本 ⇒ 溢出判据必须报红（右缘） — 字号 10px / white-space:pre / 视口 320px / 可用 300px / 盒宽 300px / 文字 2400px / 余量 -2100.0px / 文字左缘 10px / 文字右缘 2410px
+  ✓ 负例 C2（逻辑层）：合成"文字左缘 = -50px" ⇒ 溢出判据必须报红（左缘） — 字号 10px / white-space:pre / 视口 320px / 可用 300px / 盒宽 286.5px / 文字 286.5px / 余量 13.5px / 文字左缘 -50px / 文字右缘 236.5px
+  ✓ 窄屏 640×900：前提——窄屏口径=true（与 index.html 那条媒体查询同一条） — 实测 true
+  ✓ 窄屏 640×900：#env .hint-toggle 命中区 ≥44px（量 label 盒，内层 checkbox 被它包裹） — label 46px / 内层 checkbox 13px / 被 label 包裹=true
+  ✓ 窄屏 640×900：#env input[type=range] 命中区 ≥44px — 2 个，最小 44px
+  ✓ 窄屏 640×900：#guide .g-acts button 命中区 ≥44px — 2 个，最小 46px
+  ✓ 窄屏 640×900：#loading #ld-quick 命中区 ≥44px — 46px
+  ✓ 窄屏 640×900：judgeNarrow 汇总（四类一次判完） — 四类全部 ≥44px
+  ✓ 负例 A（逻辑自检）：四类各喂 30px ⇒ judgeNarrow 必须四次都报红 — 4/4 报红
+  ✓ 负例 B（量测自检）：注入 30px 后重新量 ⇒ 判据必须报红（证明不是永真） — 4 条报红，首条：#env .hint-toggle(label) 30px < 44
+  ✓ 桌面 900×600：前提——窄屏口径=false（与 index.html 那条媒体查询同一条） — 实测 false
+  ✓ 桌面 900×600：桌面基值未被回归（38 / 22 / 无 min-height / 6px 9px） — 基值逐条一致
+  ✓ 桌面 900×600：桌面档命中区本就 <44px（这正是需要窄屏规则的原因，不是缺陷） — range 22px / guide 38px / ld-quick 25px
+
+
+[touch-target-guard] ALL PASS（21 项，13.5s）
+✓ 触控命中区 touch-target — exit=0（13.6s）
+
+── 梅花 plum-guard ──────────────────────────
+  ✓ 两株梅都已装配（红梅 + 腊梅） — 找到 2 个
+  ✓ 前提：季节过渡已走完（ENV.t=1）—— 否则读到的是过渡途中 — ENV.t=1 peachShow=0 plumBlossomShow=1
+  ✓ 前提：冬季梅叶落尽（叶 count=0）—— 否则花会被叶子挡住、判据全不可信 — 叶=0 红梅花=2649 腊梅花=2630
+  ✓ 前提：冬季两株梅的花都在（冬季 1.0） — 红 2649 / 黄 2630
+  ✓ 默认机位：红梅在画内 — {"inF":2649,"box":"65×62"}
+  ✓ 默认机位：藏起花会让画面明显变化（≥200px） — 变化 555px（修前实测 0px）
+  ✓ 默认机位：变化像素的**平均色偏红**（R−G≥18）—— 这才是"看得出颜色" — R−G=22  平均RGB [146,124,122]  逐像素偏红 61%
+  ✓ 转向腊梅：藏起花会让画面变化（≥120px） — 变化 12311px
+  ✓ 转向腊梅：变化像素的**平均色偏黄**（(R+G)/2−B≥30） — (R+G)/2−B=42.3  平均RGB [129,121,83]  逐像素偏黄 81%
+  ✓ 近景单朵够大（≥40px，看得出花型） — 51.4px @ 1.65m（贴到 1.6m 看）
+  ✓ ⑦ 「红梅」三态比例 ≈60% 盛开 / 30% 花苞 / 10% 凋谢（容差 ±5 点） — 盛开 60% / 花苞 30% / 凋谢 10%（盛开 2649 + 花苞 1303 + 凋谢 428）
+  ✓ ⑦ 「腊梅」三态比例 ≈60% 盛开 / 30% 花苞 / 10% 凋谢（容差 ±5 点） — 盛开 60% / 花苞 30% / 凋谢 10%（盛开 2630 + 花苞 1319 + 凋谢 444）
+  ✓ ⑧ 花苞明显更小：最小盛开的花 ÷ 最大的花苞 ≥1.6（"花苞跟花差不多大"的根因是缩放区间重叠） — 最小花 0.061m / 最大苞 0.035m ＝ **1.77 倍**
+  ✓ ⑥ 「不是紫藤」：第3近邻花距中位 ≥0.4 倍花径（跳过簇内2朵，量簇间距离；紫藤式花串会掉到 0.2 倍以下） — 中位 0.7× / P90 1.36× 花径（紫藤基线 0.19×）
+  ✓ ⑥ 「不是把花堆出来」：朵数 ≤ 枝条自然槽位数（fillTo 没在凑数） — 声明 1600 / 自然槽位 2535 / 凑数 0
+  ✓ 负例自检：缺陷态（alphaTest .42 / 旧自发光）在同机位同基准下贡献**不到健康态的 40%**（比值口径，不随朵数漂） — 健康 555px / 缺陷 0px ＝ 555.0 倍
+  ✓ 夏季无花（季节契约不变：两株梅的花都不可见） — 红 visible=false（count=2649，该通道不看 count）/ 黄 visible=false；夏叶=2600；ENV.t=1
+
+
+[plum-guard] ALL PASS（17 项，43.2s）
+✓ 梅花 plum-guard — exit=0（43.3s）
+
+── 面板图标 panel-icons ──────────────────────────
+  ✓ 图标覆盖：带 data-ic 的按钮 ≥26（缺口只允许时段条的 4 个刻度标签） — 37/46 有图标；没图标的：晨 午 暮 夜 观鱼 匾联 曲桥 石灯笼 主峰近观
+  ✓ 真的上色了：::before 计算色 ≠ 按钮文字色（≥90% 的图标按钮） — 35/37 上了色
+  ✓ 成套配色：出现 ≥12 种不同颜色（不是一种色刷到底） — 35 种：rgb(217, 134, 44) rgb(228, 117, 158) rgb(232, 163, 44) rgb(210, 113, 42) rgb(111, 182, 224) rgb(219, 94, 146) rgb(233, 179, 58) rgb(99, 128, 159) …
+  ✓ 字形只在 ::before 里（按钮 textContent 不含任何 data-ic 字形） — 无
+  ✓ 选中态图标提亮（filter 里有 brightness > 1） — 选中 brightness(1.34) saturate(1.08)｜常态 none
+  ✓ 禁用态图标去色压暗（grayscale 且不透明度 <0.5） — 禁用 grayscale(0.75) · opacity=0.45｜常态 opacity=0.92
+
+  留档图：outputs/_diag/panel-icons/panel-icons.png
+
+[panel-icons-guard] ALL PASS（6 项，32.1s）
+✓ 面板图标 panel-icons — exit=0（32.3s）
+
+── 相机可达 camera-reach ──────────────────────────
+  ✓ ① 全局最近可推进到 ≤2m（原来 9m ⇒ 任何细节都看不到） — controls.minDistance = 1.6
+  ✓ ② 两个看梅机位已注册（plumRed / plumYellow） — hero,stele,hall,pavilion,overview,plumRed,plumYellow,stable,stableNear,meteor,rainbow,fireworks,koi,plaque,bridge,lantern,heroPeak
+  ✓ ② 「红梅」机位：树在画内且占画面高 ≥8%（一眼能看清） — 入画 2649/2649 · 树框 508×459px (63.7%) · 相机到树 6.01m
+  ✓ ② 「红梅」机位自带近观下限（到机位后还能继续推近） — controls.minDistance = 1.2
+  ✓ ② 「红梅」：点它就真的**看得到花**（季节被设成冬、花画在屏幕上） — 季节=winter · 藏花差分 60975px
+  ✓ ② 「腊梅」机位：树在画内且占画面高 ≥8%（一眼能看清） — 入画 2630/2630 · 树框 599×435px (60.4%) · 相机到树 5.81m
+  ✓ ② 「腊梅」机位自带近观下限（到机位后还能继续推近） — controls.minDistance = 1.2
+  ✓ ② 「腊梅」：点它就真的**看得到花**（季节被设成冬、花画在屏幕上） — 季节=winter · 藏花差分 60204px
+  ✓ ④ 双击画面里的梅花 ⇒ 注视点落到那株树上（≤3.5m），相机原地不动 — target [0,3.5,-1] → [22.96,3.18,-15.7]（离树冠 0.03m）
+  ✓ ③ 推到底时眼前那朵花 ≥60px（"拉近看细节"真的成立；0.1m 花 ≈ 70px @1.2m） — 最近一朵 88.9px @ 0.95m（相机到注视点 1.6m）
+  ✓ ⑤ 注视点能到院角（钳制没把它拦回来） — target=[33.5,2.5,-27.5]
+
+
+[camera-reach-guard] ALL PASS（11 项，36.7s）
+✓ 相机可达 camera-reach — exit=0（36.8s）
+
+── 运行时异常守卫 pageerror-guard ──────────────────────────
+  ✓ 启动完成且零 pageerror — 无异常
+  ✓ 渲染循环存活：同状态连续 3 帧画面在变化 — 逐帧差 0.913 / 1.042 / 1.322
+  ✓ 活性基线量级健康（说明在真渲染而非定格） — idleBase=1.322（旧基线 0.869）
+  ✓ 星号开关可展开抽屉（真实点击）
+  ✓ 展开后面板可命中（visibility/opacity/pointer-events，轮询到位） — 过渡中 {"vis":"hidden","op":"0","pe":"auto"} → 到位 {"vis":"visible","op":"1","pe":"auto"}
+  ✓ 真实点击 time 全 4 档：状态落位 — morning/noon/dusk/night
+  ✓ 真实点击 time：零 pageerror — 无异常
+  ✓ 真实点击 season 全 4 档：状态落位 — spring/summer/autumn/winter
+  ✓ 真实点击 season：零 pageerror — 无异常
+  ✓ 真实点击 weather 全 3 档：状态落位 — clear/storm/mist
+  ✓ 真实点击 weather：零 pageerror — 无异常
+  ✓ 真实点击 冬季+雪：雪天合法生效 — {"time":"night","season":"winter","weather":"snow","tor":1}
+  ✓ 真实点击 冬季+雪：零 pageerror（覆盖 snow 渲染分支） — 无异常
+  ✓ 画面采样前抽屉已收起（判据前提：量的必须是场景而不是 UI）
+  ✓ 画面响应天气：切暴雨的像素差远大于同状态基线 — diff=42.424 vs 阈值 3.305（同状态基线 1.322）
+  ✓ 画面响应时段：夜色显著暗于正午 — luma noon=131.5 → night=15.0（11%）
+  ✓ 全程累计 pageerror = 0 — 0 条
+  ✓ 全程累计 console.error = 0 — 0 条
+
+[pageerror-guard] ALL PASS（18 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\pageerror-guard
+耗时：131.6s
+✓ 运行时异常守卫 pageerror-guard — exit=0（131.7s）
+
+── 时光流转 reel-guard ──────────────────────────
+⚠ 第 1 次 exit=1（43.9s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（时光流转 reel-guard · 第 1 次）—— 完整 stdout / stderr
+[reel-guard] http://127.0.0.1:46619/index.html
+  ✓ 活性基线（不流转时画面也在动：风/锦鲤/涟漪） — idleBase=0.916
+  ✓ 抽屉展开（visibility 带 transition，须轮询到位）
+[reel-guard] 3s 闲置噪声底（|全屏均值差|）三次读数：0.0104 / 0.0057 / 0.0117 → 取中位 idleBase3=0.0104
+  ✓ 活性基线·3s 对照（三窗口中位；应远低于 0.5 绝对下限，说明均值差确实对局部运动不敏感） — 三读数 0.0104 / 0.0057 / 0.0117，中位=0.0104（对照：逐像素口径 idleBase=0.916）
+  ✓ 点击「流转▸」开启时光流转
+  ✓ 按钮文案切为「流转■」 — 流转■
+  ✓ ENV.hour 持续推进 — 5.94 → 7.21（+1.27h）
+  ✓ 推进速度 ≈0.4h/s（一整天约 60 秒） — 3 秒推进 1.27 小时
+  ✗ 画面随流转实时更新（不是只改了数值） — diff=0.371 vs 阈值 0.500（统计量=|全屏均值差|，绝对下限 0.5；3 窗口噪声底中位 idleBase3=0.0104）
+  ✓ 时辰滑杆跟随流转 — 滑杆=7.20 hour=7.21
+  ✓ 再点一次关闭流转
+  ✓ 按钮文案切回「流转▸」 — 流转▸
+  ✓ 关闭后 hour 停止推进 — 7.321 → 7.321
+  ✓ 拖时辰滑杆 = 接管，流转自动停
+  ✓ 点时段按钮 = 接管，流转自动停
+  ✓ 快捷键 L 可开启流转（R 已被「冬」占用）
+  ✓ 快捷键 L 可关闭流转
+  ✓ 全程零 pageerror — 0 条
+
+[reel-guard] FAIL（17 项）
+  ✗ 画面随流转实时更新（不是只改了数值） — diff=0.371 vs 阈值 0.500（统计量=|全屏均值差|，绝对下限 0.5；3 窗口噪声底中位 idleBase3=0.0104）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\reel-guard
+耗时：43.8s
+✗✗ 红门明细结束（时光流转 reel-guard · 第 1 次）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+↻ 重跑结果：exit=0（44.4s）
+  ✓ 活性基线（不流转时画面也在动：风/锦鲤/涟漪） — idleBase=1.400
+  ✓ 抽屉展开（visibility 带 transition，须轮询到位）
+  ✓ 活性基线·3s 对照（三窗口中位；应远低于 0.5 绝对下限，说明均值差确实对局部运动不敏感） — 三读数 0.0027 / 0.0028 / 0.0120，中位=0.0028（对照：逐像素口径 idleBase=1.400）
+  ✓ 点击「流转▸」开启时光流转
+  ✓ 按钮文案切为「流转■」 — 流转■
+  ✓ ENV.hour 持续推进 — 5.93 → 7.25（+1.32h）
+  ✓ 推进速度 ≈0.4h/s（一整天约 60 秒） — 3 秒推进 1.32 小时
+  ✓ 画面随流转实时更新（不是只改了数值） — diff=0.760 vs 阈值 0.500（统计量=|全屏均值差|，绝对下限 0.5；3 窗口噪声底中位 idleBase3=0.0028）
+  ✓ 时辰滑杆跟随流转 — 滑杆=7.30 hour=7.25
+  ✓ 再点一次关闭流转
+  ✓ 按钮文案切回「流转▸」 — 流转▸
+  ✓ 关闭后 hour 停止推进 — 7.354 → 7.354
+  ✓ 拖时辰滑杆 = 接管，流转自动停
+  ✓ 点时段按钮 = 接管，流转自动停
+  ✓ 快捷键 L 可开启流转（R 已被「冬」占用）
+  ✓ 快捷键 L 可关闭流转
+  ✓ 全程零 pageerror — 0 条
+
+[reel-guard] ALL PASS（17 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\reel-guard
+耗时：44.3s
+⚠⚠ **FLAKY（偶发）**：时光流转 reel-guard —— 第 1 次 exit=1、重跑 exit=0。
+   ⚠️ 这不等于"通过"：它说明**这门不稳**。排查两条线：① GPU 档位（_harness 明说 ANGLE
+      每次挑哪块 GPU 不固定，像素类阈值会随档位漂）；② 就绪竞态（是否只等 loading.done
+      而没等 __garden.bootDonePromise —— 延迟批还在进场时采样）。
+   要把它当缺陷处理：`VERIFY_STRICT=1 npm run verify`（FLAKY 也判红）。
+⚠ 时光流转 reel-guard — exit=0（44.4s · 重跑）
+
+── 灯笼照明 lamp-guard ──────────────────────────
+  ✓ 五盏灯笼灯全部装配（堂前 2 + 游廊 3） — 实际 5 盏
+  ✓ 路灯真光源按画质档定额（high 档 → 8 盏） — 实际 8 盏
+  ✓ 八盏石灯笼模型始终在场（与真光源预算无关） — roadLantern 网格 2 个 / 真光源 8 盏
+  ✓ 低/中画质档阴影关闭（SpotLight 投影仅高档前 3 盏开启；路灯一律无阴影） — [false,false,false,false,false,false,false,false,true,true,true,false,false]
+  ✓ 正午 lamp=0：廊灯全灭（白天不该有灯光落地） — [0,0,0,0,0]
+  ✓ 正午 lamp=0：路灯全灭 — [0,0,0,0,0,0,0,0]
+  ✓ 夜间 lamp=1：廊灯全亮 — [2.8,2.8,2.8,6.5,6.5]
+  ✓ 夜间 lamp=1：路灯真光源 8 盏全亮（摇曳中，强度只判大于 0） — [1.4801,1.6959,1.3123,1.5617,1.6179,1.5654,1.6846,1.54]
+  ✓ 堂前挑高更亮、游廊压低（6.5 / 2.8 两档，按 1/d² 反算） — 最大 6.5，含 2.8 档=true
+  ✓ 路灯摇曳：每盏 flick 落在 [0.80, 1.12] — 实测 0.800~1.083
+  ✓ 路灯摇曳：10 盏都在动（极差 > 0.01） — 0.159 0.260 0.250 0.147 0.156 0.160 0.145 0.158
+  ✓ 路灯摇曳：相位分散（极差不是同一个值） — 极差 0.159 0.260 0.250 0.147 0.156 0.160 0.145 0.158
+  ✓ 黄昏 lamp=0.25：廊灯半亮（介于午与夜之间） — [0.7,0.7,0.7,1.625,1.625]
+  ✓ 黄昏 lamp=0.25：路灯半亮（只判大于 0，不判精确值） — [0.3988,0.3793,0.4304,0.3922,0.377,0.4192,0.3535,0.396]
+  ✓ 切换时段时灯数恒定（不会触发材质重编译）：廊灯 5 + 路灯 8 — 廊灯 5 / 路灯 8
+  ✓ 全程零 pageerror — 0 条
+  ✓ 性能档预算：0 盏路灯真光源、8 盏石灯笼模型仍在 — tier=low 真光源=0 模型网格=2
+
+[lamp-guard] ALL PASS（17 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\lamp-guard
+耗时：122.7s
+✓ 灯笼照明 lamp-guard — exit=0（122.8s）
+
+── 夜雾远山 mist-guard ──────────────────────────
+  ✓ 正午晴天：地平线天光明度 ≥0.30（钳位分支不进，白天零改动） — skyHorizon luma=0.78424
+  ✓ 正午晴天：scene 雾色 = 参数雾色（未被 multiplyScalar 压暗） — scene=0.59503 vs param=0.59503
+  ✓ 正午晴天：远山 albedo 保持白天原色（压暗比 ≥0.80，白天观感零改动） — hillDim=0.9619（基准 luma=0.0504）
+  ✓ 远山材质有 baseColor 快照（否则重算会逐帧累积衰减成纯黑） — baseColor 存在=true
+  ✓ night+clear：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.06 期望=0.0600
+  ✓ night+clear：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.06
+  ✓ night+clear：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.01552 ≤ 0.02685
+  ✓ night+clear：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 11.75 vs 天 16.84
+  ✓ night+clear：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=550: 1.07
+  ✓ night+mist：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.125 期望=0.1250
+  ✓ night+mist：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.125
+  ✓ night+mist：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.07551 ≤ 0.07902
+  ✓ night+mist：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 61.14 vs 天 59.22
+  ✓ night+mist：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=750: 8.71
+  ✓ night+overcast：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.3442 期望=0.3442
+  ✓ night+overcast：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.3442
+  ✓ night+overcast：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.15 ≤ 0.15000
+  ✓ night+overcast：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 107.62 vs 天 123.82
+  ✓ night+overcast：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=550: -6.14
+  ✓ night+storm：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.2745 期望=0.2745
+  ✓ night+storm：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.2745
+  ✓ night+storm：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.11516 ≤ 0.15000
+  ✓ night+storm：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 83.68 vs 天 99.78
+  ✓ night+storm：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=750: -5.86
+  ✓ 全程零 pageerror — 0 条
+
+[mist-guard] ALL PASS（25 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\mist-guard
+耗时：519.1s
+✓ 夜雾远山 mist-guard — exit=0（519.2s）
+
+── 明信片款式 postcard-guard ──────────────────────────
+  ✓ 明信片可生成（dataURL 为 PNG） — data:image/png;base64,iV…
+  ✓ 明信片体积合理（真的画了东西） — 1235 KB
+  ✓ 明信片尺寸 = 渲染画布尺寸 — 900×600 vs 画布 900×600
+  ✓ 钤有朱文印（朱砂红像素成片） — 朱砂红像素 280 个
+  ✓ 印章落在右侧题款之下（不是画面里的红叶） — 朱砂重心 x=815 / 宽 900
+  ✓ 各季节/时段/天气组合下都能出片且钤印 — 冬夜雪 / 秋暮雾 / 春雨暴 全部通过
+  ✓ 全程零 pageerror — 0 条
+
+[postcard-guard] ALL PASS（7 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\postcard-guard
+耗时：35.1s
+✓ 明信片款式 postcard-guard — exit=0（35.2s）
+
+── 长曝光明信片 longexposure-guard ──────────────────────────
+✓ 长曝光帧配置合理（frames≥16 且 starDeg>0） — frames=28 dt=0.1 starDeg=10
+✓ 夏夜晴萤火应可见（uOpacity>0） — uOpacity=0.900
+✓ 长曝结束 uStarRot 归零（否则日常星星天天转） — uStarRot=0
+✓ 长曝光 ≠ 单帧：全图变化像素占比 > 2% — 变化 23.4%
+✓ 星空区有拖尾痕迹（顶 1/3 变化 > 1%） — 天区变化 34.3%
+✓ 零 pageerror / console error — 0 条
+
+
+[长曝] 6/6 项通过 · 样张 E:\ai_test\codex_test\suzhou-garden\outputs\visual/lxp-*.png
+✓ 长曝光明信片 longexposure-guard — exit=0（68.8s）
+
+── 桃花四季与晴午波光 peach-guard ──────────────────────────
+✓ 园里已种下 ≥2 株桃花树（延迟装配后存在） — found=4
+✓ 春：桃花在枝头（blossom 可见） — {"any":true,"count":2,"visibleCount":2}
+✓ 春：桃叶/落花在（叶+花铺地） — 叶2/2 瓣2/2
+✓ 春：果未结（fruit 隐藏） — {"any":true,"count":2,"visibleCount":0}
+✓ 夏：桃结果（fruit 可见） — {"any":true,"count":2,"visibleCount":2}
+✓ 夏：花落尽（blossom 隐藏） — {"any":true,"count":2,"visibleCount":0}
+✓ 秋：叶在但花/落花已尽 — 叶2 果0 花0
+✓ 冬：裸枝过冬（叶/花/果/落花全隐） — 叶0 花0 果0 瓣0
+✓ 晴午：水面太阳波光开启（uSunVis>0） — uSunVis=0.7058823529411764
+✓ 夜：太阳波光关闭（uSunVis=0，月亮那张亮不属于日间） — uSunVis=0
+✓ 暴雨：太阳波光关闭（阴霾盖掉日轮） — uSunVis=0
+✓ 零 pageerror / console error — 0 条
+
+
+[桃] 12/12 项通过 · 样张 E:\ai_test\codex_test\suzhou-garden\outputs\visual/peach-*.png
+✓ 桃花四季与晴午波光 peach-guard — exit=0（104.9s）
+
+── 音景分层 sound-guard ──────────────────────────
+  ✓ 点击「音景」按钮真的开了（走真实点击，含自动播放策略） — on=true
+  ✓ 音景开启后切季节，按钮状态仍与实际一致 — {"on":true,"pressed":"true","active":true}
+  ✓ 快捷键关闭音景时，同步按钮与无障碍状态 — {"on":false,"pressed":"false","active":false}
+  ✓ 点击暴雨自动开启音景，并同步按钮状态 — {"on":true,"pressed":"true","active":true}
+  ✓ 快捷键开启音景时，同步按钮与无障碍状态 — {"on":true,"pressed":"true","active":true}
+  ✓ 分层计划含六层（风 / 雨 / 虫 / 蝉 / 蛙 / 鸟） — 实际键: wind,rain,cricket,cicada,frog,bird,quiet
+  ✓ 夏·午·晴：蝉鸣起（夏季白天才有） — cicada=0.02
+  ✓ 夏·午·晴：无虫鸣、无蛙声（虫在夜里、蛙在夜/暮） — cricket=0 frog=0
+  ✓ 夏·夜·晴：虫鸣起 — cricket=0.016
+  ✓ 夏·夜·晴：蛙声起（夏夜池塘） — frog=0.03
+  ✓ 夏·夜·晴：蝉歇了（蝉是白天叫的） — cicada=0
+  ✓ 冬·夜：虫鸣 / 蝉 / 蛙全静（冬天没有这些生灵） — cricket=0 cicada=0 frog=0
+  ✓ 夏·午·暴雨：蝉 / 虫 / 蛙 / 鸟全静（暴雨里没有鸣虫） — cicada=0 cricket=0 frog=0 bird=0
+  ✓ 夏·午·暴雨：雨声与风声都起来了 — rain=0.14 wind=0.1
+  ✓ 春·晨·晴：鸟鸣门开 — bird=1
+  ✓ 鸟种 ≥3 种（不止一种叫声） — 3 种：山雀/画眉/白头鹎
+  ✓ 三种鸟的基频带明显不同（音色不重复） — f0 起点: 2600,1750,2000
+  ✓ 蝉鸣节点真的响了（电平朝 plan 收敛，容差 40%） — cicada=0.01999 期望≈0.02
+  ✓ 风声底噪恒在（0.015 起步，环境音不该全静） — wind=0.01635
+  ✓ 蛙声节点真的响了 — frog=0.99986
+  ✓ 蝉鸣在夜里真的收了 — cicada=0
+  ✓ 音量可读写（默认 1.0，设为 0.5 后回落） — {"before":1,"after":0.5}
+  ✓ 音量真的乘到了总线上（0.5 → master 降到 ≈0.5） — master=0.50012
+  ✓ 面板上有音量滑杆（#sndVol，0~100） — {"exists":true,"min":"0","max":"100","step":"1","val":"100"}
+  ✓ 关音景后总线归零（不是只改了个布尔值） — {"on":false,"master":0.00151}
+  ✓ 全程零 pageerror — 0 条
+
+
+[sound-guard] ALL PASS（26 项）
+耗时：105.8s
+✓ 音景分层 sound-guard — exit=0（105.9s）
+
+── 首次引导 guide-guard ──────────────────────────
+  ✓ 首次进入：引导自动出现且停在第 1 步 — {"on":true,"i":0,"steps":3}
+  ✓ 反向对照：自动化下不带 ?guide=1 时**不弹**（气泡不能污染量像素的门禁） — {"driven":true,"on":false}
+  ✓ 引导容器非模态（pointer-events:none，不吃画布与面板的点击） — 容器=none
+  ✓ 只有气泡自己接管点击（否则「下一步」点不到） — 气泡=auto
+  ✓ 气泡矩形不与 #env 锚点相交 — 相交=false
+  ✓ 点击 #env 锚点中心命中的仍是 #env（没被引导层吃掉） — 命中=drawer-toggle
+  ✓ 三步标题都在（壹/贰/叁） — 壹 · 转一转 | 贰 · 换天时 | 叁 · 有人带
+  ✓ 最后一步按钮文案变成「知道了」
+  ✓ 走完三步自动收起 — {"on":false,"i":3,"steps":3}
+  ✓ 收起后写 localStorage（下次不再弹）
+  ✓ 「跳过」一步收起
+  ✓ 引导显示中遇到pointerdown即消失 — true→false
+  ✓ 引导显示中遇到wheel即消失 — true→false
+  ✓ 引导显示中遇到keydown即消失 — true→false
+  ✓ 320px 窄屏：引导气泡不产生横向溢出 — scrollWidth=320 气泡 12~308
+  ✓ 引导按钮命中区 ≥38px — minH=46
+  ✓ 引导按钮不在 #env 内（否则 smoke 的 aria-pressed 断言会红）
+  ✓ 全程零 pageerror — 0 条
+
+
+[guide-guard] ALL PASS（18 项）
+耗时：53.4s
+✓ 首次引导 guide-guard — exit=0（53.5s）
+
+── 风场审计 wind-audit ──────────────────────────
+  ✓ 风场：GLB 资产（荷花丛/芭蕉叶，带贴图）已注入且走 tip 模式 — amp=0.05 amp=0.03 amp=0.03 amp=0.03 amp=0.05 amp=0.05 amp=0.05 amp=0.05 amp=0.05 amp=0.05 amp=0.05 amp=0.05
+  ✓ 风场：芭蕉叶幅度 0.04~0.08（叶尖被风掀起量级，非抽搐） — 0.05 0.03 0.03 0.03 0.05 0.05 0.05 0.05 0.05 0.05 0.05 0.05
+  ✓ 风场：荷花瓣/荷叶走 tip 模式（越高越摆，不再被 clamp 成 0）
+  ✓ 风场：假茎走 base 模式（根部固定，不再整根钟摆）
+  ✓ 风场：柳叶幅度已降到 ≤0.08
+  ✓ 风场：无残留的 king 级幅度（>0.2） — —
+  ✓ 风场：水生植物（tip 模式）位移有硬上限且 ≤6cm — 0.03/上限0.05 0.05/上限0.05 0.03/上限0.05 0.03/上限0.05 0.03/上限0.05 0.03/上限0.05
+  ✓ 风场：芭蕉大叶位移硬上限 ≤22cm — 0.05/上限0.22 0.05/上限0.22 0.05/上限0.22 0.05/上限0.22 0.05/上限0.22 0.05/上限0.22 0.05/上限0.22 0.05/上限0.22
+  ✓ 灯笼：支点是挂点（绳顶端与支点重合） — 0, 0, 0, 0, 0
+  ✓ 灯笼：灯笼中心离支点比绳下端更远（摆幅 灯笼 > 绳下端 > 绳上端） — 绳下0.63/灯0.88 绳下0.63/灯0.88 绳下0.63/灯0.88 绳下1.22/灯1.47 绳下1.22/灯1.47
+  ✓ 灯笼：挂点静止（施加摆角后挂点位移 = 0）
+  ✓ 灯笼：绳上端位移 ≈ 0（与屋梁的连接处不动） — 0, 0, 0, 0, 0
+  ✓ 灯笼：位移随离支点距离递增（绳上端 0 < 绳下端 < 灯笼） — 0<0.03324<0.04643 0<0.03214<0.04489 0<0.03696<0.05163 0<0.0655<0.07892 0<0.06774<0.08162
+  ✓ 池面叶盘：中心全部在池内（睡莲不上岸） — 叶盘 152 片：池内 152 / 中心在岸上 0
+  ✓ 池面叶盘：边缘不越岸线 >5cm（中心判据防不住的那种） — 越岸 0 片，最大越 0m
+  ✓ 荷花杆：杆高常量已覆盖 GLB 花位下限（杆顶 ≥ 花底，否则花悬空） — 常量 1.78 → 最低株杆顶 1.495m，花底 1.468m
+  ✓ 前置：已进入狂风暴雨（windMul ≥2.5，否则下面的"区间"断言测的其实是晴天） — weather=storm windMul=4
+  ✓ L1：风向是 16 档离散栅格（静止态角度误差 < 1e-6 rad） — 档位 0~15，最大栅格误差 0
+  ✓ L1：档位号 → uWindVec 映射正确（单位向量 = (sin a, −cos a)，shader 吃的是这个） — 最大误差 0
+  ✓ L1：每次换向都挪整数档且至少 1 档（不会"原地换档"读作卡住） — 跨档 11 10 1 4 1 15 11 6
+  ✓ L1：换向保持 ≥12 秒（够观众看出这一阵风的方向） — 最短 14.75s，共 34 段
+  ✓ L2：风力只在天气允许的区间内换档（暴雨 = 中风~台风，不出现微风/晴天档） — 暴雨区间 [1,3]，实际出现 1~3
+  ✓ L2：换档保持 ≥5 秒，且三档（中风/大风/台风）都真的出现过 — 最短 6.75s，出现 中风/大风/台风
+  ✓ L2：晴天区间是微风~中风（狂风暴雨的可达区间确实更猛） — 晴 [0,1] / 暴雨 [1,3]
+  ✓ L2：天气决定绝对量级（晴天增益 ≪ 暴雨增益，"微风档"在晴天不该摆 30cm） — 晴 0.076 / 暴雨 1
+  ✓ 零 pageerror / console error
+
+
+[wind-audit] ALL PASS（26 项）
+✓ 风场审计 wind-audit — exit=0（141.9s）
+
+── 紫藤配色 wisteria-color ──────────────────────────
+  ✓ 紫藤：花穗渐变为「上浅下深」（y–明度正相关） — r=0.302
+  ✓ 紫藤：同穗段前段比后段亮（结构判据，通过率 ≥80%） — 100.0%（72 段）
+  ✓ 紫藤：最亮朵落在浅端量级（#C9B3EC 参考 L188，含抖动 170~215） — #CFBBE9 L=194.6
+  ✓ 紫藤：最暗朵落在深端量级（#6A3E96 参考 L78，含抖动 ≤110） — #5A3488 L=65.8
+  ✓ 零 pageerror / console error
+
+
+[wisteria-color] ALL PASS（5 项）
+✓ 紫藤配色 wisteria-color — exit=0（60.8s）
+
+── 锦鲤轨道 koi-orbit ──────────────────────────
+✓ 锦鲤/泳龟异步挂载到齐
+  ✓ 解析扫轨 · 三条轨道全程在池内 — #0:0 #1:0 #2:0 #3:0 #4:0 #5:0 #6:0
+  ✓ 解析扫轨 · 最小离岸余量 ≥ 0.4m（鱼体半长 0.36） — 最小 1.332m
+  ✓ 探针有牙 · 旧写法（+3 叠加）应被判出池 — #0:0点(最差1.519m) #1:0点(最差0.045m) #2:560点(最差-1.622m) #3:0点(最差3.108m) #4:0点(最差1.004m) #5:504点(最差-1.029m) #6:260点(最差-0.39m)
+  ✓ 运行时 · 鱼在基准轨道 + 有界行为偏移内（无 +3 整体错位） — 11 条全部落在轨道域 +2.6m 内
+  ✓ 运行时 · 11 条鱼当前位置全在池内 — 最小离岸 3.766m
+  ✓ 运行时 · 泳龟当前位置全在池内 — 2 只，最小离岸 5.342m
+  ✓ 池心口径一致（koiGroup.z === 水面/池底/驳岸的 3.0） — koiGroup.z=3
+  ✓ 页面无报错 — 无
+✓ 9/9 ALL PASS
+
+
+✓ 锦鲤轨道 koi-orbit — exit=0（24.2s）
+
+── 停栖蜻蜓 perch-dragonfly ──────────────────────────
+  ✓ 锚点数量充足 — 48 个
+  ✓ 锚点世界坐标不塌成一点（乘过 instanceMatrix） — 唯一 48/48，铺开 9.248m
+  ✓ 锚点全在水面之上（不是叶子背面） — 48/48
+  ✓ 锚点全在池形内 — 48/48
+  ✓ 好天可见且已就位 — show=true
+  ✓ 两只都贴在锚点上（水平偏差 < 6cm = 风偏移硬顶 5cm） — 0.0007m / 0.0003m
+  ✓ 停在表面之上、没有陷进去（dy ≈ PERCH_LIFT） — 0.028m / 0.028m
+  ✓ 两只不在同一个点 — 相距 3.18m
+  ✓ 手动步进 10 秒仿真后仍钉在锚点（漂移 < 8cm） — 0.0035m / 0.0001m
+  ✓ 能定时起飞并完成转场（3/3） — 3/3 次
+  ✓ 确实换了停点（不是原地起落） — 到访过 6 个不同停点
+  ✓ 花与叶都会停 — flower/leaf
+  ✓ 冬季/恶劣天气隐藏（同 dragonflyShow 口径） — season=winter show=false visible=[false,false]
+  ✓ 页面无报错 — 无
+✓ 14/14 ALL PASS
+
+
+✓ 停栖蜻蜓 perch-dragonfly — exit=0（21.1s）
+
+── 立峰·题名石 stone-audit ──────────────────────────
+✓ 立峰 / 题名石已装配
+  ✓ 立峰是单块（连通分量 = 1，不掉浮空碎块） — 连通分量 1，边界环 1
+  ✓ 立峰透孔数 ≥ 6（"孔洞再多一些"） — 实测 8 个贯穿孔
+  ✓ 立峰"瘦"（高 > 1.6 × 宽） — 2.02
+  ✓ 立峰"收分"（底半径 > 1.15 × 顶半径） — 1.46
+  ✓ 立峰有悬挑（质心偏离 bbox 中心 > 4% 半宽） — 0.157
+  ✓ 伴石是单块 — 分量1/分量1
+  ✓ 伴石几何量够（未被切烂，≥800 面） — 10180 面 / 6400 面
+  ✓ 伴石豁口已收敛（边界环 ≤ 10，只剩孔开口不是长沟豁口） — 环9 / 环9
+  ✓ 题名石是卧石不是碑（高/长 < 0.6） — 0.374（墓碑式方板通常 > 1.2）
+  ✓ 题名石体量合宜（长 1.2~3.5m） — 2.91m
+  ✓ 题名石只有石材 + 刻字面两种材质、且只切 2 段（无碑座/边框、不多 draw call） — 2 段 / 2 种材质
+  ✓ 题名石在岸上（不在水里） — insidePond=false
+  ✓ 刻字面朝向池心（来人看得见） — dot=1
+  ✓ 石面确有刻字墨迹（不是空白贴图） — 4.85% 暗像素 
+  ✓ 页面无报错 — 无
+✓ 16/16 ALL PASS
+
+
+✓ 立峰·题名石 stone-audit — exit=0（21.3s）
+
+── 题名石可读性 stele-legibility ──────────────────────────
+✓ 题名石已装配（延迟批插队生效，不该等到 160s+）
+  ✓ 材质 group 无缝隙铺满 index 缓冲（刻字面确实被绘制） — 2 段（#0 石材 + #1 刻字面 80 三角形）铺满 960 index
+  ✓ 「云根近观」机位存在、且带放开的最小半径下限（否则近观被 minDistance 弹回 9m） — minDist=2.2，机位到字心 2.86m
+  ✓ 从「云根近观」机位看得见刻字面（视线无遮挡且是正面） — 首个命中=题名石，距离 2.86m，正面度 -0.969（机位 stele -3.7,1.55,9.68）
+  ✓ 中心区有可辨明暗结构（跨度 ≥ 60） — 实测跨度 98.1
+  ✓ 中心区确有刻字墨迹（暗像素 ≥ 8%） — 实测 21.97%
+  ✓ gotoViewpoint 把机位自带的 minDist 交给了 flyTo（否则近观被弹回 9m） — 机位 minDist=2.2，flyTo 收到=2.2
+  ✓ 页面无报错 — 无
+✓ 8/8 ALL PASS
+✓ 题名石可读性 stele-legibility — exit=0（25.4s）
+
+── 人物服色与步态 figure-audit ──────────────────────────
+✓ 人物已装配（同步批，不该等延迟链） — 14 个
+  ✓ 取景前异步 GLB 到齐（否则机位求解不确定） — {"lotus":36,"banana":16}
+  ✓ 每个角色都能读到袍身材质（robe 引用没断） — 14 个
+  ✓ [indigo/read] 袍身是真彩色，不是近黑剪影 — #4A6C9B L=104（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [indigo] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #4A6C9B / 表内 #4A6C9B
+  ✓ [indigo] 腰带与袍身有明度对比（否则腰带等于没加） — #4A6C9B vs #2A3550 → ΔL=52
+  ✓ [lily/observe] 袍身是真彩色，不是近黑剪影 — #7E6FA6 L=118（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [lily] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #7E6FA6 / 表内 #7E6FA6
+  ✓ [lily] 腰带与袍身有明度对比（否则腰带等于没加） — #7E6FA6 vs #39305A → ΔL=65
+  ✓ [moonwhite/observe] 袍身是真彩色，不是近黑剪影 — #CFD6DA L=213（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [moonwhite] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #CFD6DA / 表内 #CFD6DA
+  ✓ [moonwhite] 腰带与袍身有明度对比（否则腰带等于没加） — #CFD6DA vs #2A3550 → ΔL=160
+  ✓ [lilac/draw] 袍身是真彩色，不是近黑剪影 — #A98BBF L=149（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [lilac] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #A98BBF / 表内 #A98BBF
+  ✓ [lilac] 腰带与袍身有明度对比（否则腰带等于没加） — #A98BBF vs #4A3A5E → ΔL=85
+  ✓ [russet/pointDown] 袍身是真彩色，不是近黑剪影 — #A03A28 L=78（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [russet] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #A03A28 / 表内 #A03A28
+  ✓ [russet] 腰带与袍身有明度对比（否则腰带等于没加） — #A03A28 vs #4A2018 → ΔL=38
+  ✓ [celadon/child] 袍身是真彩色，不是近黑剪影 — #7FADA2 L=162（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [celadon] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #7FADA2 / 表内 #7FADA2
+  ✓ [celadon] 腰带与袍身有明度对比（否则腰带等于没加） — #7FADA2 vs #3A5B55 → ΔL=79
+  ✓ [ochre/child] 袍身是真彩色，不是近黑剪影 — #A8804E L=133（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [ochre] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #A8804E / 表内 #A8804E
+  ✓ [ochre] 腰带与袍身有明度对比（否则腰带等于没加） — #A8804E vs #5A4224 → ΔL=64
+  ✓ [plum/go] 袍身是真彩色，不是近黑剪影 — #B0306A L=79（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [plum] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #B0306A / 表内 #B0306A
+  ✓ [plum] 腰带与袍身有明度对比（否则腰带等于没加） — #B0306A vs #5A1A33 → ΔL=38
+  ✓ [navy/go] 袍身是真彩色，不是近黑剪影 — #2E5FAA L=90（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [navy] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #2E5FAA / 表内 #2E5FAA
+  ✓ [navy] 腰带与袍身有明度对比（否则腰带等于没加） — #2E5FAA vs #1B2E66 → ΔL=44
+  ✓ [plum/watchAdult] 袍身是真彩色，不是近黑剪影 — #B0306A L=79（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [plum] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #B0306A / 表内 #B0306A
+  ✓ [plum] 腰带与袍身有明度对比（否则腰带等于没加） — #B0306A vs #5A1A33 → ΔL=38
+  ✓ [navy/watchAdult] 袍身是真彩色，不是近黑剪影 — #2E5FAA L=90（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [navy] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #2E5FAA / 表内 #2E5FAA
+  ✓ [navy] 腰带与袍身有明度对比（否则腰带等于没加） — #2E5FAA vs #1B2E66 → ΔL=44
+  ✓ [celadon/watchChild] 袍身是真彩色，不是近黑剪影 — #7FADA2 L=162（下限 70，旧单色 #1A2233 是 L=33.5）
+  ✓ [celadon] 袍身确实取自 FIG_PALETTE（接线断言） — 实际 #7FADA2 / 表内 #7FADA2
+  ✓ [celadon] 腰带与袍身有明度对比（否则腰带等于没加） — #7FADA2 vs #3A5B55 → ΔL=79
+  ✓ [ochre/watchChild] 袍身是真彩色，不是近黑剪影 — #A8804E L=133（下限 70，旧单色 #1A2233 是 L=33.5）
+
+  ✓ 页面零报错
+
+figure-audit: PASS ✓
+✓ 人物服色与步态 figure-audit — exit=0（43.8s）
+
+── 人物落脚 figure-foot-guard ──────────────────────────
+✓ 点景人物数量 = 14（先生 + 2 书童 + 夜步 + 对弈二人 + 看烟花的一家 5 + 观鱼人 + 仕女 + 马夫） — 实测 14 个：read、observe、observe、draw、pointDown、child、child、go、go、watchAdult、watchAdult、watchChild、watchChild、watchChild
+  ✓ 人物脚下都不是水面（没有人走在池面上） — 0 处
+  ✓ 人物脚底贴着脚下的面（|脚底 − 面| ≤ 0.15，含散步全程扫描） — 最差 -0.094 @ observe@(13.4,-4.93)
+  ✓ 前提：lampVol 按名排除真实生效（场景里有 lampVol 时，排除次数必须 >0） — 场景内可见 lampVol 0 个 · 本轮排除 0 次 · volume=false（场景内为 0 ⇒ 该条件下不适用；自检模式 ⇒ 人物被下陷、射线落点改变，不适用）
+  ✓ 巡游观鱼者沿全程：脚不会陷进石头（最大下陷 ≤ 0.03m；修复前 −0.161m） — 最大下陷 -0.019m · 最大外浮 0.070m
+  ✓ 巡游观鱼者：偏差 >5cm 的路程 ≤ 0.15m（修复前 0.62m ≈ 0.86s 的"陷进去"） — 0.04m / 全程 27.59m
+  ✓ 巡游观鱼者全程不踩水面 — 0 档命中 waterSurface
+  ✓ 全程零 pageerror — 0 条
+
+
+[figure-foot-guard] ALL PASS（8 项）
+耗时：165.2s
+✓ 人物落脚 figure-foot-guard — exit=0（165.3s）
+
+── 水面真折射 refract-guard ──────────────────────────
+⚠ 第 1 次 exit=1（37.7s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（水面真折射 refract-guard · 第 1 次）—— 完整 stdout / stderr
+✓ 锦鲤异步挂载到齐
+  ✓ 折射默认开启（无 ?refract=0） — {"on":true,"ready":true,"layer":3,"texW":384,"texH":229,"box":{"minX":-16.4,"maxX":16.4,"minZ":-6.8,"maxZ":12.8}}
+  ✓ 首张贴图已渲出（uRefractOn 翻 1）
+  ✓ 贴图尺寸随档位（独显 768×459 / 核显 384×229，按池形长宽比） — 384×229
+  ✓ 贴图亮度有分布（渲过，不是一整块清屏色） — 5.333333333333333~76.33333333333333，均值 18
+  ✓ 池心深水区确实是暗池底 — 中位亮度 25
+  ✗ 11 条锦鲤落在折射贴图里（≥9 条命中，判据比池心底亮 +35） — 8/11，亮度 [70,62,62,60,76,66,68,68,74,60,59]，池心底 25
+  ✗ 映射方向没反（鱼位是鱼、池心是池底） — u 或 v 反了，鱼位就会读到池底而失败
+  ✗ 贴图随时间更新（2.5s 后鱼游到新位置，新位置仍然命中） — 7/11，亮度 [60,63,66,70,70,59,59,75,58,63,68]
+  ✓ ?refract=0 时折射整套关闭 — {"on":false,"ready":false,"layer":3,"texW":0,"texH":0,"box":{"minX":-16.4,"maxX":16.4,"minZ":-6.8,"maxZ":12.8}}
+  ✓ 页面无报错 — 无
+
+✗ 8/11 FAILED
+✗✗ 红门明细结束（水面真折射 refract-guard · 第 1 次）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+↻ 重跑结果：exit=0（38.3s）
+✓ 锦鲤异步挂载到齐
+  ✓ 折射默认开启（无 ?refract=0） — {"on":true,"ready":true,"layer":3,"texW":384,"texH":229,"box":{"minX":-16.4,"maxX":16.4,"minZ":-6.8,"maxZ":12.8}}
+  ✓ 首张贴图已渲出（uRefractOn 翻 1）
+  ✓ 贴图尺寸随档位（独显 768×459 / 核显 384×229，按池形长宽比） — 384×229
+  ✓ 贴图亮度有分布（渲过，不是一整块清屏色） — 5.333333333333333~72，均值 18
+  ✓ 池心深水区确实是暗池底 — 中位亮度 25
+  ✓ 11 条锦鲤落在折射贴图里（≥9 条命中，判据比池心底亮 +35） — 10/11，亮度 [74,68,75,66,72,63,72,66,56,62,69]，池心底 25
+  ✓ 映射方向没反（鱼位是鱼、池心是池底） — u 或 v 反了，鱼位就会读到池底而失败
+  ✓ 贴图随时间更新（2.5s 后鱼游到新位置，新位置仍然命中） — 10/11，亮度 [68,64,68,71,69,65,69,61,58,60,61]
+  ✓ ?refract=0 时折射整套关闭 — {"on":false,"ready":false,"layer":3,"texW":0,"texH":0,"box":{"minX":-16.4,"maxX":16.4,"minZ":-6.8,"maxZ":12.8}}
+  ✓ 页面无报错 — 无
+✓ 11/11 ALL PASS
+
+
+⚠⚠ **FLAKY（偶发）**：水面真折射 refract-guard —— 第 1 次 exit=1、重跑 exit=0。
+   ⚠️ 这不等于"通过"：它说明**这门不稳**。排查两条线：① GPU 档位（_harness 明说 ANGLE
+      每次挑哪块 GPU 不固定，像素类阈值会随档位漂）；② 就绪竞态（是否只等 loading.done
+      而没等 __garden.bootDonePromise —— 延迟批还在进场时采样）。
+   要把它当缺陷处理：`VERIFY_STRICT=1 npm run verify`（FLAKY 也判红）。
+⚠ 水面真折射 refract-guard — exit=0（38.3s · 重跑）
+
+── 折射层覆盖度 refract-coverage ──────────────────────────
+⚠ 第 1 次 exit=1（21.2s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（折射层覆盖度 refract-coverage · 第 1 次）—— 完整 stdout / stderr
+✓ ① 正向清单：7 类必须进层的对象都打了标记 — pondBed 1/1、taihuHero 1/1、taihuShelf 1/1、taihuCompanion 2/2、KoiFish 11/11、Turtle 2/2
+  ✓ ① 匿名实例网格（驳岸石 / 水生植物）也在层里 — 驳岸石 3 + 水生植物 3
+  ✗ ② 反向扫描：池内越水面的几何没有"无理由缺席"的 — podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.2m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.1m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.1m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.2m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.1m
+    豁免（逐条有理由）：
+      · 跨度 840m 的整景大网（天空球/远山/地形基底），不是池内物
+      · 着色器摆位 billboard：实例矩阵全为单位阵、位置在顶点着色器里算 ⇒ Box3 给的是**基础片元**的包围盒（实测 0.56m @跨1m 与它在哪无关；产品注释已声明「CPU 侧包围球是错的」）—— 若哪天改成 CPU 摆实例（非单位阵）本豁免自动失效
+      · 跨度 104m 的整景大网（天空球/远山/地形基底），不是池内物
+      · 过水汀步青石（同"桥头踏跺"这一档）：出水 12~20cm、水下仅 0.2m，主体在水面之上、由主通道完整绘制；实测进层只把俯视顶面写进池底贴图、画面变化在噪声内
+      · 静态合并大网：几何已按材质并网、无法单独拆层；全园最小 y 折合深 0.34m（含低洼旱地上的木件），**池内**最深仅 -0.49m，池内最深顶点 xyz 10.83, 0.55, 2.75（桥头踏跺 / 睡莲浮叶这一档）
+      · 静态合并大网：几何已按材质并网、无法单独拆层；全园最小 y 折合深 0.16m（含低洼旱地上的木件），**池内**最深仅 0.06m，池内最深顶点 xyz 7.2, 0, 1（桥头踏跺 / 睡莲浮叶这一档）
+  ✓ ② 负例自检：注入"池心水面下 0.5m 的无名白网格"必须被报出来（复核没失牙） — 报出 下探 0.5m（池内 0.5m） @跨6m
+  ✓ ③ 在层对象数 ≥ 20（白名单没把扫描吞干净） — 在层 24 件；岸外跨界未打标 14 件（本就该在岸上，不计）
+  ✓ 页面无报错 — 无
+
+✗ 5/6 FAILED
+✗✗ 红门明细结束（折射层覆盖度 refract-coverage · 第 1 次）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+↻ 重跑结果：exit=1（20.6s）
+✗✗ 红门明细开始（折射层覆盖度 refract-coverage · 重跑仍红）—— 完整 stdout / stderr
+✓ ① 正向清单：7 类必须进层的对象都打了标记 — pondBed 1/1、taihuHero 1/1、taihuShelf 1/1、taihuCompanion 2/2、KoiFish 11/11、Turtle 2/2
+  ✓ ① 匿名实例网格（驳岸石 / 水生植物）也在层里 — 驳岸石 3 + 水生植物 3
+  ✗ ② 反向扫描：池内越水面的几何没有"无理由缺席"的 — podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.2m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.1m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.1m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.2m、podStem(#3e7a34) 下探 0.16m（池内 0.16m） @跨0.1m
+    豁免（逐条有理由）：
+      · 跨度 840m 的整景大网（天空球/远山/地形基底），不是池内物
+      · 着色器摆位 billboard：实例矩阵全为单位阵、位置在顶点着色器里算 ⇒ Box3 给的是**基础片元**的包围盒（实测 0.56m @跨1m 与它在哪无关；产品注释已声明「CPU 侧包围球是错的」）—— 若哪天改成 CPU 摆实例（非单位阵）本豁免自动失效
+      · 跨度 104m 的整景大网（天空球/远山/地形基底），不是池内物
+      · 过水汀步青石（同"桥头踏跺"这一档）：出水 12~20cm、水下仅 0.2m，主体在水面之上、由主通道完整绘制；实测进层只把俯视顶面写进池底贴图、画面变化在噪声内
+      · 静态合并大网：几何已按材质并网、无法单独拆层；全园最小 y 折合深 0.34m（含低洼旱地上的木件），**池内**最深仅 -0.49m，池内最深顶点 xyz 10.83, 0.55, 2.75（桥头踏跺 / 睡莲浮叶这一档）
+      · 静态合并大网：几何已按材质并网、无法单独拆层；全园最小 y 折合深 0.16m（含低洼旱地上的木件），**池内**最深仅 0.06m，池内最深顶点 xyz 7.2, 0, 1（桥头踏跺 / 睡莲浮叶这一档）
+  ✓ ② 负例自检：注入"池心水面下 0.5m 的无名白网格"必须被报出来（复核没失牙） — 报出 下探 0.5m（池内 0.5m） @跨6m
+  ✓ ③ 在层对象数 ≥ 20（白名单没把扫描吞干净） — 在层 24 件；岸外跨界未打标 14 件（本就该在岸上，不计）
+  ✓ 页面无报错 — 无
+
+✗ 5/6 FAILED
+✗✗ 红门明细结束（折射层覆盖度 refract-coverage · 重跑仍红）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+✗ 折射层覆盖度 refract-coverage — exit=1（20.6s · 重跑）
+
+── 天气覆盖度 weather-coverage ──────────────────────────
+  ✓ G1 每个带 snowBoost 的材质都在雪表里 ｜ 违规 0
+  ✓ G2 每个带 dryRough 的材质都在湿表里 ｜ 违规 0
+  ✓ G3 每个带 snowInstalled 的材质都在雪表里 ｜ 违规 0
+  ✓ G4 雪表里在用的材质都挂上了雪注入 ｜ 漏挂 0
+  ✓ 把竹竿移出雪表后 G1 能报出来 ｜ 移出后 G1=1 → (无名)#a8c46a/Standard
+  ✓ 自检完名单已复原（不影响后续判据）
+  ✓ 竹竿 bambooA 在雪表且注入已挂 ｜ inSnow=true key=true
+  ✓ 竹竿 bambooB 在雪表且注入已挂 ｜ inSnow=true key=true
+  ✓ 题名石刻 stoneMat 在雪表且注入已挂（= 晚注册补装生效） ｜ inSnow=true key=true installed=true
+  ✓ 题名石刻刻字面在湿表、且**故意**不在雪表（雪不能盖住刻字） ｜ inWet=true inSnow=false
+  ✓ 能取到像素（页内同任务读缓冲，取代 page.screenshot） ｜ ROI 10962px / 整幅 614400px
+  ✓ 覆盖量可稳定控制（没被每帧覆盖） ｜ read 1 / 0
+  ✓ 切覆盖量能改变画面（手段有效性对照） ｜ 整幅 Δ=6.8
+  ✓ 题名石刻确实分到了雪（ROI 内有像素被盖白） ｜ 变亮像素占比 14.72%
+  ✓ 判据自检：无差异时变亮占比为 0 ｜ 0%
+✓ 天气覆盖门禁 PASS  15/15 项通过
+
+[异物] pageerror=0
+
+✓ 天气覆盖度 weather-coverage — exit=0（25.8s）
+
+── 开场运镜 intro-guard ──────────────────────────
+✓ 探针态：开场运镜不自动播（否则回归机位全漂） — introActive=false
+✓ 探针态：相机不在起幅 K0（确属静止机位） — 距K0=53.4m
+✓ 探针态：minDistance = CAM_MIN_DIST（未被运镜放开） — minDist=1.6 CAM_MIN_DIST=1.6
+✓ ?intro=1：加载收尾后自动起播
+✓ 自动播起幅在云外俯瞰（距 K0 ≪ 航程，不是直接给交付机位 —— 交付机位离 K0 53m） — 距K0=0.00m（航程 53m）
+✓ 自动播起幅目标点朝 K0 注视点 (0,4.5,2) — 距K0tgt=0.00m
+✓ 起幅**精确**等于 K0 (30,34,40) / 注视点 (0,4.5,2)（同步取证，与帧率无关） — 距K0=0.0000m 距K0tgt=0.0000m
+✓ 飞行期 controls 冻结（拖拽/阻尼不许与插值抢相机） — enabled=false
+✓ 飞行期 minDistance 放开到 0.2（否则近景插值被夹） — minDist=0.2
+✓ 走满了多个关键帧段（观测到 seg 推进，不是单段直飞） — 观测段号={0,1,2}
+✓ 飞行期间相机确实在大幅移动（非"标记在播、画面没动"） — 最大位移=53.4m
+✓ 飞行在 25s 内自行结束（5.4s 设计值；卡住不落位即红）
+✓ 落位点 = VIEWPOINTS.overview（交付机位，与按 0 复位同落点） — 距overview=0.00m
+✓ 落位注视点 = overview.target — 距tgt=0.00m
+✓ 落位后 controls 解冻（否则用户接管不了） — enabled=true
+✓ 落位后 minDistance 收回 CAM_MIN_DIST（0.2 不许残留） — minDist=1.6 CAM_MIN_DIST=1.6
+✓ 重新起播后确实在飞、且已离开始幅（让位测试的前提成立） — on=true enabled=false 距K0=30.7m
+✓ 键盘交互立即让位（"带看"不是"锁死"） — introActive=false
+✓ 让位后 controls 立即解冻 — enabled=true
+✓ 让位后 minDistance 立即收回 — minDist=1.6
+✓ 让位 = 就地冻结（让位后跨帧不再移动，也不跳回起幅/落位点） — 让位落地后 700ms 内位移=0.0000m（按 k 前→后含按键延迟是 2.753m，不作判据） 距K0=33.4m 距落位点=32.0m
+✓ 滚轮交互也让位（画布捕获阶段收到，与点击涟漪同一条语义）
+✓ 零 pageerror / console error — 0 条
+
+
+[运镜] 23/23 项通过
+✓ 开场运镜 intro-guard — exit=0（63.2s）
+
+── 加载页 loading-guard ──────────────────────────
+✓ 加载层结构完整（封面/水墨罩/标题/进度条/文案） — 7 项齐全
+✓ 概率观察器已挂上（否则进度序列取不到）
+✓ 未处于 prefers-reduced-motion（该模式下动画被关，门禁会假红） — reduce=false
+✓ 封面图 docs/cover.jpg 被请求且 200 — status=200
+✓ Ken Burns 已声明且是慢推（ldKen，≥5s） — ldKen dur=10s（全表：ldBgIn 1.1s / ldKen 10s）
+✓ 流光条已声明且无限循环（ldBar，infinite） — name=ldBar iter=infinite dur=1.5s
+✓ 首帧后加载层收起（加 .done）
+✓ 收起后 pointer-events:none（不再吃掉真实点击） — pointer-events=none
+✓ 收起后已淡出（opacity < 0.5） — opacity=0
+✓ 进度条出现中间态（≥3 个不同宽度）—— 只有 0 与 100 两个值即假进度 — 观测到 12 个不同宽度：0, 45, 51, 56, 62, 67, 73, 78, 84, 89, 95, 100
+✓ 进度条单调不减（不许来回跳） — 0 → 45 → 51 → 56 → 62 → 67 → 73 → 78 → 84 → 89 → 95 → 100
+✓ 进度条终值 = 100% — 终值=100
+✓ 存在"未满"的中间态（不是一步跳满） — 中间态=45,51,56,62,67,73,78,84,89,95
+✓ 进度条更新次数有界（≤40：暖编译 10 桶 + 下载段 250ms 合并采样；防逐帧刷的硬机制见 preload-guard） — 更新 12 次
+✓ 进度文案带暖编译阶段名（营 造 中 · <阶段> <pct>%） — 命中 10 次：立屋架/铺黛瓦/叠山石/引池水/植花竹/起烟云
+✓ 阶段名只取自 WARM_STAGES 六值（没有编造的阶段） — 观测到 立屋架/铺黛瓦/叠山石/引池水/植花竹/起烟云
+✓ 收尾文案换成「即 将 开 园」 — 末条文案=「即 将 开 园」
+✓ 零 pageerror / console error — 0 条
+
+
+[加载页] 18/18 项通过
+✓ 加载页 loading-guard — exit=0（58.7s）
+
+── 分帧暖编译 warmboot-guard ──────────────────────────
+⚠ 第 1 次 exit=1（123.2s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（分帧暖编译 warmboot-guard · 第 1 次）—— 完整 stdout / stderr
+冷缓存对比：两个配置各开一个全新 browser
+
+  暖编译开：合计 20645ms ｜ 暖机 17502ms ｜ 首帧 889ms ｜ program 172
+  暖编译关：合计 16540ms ｜ 暖机 — ｜ 首帧 14204ms ｜ program 158
+
+✓ 启动分段里出现「暖机」刻度（暖编译确实跑过） — 暖机段=17502ms
+✓ 「暖机」排在几何合并之后、首帧之前（顺序即语义：先有场景再预热） — index(暖机)=20 index(几何合并)=19 末刻度=首帧
+✓ 暖机本身是真在干活（≥3s），不是被跳过/被短路 — 暖机段=17502ms
+✗ 首帧段被清空（≤800ms）—— 编译不许再堵在渲染循环入口 — 首帧段=888.9ms
+✓ 负例自检：去掉暖编译后「暖机」刻度消失（补丁确实生效）
+✓ 负例自检：去掉暖编译后首帧段必然 >3000ms（证明上面那条首帧判据有牙） — 老路径首帧段=14204ms
+✓ 启动总时长代价没失控（≤ +35%：它是"把硬冻拆成 11 次可播报等待"，不是白赚） — 合计 16540ms → 20645ms（+4106ms）
+  · 诊断（不判红）：program 158 → 172（+14）｜跨浏览器冷启的自然波动约 ±14，本读数尚不足以判定暖编译的增量
+✓ 两种配置都零 pageerror / console error — 0/0 条
+
+[暖编译] 7/8 项通过
+✗✗ 红门明细结束（分帧暖编译 warmboot-guard · 第 1 次）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+↻ 重跑结果：exit=1（121.0s）
+✗✗ 红门明细开始（分帧暖编译 warmboot-guard · 重跑仍红）—— 完整 stdout / stderr
+冷缓存对比：两个配置各开一个全新 browser
+
+  暖编译开：合计 19512ms ｜ 暖机 16383ms ｜ 首帧 948ms ｜ program 172
+  暖编译关：合计 17178ms ｜ 暖机 — ｜ 首帧 14771ms ｜ program 158
+
+✓ 启动分段里出现「暖机」刻度（暖编译确实跑过） — 暖机段=16383ms
+✓ 「暖机」排在几何合并之后、首帧之前（顺序即语义：先有场景再预热） — index(暖机)=20 index(几何合并)=19 末刻度=首帧
+✓ 暖机本身是真在干活（≥3s），不是被跳过/被短路 — 暖机段=16383ms
+✗ 首帧段被清空（≤800ms）—— 编译不许再堵在渲染循环入口 — 首帧段=947.8ms
+✓ 负例自检：去掉暖编译后「暖机」刻度消失（补丁确实生效）
+✓ 负例自检：去掉暖编译后首帧段必然 >3000ms（证明上面那条首帧判据有牙） — 老路径首帧段=14771ms
+✓ 启动总时长代价没失控（≤ +35%：它是"把硬冻拆成 11 次可播报等待"，不是白赚） — 合计 17178ms → 19512ms（+2334ms）
+  · 诊断（不判红）：program 158 → 172（+14）｜跨浏览器冷启的自然波动约 ±14，本读数尚不足以判定暖编译的增量
+✓ 两种配置都零 pageerror / console error — 0/0 条
+
+[暖编译] 7/8 项通过
+✗✗ 红门明细结束（分帧暖编译 warmboot-guard · 重跑仍红）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+✗ 分帧暖编译 warmboot-guard — exit=1（121.0s · 重跑）
+
+── 偶得随机场景 random-guard ──────────────────────────
+✓ 抽取 600 次全部返回完整结构（time/season/weather/hour/label） — 首例={"time":"dusk","season":"winter","weather":"clear"} · 产品可见天气 7 种（clear/storm/afterrain/snow/mist/drizzle/snowclear）
+✓ 三轴组合全部合法（weatherMutexReason 为空）—— 非法即静默降级穿帮 — 全部合法
+✓ 非冬季绝不出现「银装素裹」（样本级复核） — 0 例
+✓ 时辰落在所选时段锚点 ±0.6h 内 — 最大偏移=0.600h
+✓ 锚点 ±0.6h 抖动确实在生效（同时段出现过多个不同时辰） — morning:126种 noon:57种 dusk:214种 night:175种
+✓ 相邻两抽三轴不同则标签必不同（防"抽 A 报 B"） — 0 例
+✓ 标签是三段式（季节 · 时段 · 天气） — 样例=「冬 · 暮 · 风和日丽」
+✓ 相邻两抽三轴不重复（重抽逻辑在生效） — 0/600 例重复
+✓ 四季都抽得到（季节均匀，无漏档） — {"spring":146,"summer":166,"autumn":139,"winter":149}
+✓ 四时段都抽得到 — {"morning":126,"noon":58,"dusk":221,"night":195}
+✓ 时段加权方向正确：暮 / 夜 明显多于正午（正午最不出片） — dusk=221 night=195 morning=126 noon=58
+✓ 夜里的晴与薄雾占比高于白天（保月亮与萤火；dusk 不参与加权故不计入） — 夜=78.5%（n=195） 晨+午=58.7%（n=184）
+✓ 抽完后 setEnv 仍能正常接管（随机不锁死环境） — {"season":"winter","weather":"snow"}
+✓ 零 pageerror / console error — 0 条
+
+
+[偶得] 14/14 项通过（样本 600 抽）
+✓ 偶得随机场景 random-guard — exit=0（58.8s）
+
+── 丁达尔体积光 lampvol-guard ──────────────────────────
+✓ 前提：?tier=high 真的生效（否则光团压根不挂，后面全在错误前提下跑） — search="?tier=high" forced=high volCount=5（应为 high 与 5）
+✓ 灯笼支点数与设计一致（堂前 2 + 游廊 3） — lanternGroups=5
+✓ 光团球心数与灯数成对（5 个世界球心可回读） — volPos=5
+✓ 找到堂前灯（静态布点 z=−7.1）用于取景 — hall idx=3,4
+✓ 高档位下体积光材质与光团/光斑均已挂载 — on=true mounted=true
+✓ 5 盏灯各挂 1 个光团、1 个光斑 — 光团=5 光斑=5
+✓ 光团几何 = 球形弥散（SphereGeometry，不是向下收窄的 ConeGeometry） — volGeo=SphereGeometry
+✓ 光团基几何半径 = 1（volR 才等于世界半径；基半径被改则半径判据静默失义） — volGeoR=1
+✓ 光团世界半径在合理区间（0 < r ≤ 0.85，拢着灯笼不吞掉整盏） — {"min":0.581,"max":0.67}
+✓ 光团与灯内点光源同属"灯体"层（同一父级）—— 防光团被改挂到挂点 pivot — 同父级 ✓ · 同父级 ✓
+✓ 光团球心与灯内光源同高（|Δ局部 y| ≤ 0.25m）—— 防光团在灯体上飘走 — Δ局部 y = 0.17, 0.17 m（设计 0.17）
+✓ 地面光斑 = 圆形且平躺（CircleGeometry + rotation.x=−π/2） — splashGeo=CircleGeometry flat=true
+✓ 夜：光团 uLamp > 0（体光在亮） — uLamp=1
+✓ 夜：地面光斑 uLamp 与光团同步（漏跟时段 → 白天不会透明） — 光团=1 光斑=1
+✓ 晴：uRain = 0（无散射增强） — uRain=0
+✓ 色温偏暖（R>G>B 的烛火橙，不是冷白/纯白） — tint=#ffaa33 rgb(255,170,51)
+✓ uTime 在推进（tickLampVol 接线在，湍流/微尘才会呼吸） — uTime 63.190900000000376 → 63.87359999999963
+✓ 正午：光团 uLamp = 0（白天等效空 mesh，不白烧） — uLamp=0
+✓ 正午：地面光斑 uLamp 同样归零 — splashLamp=0
+✓ 前提[雨夜]：storm 在当季合法且真的落到画面上（否则 uRain 判据在错误前提下跑） — 季节=summer weather=storm eff=storm allowed=true · 互斥原因="无（组合合法）"
+✓ 雨夜：uRain > 0（空气颗粒多 → 丁达尔光团更显形） — uRain=1（rainAmount=1）
+✓ 雨夜：地面光斑 uRain 与光团同步 — 光团=1 光斑=1
+✓ 镜头距离 = 设计最小距离（camMinDist 与 OrbitControls 一致，无静默夹取） — 实际 1.6m · camMinDist=1.6 · controls.minDistance=1.6
+✓ 前提[取景]：采样框真的是"局部"（≤ 画面 15%） — 窗 r=58px ⇒ 覆盖 1.5% 画面（旧版 497px = 77.6%）
+✓ 前提[取景]：光团投影面积 ≤ 60% 画面、"远处"还剩 ≥5%（否则本判据静默退化） — 光团占画面 42.7%（上限 60%）· 远处环带占 30.7%（下限 5%）· BR=355px（直径/高 0.99、/宽 0.55）
+✓ 隔离前提：烟花已强制关（冬·夜·晴 本该开烟花，它的全场打光会把本门 2.3 luma 的信号淹掉） — fireworksState().on=false
+✓ 风场与光团湍流时钟可冻结（阳性对照的隔离前提） — WIND.uWindGlobal / uWindStrength + lampVol.uTime 已 pin
+✓ 冻结生效：连读 6 帧风力恒为 0（渲染循环每帧回写也压不住） — 6 帧采样，首帧=[0,0] 末帧=[0,0]
+✓ 阳性对照：夜下把光团 uLamp 归零，灯周那块确实变暗（光团在贡献像素） — 局部 luma 119.39 → 113.57（差 5.840；同状态稳健 σ≈0.069 ⇒ 84.3σ）
+✓ 前提[采样区]：近区与远区环带都非空、远区占比 ≥20%、且环带内径不越出画框角 95%（否则判据静默变绿 —— 失效方式 3） — 近区 n=393910 / 画面 42.7%（r≤355px）· 远环带 n=282920 / 画面 30.7%（444..622px，下限 20%）· 环带内径 444px vs 画框角 95% = 698px
+✓ 光团是**局部**现象，不是全屏加了一层（远处的有向抬亮 ≤ 近处的 1/5） — liftNear=4.943（r≤355px，n=393910）· liftFar=0.0000（444<r≤622px，n=282920）· 近/远 567848×（须 ≥5）· 原始比较 liftFar×5=0.0000 vs liftNear=4.9429（负值会显示假裕量，故并列原始比较）· 有向 luma 均值、12 对中位
+✓ 已证明有效的一半：vol.scale 拨得动、且不被渲染循环回写（连读多帧后仍是拨后的值） — 找到 5 个光团（应为 5）· 拨后 700ms 回读 0.8708(原 0.5805) / 0.8708(原 0.5805) / 0.8708(原 0.5805) / 1.0046(原 0.6697500000000001) / 1.0046(原 0.6697500000000001)
+✓ 还原自检：vol.scale 已还原到拨前值（读数不受本条影响） — 还原后 0.5805 / 0.5805 / 0.5805 / 0.6698 / 0.6698（拨前 0.5805 / 0.5805 / 0.5805 / 0.6697500000000001 / 0.6697500000000001）
+✓ 负例前提[注入]：全屏加法层已挂上相机、尺寸按实测画框角算、且默认不可见（不污染其它读数） — alpha=0.0165 · 平面 3.08x1.73m @ 1m（near=0.5 之外）· 画框角半视场 40.89°（实测 window 1280x720 · canvas 1600x900）
+✓ 负例前提[可判定]：注入态两区都取到正向读数、远区抬亮过同态噪声 3σ — badNear=18.2703 · badFar=15.3592 · 同态噪声 σ_near=0.0299 σ_far=0.0005（3σ_far=0.0014）
+✓ 负例自检：注入「灯亮即全幅抬亮」的加法层 ⇒ 本判据必须红（证明它有牙） — badFar×5=76.7959 vs badNear=18.2703 ⇒ 红（判据失败＝正确）
+✓ 负例自检：注入层已移除、uLamp 已还原、相机未被改动 — 移除 ✓ · uLamp=1（原 1）· 相机 1.6m（原 1.6m）· 相机子节点 1
+✓ 前提[可判定]：近带是正向抬亮（liftNear > 0）—— 防"两个负数"制造假红 — liftNear=4.9429（须 > 0）· liftFar=0.0000
+✓ 可复现性自证：同状态两次量读数一致（|Δlift| ≤ 25% × liftNear） — liftNear 两半 4.933 / 4.946（Δ 0.013）· liftFar 两半 -0.0000 / 0.0000（Δ 0.0000）· 上限 1.236
+✓ 前提[分辨力]：3σ_far 远小于判据阈值 liftNear/5（否则应判「无分辨力」而不是通过） — 3σ_far=0.0001（两半差 0.0000）vs 阈值 liftNear/5=0.9886 ⇒ 余量 13607×
+
+✓ 零 pageerror / console error — 0 条
+
+[体积光] 43/43 项通过 · 样张 E:\ai_test\codex_test\suzhou-garden\outputs\visual/lampvol-*.png
+✓ 丁达尔体积光 lampvol-guard — exit=0（141.6s）
+
+── 远树剪影下线 far-tree-guard ──────────────────────────
+  ✓ 远树：「柱状树林」广告牌已下线（场景内不存在 PlaneGeometry × 46 的 InstancedMesh） — 0 个
+  ✓ 远树：MAT.distantTree 已删除（材质库回到四层远山） — 不存在
+  ✓ 远树：四层远山材质仍在（删的只是远树，没误伤远山） — 远山材质 4/4
+  ✓ 远树：判据有牙 —— 临时注入"PlaneGeometry × 46"后 ① 必须能报红 — 注入后计数=1
+  ✓ 远树：自检对象已干净移除（探针不污染场景） — 移除后计数=0
+  ✓ 零 pageerror / console error
+
+
+[far-tree] ALL PASS（6 项）
+✓ 远树剪影下线 far-tree-guard — exit=0（29.8s）
+
+── 布局指纹 layout-fingerprint ──────────────────────────
+  ✓ 布局指纹与基线一致（全局随机流未漂）
+  ✓ 零 pageerror
+
+
+[layout-fingerprint] ALL PASS（2 项）
+✓ 布局指纹 layout-fingerprint — exit=0（24.8s）
+
+── 反射按需更新 reflect-adaptive ──────────────────────────
+  ✓ 找到水面（Reflector）且已装反射计数器 — reflectCount=undefined（首次读取前为 undefined，正常）
+  ✓ 核显档：平面反射按设计关闭 —— 24 帧零重渲（偷偷开会红） — 24 帧里重渲 0 次（应为 0）
+  ✓ 零 pageerror / console error
+
+
+[reflect-adaptive] ALL PASS（3 项）
+✓ 反射按需更新 reflect-adaptive — exit=0（29.4s）
+
+── 涟漪池域 ripple-bounds ──────────────────────────
+  ✓ 找到涟漪池（RingGeometry InstancedMesh）
+  ✓ 涟漪容量 64（暴雨+密集点击+鱼跃不抢不到槽） — 容量=64
+  ✓ 暴雨下确实采到了活跃涟漪（否则判据会静默通过） — 4s 内采到 7628 个活跃圈样本
+  ✓ **所有**活跃涟漪都落在池域内（不在岸上草地） — 7628 个样本全部在池内
+  ✓ 前置条件：晴天且涟漪池已排空（给点击留出槽位）
+  ✓ 正向对照：池心点击确实出圈（"拦"没把正常路径拦掉） — clickRipple={hit:true, bait:true, x:-3.552713678800501e-15, z:2.9999999999999645} · 同期活跃圈 7→8（池心 NDC 0.09,-0.27）
+  ✓ 零 pageerror / console error
+
+
+[ripple-bounds] ALL PASS（7 项）
+✓ 涟漪池域 ripple-bounds — exit=0（35.4s）
+
+── GTAO 半分辨率 gtao-halfres ──────────────────────────
+  ✓ tier=high 下存在 GTAO pass（核显档本来无 AO，故本门强制高档） — pass=800×450 · composer=1600×900 · aoScale=0.5
+  ✓ ① 初始就是半分辨率（pass 尺寸 = composer 尺寸 × 0.5） — pass 800×450 vs composer×0.5 800×450
+  ✓ ② composer.setSize(1600,900) 之后仍半分辨率（resize / QOS 不会拉回全尺寸） — pass 1000×563 vs composer 2000×1125
+  ✓ ③ A/B 钩子 userData.aoScale 有效（1 ⇒ 全尺寸；0.5 ⇒ 半尺寸） — aoScale=1 → 2000×1125（composer 2000）；aoScale=0.5 → 1000×563（composer 2000）
+  ✓ ④ 还原 innerWidth/Height 后仍是半分辨率 — pass 800×450 vs composer 1600×900
+  ✓ 零 pageerror / console error
+
+
+[gtao-halfres] ALL PASS（6 项）
+✓ GTAO 半分辨率 gtao-halfres — exit=0（56.8s）
+
+── 锦鲤投喂互动 koi-feed ──────────────────────────
+  ✓ 锦鲤异步挂载到齐（否则判据无意义） — 11 条
+  ✓ 前置条件：点击前没有饵（否则"撒饵"判据会假绿） — baits=0
+  ✓ 前置条件：点击前 11 条鱼都在各自轨道上（aw=0） — aw 最大 0
+  ✓ 负例对照：点岸上（池外）**不**撒饵、也不出涟漪 — baits 0→0，clickRipple.hit=false
+  ✓ 反向自检：饵点落在岸线时被**夹紧**进池内（防"鱼游上岸"） — 饵局部 (13.46,0) r=13.46 ≤ cap=13.46，在池内=true
+  ✓ ① 点水面 1 秒内有饵落水 — 饵落水 @13ms（NDC 0.08,-0.27）
+  ✓ ③ 与"点水面出涟漪"共存（同一击先出涟漪、饵落涟漪中心） — 涟漪 @13ms，clickRipple={hit:true, bait:true}
+  ✓ ② 3 秒内 ≥3 条鱼转向饵点 — aw>0.3 的最多 5 条；距饵缩短的 5 条
+  ✓ ⑤ 吸引全程**没有鱼出池**（"鱼游到草皮上"是踩过的真 bug） — 78 帧 × 11 条全在池内
+  ✓ ⑥ 投喂时鱼头跟着实际游动方向（中位夹角 ≤20°，不许倒着滑） — 11 条中位夹角的中位数 0°（各条 0/0/0/0/0/0/0/0/0/0/0）
+  ✓ ⑥ 投喂时没有连续倒游（最长连续倒游 ≤0.35s） — 倒游帧 0，最长连续倒游 0.00s
+  ✓ ④ 饵到期后鱼群回到原轨道（aw=0 且落在各自轨道取值域内） — 饵到期 @2961ms，全部归队 @5466ms（散开后 2505ms ≤ 10s）
+  ✓ ⑤ 归队过程同样没有鱼出池 — 全在池内
+  ✓ 零 pageerror / console error
+
+
+[koi-feed] ALL PASS（14 项）
+✓ 锦鲤投喂互动 koi-feed — exit=0（42.5s）
+
+── 上元灯会 festival-guard ──────────────────────────
+⚠ 第 1 次 exit=1（126.8s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（上元灯会 festival-guard · 第 1 次）—— 完整 stdout / stderr
+[festival-guard] http://127.0.0.1:42492/index.html
+  ✓ 前提：帧首 reset 钩子装载成功（否则三态读数全是部分和，本门读数作废）
+  ✓ 前置：默认（未开灯会）河灯/烛焰/灯串/桃树挂灯 count=0（零 draw call） — river=0 flame=0 string=0 · tree=0/425 · draw calls=870
+  ✓ 真光源：廊灯 5 盏（不变的基础灯） — lampLights=5 roadLights=8（路灯数由源码报；若 roadLights=0 先查 ?tier=high 是否生效 —— 低档按设计不建路灯光源）
+  ✓ ⑥ 开灯会：自动切到夜（灯会是夜的 plus 版）且存在性通道 = 1 — time=night festival=true festivalShow=1.00
+  ✓ ⑥ 开灯会同帧同步环境 UI：夜按钮选中、时辰显示 21:30 — 夜按钮=true · hourReadout=21:30
+  ✓ ⑥ 换场景（切季节）⇒ 灯会**必须收起**：按钮回落 + 存在性目标归 0 — 灯会 true→false · 按钮 true→false · festivalShow 目标 1→0（旧契约是"与季节正交、不许收起"，2026-10-06 老黄改的）
+  ✓ ① 河灯 ≥20 盏（计划书原文） — 河灯 24 盏 · 灯串 28 颗 · draw calls(中位)=948
+  ✓ ① 两株桃树的枯枝挂灯全部显现（count=fullCount） — tree=425/425
+  ✗ ④ 灯会态 draw calls 仍 < 1600（预算没被顶破） — 最坏帧 1666 / 上限 1600（余量 -66） · 连续 60 帧 · 帧总量分布 min~med~max = 940~948~1666
+  ✓ ① 所有河灯都在池域内（没漂到岸上） — 24 盏全在池内
+  ✓ ② 河灯不与桥体/汀步石/立峰石组重叠（含 1m 余量） — 桥 0 / 汀步 0 / 立峰 0 处重叠（24 盏）
+  ✓ ② 判据有牙：桥体中心点必须被判为"在禁区内"（注入反例自检） — 桥体中心 (8.4,4.6) inRect=true
+  ✓ ① 河灯**随波漂移**（45 帧内 ≥3 盏位置明显变化） — 14/24 盏移动，最大位移 0.033m（跑了 1 帧）
+  ✓ ① 判据有牙 · 负例自检：冻结漂移时钟后河灯必须**完全不动**（漂移判据会因此报红） — 冻结 20 帧后最大位移 0m（应 ≈ 0）
+  ✓ ⑤ bloom 未溢出成死白（近白像素 < 1.2%） — 近白像素 0%
+  ✓ ④ 口径自证：同帧逐样本 total[i] ≥ main[i]（composer 增量 ⊆ 帧累计）· 四态均成立 — 四态 main 抖动 673/726/465/478 · total 抖动 673/726/465/478
+  ✓ ④ 四态 composer 增量（noon/夜 × 灯会关/开）+ 纯灯会边际 + A≈D 便宜自证 — A noon·灯会关 870（870~1543） · B 夜·灯会关 766（750~1228） · C 夜·灯会开 948（940~1666） · D noon·灯会关 849（849~1314） ｜ 纯灯会边际 C−B = 182 · 时段份 B−A = -104 · A−D = 21
+  ✓ ⑥a 关灯会：回到**进来之前**的时段（不是留在夜里，也不是跳到别的时段） — time=noon（进来前=noon · 退出前快照 prevTime=noon）festival=false festivalShow=0.00
+  ✓ ④ 关灯会后河灯/烛焰/灯串/桃树挂灯 count 归 0（draw call 回落） — river=0 flame=0 string=0 · tree=0/425 · draw calls=849
+  ✓ ⑥b 灯会里自己改时段 ⇒ 灯会同样收起，且时段**以他的改动为准**（不拽回 noon） — 灯会 true→false · 时段 night→morning（应 morning） · festivalShow 目标 0
+  ✓ 零 pageerror / console error
+
+[festival-guard] 1 FAILED（21 项）
+✗✗ 红门明细结束（上元灯会 festival-guard · 第 1 次）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+↻ 重跑结果：exit=1（147.9s）
+✗✗ 红门明细开始（上元灯会 festival-guard · 重跑仍红）—— 完整 stdout / stderr
+[festival-guard] http://127.0.0.1:42674/index.html
+  ✓ 前提：帧首 reset 钩子装载成功（否则三态读数全是部分和，本门读数作废）
+  ✓ 前置：默认（未开灯会）河灯/烛焰/灯串/桃树挂灯 count=0（零 draw call） — river=0 flame=0 string=0 · tree=0/425 · draw calls=871
+  ✓ 真光源：廊灯 5 盏（不变的基础灯） — lampLights=5 roadLights=8（路灯数由源码报；若 roadLights=0 先查 ?tier=high 是否生效 —— 低档按设计不建路灯光源）
+  ✓ ⑥ 开灯会：自动切到夜（灯会是夜的 plus 版）且存在性通道 = 1 — time=night festival=true festivalShow=1.00
+  ✓ ⑥ 开灯会同帧同步环境 UI：夜按钮选中、时辰显示 21:30 — 夜按钮=true · hourReadout=21:30
+  ✓ ⑥ 换场景（切季节）⇒ 灯会**必须收起**：按钮回落 + 存在性目标归 0 — 灯会 true→false · 按钮 true→false · festivalShow 目标 1→0（旧契约是"与季节正交、不许收起"，2026-10-06 老黄改的）
+  ✓ ① 河灯 ≥20 盏（计划书原文） — 河灯 24 盏 · 灯串 28 颗 · draw calls(中位)=948
+  ✓ ① 两株桃树的枯枝挂灯全部显现（count=fullCount） — tree=425/425
+  ✗ ④ 灯会态 draw calls 仍 < 1600（预算没被顶破） — 最坏帧 1652 / 上限 1600（余量 -52） · 连续 60 帧 · 帧总量分布 min~med~max = 940~948~1652
+  ✓ ① 所有河灯都在池域内（没漂到岸上） — 24 盏全在池内
+  ✓ ② 河灯不与桥体/汀步石/立峰石组重叠（含 1m 余量） — 桥 0 / 汀步 0 / 立峰 0 处重叠（24 盏）
+  ✓ ② 判据有牙：桥体中心点必须被判为"在禁区内"（注入反例自检） — 桥体中心 (8.4,4.6) inRect=true
+  ✓ ① 河灯**随波漂移**（45 帧内 ≥3 盏位置明显变化） — 24/24 盏移动，最大位移 0.135m（跑了 2 帧）
+  ✓ ① 判据有牙 · 负例自检：冻结漂移时钟后河灯必须**完全不动**（漂移判据会因此报红） — 冻结 20 帧后最大位移 0m（应 ≈ 0）
+  ✓ ⑤ bloom 未溢出成死白（近白像素 < 1.2%） — 近白像素 0%
+  ✓ ④ 口径自证：同帧逐样本 total[i] ≥ main[i]（composer 增量 ⊆ 帧累计）· 四态均成立 — 四态 main 抖动 685/712/501/471 · total 抖动 685/712/501/471
+  ✓ ④ 四态 composer 增量（noon/夜 × 灯会关/开）+ 纯灯会边际 + A≈D 便宜自证 — A noon·灯会关 871（870~1555） · B 夜·灯会关 764（752~1223） · C 夜·灯会开 948（940~1652） · D noon·灯会关 849（813~1314） ｜ 纯灯会边际 C−B = 184 · 时段份 B−A = -107 · A−D = 22
+  ✓ ⑥a 关灯会：回到**进来之前**的时段（不是留在夜里，也不是跳到别的时段） — time=noon（进来前=noon · 退出前快照 prevTime=noon）festival=false festivalShow=0.00
+  ✓ ④ 关灯会后河灯/烛焰/灯串/桃树挂灯 count 归 0（draw call 回落） — river=0 flame=0 string=0 · tree=0/425 · draw calls=849
+  ✓ ⑥b 灯会里自己改时段 ⇒ 灯会同样收起，且时段**以他的改动为准**（不拽回 noon） — 灯会 true→false · 时段 night→morning（应 morning） · festivalShow 目标 0
+  ✓ 零 pageerror / console error
+
+[festival-guard] 1 FAILED（21 项）
+✗✗ 红门明细结束（上元灯会 festival-guard · 重跑仍红）
+[GPU] ANGLE (Intel, Intel(R) Iris(R) Xe Graphics (0x0000A7A0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1
+✗ 上元灯会 festival-guard — exit=1（147.9s · 重跑）
+
+── 四季自动演示 season-demo-guard ──────────────────────────
+✓ 默认不自动播放（webdriver 下保持手动） — on=false phase=idle
+  ✓ 默认不显示节气字幕 — {"shown":false,"title":"","text":"","season":"summer"}
+  ✓ 点击按钮启动四季演示 — phase=flying
+  ✓ 启动后自动收起控制面板（不遮挡电影式画面）
+  ✓ 按钮文案/高亮/aria-pressed 同步 — {"text":"四季停■","pressed":"true","on":true}
+  ✓ 首季字幕与 ENV.season 同步 — {"shown":true,"title":"春 · 花信","text":"池边新芽渐长，桃花与紫藤相继点亮春景。","season":"spring"}
+  ✓ 再点一次停止并收起字幕 — on=false caption=false
+  ✓ 四季严格按 春→夏→秋→冬→春 循环 — spring → summer → autumn → winter → spring
+  ✓ 每次字幕变化时 ENV.season 已同步 — spring:春 · 花信 | summer:夏 · 荷风 | autumn:秋 · 静水 | winter:冬 · 清景 | spring:春 · 花信
+  ✓ 晴天的冬季演示不声称正在下雪，季节标题不冒充节气 — 冬 · 清景：竹影与亭台收敛颜色，冬日园景更显清静。
+  ✓ 手动机位与特殊情境均有字幕说明 — 全部有说明
+  ✓ 堂、亭和马厩默认标明是写意而非实景复原 — hall:取意于拙政园远香堂的写意主厅，形制并非实景测绘复原；夏季可欣赏荷池对景。 | pavilion:借用荷风四面之名的写意水榭，位于池边；它不是实景中的湖心六角亭。 | stable:园墙外的马厩、马车和到访故事是写意叙事，不是拙政园实景；马的品种名来自资产标签。
+  ✓ 连续选择机位时，新字幕不会被旧计时提前关闭 — {"shown":true,"title":"马厩"}
+  ✓ 慢速镜头持续推进（至少两帧发生位移） — 两帧位移=2.8878m
+  ✓ 画布操作立即中断演示与相机飞行 — on=false phase=idle
+  ✓ 中断后季节不再自行推进 — spring → spring
+  ✓ 普通按键立即接管四季演示
+  ✓ 点季节按钮 = 接管并切到用户指定季节 — on=false season=summer
+  ✓ 演示中点面板其他按钮会立即接管
+  ✓ “偶得”会停止四季演示
+  ✓ 启动昼夜流转会互斥停止四季演示
+  ✓ 堂前对联左右各一联，贴图与自拟题联一致 — {"count":2,"right":true,"left":true,"distinct":true,"upper":"碧水涵明月","lower":"清风送荷香"}
+  ✓ 零 pageerror / console error
+
+
+[season-demo-guard] ALL PASS（23 项）
+✓ 四季自动演示 season-demo-guard — exit=0（44.7s）
+
+── 抗锯齿渐进超采样 aa-progressive ──────────────────────────
+⚠ 第 1 次 exit=null（805.3s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（抗锯齿渐进超采样 aa-progressive · 第 1 次）—— 完整 stdout / stderr
+[P] 探针语义（默认 context：webdriver=true ⇒ QOS_IMMUNE=true）
+  ✓ 前提[P]：环境被判为免疫，且由 PROBE_DRIVEN 触发 — immune=true probeDriven=true software=false
+  ✓ 前提[P]：QOS 自身也被同一条判据钉在 L0 — active=false level=0
+  ✓ 起始为基础倍率（未升采样） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [P] 连静止 120 帧 AA 仍恒停 step0（真机在此帧数内必升到 step2） — 实际静止=120 帧 state={"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [P] 停用原因确为 QOS_IMMUNE（不是作者把开关关了） — immune=true enabled=true allowed=false
+  ✓ [P] pr 稳定在 baseScale（AA 不再改分辨率） — pr=1.25 base=1.25
+  ✓ 负例自检：假免疫①（免疫名义为真，但 allowed=true 且已升到 step2）
+  ✓ 负例自检：假免疫②（免疫为真，但 step 被推到 1）
+  ✓ 负例自检：假免疫③（step 为 0，但 pr 已被 AA 抬离 baseScale）
+  ✓ 负例自检：现场构造的违规态（step=2）确实被判据拦下 — {"step":2,"scale":1.36,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.7000000000000002,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ 负例自检：该违规态是"真升档"而非读到旧值（step=2 且 pr>base） — step=2 pr=1.7000000000000002 base=1.25
+  ✓ [P] 免疫每帧强制（注入 step2 后 ≤4 帧被拉回 step0） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [P] 探针语义下换档软化恒为 0（连强制抬档都不许点亮微糊） — trace=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  ✓ [P] 软化状态可读，且免疫标记/声明帧数齐备 — {"left":0,"value":0,"pr":1.25,"immune":true,"peak":0.45,"frames":10}
+  ✓ 负例自检：探针语义下软化被点亮（合成：抬档后出现峰值）
+
+[R] 真机语义（webdriver 胶水置 false ⇒ QOS_IMMUNE=false）
+  ✓ 前提[R]：环境已非免疫（immune=false / probeDriven=false） — immune=false probeDriven=false software=false
+  ✓ 前提[R]：AA 处于可自适应（allowed=true / enabled=true） — allowed=true enabled=true
+  ✓ 起始为基础倍率（未升采样） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] 相机静止时倍率逐级上升（≥120 帧） — {"step":2,"scale":1.36,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.7000000000000002,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] 倍率不超过上限 — scale=1.36 max=1.36
+  ✓ [R] 实际像素比与配置同步（且不突破像素预算） — pr=1.7000000000000002 base=1.25 qos=1 scale=1.36 cap=3.0740852297878796
+  ✓ [R] 升档后像素数不超预算 — 2663424 ≤ 8709120
+  ✓ [R] 相机一动立即回落（无拖影等待） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] 性能档不参与渐进升采样（连静止 120 帧仍 step0） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":0.8999999999999999,"mode":"performance","qosLevel":4,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":0.72,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ 前提[R]：联动测试前 AA 已确实升档 — {"step":2,"scale":1.36,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.7000000000000002,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] QOS 已降档时不再升采样 — qos L4 aa={"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":0.8999999999999999,"mode":"high","qosLevel":4,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":0.72,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ 负例自检：AA 不升档①（合成：停在 step0）
+  ✓ 负例自检：AA 不升档②（合成：只升到 1 档）
+  ✓ 负例自检：AA 升档但像素比与配置脱钩（pr 被写坏）
+  ✓ 负例自检：回落判据不为永真（合成：仍停在 step1）
+[signal] SIGTERM
+✗✗ 红门明细结束（抗锯齿渐进超采样 aa-progressive · 第 1 次）
+[GPU] ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Laptop GPU (0x000028E0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1.25
+↻ 重跑结果：exit=0（107.8s）
+  ✓ 前提[P]：环境被判为免疫，且由 PROBE_DRIVEN 触发 — immune=true probeDriven=true software=false
+  ✓ 前提[P]：QOS 自身也被同一条判据钉在 L0 — active=false level=0
+  ✓ 起始为基础倍率（未升采样） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [P] 连静止 120 帧 AA 仍恒停 step0（真机在此帧数内必升到 step2） — 实际静止=120 帧 state={"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [P] 停用原因确为 QOS_IMMUNE（不是作者把开关关了） — immune=true enabled=true allowed=false
+  ✓ [P] pr 稳定在 baseScale（AA 不再改分辨率） — pr=1.25 base=1.25
+  ✓ 负例自检：假免疫①（免疫名义为真，但 allowed=true 且已升到 step2）
+  ✓ 负例自检：假免疫②（免疫为真，但 step 被推到 1）
+  ✓ 负例自检：假免疫③（step 为 0，但 pr 已被 AA 抬离 baseScale）
+  ✓ 负例自检：现场构造的违规态（step=2）确实被判据拦下 — {"step":2,"scale":1.36,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.7000000000000002,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ 负例自检：该违规态是"真升档"而非读到旧值（step=2 且 pr>base） — step=2 pr=1.7000000000000002 base=1.25
+  ✓ [P] 免疫每帧强制（注入 step2 后 ≤4 帧被拉回 step0） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":false,"immune":true,"probeDriven":true,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [P] 探针语义下换档软化恒为 0（连强制抬档都不许点亮微糊） — trace=[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]
+  ✓ [P] 软化状态可读，且免疫标记/声明帧数齐备 — {"left":0,"value":0,"pr":1.25,"immune":true,"peak":0.45,"frames":10}
+  ✓ 负例自检：探针语义下软化被点亮（合成：抬档后出现峰值）
+  ✓ 前提[R]：环境已非免疫（immune=false / probeDriven=false） — immune=false probeDriven=false software=false
+  ✓ 前提[R]：AA 处于可自适应（allowed=true / enabled=true） — allowed=true enabled=true
+  ✓ 起始为基础倍率（未升采样） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] 相机静止时倍率逐级上升（≥120 帧） — {"step":2,"scale":1.36,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.7000000000000002,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] 倍率不超过上限 — scale=1.36 max=1.36
+  ✓ [R] 实际像素比与配置同步（且不突破像素预算） — pr=1.7000000000000002 base=1.25 qos=1 scale=1.36 cap=3.0740852297878796
+  ✓ [R] 升档后像素数不超预算 — 2663424 ≤ 8709120
+  ✓ [R] 相机一动立即回落（无拖影等待） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.25,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] 性能档不参与渐进升采样（连静止 120 帧仍 step0） — {"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":0.8999999999999999,"mode":"performance","qosLevel":4,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":0.72,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ 前提[R]：联动测试前 AA 已确实升档 — {"step":2,"scale":1.36,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.7000000000000002,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] QOS 已降档时不再升采样 — qos L4 aa={"step":0,"scale":1,"maxScale":1.36,"baseScale":1.25,"pixelRatio":0.8999999999999999,"mode":"high","qosLevel":4,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":0.72,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ 负例自检：AA 不升档①（合成：停在 step0）
+  ✓ 负例自检：AA 不升档②（合成：只升到 1 档）
+  ✓ 负例自检：AA 升档但像素比与配置脱钩（pr 被写坏）
+  ✓ 负例自检：回落判据不为永真（合成：仍停在 step1）
+  ✓ 负例自检：真机下关掉开关后 AA 确实不升档（判据会红） — step=0 allowed=false setEnabled返回.allowed=false
+  ✓ 负例自检：关开关的原因可读（allowed=false 而 immune=false ⇒ 是开关不是免疫） — allowed=false immune=false
+  ✓ [R] 重新开开关后恢复升档（可逆 ⇒ 上一条确实是被开关压住的） — {"step":2,"scale":1.36,"maxScale":1.36,"baseScale":1.25,"pixelRatio":1.7000000000000002,"mode":"high","qosLevel":0,"enabled":true,"allowed":true,"immune":false,"probeDriven":false,"software":false,"qosScale":1,"budgetCap":3.0740852297878796,"pixelBudget":8709120}
+  ✓ [R] 前提：软化处于**可触发**环境（immune=false） — {"left":0,"value":0,"pr":1.25,"immune":false,"peak":0.45,"frames":10}
+  ✓ [R] 回落（像素比变小）不触发软化 — {"left":0,"value":0,"pr":1.25,"immune":false,"peak":0.45,"frames":10}
+  ✓ [R] 抬档后软化峰值出现（且不超声明峰值） — peak=0.45 declared=0.45 trace=[0.45,0.405,0.36000000000000004,0.315,0.27,0.225,0.18000000000000002,0.135,0.09000000000000001,0.045000000000000005,0,0,0,0,0,0,0,0]
+  ✓ [R] 软化在声明帧数（10 帧）内归 0，此后不再抬头（专抓永久残留） — trace=[0.45,0.405,0.36000000000000004,0.315,0.27,0.225,0.18000000000000002,0.135,0.09000000000000001,0.045000000000000005,0,0,0,0,0,0,0,0]
+  ✓ 负例自检：软化永不衰减（合成：全程停在峰值）
+  ✓ 负例自检：软化残留（合成：峰值后拖到第 11 帧才归零）
+  ✓ 负例自检：软化从未出现（合成：全程 0）
+
+  ✓ 零 pageerror / console error（[P] + [R] + [B] 三个 context） — —（已滤掉启动看门狗记录 0 条：那是"重载下延迟装配未在 120s 内收尾"的诊断信息，本门随后自己 await bootDonePromise 已兑现）
+
+[aa-progressive-guard] ALL PASS（50 项）
+⚠⚠ **FLAKY（偶发）**：抗锯齿渐进超采样 aa-progressive —— 第 1 次 exit=1、重跑 exit=0。
+   ⚠️ 这不等于"通过"：它说明**这门不稳**。排查两条线：① GPU 档位（_harness 明说 ANGLE
+      每次挑哪块 GPU 不固定，像素类阈值会随档位漂）；② 就绪竞态（是否只等 loading.done
+      而没等 __garden.bootDonePromise —— 延迟批还在进场时采样）。
+   要把它当缺陷处理：`VERIFY_STRICT=1 npm run verify`（FLAKY 也判红）。
+⚠ 抗锯齿渐进超采样 aa-progressive — exit=0（107.8s · 重跑）
+
+── 资产预载 preload ──────────────────────────
+✓ 前提：进度条有真实时间戳序列（observer 挂上了） — 12 个采样
+✓ 前提：__garden.preloadState 存在（否则后面几条都是永真） — settled 18/18
+✓ ① 进度更新是"采样合并"而非逐 chunk 刷（中位间隔 ≥ 250ms） — 中位 914ms（共 12 次更新，最小 145ms）
+✓ ② 同一整数百分比不重复写（去重生效） — 重复 0 次
+✓ ③ 进度单调不减（不许来回跳） — 0→100
+✓ ④ 下载段落在 0~45%、暖编译段落在 45~100%（两段合成一条） — <45 的采样 0 个（须 0），45~99 的 10 个，终值 100
+✓ ⑤ 预载清单的 bytes 与磁盘一致（单一真值没漂） — 5.351 MB / 18 项
+✓ ⑤b 预载总量 = 清单 bytes 之和（聚合没有算错） — 5611296 vs 5611296
+✓ 前提：对照臂能取到 program 数 — A=172 B=174
+✓ ⑥ 没有整类材质丢失（预载臂不含"对照臂完全没有"的 program 族） — A 独有族 0 个
+✓ ⑥b program 差额已定位：唯一缺失的族是 depth（投影程序），属"换个时刻编"而非丢失 — B 独有族: 无（A 172 / B 174，完整 key 差 A6/B8 属正常变体差）
+✓ 前提：取得到「首帧」刻度（否则 ⑥c 是永真，不许静默通过 —— 铁律 4） — 首帧段 516.4ms
+✓ ⑥c 补编（若发生）在首帧预算内（≤800ms，与 warmboot-guard 同阈值） — 首帧段 516.4ms
+✓ 零 pageerror / console error — 0/0 条
+✓ ⑥ 负例前提：限速臂确实走进了下载段（否则注入无效、这条负例是永真） — 0~45 的采样 35 个
+✓ ⑥ 负例自检：撤掉 250ms 合并后，① 的中位间隔必然跌破 250ms（证明 ① 有牙） — 注入后中位 86ms（共 47 次更新；≈ 下载段时长/44 ⇒ 链路须快于 ~11s 才判得出）
+
+
+[预载] 16/16 项通过
+✓ 资产预载 preload — exit=0（153.5s）
+
+── PWA 离线缓存 pwa-cache ──────────────────────────
+
+PASS: online warmup boot (SW installed, src/*.js runtime-cached)
+PASS: ten offline resources available [{"url":"/index.html","status":200,"bytes":69613},{"url":"/src/main.js","status":200,"bytes":11227},{"url":"/vendor.js","status":200,"bytes":1034794},{"url":"/manifest.webmanifest","status":200,"bytes":506},{"url":"/icons/garden.svg","status":200,"bytes":730},{"url":"/assets/BananaPlant.glb","status":200,"bytes":168816},{"url":"/assets/koi.glb","status":200,"bytes":208000},{"url":"/assets/lotus-bloom.glb","status":200,"bytes":329964},{"url":"/assets/Turtle.glb","status":200,"bytes":266372},{"url":"/assets/Macaw.glb","status":200,"bytes":954840}]
+PASS: offline Garden boot and all five GLB models; screenshot saved
+✓ PWA 离线缓存 pwa-cache — exit=0（50.2s）
+
+── 基础版入口 basic-enter ──────────────────────────
+✓ D 前提：404 拦截确实被请求命中（否则后面全是永真） — 命中 1 次
+✓ D 前提：preloadState().degraded 里确实含 BananaPlant（降级被登记） — degraded=["assets/BananaPlant.glb"]
+✓ D ① 芭蕉替身叶片 ≥3 片/株（不是光杆） — 株数=8 叶总=26 最少的株=3 片
+✓ D ② 替身挂在植株的 crown 上（不是挂错父级） — onCrown=8/8
+✓ D ④ 零 pageerror / 真实 console error（豁免注入 404 自身那一条） — 0 条（豁免 1 条注入 404 噪声）
+✓ D0 负例前提：本臂 BananaPlant 未降级（注入确实是变量） — degraded=[]
+✓ D0 负例：不注入 404 ⇒ 替身数量为 0（证明 D① 有牙，不是永远走替身） — 替身株=0 叶=0
+✓ E 前提：预载清单非空（否则"提前开园"没有东西可提） — count=18 settled=18
+✓ E 负例1（静默性）：未交互时 #ld-quick 不可见 — {"hidden":true,"show":false}
+✓ E 负例2（设计约束）：被动 mousemove 不触发它 — {"hidden":true,"show":false}
+✓ E ① 首次 pointerdown 后 #ld-quick 淡入（show + 可见） — {"hidden":false,"show":true,"opacity":"0.880112","pointerEvents":"auto","display":"block"}
+✓ E ② localStorage 标记已置位 — sg.basicEntered=1
+✓ E ③ 暖编译段确实跑过（文案序列出现过「营 造 中 ·」—— 没有跳过编译） — 文案序列 ["正 在 下 载 资 产 0.0/5.4 MB（1/18）","正 在 下 载 资 产 0.3/5.4 MB（1/18）","正 在 下 载 资 产 0.3/5.4 MB（1/18）","正 在 下 载 资 产 0.4/5.4 MB（1/18）","正 在 下 载 · 资 产 就 位","营 造 中 · 立屋架 45%","营 造 中 · 立屋架 51%","营 造 中 · 铺黛瓦 56%","营 造 中 · 铺黛瓦 62%","营 造 中 · 叠山石 67%","营 造 中 · 引池水 73%","营 造 中 · 引池水 78%"]
+✓ E ④ 收尾到「即 将 开 园」（走完了 warmBoot 的收尾） — finale=true done=true
+✓ E ⑤ 场景不是空的（几何数与满配同一量级，不是空场景） — geos=672 tri=4402220
+✓ E ⑥ 提前开园确实"砍掉了下载等待"（降级非空） — degraded=["assets/koi.glb","assets/stone-lantern.glb","assets/stone-lion-male.glb","assets/stone-lion-female.glb","assets/BananaPlant.glb","assets/lotus-bloom.glb","assets/lotus-bud.glb","assets/lotus-pod.glb","assets/Turtle.glb","assets/Macaw.glb","assets/horse-camargue.glb","assets/horse-mongolian.glb","assets/horse-criollo-saddle.glb","assets/fig-scholar.glb","assets/fig-lady.glb","assets/fig-laborer.glb","assets/fig-child.glb","assets/fig-guest.glb"]
+✓ E ⑧ 静默入口路径上替身确实补上了（芭蕉叶替身在场，不留光杆） — 替身株=8 叶=26 最少/株=3
+✓ E ⑦ 零 pageerror / console error — 0 条
+
+
+[基础版入口/芭蕉替身] 18/18 项通过
+✓ 基础版入口 basic-enter — exit=0（192.3s）
+
+── 近景水面清透 nearview-clarity ──────────────────────────
+  ✓ 廊道已注入 MAT.lily（program 缓存 key 带 corr 后缀）
+  ✓ keep 方向正确：廊心收到 floor，廊外保持 1 — 廊心=0.42 廊外=1 floor=0.42
+  ✓ floor 在 (0,1] 之间（0 会让停栖蜻蜓悬空，1 等于没做） — floor=0.42
+  ✓ 全池叶盘面积保有率落在"收了但没塌"区间（8%~90%） — 61.1%｜被收 17/36 片
+  ✓ 每片叶都还是一片能停住蜻蜓的叶（带锚点者 keep ≥ 0.30） — 锚点叶最小 keep=0.42
+  ✓ 随机流守恒：叶盘数与锚点数未被水道改动 — pads=36 anchors=36
+  ✓ 前提：近景机位未被 controls 弹回（相机距 target 4.5~7.5m） — 实测 5.4m
+  ✓ 测量法自检：同配置连渲两次逐像素差 = 0（否则下面全是噪声） — 0
+  ✓ 水道在近景确实改变了画面（开↔关 平均绝对差 ≥ 0.50） — A/B=8.6425
+  ✓ 近景水带绿味像素下降 ≥ 0.8pp（真的"清透"了，不是把画面调亮） — 开=43.696% 关=66.222% 降 22.53pp
+  ✓ 负例自检：floor=1（着色器 no-op）与"关掉水道"逐像素一致 ⇒ 改善确实归因于水道 — 差=0 绿度 66.222% vs 66.222%
+  ✓ 全景机位几乎不受影响（远景仍是满池荷叶，A/B ≤ 0.60） — A/B=0.1583
+  ✓ 零 pageerror / console error
+
+
+[nearview-clarity-guard] ALL PASS（13 项）
+✓ 近景水面清透 nearview-clarity — exit=0（57.6s）
+
+── 阴影烘焙结论 shadow-bake ──────────────────────────
+  ✓ 前提 0：能采到连续的太阳主导样本（≥20 个 0.5h 采样点） — 29 个（h∈[5, 19]），剔掉 19 个月亮时段
+  ✓ 前提 ①：太阳方向随时辰**连续**变化，不是几个固定角（步进中位数 > 0.2°） — 相邻 0.5h 步进 中位 6.935° 最大 34.17°
+  ✓ 前提 ①：显著独立方向数 ≥ 8（8° 口径） — 16 个 / 总弧长 223.5°
+  ✓ 前提 ②：投射物中位高度 > 1m（越高越吃角度误差） — p50=1.66m，127 个投射物
+  ✓ 前提 ②：要不出错需 ≥ 24 张烘焙图 ⇒ 离散烘焙不可行 — 需 225 张｜每张摊 0.994°（H=1.66m, texel=1.44cm, 弧长 223.5°）
+  ✓ 算术自检：每张摊的角度在合理量级（0.05°~5°）—— 防止上面的括号被改坏后假绿 — 0.994°/张
+  ✓ 前提 ③：相机 far 很大（900m）⇒ 近级小视锥换密度这条路已被证伪（CSM 已回退） — far=900m，阴影视体宽 88.3m / 6144²
+  ✓ 前提 ③：场景里只有 1 盏投影方向光（多盏会连乘压暗，不是混合） — 1 盏
+  ✓ 结论仍成立：场景里不存在任何烘焙阴影产物（真要做，这道门该改口径） — 0 个
+  ✓ 零 pageerror
+
+
+[shadow-bake-guard] ALL PASS（10 项）
+✓ 阴影烘焙结论 shadow-bake — exit=0（53.6s）
+
+── 近地面高度雾 volumetric-fog ──────────────────────────
+  ✓ A1 heightFogPass 已接入 composer 链（按引用认身份，类名不可用） — 6/7 个 pass：Wu Object s s Al Al qu
+  ✓ A2 heightFogPass 排在 gradePass 之后、且紧邻链尾（雾在调色之后、OutputPass 之前） — grade=4 heightFog=5／共 7（应为 5；outIdx 探测=-1，压缩后不可靠故不参与判定）
+  ✓ A3 两个 composer RT 都挂着可读 DepthTexture（swapBuffers 后也不会拿到不可读缓冲） — rt1=true rt2=true size=[1200,750]
+  ✓ A4 深度纹理尺寸与 RT 一致（resize 后没指向旧纹理） — [1200,750] vs [1200,750]
+  ✓ A5 7 个雾 uniform 与 HFOG 指针共享（ShaderPass clone 坑的回接生效） — 7/7
+  ✓ A6 前提：近远平面 0.5/900 与 shader 的深度换算常量一致 — near=0.5 far=900
+  ✓ A7 前提：scene.fog 仍是 0.0052 量级（本方案不靠调浓均匀雾） — FogExp2 density=0.0052
+  ✓ A8 高度雾上界 uTop 在"低空"量级（2~4m），不是 200m 那种无上界值 — uTop=2.6m
+  ✓ A9 积分步数与档位相符：low 档（核显）≤8 步，不允许 16 步 — uSteps=8
+  ✓ B0 测量法自检：同配置连渲两次逐像素差 = 0（否则下面全是噪声） — 0
+  ✓ B1 高度雾确实接进了画面（不是"活着但不生效"的空挂） — 10-25m med=0 >2/255=10%
+  ✓ B3 远景 60m+ 基本不动（中位差 ≤ 1.5/255）—— 高度雾不给远处添乱 — 60m+ med=0 n=14
+  ✓ B4 近景 0~3m 几乎不动（中位差 ≤ 1.5/255） — 0-3m med=0
+  ✓ N1 负例有效：去掉上界后中远景雾覆盖率显著上升（证明"远景不动"不是永远绿的空门） — 缺陷态 58.7% vs 正常 0%
+  ✓ C0 观荷水道机位确实落在近景（相机距 target 4.5~7.5m） — 实测 5.4m
+  ✓ C0b 测量法自检（观荷机位）：同配置连渲两次 = 0 — 0
+  ✓ C2 近景 3~10m 总衰减在清透预算内（≤ 0.05×255 ≈ 12.8/255，取中位） — 3-10m med=1.3333/255 n=469｜>2/255 占 36.7%｜阈值 12.8
+  ✓ C3 观荷机位 0~3m 几乎不动（中位 ≤ 1.5/255） — 0-3m med=1
+  ✓ C1 交叉回归：水道开↔关绿度差仍 ≥ 0.8pp（6d07a9c「近景水面清透」未被高度雾破坏） — 开=41.988% 关=63.951% 差=21.963pp
+  ✓ 全程零 pageerror / console error
+
+[volumetric-fog-guard] ALL PASS（20 项）
+样张目录：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\volumetric-fog
+耗时：452.3s
+✓ 近地面高度雾 volumetric-fog — exit=0（452.4s）
+
+── 锦鲤跃水节流 koi-ripple ──────────────────────────
+  ✓ 前提：11 条锦鲤 + 2 只泳龟已挂载（否则频率判据无意义） — 11 + 2
+  ✓ ① 前提：计数器活着（否则"频率低"只是计数器死了，零报错最坑） — 3 次 tick
+  ✓ ① 前提：锦鲤破水落点**全部**在池内（wasEmerged 翻转 ⇒ spawnRipple 是 1:1） — 12 次穿越，0 次被拦（1:1 成立）
+  ✓ ① 前提：观察窗内确实采到破水（否则"频率低"是采样不足，不是改对了） — 12 次落圈 / 7 次事件
+  ✓ ① 前提：产品侧权威开关已暴露（探针必须走它，不能在探针里重调产品函数） — 当前 floor=14 spread=78 on=true
+  ✓ ① 前提：跃水间隔已放宽到稳态档（spread ≥ 40，即中位 ≥ ~29s） — spread=78 ⇒ 中位 53.0s
+  ✓ ② 平时 · 锦鲤破水**事件**频率在 8~18 次/分（每 3.3~7.5s 一条鱼破水） — 实测 13.0 事件/分
+  ✓ ② 平时 · 锦鲤链落圈频率在 16~36 次/分（事件的两圈，不该翻倍失控） — 实测 24.0 次/分
+  ✓ ② 平时 · 事件起点间隔中位 ≥ 1.8s（"偶发"而非"此起彼伏"） — 中位 2.13s
+  ✓ ② 平时 · 仍保留"出水 + 入水"两圈（负向：没把交互反馈削没） — 两圈事件占比 79%
+  ✓ ③ 投喂时 · 破水事件频率仍在 8~18 次/分（聚拢不放大跃水） — 实测 15.0 事件/分（平时 13.0）
+  ✓ ③ 投喂时 · 锦鲤链落圈频率仍在 16~36 次/分 — 实测 29.0 次/分
+  ✓ ④ 池面 · 活涟漪中位数显著低于容量（不再是"池里永远有圈"） — 活圈中位 3 / 容量 64（p90 6）
+  ✓ ⑤ 负例前置：权威开关真的把间隔改回了旧值 spread=18 — 读回 spread=18（floor=14）
+  ✓ ⑤ 有牙负例：旧间隔下破水事件频率**超出水位上限**（判据必须能判红） — 旧间隔实测 26.0 事件/分 > 上限 18
+  ✓ ⑤ 有牙负例：旧间隔下锦鲤链落圈频率**超出水位上限**（判据必须能判红） — 旧间隔实测 49.9 次/分 > 上限 36
+  ✓ ⑤ 有牙负例：旧间隔下短间隔占比**明显高于**同一批测得的正向值（判据必须能判红） — 旧间隔 50.0% / 正向 30.6% = 1.64×（需 >1.35×，n=26 需 ≥12）
+  ✓ ⑤ 负例收尾：已复原为产品默认 spread=78 — spread=78
+  ✓ ⑥ 前置：权威开关已关闭跃水 — on=false
+  ✓ ⑥ 有牙负例：关闭跃水后锦鲤链落圈归零（证明计数确由跃水路径产生） — 沉降 4s 后 30s 内落圈 0 次（应为 0）
+  ✓ ⑥ 收尾：已复原跃水 — on=true
+  ✓ ⑦ 涟漪池容量仍是 64（本次只改节奏，没动容量与雨滴配额） — 容量=64
+  ✓ ⑦ 点击涟漪状态可读（点击链未被本次改动摘掉） — clickRippleLast() 存在
+  ✓ 零 pageerror / console error
+
+
+[koi-ripple-guard] ALL PASS（24 项）
+✓ 锦鲤跃水节流 koi-ripple — exit=0（625.9s）
+
+── 灯会挂灯 festival-lanterns-guard ──────────────────────────
+  ✓ 前提：挂点已在延迟批收尾后收集完（hangBuilt=true） — hangBuilt=true
+  ✓ 前提：柳花灯/紫藤花灯/围栏红壁灯三个网格齐备（各一份合并几何） — objs=3 kinds=["willowFlower","wisteriaFlower","wallRed"]
+  ✓ ② 非灯会态：三批挂灯 count 全 = 0（零提交、零 draw call） — count=[0,0,0] 容量=[48,24,44] · draw calls=1385
+  ✓ ① 灯会不新增真光源：廊灯 5 盏 + 路灯（这组是常驻灯，灯会不加） — lampLights=5 roadLights=8（roadLights=0 先查 ?tier=high 是否生效 —— 低档按设计不建路灯光源）
+  ✓ ② 开灯会：三批挂灯全部显形（count = fullCount） — willowFlower=48/48 · wisteriaFlower=24/24 · wallRed=44/44
+  ✓ A 柳树：4 株全挂（挂点数 = 4 × 每株 12） — 柳花灯 48 盏
+  ✓ A 紫藤：只挂两丛大藤架（12 × 2） — 紫藤花灯 24 盏
+  ✓ B 围栏红灯笼：四边成排（≥30 盏） — 红壁灯 44 盏
+  ✓ ③ 灯会态 draw calls 对同态（夜）基线增量 ≤ 30（跨画质档可比；实测 +10） — 关灯会(夜) 整帧 min/中位/max = 1025/1025/1464 · 开灯会 = 1035/1035/1494 · 增量(min)=10（≤30）· 各 12/12 帧 · 整帧总量法（包装 info.reset）· time=night
+  ✓ ③b 绝对护栏：整帧 draw calls ≤ 2500（跨档峰值实测 619 / 1667） — 开灯会整帧 max=1494（护栏 2500）
+  ✓ 硬指标：一个灯笼 = 一份合并几何 = 一个 InstancedMesh（对象数恒为 3，与盏数无关） — 116 盏灯只占 3 个对象（诊断试摆拆 4~5 件时报 +26 draw call）
+  ✓ B 围栏红灯笼：落在四面围墙内侧带、挂高 4.40~4.55m（贴帽檐下沿） — 贴墙带 44/44 · 高度合格 44/44（y 4.45~4.49）
+  ✓ B 围栏红灯笼：**真的挂在墙帽上**（向上 0.5m 内命中，且间隙 ≤0.08 = 灯身顶贴住檐口、绳子藏进帽檐） — 44/44 盏上方命中结构 · 间隙合格 44/44（实测间隙 [0.042,0.042,0.019,0.051]…；修复前 8/8 抽样全 null = 一片悬空）
+  ✓ A 柳树挂灯：挂点在冠内（y 1.5~6.6m），不是浮在空中也不是贴树梢 — 柳 48 盏 y 2.28~4.67（叶幕 2.30~6.61，取中段 + 垂 0.15）
+  ✓ A 紫藤挂灯：挂在藤架高度（y 2.8~3.3m，藤在 3.35） — 紫藤 24 盏 y 3.02~3.14
+  ✓ 负例自检 ①：把新增挂灯 count 改 0 后，"三批挂灯全部显形"判据必须报红 — 改 0 后 n=[0,0,0] ⇒ visible=false
+  ✓ ② 关灯会后三批挂灯 count 归 0（负例：零提交判据确实会因灯会开而变红） — count=[0,0,0] festivalShow=0.00 · draw calls=1025
+  ✓ ① 开关两态真光源都是廊灯 5 + 路灯（数量由源码报，不硬编码） — lampLights=5 roadLights=8
+  ✓ 零 pageerror / console error
+
+
+[festival-lanterns-guard] ALL PASS（19 项）
+✓ 灯会挂灯 festival-lanterns-guard — exit=0（57.5s）
+
+── 电闪雷鸣 thunder-guard ──────────────────────────
+✓ thunder：直射几乎全关（sun < 晴天的 25%） — 晴 1.22 → 雷电 0.061
+  ✓ thunder：环境光压到一半以下 — 晴 0.42 → 雷电 0.197
+  ✓ thunder：曝光降到暮色级（≤0.90） — 晴 1 → 雷电 0.68
+  ✓ thunder：雨量满、雾加厚（暴雨体感） — 雾 0.0052→0.0094
+  ✓ thunder：平均亮度不高于暮色（老黄的"接近暮色"） — 晴 133.2 / 暴雨 128.1 / 雷电 90.8 / 暮色 94.5
+  ✓ thunder：比"狂风暴雨"更暗（雷雨不是普通雨天） — 雷电 90.8 vs 暴雨 128.1
+  ✓ 定格到峰值（flash ≥ 0.75）—— 探针拿到的是可复现的峰值帧 — flash=0.845
+  ✓ 闪电网格的顶点落在画面内（不是"摆在画外看不见"） — {"geo":"BufferGeometry","verts":58,"inside":52,"ndc":[-0.03,0.39,0.6,1.16]}
+  ✓ 自检：两臂都定格在"无闪"时画面几乎不动（≈噪声，本判据不是量的场景漂移） — 同状态差 0.00
+  ✓ 闪电把画面点亮了（冻结帧 峰值 ↔ 无闪） — 全幅差 45.08
+  ✓ 照亮整体：画面下半部（地面/建筑）明显变亮 —— 不只是天上亮 — 下半部 58.4 → 104.7（+46.3，自检漂移 0.00）
+  ✓ 亮痕（亮光划过）的顶点落在画面内 — {"visible":true,"inside":4,"ndcX":[-0.6,-0.07],"opacity":0.51}
+  ✓ 亮痕真的画进了像素（可见 ↔ 隐藏 的冻结帧差 > 0.05） — 像素差 0.154
+  ✓ 闪电事件发生（采样 flash 峰值 ≥0.75） — 峰值 0.952，闪电网格可见帧 32
+  ✓ 照亮只发生在有闪电网格的帧（"先闪电、后照亮"） — 被照亮帧 32，其中同时可见闪电 32
+  ✓ 闪电网格确实出现过（不是纯提亮） — 32 帧可见
+  ✓ 天空 uFlash 与闪光同步（云层被闪亮） — uFlash 峰值 0.95
+  ✓ 事件收尾归零（flash / 曝光回到基准） — 末帧 flash=0 曝光=0.68（基准 0.68）
+  ✓ 照亮峰值显著（sun 至少抬到基准的 4 倍） — 峰值 sun 0.758 vs 基准 0.061
+  ✓ 雷鸣参数：延迟 ≥0.5s（雷声在闪电之后） — {"delay":2.72,"layers":3,"gain":0.338,"lp":1056,"rate":0.986,"at":16.850000000000286}
+  ✓ 雷鸣参数：1~3 层叠放（密集雷） — layers=3
+  ✓ 雷声素材（真实录音 mp3）在浏览器里解码成功 — ok
+  ✓ 音景开启时：闪电 → 雷鸣播放计数递增 — 2 → 4
+  ✓ 非雷雨天气（晴）：12 秒零闪电 — 7 → 7
+  ✓ 离开雷雨后闪光量归零（无残留提亮） — flash=0 skyFlash=0
+  ✓ 合并生效：「狂风暴雨」自己会打闪电 — 暴雨下计数 10 → 11
+  ✓ 随机场景从不抽到 thunder（已并入暴雨，不在随机池） — {"afterrain":53,"clear":132,"snow":16,"drizzle":48,"mist":101,"storm":40,"snowclear":10}
+  ✓ 随机池能抽到新场景「雨后初晴」 — {"afterrain":53,"clear":132,"snow":16,"drizzle":48,"mist":101,"storm":40,"snowclear":10}
+  ✓ 全程零 pageerror — 0 条
+
+[thunder-guard] ALL PASS（29 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\thunder-guard
+耗时：79.2s
+✓ 电闪雷鸣 thunder-guard — exit=0（79.3s）
+
+── 雨后初晴与彩虹 afterrain-guard ──────────────────────────
+✓ 雨后初晴：雨已停（rainAmount = 0） — rain=0
+  ✓ 雨后初晴：地面/瓦/叶是湿的（wetness ≥ 0.7 ⇒ 有反光） — wetness=0.85
+  ✓ 雨后初晴：太阳出来了（直射 ≥ 晴天的 50%） — sun=0.95（晴天基准 1.22，位置 [-62.6,8.3,-25.2]）
+  ✓ 雨后初晴：有薄水汽但不是白茫茫（雾密度在薄雾的 1/3 ~ 1 之间） — 雾 0.008（薄雾约 0.0104）
+  ✓ 雨后初晴："绿得发亮"（饱和 ≥ 晴天的 1.02 倍） — saturation=1.03
+  ✓ 彩虹隔离：暮·clear 虹强度 = 0 — amount=0
+  ✓ 彩虹隔离：暮·storm 虹强度 = 0 — amount=0
+  ✓ 彩虹隔离：暮·snow 虹强度 = 0 — amount=0
+  ✓ 彩虹隔离：暮·mist 虹强度 = 0 — amount=0
+  ✓ 彩虹：雨后初晴下虹强度 > 0 — amount=1.277
+  ✓ 雨后初晴·dawn：默认机位能看到彩虹（>2000px、浓核峰值差 ≥90、横跨画面中部） — 虹像素 346709（26.42%），峰值差 218/765，横向 19.2%~82.6%
+  ✓ 雨后初晴·noon：默认机位能看到彩虹（>2000px、浓核峰值差 ≥90、横跨画面中部） — 虹像素 201332（15.34%），峰值差 152/765，横向 19.6%~82.1%
+  ✓ 雨后初晴·dusk：默认机位能看到彩虹（>2000px、浓核峰值差 ≥90、横跨画面中部） — 虹像素 303055（23.09%），峰值差 214/765，横向 19.3%~82.1%
+  ✓ 彩虹：夜里自动消失（没有太阳就没有虹） — amount=0
+  ✓ 自检：同状态连渲两次画面不变（不是量的场景漂移） — 同状态差 0.0000
+  ✓ 虹真的画进了像素（开虹 ↔ 关虹 冻结帧差 > 0.3） — 全幅平均差 4.560
+  ✓ 虹是"一道"而不是"一片"（可见受影响天空像素 0.8%~28%，别糊满整片天） — 可见受影响天空像素 20.68% / 20.68%（新口径 ΣΔ>45 × 上 40% 行；2026-10-12 标定：正常 21.9%、b3.20 下界 32.1%；旧口径 1.79%→52.38%）
+  ✓ §4 抖动自检：同状态连测两次的覆盖率差 ≤2 点（旧版贴阈值随机红绿的直接原因） — 20.68% vs 20.68%（差 0.00 点，上限 2）
+  ✓ 负例自检：uBright=3.20（糊满整片天那档）在新口径下必须报红 — b=3.20 实测 38.43% ≥ 上限 28%？（预测下界 32.1%）
+  ✓ 彩虹是**大拱**：横向跨度 45%~72% 画面宽（老黄十二次实拍"做得窄一些"） — 跨度 61.9%（本轮实测 48~55%；第七轮宽版 90.7% 被判"太宽"）
+  ✓ 彩虹没有"黑边"（开虹后压暗底图 ≥18 灰阶的像素 < 800） — 暗像素 0（改前 b=1.9 正午 3000~3900：旧上限 4000 正好放它过，肉眼就是黑边；改后为 0）· dawn
+  ✓ 彩虹没有"黑边"（开虹后压暗底图 ≥18 灰阶的像素 < 800） — 暗像素 0（改前 b=1.9 正午 3000~3900：旧上限 4000 正好放它过，肉眼就是黑边；改后为 0）· noon
+  ✓ 彩虹没有"黑边"（开虹后压暗底图 ≥18 灰阶的像素 < 800） — 暗像素 0（改前 b=1.9 正午 3000~3900：旧上限 4000 正好放它过，肉眼就是黑边；改后为 0）· dusk
+  ✓ 彩虹**弓得起来**：矢高 ≥18% 画面高（球面环方案几何上限只有 4~6%） — 矢高 77.8%（实测 34%）
+  ✓ 彩虹拱顶在画面上部 3%~25%（更高但没贴顶） — 拱顶 y=15.7%（低阈值 bbox 顶=0%，含 bloom 晕圈；贴顶=0% 是旧坑）
+  ✓ 看彩虹机位：站在拱的圈外（离拱带 ≥55m —— 站进去就会被 5.2m 宽的带糊满整幅） — 离拱带 65m（旧机位 42.9m）· 相机 [-7.14,20,33.89]
+  ✓ 看彩虹机位：拱完整在画内且不过曝（覆盖 1%~8%、峰值 90~400、贴边 0px） — 覆盖 2.47%、峰值 242/765、贴边 0px、横向 35.5%~80.2%
+  ✓ 负例自检：同一套判据必须把**旧机位**判红（否则本门没有牙） — 旧机位 覆盖 41.8%、峰值 649、贴边 15890px、离拱带 43m
+  ✓ 全程零 pageerror — 0 条
+
+[afterrain-guard] ALL PASS（29 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\afterrain-guard（含 开虹/关虹 并排对照）
+耗时：127.5s
+✓ 雨后初晴与彩虹 afterrain-guard — exit=0（127.8s）
+
+── 天空视觉层 sky-layer-guard ──────────────────────────
+✓ 前提：?tier=high 生效且 GTAO 在链上（本门的地基） — {"gtao":true,"enabled":true,"aoScale":0.5,"pr":1.25}
+  ✓ 晴·高档：天上没有 AO 压出来的暗拱（<1.5%） — darkPct=0
+  ✓ 负例自检：撤掉 aoSkip 后暗拱必须复现（>5%） — darkPct=24.19
+  ✓ 还原 aoSkip 后暗拱消失（<1.5%） — darkPct=0
+  ✓ 雨后初晴：ENV 过渡已完成（前提） — ENV.t=1
+  ✓ 雨后初晴：虹照常画出来（彩色占比 ≥ 晴天 +1.0） — clear=17.68 rain=20.52
+  ✓ 雨后初晴：天上仍然没有暗拱（<1.5%） — darkPct=0
+  ✓ 结构：虹拱带 userData.aoSkip 标记
+  ✓ 结构：闪电组（懒建）已登记进 AUX_PASS_HIDDEN — {"built":true,"group":true,"listed":true,"rbFlag":true}
+  ✓ 闪电：排除后「可见性切换」不留压暗足迹（=0） — {"boltPx":0,"maxDelta":0,"selfcheckDiffPx":0,"inView":44,"verts":52}
+  ✓ 闪电：帧自检——同配置连渲两次逐位相同 — diff=0
+  ✓ 闪电前提：至少 30 个顶点在画面内 — inView=44/52
+  ✓ 负例自检：把闪电组从 AUX_PASS_HIDDEN 摘掉 ⇒ 压暗足迹必须复现（>50px） — boltPx=120 maxDelta=264
+  ✓ 零 pageerror / console error
+
+
+[sky-layer-guard] ALL PASS（14 项）
+✓ 天空视觉层 sky-layer-guard — exit=0（58.0s）
+
+── 大雁与鲜艳小鸟 birds-guard ──────────────────────────
+✓ 大雁：装配 13 只；春/秋在非降水天气全可见、夏/冬与降水天气全隐藏（非法季节组合已跳过） — 全部符合（跳过 16 个季节非法组合）
+  ✓ 大雁：两种阵型的目标形状不同（槽位：人字两臂横向宽 / 八字 S 纵向长） — 人字槽位 13.8×6.9m / S槽位 4.6×9.0m
+  ✓ 大雁：队形保持成队不散飞（每帧相对头雁最大散布 2.5~12m） — 越界 0/1872 帧 · 每帧 maxR 实测 6.72~9.58m · 换阵过渡跳过 56 帧
+  ✓ 大雁：全队高度在高空带内（18~23m），且沿 x 轴横穿（z≈−20 走廊 ±9m） — 高度越界 0 次 · z 越界 0 次
+  ✓ 大雁：绕园巡飞时会进默认机位的视野（40s 内队首入画采样 ≥3 次） — 入画采样 36 次（每 200ms 一次）
+  ✓ 小鸟：已整层下线（石上 0 + 草上 0） — count=0（石上 0 / 草上 0）
+  ✓ 小鸟：网格仍在、容量保持 9（只关数量不删网格 ⇒ layout-fingerprint 不漂） — 容量 9
+  ✓ 小鸟：探针自检（临时 count=1 时本门必须读到 1，复位回 0） — 读到 1，复位后 0
+  ✓ 全程零 pageerror — 0 条
+
+
+[birds-guard] ALL PASS（9 项）
+耗时：408.6s
+✓ 大雁与鲜艳小鸟 birds-guard — exit=0（408.7s）
+
+── 池中水禽已下线 duck-guard ──────────────────────────
+  ✓ ① 池中水禽已整层下线：swimDucks 为空 — swimDucks=0
+  ✓ ① 且场景里按名字也扫不到任何 duck* 网格（换个地方建鸭子也绕不过去） — 0 个
+  ✓ ② 自检（有牙）：注入 name="duck0" 后按名字必须扫得到 ⇒ ① 会报红 — 注入后扫到 [duck0]，移除后 0 个
+  ✓ 零 pageerror / console error
+
+
+[duck-guard] ALL PASS（4 项）
+✓ 池中水禽已下线 duck-guard — exit=0（43.8s）
+
+── 金刚鹦鹉 macaw ──────────────────────────
+✓ ① 前提：3 只鹦鹉都在栖停（白天/晴/夏） — 3 只 · perch/perch/perch
+  ✓ ③ 前提：窗口内真的播过 flutter/preen/tail（否则"没跳变"只是"没发生"＝空判据） — flutter=132 preen=106 tail=64
+  ✓ ② 姿态不抽搐：roll/pitch ≤ 8 rad/s（修前 flutter 实测 ≈48） — roll 5.4 / pitch 2.9 rad/s
+  ✓ ② 转向不甩头：yaw ≤ 22 rad/s（"急张望/小跳换向"本来就是快的，给了余量） — yaw 13.8 rad/s
+  ✓ ④ 作息：白天栖停 / 夜里不在 / 暴雨不在 — noon=true night=false storm=false
+  ✓ ⑤a 落点两两不糊：默认机位屏幕间距 ≥51px（修前 ①② 只差 27px ⇒ 糊成"双头鹦鹉"） — 最小 71px（第 0,1 对）· 落点 4 个 屏幕 [[1039,367],[1095,411],[722,476],[637,489]]
+  ✓ ⑤b 落点两两世界距离 ≥1.2m（鸟 1.1m 体长，挤在一起就是叠着） — 最小 2.08m（第 0,1 对）
+  ✓ ⑤c 落点比鸟多（换峰飞行永远有空位可去；3 点 3 鸟时飞行=换座=必然叠上） — 落点 4 个 / 鸟 3 只
+  ✓ ⑤d 采样窗口内没有两只落在同一落点（飞行不落进已占位置） — 重叠帧 0/1470
+  ✓ 零 pageerror / console error
+
+
+[macaw-guard] ALL PASS（10 项）
+✓ 金刚鹦鹉 macaw — exit=0（110.7s）
+
+── 金刚鹦鹉扇翅 macaw-wing ──────────────────────────
+✓ ① 前提：3 只 Macaw 到位 · 3 只 / 3 网格
+  ✓ ① 前提：3 只各自独立 wingU（同引用=三只同步扇） · 独立句柄 3
+  ✓ ② 结构：aWing 权重已烘且两翼符号都有 · count=16413 +2391/−1953
+  ✓ ③ 自检：冻结帧同状态连渲两张逐位一致（手法可信前提） · 差 0 字节
+  ✓ ③ 展翅↔收翅 差异像素 ≥ 200（注入失效=0，必红） · 4287px @1500×875
+  ✓ ③ 复位：uWing 归零后画面逐位复原（uniform 确实驱动这一层） · 差 0 字节
+  ✓ ④ 行为：窗口内翅膀角明显非零（flutter/hop/飞行任一） · max wing 1.700 rad
+  ✓ ④ 行为：出现过两鸟翅膀角不同步（逐鸟相位错开的既有取舍） · max 同帧差 1.700 rad
+  ✓ ④ 行为：rest 时全体收拢 ≤0.06（不扇） · 644 帧 rest，max 0.029
+  ✓ ④ 全程零 pageerror / console error
+
+
+macaw-wing-guard: ALL PASS
+✓ 金刚鹦鹉扇翅 macaw-wing — exit=0（104.7s）
+
+── 园林陈设 props ──────────────────────────
+  ✓ 登记表 ↔ 场景 一致，且每件坐在它该坐的面上 — 22 项全部通过（容差 ±0.18m）
+  ✓ 登记表里有「古井」
+  ✓ 登记表里有「花街铺地」
+  ✓ 自检①：把某条登记项挪 5m ⇒ 判据必须报红 — 场景里有 1 件配不上任何登记项：(无名组)@(15.4,7) 最近登记项 低案古琴 距 2.33 > 容差 1.32
+  ✓ 自检②：往 props 里塞一件未登记的陈设 ⇒ 判据必须报红 — 场景里的陈设件数(23) ≠ 登记表条目数(22) —— 有新增陈设没有 reg()
+  ✓ 全程零 pageerror
+
+
+[props-guard] ALL PASS（6 项 · 60.3s）
+✓ 园林陈设 props — exit=0（60.4s）
+
+── 春节烟花 fireworks ──────────────────────────
+✓ ① 不再自动：冬·夜·晴 但没人点过 ⇒ 关（2026-10-11 翻面的新契约） — on=false
+  ✓ ① 不再自动：没人点过时夏夜同样关 — on=false
+  ✓ ① 用户点过 ⇒ 冬·夜·晴 就放 — on=true
+  ✓ ① 与季节解耦：用户点过的夏夜也放（"四季都能单独成景"） — on=true
+  ✓ ① 否决：白天（正午）强开也不放 — on=false
+  ✓ ① 否决：暴雨里强开也不放 — on=false
+  ✓ ① 否决：雪里强开也不放 — on=false
+  ✓ ①b 回归（老黄报的）：点「灯会」不许顺带把**烟花**点着 — 灯会=true 时段=night 烟花=false
+  ✓ ①b 同理：点「灯会」也不许顺带带出**流星**（同一个毛病） — 流星=false
+  ✓ ①c 两个景可以同时开（正午点「流星雨」再点「烟花」⇒ 两个都亮） — 流星=true/true 烟花=false/true 时段=night→night
+  ✓ ①c 交叉保护：关掉「流星雨」不许把「烟花」的夜一起还给正午（否则连坐） — 关流星后：流星=false 烟花=true 时段=night
+  ✓ ①c 两个景都关掉之后，时段才回到进来前的正午 — 收尾：烟花=false 时段=noon
+  ✓ ② 前提：抬头机位下确实有花在飞（否则"贡献 0px"只是没炸）
+  ✓ ② 自检：同状态连渲两次逐位为 0 — 最大差 0
+  ✓ ② 抬头机位下烟花真的画出来了（贡献 ≥ 300px） — 烟花↔隐藏 差分 17341px
+  ✓ ② 已按项目规矩关 raycast、打 aoSkip — aoSkip=true rc=true
+  ✓ ③ 前提：抓到过绽放闪光（否则"没变亮"可能只是没炸） — 峰值 flash=0.93
+  ✓ ③ 前提：有足够多"没闪光"的帧当基线 — 77 帧
+  ✓ ③ 烟花把庭院照亮了（闪光峰值帧 ≥ 基线 × 1.25） — 亮度比 6.136（65.78 / 10.72）
+  ✓ ⑤ 前提A：**相机已落到 fireworks 机位**（<0.5m）—— 飞行途中取样会把同一个字量成不同宽度 — 机位距 0.107m（阈值 0.5m，收敛读数见 fw-d-layout-guardvp.log）
+  ✓ ⑤ 前提B：彩蛋已触发（finale >= 1）—— 等不到就判红，不静默放过去 — finale=2
+  ✓ ⑤ 彩蛋触发：四个壳槽全部进入彩蛋模式（4 弹） — finale=2 fin=[1,1,1,1]
+  ✓ ⑤ 四弹**齐射**：四发发射时刻相同（age 极差 < 0.05s） — 四槽 age=[0.2,0.2,0.2,0.2]
+  ✓ ⑤ 前提C：取样时壳年龄已进入「成形稳定窗」（仿真年龄 ≥2.4s）—— 等不到就判红，不静默放过 — 年龄 2.50s（等 2.5s 墙钟；simTime=66.3 fixed=0.016666666666666666 → 补步上限 6×fixed=0.1s 仿真/帧）
+  ✓ ⑤ 「2027」成形且**分成 ≥4 段**（四个数字各自成段 ⇒ 不是糊成团、也不出框；贡献 0.3~6 万 px = 稳定窗） — 贡献 7363px · 6 段：477+10 488+96 634+54 690+47 788+84 919+93
+  ✓ ⑤ 「2027」**字形布局对齐产品自己的布局**：每个数字归到段（最大段宽 ≥6px）且**质心落在预期中心 ±30px 内**（量值断言，专抓整字平移/数字缺失）—— 而不是靠 merge 猜「大概 4 簇」 — 字=2027 预期中心x=[536,685,828,965] 各数字段数=[2,2,1,1] 段宽=[10/96 | 54/47 | 84 | 93] 质心x=[531,685,830,966] 质心偏移px=[-5.2,-0.0,+1.7,+0.4] （阈值 ±30px，噪声底实测极差 1.3px / 最大偏差 5.7px，源 fw-d-layout-guardvp.log）
+  ✓ ④ 自检：强制关掉后 flash 恒 0、且没有在飞的弹 — flash=0 shells=0
+  ✓ 零 pageerror / console error
+
+
+[fireworks-guard] ALL PASS（28 项）
+✓ 春节烟花 fireworks — exit=0（171.7s）
+
+── 流星雨 meteors ──────────────────────────
+✓ 前提：流星网格已建成（name=meteorShower、容量 30、aoSkip） — {"name":"meteorShower","n":30,"aoSkip":true,"raycastNoop":true}
+  ✓ 契约：夜·晴 但没人点过 ⇒ 不放（2026-10-11 翻面：不再"晴夜自动下流星"） — on=false count=0
+  ✓ 否决：正午·晴（强开）—— 没有流星（on=false、实例数 0） — on=false count=0 spawned=0
+  ✓ 用户点过 ⇒ 夜·晴 有流星（on=true、实例数 30、且已经生成过） — on=true count=30 spawned=39 在场峰值=14
+  ✓ 否决：夜·暴雨（季节=summer，强开）—— 没有流星（"晴朗"是硬条件） — on=false count=0 生效天气=storm
+  ✓ 否决：夜·雪（季节=winter，强开）—— 没有流星（"晴朗"是硬条件） — on=false count=0 生效天气=snow
+  ✓ 否决：夜·薄雾（季节=autumn，强开）—— 没有流星（"晴朗"是硬条件） — on=false count=0 生效天气=mist
+  ✓ 四季都有（老黄："四季都有"）—— 春夏秋冬 × 夜·晴 全部 on — {"spring":true,"summer":true,"autumn":true,"winter":true}
+  ✓ 辐射点随季节变化（四季各对一场真实流星雨：英仙/猎户/双子/天琴） — 100,58 | 36,52 | 132,44 | 186,68
+  ✓ 流星落在画面里（在家机位下头部投影在框内的比例 ≥50% —— 相机抬不起来，必须按 NDC 出生） — 3/5 在框内 · 样本 [{"inFrame":true,"ndc":[0.35,0.15],"y":17.5},{"inFrame":false,"ndc":[2.79,-0.18],"y":7.9},{"inFrame":true,"ndc":[0.1,0.32],"y":25.6},{"inFrame":true,"ndc":[-0.16,0.73],"y":44.4},{"inFrame":false,"ndc":[0.5,1.09],"y":52.2}]
+  ✓ 亮度上限：单条亮痕的有效加法贡献被出口限幅压住（min(峰值, 限幅) ≤ 1.9） — 峰值 3.373（= brHi 0.62 × 3.4）· 限幅 1.8 · 有效 1.80
+  ✓ 亮度上限：15 条流星在场时整幅平均亮度抬高 ≤ 3（br1.75 实测 +5.44、br4.2 实测 +9.48） — 基准 12.28 → 现状 13.87（Δ 1.59）
+  ✓ 亮度上限的负例自检：把亮度换回缺陷版 4.2 必须被这条判据抓到（有牙） — 缺陷版 Δ 9.18（基准 12.28 → 21.46）
+  ✓ 全程零 pageerror / console error — 0 条
+
+
+[meteor-guard] 14/14 项通过 · 152s
+✓ 流星雨 meteors — exit=0（152.2s）
+
+── 香炉白烟 censer ──────────────────────────
+✓ ① 前提：香炉在登记表里、烟网格存在 — 香炉 (0, -4.7) · 片数 14/14
+  ✓ ① 片数 = 设计值 14（改 N 要同步改本门） — count=14
+  ✓ ② 烟柱水平原点 = 香炉落点（xz 逐字相同） — 烟 (0, -4.7) vs 炉 (0, -4.7)
+  ✓ ② 起烟口落在炉盖之上、且不高于登记 top（顶 0.92） — 烟口 y=0.4296（炉底 -0.23 · top 0.92）
+  ✓ ① 已按项目规矩关掉 raycast、打了 aoSkip — aoSkip=true raycast=noop=true
+  ✓ ⑤ 自检：同参数连渲两次逐位为 0（④ 量的不是场景漂移） — 最大差 0
+  ✓ ③ 真的在动：换 uTime 后画面必须变（不是一片静止白斑） — 差分 488px
+  ✓ ④ 默认机位看得见（烟贡献像素 ≥ 15） — 烟↔无烟 差分 586px
+  ✓ 零 pageerror / console error
+
+
+[censer-guard] ALL PASS（9 项）
+✓ 香炉白烟 censer — exit=0（61.4s）
+
+── 远山观感 hill-guard ──────────────────────────
+⚠ 第 1 次 exit=1（55.7s）—— 明细如下，随后**自动重跑一次**（区分"偶发"与"真红"）
+✗✗ 红门明细开始（远山观感 hill-guard · 第 1 次）—— 完整 stdout / stderr
+[hill-guard] http://127.0.0.1:41548/index.html
+  画面 1375×825  远山卡片 4 张  冻结帧噪声底 0.715
+    层0 distantNear   占屏  9.97%  平均亮度 129.11  层内标准差 17.08
+    层1 distantDeep   占屏  7.56%  平均亮度 174.64  层内标准差  8.68
+    层2 distant       占屏  6.17%  平均亮度 192.25  层内标准差  6.52
+    层3 distantFar    占屏  6.19%  平均亮度 196.08  层内标准差  7.58
+  相邻层亮度差：45.53 / 17.61 / 3.83  ｜ 脊线(山−天)中位 -7.28（山 200 / 天 208，459 列）
+  ✗ 自检①：冻结帧同任务连渲两次逐像素相同（噪声底 = 0） — 最大差 0.7152
+  ✓ 自检②：四层远山都真实存在且各占屏 ≥1.5%（机位没被改坏） — distantNear 9.97% ｜ distantDeep 7.56% ｜ distant 6.17% ｜ distantFar 6.19%
+  ✓ 自检②b：开关四层真的改变画面（差分掩码非空） — 变化像素 209082
+  ✓ 层内明暗：关掉 relief 画面必须变（每层平均差 ≥1.0 lum，A/B 实测） — distantNear 2.01 ｜ distantDeep 1.772 ｜ distant 1.688 ｜ distantFar 1.738
+  ✓ 层内明暗：远层也不能是死平（平均差 ≥1.0 且变化像素 ≥800） — 51495px/1.688 ｜ 52768px/1.738
+  ✓ 层间色阶：相邻层亮度差 ≥ 2.0（三层都不得"趋同"） — 45.53 / 17.61 / 3.83
+  ✓ 层间色阶：四层亮度**单调**（近深远浅，不能倒挂） — 45.53 / 17.61 / 3.83
+  ✓ 层内明暗（参考值，非判据）：山体内部亮度标准差 — distantNear 17.08 ｜ distantDeep 8.68 ｜ distant 6.52 ｜ distantFar 7.58 — 远层天生低（176m 处 Exp2 雾吃掉 57% 信号），标准差不是好判据，见 reliefAB
+  ✓ 脊线对比：山脊比紧邻天空暗 ≥ 6 lum（剪影咬得住天） — 中位 -7.28（山 200 / 天 208，459 列）
+  ✓ 全程零 pageerror — 0 条
+
+[hill-guard] FAIL（10 项）
+  ✗ 自检①：冻结帧同任务连渲两次逐像素相同（噪声底 = 0） — 最大差 0.7152
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\hill-guard
+耗时：55.6s
+✗✗ 红门明细结束（远山观感 hill-guard · 第 1 次）
+[GPU] ANGLE (NVIDIA, NVIDIA GeForce RTX 4060 Laptop GPU (0x000028E0) Direct3D11 vs_5_0 ps_5_0, D3D11) ｜ pixelRatio=1.25
+↻ 重跑结果：exit=0（60.5s）
+  ✓ 自检①：冻结帧同任务连渲两次逐像素相同（噪声底 = 0） — 最大差 0.0000
+  ✓ 自检②：四层远山都真实存在且各占屏 ≥1.5%（机位没被改坏） — distantNear 9.97% ｜ distantDeep 7.56% ｜ distant 6.17% ｜ distantFar 6.19%
+  ✓ 自检②b：开关四层真的改变画面（差分掩码非空） — 变化像素 209073
+  ✓ 层内明暗：关掉 relief 画面必须变（每层平均差 ≥1.0 lum，A/B 实测） — distantNear 2.011 ｜ distantDeep 1.772 ｜ distant 1.688 ｜ distantFar 1.737
+  ✓ 层内明暗：远层也不能是死平（平均差 ≥1.0 且变化像素 ≥800） — 51597px/1.688 ｜ 52770px/1.737
+  ✓ 层间色阶：相邻层亮度差 ≥ 2.0（三层都不得"趋同"） — 45.53 / 17.61 / 3.83
+  ✓ 层间色阶：四层亮度**单调**（近深远浅，不能倒挂） — 45.53 / 17.61 / 3.83
+  ✓ 层内明暗（参考值，非判据）：山体内部亮度标准差 — distantNear 17.08 ｜ distantDeep 8.68 ｜ distant 6.53 ｜ distantFar 7.58 — 远层天生低（176m 处 Exp2 雾吃掉 57% 信号），标准差不是好判据，见 reliefAB
+  ✓ 脊线对比：山脊比紧邻天空暗 ≥ 6 lum（剪影咬得住天） — 中位 -7.14（山 200 / 天 208，459 列）
+  ✓ 全程零 pageerror — 0 条
+
+[hill-guard] ALL PASS（10 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\hill-guard
+耗时：60.4s
+⚠⚠ **FLAKY（偶发）**：远山观感 hill-guard —— 第 1 次 exit=1、重跑 exit=0。
+   ⚠️ 这不等于"通过"：它说明**这门不稳**。排查两条线：① GPU 档位（_harness 明说 ANGLE
+      每次挑哪块 GPU 不固定，像素类阈值会随档位漂）；② 就绪竞态（是否只等 loading.done
+      而没等 __garden.bootDonePromise —— 延迟批还在进场时采样）。
+   要把它当缺陷处理：`VERIFY_STRICT=1 npm run verify`（FLAKY 也判红）。
+⚠ 远山观感 hill-guard — exit=0（60.5s · 重跑）
+
+── 室内不落雨雪 indoor-precip ──────────────────────────
+✓ 堂内天花标高可从场景量出（向上射线命中） — 命中 5/5 处，标高 [6.33,6.33,6.33,6.33,6.33]
+  ✓ 量出的天花标高在合理带内（5.8~7.0m，H=7 时理论 6.33） — 实测 6.33m
+  ✓ 前置：雨雪体积确实罩住了远香堂（天花以上量到粒子） — 雪·屋顶空腔最坏一帧 29 个（若为 0＝体积没罩住，本门下面几条全部失效）
+  ✓ 雪天：堂内（天花以下）不得有雪粒子 — 24 帧全 0（每帧提交渲染 2400/2400）
+  ✓ 暴雨：堂内不得有雨粒子 — 24 帧全 0（每帧提交渲染 14000/14000）
+  ✓ 堂内前沿那条带（门洞所在）不得有雨雪粒子 — 24 帧全 0（前沿带 x±9.7 / y 0~6.4 / z -9.2~-8.85）
+  ✓ 前置：雨雪体积确实罩住了游廊/水榭（顶棚上方量到雪粒子） — 廊顶上方最坏 17 个 / 榭顶上方最坏 7 个
+  ✓ 雪天：游廊四段顶棚下不得有雪粒子 — 24 帧全 0（四段走廊盒 = 产品禁区各内缩 0.2m）
+  ✓ 雪天：水榭（荷风四面亭）顶棚下不得有雪粒子 — 24 帧全 0（榭盒 = 产品禁区内缩 0.2m）
+  ✓ 自检：粒子系统确实在跑（雪与雨的提交数都 > 0） — 雪 2400 / 雨 14000
+  ✓ 冬季：堂内地面无积雪（变化全来自天光，不是雪层） — 堂内Δ=-8.0 · 天空Δ=-10.8 · 偏离=2.9（<10 判无铺雪）
+  ✓ 全程零 pageerror — 0 条
+
+
+[indoor-precip-guard] ALL PASS（12 项）
+耗时：80.8s
+✓ 室内不落雨雪 indoor-precip — exit=0（81.0s）
+
+── 着色器编译 shader-guard ──────────────────────────
+  ✓ 所有已渲染的 ShaderMaterial 都编译通过（LINK_STATUS = true） — 24 个全部通过
+  ✓ 天空不是黑的（着色器编译失败 ⇒ 天空球整个不画 ⇒ 画面上半部纯黑） — 画面上 25% 平均亮度 182.7（正常晴天约 200+；纯黑 ≈ 0）
+  ✓ 全程零 pageerror — 0 条
+
+
+[shader-guard] ALL PASS（3 项）
+耗时：80.7s
+✓ 着色器编译 shader-guard — exit=0（80.8s）
+
+── 雨后痕迹 postrain ──────────────────────────
+✓ 雨后初晴：屋檐滴水在跑（可见 + 不透明度 > 0.5） — visible=true opacity=0.85
+  ✓ 雨后初晴：积水在跑（可见 + 不透明度 > 0.3） — visible=true opacity=0.6
+  ✓ 积水**全部落在地面上**（最高那片 < 2.7m，不是被贴到墙/屋面上） — 落位 43/80 片，高度 -0.6708796620368958~2.489161968231201m
+  ✓ 积水有实数（落在铺地/月台上的 ≥ 15 片） — 落位 43 片（草地跳过 0、非法法线 11、过高 26）
+  ✓ 自检：同状态连渲两次画面不变（不是量的场景漂移） — 最大差 0
+  ✓ 雨后初晴：16 个固定滴点在跑、且有空滴在落（0.5s 窗内 live>0） — 滴点 16 处 · 0.5s 窗内空中水滴最多 3 颗
+  ✓ 屋檐滴水真的画进了像素（檐下近景 3 组取最大 > 4px） — 滴水贡献 383px（3 组最大）
+  ✓ 积水真的画进了像素（默认机位 > 3000px） — 积水贡献 14938px
+  ✓ 屋檐滴水下落是加速的（存在未达限速的加速段，|vy| 单调递增） — vy 前8=[-3.957,-4.12,-4.283,-4.447,-4.61,-4.773,-4.937,-5.1] · 采样 180 帧
+  ✓ 隔离：clear 不该有屋檐滴水/积水 — wetness=0 drip=false puddle=false
+  ✓ 隔离：snow 不该有屋檐滴水/积水 — wetness=0 drip=false puddle=false
+  ✓ 隔离：mist 不该有屋檐滴水/积水 — wetness=0.25 drip=false puddle=false
+  ✓ 隔离：暴雨中不叠加滴水/积水（交给雨粒子） — wetness=1 drip=false puddle=false
+  ✓ 全程零 pageerror — 0 条
+
+
+[postrain-guard] ALL PASS（14 项）
+耗时：100.2s
+✓ 雨后痕迹 postrain — exit=0（100.4s）
+
+── 默认机位可读性 legibility ──────────────────────────
+✓ 自检：同状态连渲两次画面不变（不是量的场景漂移） — 最大差 0
+  ✓ 默认机位能看到：金刚鹦鹉（A/B 差分 > 15px） — 363px（3 个对象）
+  ✓ 默认机位能看到：游弋蜻蜓（A/B 差分 > 15px） — 111px（5 个对象）
+  ✓ 默认机位能看到：停栖蜻蜓（A/B 差分 > 15px） — 24px（2 个对象）
+  ✓ 默认机位能看到：锦鲤群（A/B 差分 > 15px） — 121px（1 个对象）
+  ✓ 默认机位能看到：地面积水（A/B 差分 > 15px） — 17913px（1 个对象）
+  ✓ 全程零 pageerror — 0 条
+
+
+[legibility-guard] ALL PASS（7 项）
+耗时：78.3s
+✓ 默认机位可读性 legibility — exit=0（78.5s）
+
+── PMREM 按时段缓存 pmrem-env ──────────────────────────
+✓ 启动时烘焙 1 张（noon|clear 键） — {"builds":1,"cached":["noon|clear"]}
+  ✓ 切夜时烘焙第 2 张（缓存键 night|clear） — {"builds":2,"cached":["noon|clear","night|clear"]}
+  ✓ 切暮时烘焙第 3 张（缓存键 dusk|clear） — {"builds":3,"cached":["noon|clear","night|clear","dusk|clear"]}
+  ✓ 切回夜时段（已缓存）不增加烘焙 — {"builds":3,"cached":["noon|clear","night|clear","dusk|clear"]}
+  ✓ 切回午时段（开机那张即 noon|clear）不增加烘焙 — {"builds":3,"cached":["noon|clear","night|clear","dusk|clear"]}
+  ✓ 切季节不触发烘焙 — {"builds":3,"cached":["noon|clear","night|clear","dusk|clear"]}
+  ✓ 切到阴雨大类：烘焙 1 张 noon|overcast — {"builds":4,"cached":["noon|clear","night|clear","dusk|clear","noon|overcast"]}
+  ✓ 同大类换天气（暴雨→细雨）不增加烘焙 — {"builds":4,"cached":["noon|clear","night|clear","dusk|clear","noon|overcast"]}
+  ✓ 零 pageerror / console error
+
+
+[pmrem-env-guard] ALL PASS（9 项）
+✓ PMREM 按时段缓存 pmrem-env — exit=0（80.1s）
+
+── 固定步长仿真 fixed-timestep ──────────────────────────
+✓ 持续 10fps 时仿真按真实秒推进（约 3 秒） — {"sim":3,"wind":3,"steps":6,"maxSteps":6}
+  ✓ 风钟与仿真时钟同步推进 — {"sim":3,"wind":3,"steps":6,"maxSteps":6}
+  ✓ 低帧率下走的是多步补进而非单步（步数上限内） — {"sim":3,"wind":3,"steps":6,"maxSteps":6}
+  ✓ 极端卡顿有补步上限（1s 帧不会补满 1s） — 补步=0.1s 上限6步
+  ✓ 环境过渡仍能收敛 — {"converged":true,"frames":90,"ms":3211}
+  ✓ 零 pageerror / console error
+
+
+[fixed-timestep-guard] ALL PASS（6 项）
+✓ 固定步长仿真 fixed-timestep — exit=0（62.4s）
+
+── 水面 Fresnel water-fresnel ──────────────────────────
+✓ 俯视（cos≈0.98）反射极低，看得清池底 — F=0.0200
+  ✓ 平视（cos≈0.45）反射符合水在 63° 的量级 — Schlick=0.0693 旧公式=0.256
+  ✓ 平视反射显著低于旧公式（修掉"中角度泛白"） — 0.069 vs 旧 0.256
+  ✓ 掠射（cos≈0.02）反射升高并被 0.68 封顶 — F=0.6800
+  ✓ 曲线单调（角度越掠反射越强） — 0.020<0.069<0.680
+  ✓ 俯视与平视的水面亮度不同（菲涅尔生效） — {"top":107.25,"grazing":146.09}
+  ✓ 零 pageerror / console error
+
+
+[fresnel-guard] ALL PASS（7 项）
+✓ 水面 Fresnel water-fresnel — exit=0（57.4s）
+
+── 桃·形态 peach-form ──────────────────────────
+✓ 园里已种下 ≥2 株桃（延迟装配后存在） — found=4
+✓ 株0：找到 peachTrunk（noMerge，能按名量） — 找到 1 个
+✓ 株0：每一圈都是圆（逐圈 max/min 半径比 ≤ 1.06） — 最差圆度比=1.000（旧版塌陷圈会是几十倍）
+✓ 株0：没有一圈塌陷（最小圈半径 ≥ 0.045） — 最小圈半径=0.0622
+✓ 株0：半径沿轴平滑变化（相邻圈变化 ≤ 25%） — 最大跳变=11.1%
+✓ 株0：主干确实在收细（梢/基 ∈ [0.30, 0.75]） — 梢/基=0.435 基=0.143 梢=0.062
+✓ 株0：主干在两向上都是实心圆管（y∈0.3~1.3 两向直径 ≥0.15 且相差 ≤30%） — 直径 X=0.231 Z=0.213 差异=7.8% 采样顶点=82（旧版实测 0.06×0.15 的刀片）
+✓ 株1：找到 peachTrunk（noMerge，能按名量） — 找到 1 个
+✓ 株1：每一圈都是圆（逐圈 max/min 半径比 ≤ 1.06） — 最差圆度比=1.000（旧版塌陷圈会是几十倍）
+✓ 株1：没有一圈塌陷（最小圈半径 ≥ 0.045） — 最小圈半径=0.0611
+✓ 株1：半径沿轴平滑变化（相邻圈变化 ≤ 25%） — 最大跳变=11.1%
+✓ 株1：主干确实在收细（梢/基 ∈ [0.30, 0.75]） — 梢/基=0.435 基=0.140 梢=0.061
+✓ 株1：主干在两向上都是实心圆管（y∈0.3~1.3 两向直径 ≥0.15 且相差 ≤30%） — 直径 X=0.17 Z=0.162 差异=4.7% 采样顶点=66（旧版实测 0.06×0.15 的刀片）
+✓ 夏：冠层轮廓内被叶子挡住的比例 ≥ 0.50（从外面看是叶团，不是能看穿的骨架） — fill=0.541 射线=148 冠半径=1.31m
+✓ 夏：叶实例挂满声明数（声明多少就实挂多少） — 4000/4000
+✓ 夏：果实例挂满声明数且够多（≥100） — 130/130
+✓ 夏：花落尽（blossom 已不可见） — visible=false count=3000
+✓ 春：先花后叶**真的落地**（叶实例 = 声明数 × 花历曲线 peachLeaf(春代表日)） — 叶 live=1766 期望=1766（声明 4000×0.442）
+✓ 春：花满树（blossom 实例挂满声明且 ≥700） — 3000/3000
+✓ 春：叶比夏疏（先花后叶，叶不该先满） — 春 1766 < 夏 4000
+✓ 秋：果渐疏（果实例 = 声明数 × 花历曲线 peachFruit(秋代表日)；秋代表日桃子已下市 ⇒ 0） — 果 live=0 期望=0（声明 130×0.000）
+✓ 冬：裸枝过冬（叶/花/果/落花全隐） — leaf=0 blossom=不可见 fruit=0 petal=0
+✓ 冬：冠层填充率 ≤ 0.05（叶真的落尽，不是"变稀"） — fill=0
+✓ 春 比 冬 密、夏 比 春 密（季节真的在改叶量） — 冬 0 < 春 0.439 < 夏 0.541
+✓ 几何确定性：连开两个页面，株0 的叶包围盒 + 主干高**逐位一致**（rnd/rr 不受延迟装配拨动） — 页1 {"leaf":[2.4947,1.7396,1.9046],"trunk":2.1235} ｜ 页2 {"leaf":[2.4947,1.7396,1.9046],"trunk":2.1235}
+✓ 零 pageerror / console error — 0 条
+
+
+[桃·形态] 26/26 项通过 · 样张 E:\ai_test\codex_test\suzhou-garden\outputs\visual/peach-form-*.png
+✓ 桃·形态 peach-form — exit=0（92.3s）
+
+── 夜空与月相 night-sky ──────────────────────────
+✓ 前提：月相已钉成望（moonAge≈0.5 ⇒ 月出 18:00，判据的基准轨道才成立） — moonAge=0.5 moonIllum=1
+✓ 月出 18:00：方位≈110° 且贴着地平线（uMoonAmount≈0，还没亮） — az=110° alt=0° amt=0.000
+✓ 中天 00:00：峰值仰角 4.5°（刻意压低到默认机位的可见带里） — alt=4.5°
+✓ 月落 06:00：方位≈180° 且已落到地平线 — az=180° alt=0°
+✓ 正午 12:00：月亮在地平线下 → 天空 uMoonAmount=0 — amt=0 alt=-4.5°
+✓ 默认机位 00:00：月轮整轮可见（圆内覆盖率 ≥ 0.80） — 覆盖率 97%（圆心落在画面内比例 100% · 屏幕像素 [680,29] · r=21.4px）
+✓ 默认机位 00:00：机位就是默认机位（防 OrbitControls 静默挪镜） — pos=[-20,17,32]
+✓ 整夜 20:00~04:00：每个采样点都看得见（覆盖率 ≥ 0.40） — 最低 44%（4 时，月亮仰角 2.25°，被远处山脊咬掉一部分属构图）
+✓ 切"夜"落位（21:30）：月轮整轮可见且亮度吃满 — 覆盖率 93% amt=1.00 alt=3.57°
+✓ 整夜：月轮圆心始终在画面内（不被屏幕上下沿切） — 圆心在画面内比例最低 100%
+✓ 月光即主光：夜里主光方向落在月亮方向 ±20° 内 — 角度差 15.1°（dot=0.9656）主光 y=18.35；其中仰角钳制到 ≥6.7° + 接管权重 mw<1 各占一段，属设计余量
+✓ 月光即主光：主光明显偏向月亮、而不是白天的太阳方向 — dot(主光,月)=0.9656 vs dot(主光,白天太阳)=0.5543
+✓ 星闪：逐星频率不同（固定时间窗内每颗星的亮度极大值个数散开） — 极大值个数取值 [3,4,5]（旧式单频只会是 1 种）· 会变的亮点 710 个
+✓ 星闪：摆幅够大（(max-min)/mean 中位数 > 0.7） — medianSwing=0.986 · 采样 120（强星 109）
+✓ 星闪：整体没被改暗（星点时间均值/峰值 中位数 > 0.45） — medianKeep=0.666
+✓ 零 pageerror / console error — 0 条
+
+
+[夜空] 16/16 项通过 · 样张 E:\ai_test\codex_test\suzhou-garden\outputs\visual/night-moon-*.png
+✓ 夜空与月相 night-sky — exit=0（114.8s）
+
+── 锦鲤行为层 koi-behavior ──────────────────────────
+  ✓ 锦鲤异步挂载到齐（否则实时判据无意义） — 11 条
+  ✓ ① 避障 · 找得到"贴近水中障碍"的轨道点（否则避障判据无意义） — 最小表面距 -2.334m
+  ✓ ① 避障 · 避障偏移把该点推出障碍包络（gap 变大） — gap -2.334 → -1.136，位移 1.200m
+  ✓ ① 避障 · 找得到"嵌进水中障碍包络内"的点（否则负例无意义） — (-4.716,4.974) 表面距 -3.395m
+  ✓ ① 避障 · 开着避障把该点推出障碍包络（gap 由负转正） — gap -3.395 → -2.195m，位移 1.2m
+  ✓ ① 避障 · 有牙负例：关掉 avoid 后该点**仍然嵌在障碍里**（门禁必须能判红） — 关掉后位移 0m、gap 仍为 -3.395m（≤0 即穿模）
+  ✓ ① 避障 · 位移有界（≤ AVOID_MAX=1.20m） — 9685 个池内采样点，最大位移 1.2m
+  ✓ ① 避障 · 避障后仍全部在池内 — 9685 个池内采样点全在池内（跳过 395 个池外基点）
+  ✓ ② 惊鱼 · 惊扰点旁的鱼被推开（产生非零偏移） — 池心惊扰 → 旁鱼偏移 1.034m
+  ✓ ② 惊鱼 · 有牙负例：关掉 startle 后惊扰不再推鱼（偏移≈0） — 关掉后偏移 0m
+  ✓ ② 惊鱼 · 位移有界（≤ STARTLE_MAX=1.60m） — 900 个池内采样点，最大位移 1.07m
+  ✓ ② 惊鱼 · 惊扰后仍全部在池内 — 900 个池内采样点全在池内（跳过 0 个池外基点）
+  ✓ ② 惊鱼 · 推力随时间衰减（1.0s 后显著小于起手） — 起手 1.034m → 1.0s 后 0.009m
+  ✓ ③ 聚集 · 几乎叠住的同组鱼被推开（产生非零偏移） — 距最近邻 0.1m → 偏移 0.442m
+  ✓ ③ 聚集 · 有牙负例：关掉 cohesion 后叠鱼不再被推开（偏移≈0） — 关掉后偏移 0m
+  ✓ ③ 聚集 · 位移有界（≤ COHESION_MAX=0.90m） — 360 个池内采样点，最大位移 0.52m
+  ✓ ③ 聚集 · 推开后仍在池内 — 360 个池内采样点全在池内（跳过 0 个池外基点）
+  ✓ ④ 合并 · 三项全开时总位移有界（≤ KOI_OFFSET_TOTAL_CAP=2.60m） — 47786 个池内采样点（跳过 94 个池外），最大总位移 2.6m
+  ✓ ④ 合并 · 三项全开时叠加后**全部在池内** — 47786 个池内采样点全在池内
+  ✓ ④ 合并 · 三项全开时叠加后仍受 0.95×POND_RADII 夹紧（无一超 cap） — 47786 个池内采样点全在 cap 内
+  ✓ ④ 合并 · 离原轨道点的偏离有界（≤2.60m，即"轨道邻域"半径） — 整周期扫轨最大偏离 2.6m
+  ✓ ④.5 有牙负例：三项全关时 koiBehaviorOffset 偏移为 0（证明偏移确由行为层产生） — 全关后偏移 0m
+  ✓ ⑤ 实时 · 11 条鱼此刻全在池内（叠加行为不得把鱼推出池） — 11 条全在池内
+  ✓ ⑤ 实时 · 11 条鱼在基准轨道 +2.6m 有界偏移内（无整体系数错位） — 11 条全部落在轨道域 +2.6m 内
+  ✓ ⑥ 投喂 · dropBait 后 nearestBait 能找到饵、饵点在池内 — nearestBait 命中=true，饵在池内=true，活跃饵 1→0
+  ✓ 零 pageerror / console error
+
+
+[koi-behavior-guard] ALL PASS（26 项）
+✓ 锦鲤行为层 koi-behavior — exit=0（54.0s）
+
+── 桌面画质档 desktop-quality ──────────────────────────
+✓ low：AO 关、阴影 2048、反射停用 — {"level":0,"active":false,"low":0,"high":0,"cool":0,"changes":0,"fps":0,"mode":"auto","locked":false,"tier":"low","tierLabel":"性能","maxLevel":4,"baseScale":1,"pixelRatioScale":1,"pixelRatio":1,"pixelBudget":2280960,"presetShadow":2048,"presetAO":false,"shadow":2048,"ao":false,"software":false,"probeDriven":true,"immune":true,"refreshHz":60,"refreshMeasured":true,"downFps":45,"upFps":58,"gtao":false,"reflMix":0,"reflectCalls":0,"reflection":512}
+  ✓ mid：AO 开、阴影 4096、反射中档 — {"level":0,"active":false,"low":0,"high":0,"cool":0,"changes":0,"fps":0,"mode":"auto","locked":false,"tier":"mid","tierLabel":"均衡","maxLevel":4,"baseScale":1.1,"pixelRatioScale":1,"pixelRatio":1.1,"pixelBudget":3870720,"presetShadow":4096,"presetAO":true,"shadow":4096,"ao":true,"software":false,"probeDriven":true,"immune":true,"refreshHz":60,"refreshMeasured":true,"downFps":45,"upFps":58,"gtao":true,"gtaoScale":0.5,"reflMix":1,"reflectCalls":2,"reflection":768}
+  ✓ high：AO 开、阴影 6144、反射 1024 — {"level":0,"active":false,"low":0,"high":0,"cool":0,"changes":0,"fps":0,"mode":"auto","locked":false,"tier":"high","tierLabel":"高","maxLevel":4,"baseScale":1.25,"pixelRatioScale":1,"pixelRatio":1.25,"pixelBudget":8709120,"presetShadow":6144,"presetAO":true,"shadow":6144,"ao":true,"software":false,"probeDriven":true,"immune":true,"refreshHz":60,"refreshMeasured":true,"downFps":45,"upFps":58,"gtao":true,"gtaoScale":0.5,"reflMix":1,"reflectCalls":2,"reflection":1024}
+  ✓ high 档开放 4K 像素预算 — budget=8709120
+  ✓ mid/high 的 GTAO 始终半尺寸 — low=false mid=0.5 high=0.5
+  ✓ 性能模式锁定最低 QOS 档 — {"level":4,"active":false,"low":0,"high":0,"cool":0,"changes":0,"fps":0,"mode":"performance","locked":true,"tier":"high","tierLabel":"高","maxLevel":4,"baseScale":1.25,"pixelRatioScale":0.72,"pixelRatio":0.8999999999999999,"pixelBudget":8709120,"presetShadow":6144,"presetAO":true,"shadow":1024,"ao":false,"software":false,"probeDriven":true,"immune":true,"refreshHz":60,"refreshMeasured":true,"downFps":45,"upFps":58}
+  ✓ 高画质模式锁定 L0 — {"level":0,"active":false,"low":0,"high":0,"cool":0,"changes":0,"fps":0,"mode":"high","locked":true,"tier":"high","tierLabel":"高","maxLevel":4,"baseScale":1.25,"pixelRatioScale":1,"pixelRatio":1.25,"pixelBudget":8709120,"presetShadow":6144,"presetAO":true,"shadow":6144,"ao":true,"software":false,"probeDriven":true,"immune":true,"refreshHz":60,"refreshMeasured":true,"downFps":45,"upFps":58}
+  ✓ 画质按钮具备完整无障碍状态 — [{"mode":"auto","pressed":"false","on":false},{"mode":"high","pressed":"true","on":true},{"mode":"balanced","pressed":"false","on":false},{"mode":"performance","pressed":"false","on":false}]
+  ✓ 当前高画质按钮选中 — [{"mode":"auto","pressed":"false","on":false},{"mode":"high","pressed":"true","on":true},{"mode":"balanced","pressed":"false","on":false},{"mode":"performance","pressed":"false","on":false}]
+  ✓ 模拟均衡档设备重新打开后，保存的性能模式仍关闭 AO — {"level":4,"active":false,"low":0,"high":0,"cool":0,"changes":0,"fps":0,"mode":"performance","locked":true,"tier":"mid","tierLabel":"均衡","maxLevel":4,"baseScale":1.1,"pixelRatioScale":0.72,"pixelRatio":0.792,"pixelBudget":3870720,"presetShadow":4096,"presetAO":true,"shadow":1024,"ao":false,"software":false,"probeDriven":true,"immune":true,"refreshHz":60,"refreshMeasured":true,"downFps":45,"upFps":58}
+  ✓ 自适应改档只记账（queue），由帧首 flush() 在 composer.render() 之前落地 — queue=true 未直接apply=true flush在render之前=true
+  ✓ 零 pageerror / console error
+
+
+[desktop-quality-guard] ALL PASS（12 项）
+✓ 桌面画质档 desktop-quality — exit=0（90.1s）
+
+── 泳龟尾迹节流 turtle-wake ──────────────────────────
+✓ 前提：2 只泳龟已挂载（否则频率判据无意义） — 2 只
+  ✓ 前提：计数器活着（否则"频率低"只是计数器死了，零报错最坑） — 3 次 tick
+  ✓ ① 前提：龟尾迹落点**全部**在池内（wakeAt 翻转 ⇒ spawnRipple 是 1:1） — 11 次落圈，0 次被拦
+  ✓ ① 前提：观察窗内确实采到龟尾迹（否则"频率低"是采样不足，不是改对了） — 11 次落圈 / 41s
+  ✓ ② 前提：权威开关已暴露（探针必须走它，不能在探针里重调产品函数） — 当前 floor=4.8 spread=4.1 on=true
+  ✓ ② 前提：间隔已放宽到稳态档（spread ≥ 2.0，即中位 ≥ ~4s） — spread=4.1 ⇒ 中位 6.8s
+  ✓ ② 平时 · 龟链尾迹频率落在 12~24 次/分（水面合计回到合理水位） — 实测 17.4 次/分
+  ✓ ② 平时 · 观察窗足够长（≥100s，避免 n 太小让中位数/频率抖） — 121s
+  ✓ ③ 冬季 · 龟被藏起后**完全不再留尾迹**（不然水面上有看不见的龟在留圈） — 冬季 30s 内落圈 0 次（应为 0）
+  ✓ ④ 负例前置：权威开关真的把间隔改回了旧值 — 读回 floor=1.5 spread=1.2
+  ✓ ④ 有牙负例：旧间隔下龟链频率**超出水位上限**（判据必须能判红） — 旧间隔实测 54.0 次/分 > 上限 24（② 的水位上限）
+  ✓ ④ 负例收尾：已复原为产品默认 floor=4.8 spread=4.1 — floor=4.8 spread=4.1
+  ✓ ⑤ 前置：权威开关已关闭龟尾迹 — on=false
+  ✓ ⑤ 有牙负例：关闭后龟链落圈归零（证明计数确由该路径产生） — 关闭后 30s 内落圈 0 次（应为 0）
+  ✓ ⑥ 涟漪池容量仍是 64（本次只改龟的节奏，没动容量与雨滴配额） — 容量=64
+  ✓ 零 pageerror / console error
+
+
+[turtle-wake-guard] ALL PASS（16 项）
+✓ 泳龟尾迹节流 turtle-wake — exit=0（354.6s）
+
+── 马车到访 visit-carriage ──────────────────────────
+✓ 两驾车厢加长 1.5 倍，车轮和车轴位于厢体中部 — [{"length":2.4300000071525574,"front":0.7500000035762786,"center":-0.4650000000000001,"wheels":[[-0.62,0.55,-0.4650000000000001],[0.62,0.55,-0.4650000000000001]],"axleZ":-0.4650000000000001,"seatZ":0.9299999999999999},{"length":2.4300000071525574,"front":0.7500000035762786,"center":-0.4650000000000001,"wheels":[[-0.62,0.55,-0.4650000000000001],[0.62,0.55,-0.4650000000000001]],"axleZ":-0.4650000000000001,"seatZ":0.9299999999999999}]
+  ✓ ① 相位链走到 done — 377.2s 内到 done（共 24 段）
+  ✓ ① 相位包含 carIn
+  ✓ ① 相位包含 stow
+  ✓ ① 相位包含 bow
+  ✓ ① 相位包含 pair
+  ✓ ① 相位包含 enter
+  ✓ ① 相位包含 seat
+  ✓ ① 相位包含 serve
+  ✓ ① 相位包含 offer
+  ✓ ① 相位包含 tea
+  ✓ ① 相位包含 tour
+  ✓ ① 相位包含 ebow
+  ✓ ① 相位包含 wave
+  ✓ ① 相位包含 topav
+  ✓ ① 相位包含 listen
+  ✓ ①b 见面在院门外（石狮旁，z>23） — 主人 z=23.58 / 客人 z=24.363
+  ✓ ①c 挥手权重到 1 — 峰值 1
+  ✓ ①d 挥手时右手举过头顶（腕高 ≥1.68、离头 ≥0.28） — 腕高 1.784 / 离头 0.339
+  ✓ ①e 终态站在抚琴人旁边（≤1.6m） — 距抚琴人 1.055m / hostAtQin=true / 主人 [14.58,0.62,9.086]
+  ✓ ② 马车状态机走到 gone — driveout/back → driveout/spin → driveout/out → gone/out
+  ✓ ③a 上车窗口取到样本（防"空判据"） — 169 帧
+  ✓ ③b 客人上车后始终在座面高度（≥0.40m，缺陷态 ≈0） — 最低 0.680m / 掉座 0 帧
+  ✓ ③c 马夫上车后始终在车夫位高度（≥0.55m；≥3 帧才算有样本） — 最低 0.720m / 掉座 0 帧 / 样本 158 帧
+  ✓ ④ 里程 odo 跨段连续（0.4s 内 |Δ| ≤ 0.60m；旧写法会跳 1.5~3.4m） — 最大跳变 0.44m @ out@327.6s
+  ✓ ④b 驶离里程接续驶入终点（0.4s 内 |Δ| ≤ 0.60m） — 驶入 63.11m / 驶离 63.089m
+  ✓ ④c 系绳可见后，驶离的真实马匹不再带引绳 — 系好 696 帧 / 驶离 158 帧 / 带绳 0 帧
+  ✓ ④d 停车后真实辕马的步态缓回站姿 — 样本 18 / 最大 0.1470 / 最小 0.0028
+  ✓ ⑤ 走路段贴地（|y − floorY| ≤ 0.25m） — 越限 0 帧
+  ✓ ⑤b 无 NaN 位置 — NaN 0
+  ✓ ⑧ 车夫在岗：车在动/系马/上车的每一段他都在场上（含 driveout） — 在岗帧 250 / 缺席 0；其中驶离段 158 帧、缺席 0
+  ✓ ⑧b 客人下车进园后车夫仍在场（wait 段不消失） — wait 段 692 帧 / 缺席 0
+  ✓ 零 pageerror
+  ✓ ①f 相位名与声明表一致（拼错 / 僵尸名 / 重复 任一即红） — 声明 29 / 使用 29｜未声明：无｜僵尸：无｜重复：无
+
+
+[visit-carriage-guard] ALL PASS（34 项）
+✓ 马车到访 visit-carriage — exit=0（320.3s）
+
+[verify-all] FAILED：巡游端到端 tour-guard、折射层覆盖度 refract-coverage、分帧暖编译 warmboot-guard、上元灯会 festival-guard ｜ 偶发（FLAKY，重跑通过）4 道：时光流转 reel-guard、水面真折射 refract-guard、抗锯齿渐进超采样 aa-progressive、远山观感 hill-guard
+[verify-all] 完整日志：outputs\_diag\verify-2026-11-10T01-54-04.log
+VERIFY_ALL_EXIT=1

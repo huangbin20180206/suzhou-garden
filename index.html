@@ -26,7 +26,7 @@
      而不是一块惨白。⇒ 这是**兜底**，不是修复；根因（哪块区域为什么没被画到）仍待定位。
      ⚠️ 只改 CSS 背景，不动画布像素 —— 读画布取像素的路径（明信片/长曝光）不受影响。 */
   #app canvas{background:#0B0E12}
-  canvas{display:block;width:100%;height:100%}
+  canvas{display:block;width:100%;height:100%;touch-action:none}
   /* UI 可读性：文字浮在"任意背景"上，只调字色永远不稳（正午雾色算出的 luminance 是 0.724，
      旧的 dark<0.10 判据几乎从不成立，于是永远是 34% 白底 + 深灰字 + 标签 opacity .66，
      压到亮绿草地上对比度只有 2.2:1）。解法是给面板一层**固定衬底**，
@@ -49,6 +49,15 @@
   #caption.show{opacity:1;transform:translateX(-50%) translateY(0)}
   #caption b{display:block;font-size:15px;letter-spacing:.3em;margin-bottom:4px;font-weight:600}
   #caption span{display:block;font-size:12px;letter-spacing:.08em;line-height:1.7;opacity:.88}
+  /* 悬停小字标签（2026-10-14）：跟随鼠标，非模态，pointer-events:none */
+  #hover-label{position:fixed;z-index:7;pointer-events:none;
+    padding:3px 10px;border-radius:4px;font-size:12px;letter-spacing:.1em;
+    background:rgba(14,17,22,.72);color:#EDE6D6;
+    box-shadow:0 2px 8px rgba(0,0,0,.35);
+    opacity:0;transform:translateY(4px);
+    transition:opacity .18s,transform .18s;white-space:nowrap}
+  #hover-label.show{opacity:1;transform:translateY(0)}
+  #see-lantern{ display:none; }
   #stats{position:fixed;right:16px;bottom:14px;font:11px/1.6 ui-monospace,Consolas,monospace;
     color:var(--ui-fg);opacity:.92;pointer-events:none;text-align:right;user-select:none;
     white-space:pre;transition:color .6s;
@@ -278,6 +287,14 @@
   #env button[data-view="plumYellow"]::before{ color:#C9A227; }                  /* 腊梅 · 蜡黄 */
   #env button[data-view="stable"]::before{ color:#8C6A3F; }                       /* 马厩 · 鞍棕 */
   #env button[data-view="stableNear"]::before{ color:#A87C4A; }                   /* 厩内 · 浅鞍棕 */
+  /* 导览增补三站（2026-10-13 · P0-4③）：配色取自既有六条的调色逻辑 ——
+     观鱼 = 锦鲤的红白斑（锦红）；匾联 = 远香堂朱红（同一栋，与 hall 同色但用不同前缀区分
+     不合适 ⇒ 用碑褐之外的"墨褐"）；曲桥 = 石拱桥汉白玉的灰白。 */
+  #env button[data-view="koi"]::before{ color:#B44A3A; }                          /* 观鱼 · 锦红 */
+  #env button[data-view="plaque"]::before{ color:#6E5B47; }                       /* 匾联 · 墨褐 */
+  #env button[data-view="bridge"]::before{ color:#7E8C93; }                       /* 曲桥 · 汉白玉灰 */
+#env button[data-view="lantern"]::before{ color:#B8935A; }                      /* 石灯笼 · 灯暖（呼应火袋 emissive [1,0.74,0.34]） */
+#env button[data-view="heroPeak"]::before{ color:#7C8B95; }                     /* 主峰近观 · 灰岩（呼应 boulder 浅灰重导） */
   #env button[data-act="season-demo"]::before{ color:#DB5E92; }                  /* 四季 · 桃红 */
   #env button[data-act="tour"]::before{ color:#3F76AE; }                         /* 巡游 · 靛蓝 */
   #env button[data-act="reel"]::before{ color:#D9862C; }                         /* 流转 · 暖橙 */
@@ -456,11 +473,29 @@
   #guide .g-dots i{width:5px;height:5px;border-radius:50%;background:rgba(240,228,200,.3)}
   #guide .g-dots i.on{background:#F0E4C8}
 
-  /* ── 窄屏 / 触控适配 ──
+  /* ── 窄屏 / 触控适配（2026-10-12：断点 520 → 768）──
      ⚠️ #env 是**锚点**（只 48px），不能像以前那样 left:10px+right:10px 拉满宽 ——
         那会把方印拉成一条通栏。宽度只加在面板上，且必须收进视口内：
-        面板 left:0 相对 10px 的左内边距 → 右缘 = 10 + (100vw-22px) < 100vw ✔ */
-  @media (max-width:520px),(hover:none) {
+        面板 left:0 相对 10px 的左内边距 → 右缘 = 10 + (100vw-22px) < 100vw ✔
+     ── 为什么把 520 抬到 768 ──
+     旧条件 `(max-width:520px)` 只覆盖手机档，`(hover:none)` 覆盖触屏档，但
+     **带鼠标/触控板的平板与窄桌面窗口（521~767px 且 hover:hover）两条都不命中**
+     ⇒ 那一带拿到的是桌面版式：按钮高约 28px（padding 5px 12px + 12.5px 字号），
+     **低于 44px 的触控下限**（老黄 2026-10-07 的要求正是「尺寸要能适配用手点击」）。
+     768 是通行的小屏上限（iPad 竖屏即 768）；抬到它之后 <768px 一律走窄屏版式：
+     面板收进视口并可纵向滚动、行可换行、按钮 ≥44px、方印 56px。
+     ⚠️ 代价边界：521~767px 的桌面窗口会从桌面版式切到窄屏版式（面板近乎通栏 +
+        46px 按钮）—— 这正是需求「窄屏 <768px」的含义。≥768px 的桌面档
+        （900 / 1280 / 1440 …）**逐字不变**：全部桌面门禁视口都 ≥800px。
+     ⚠️⚠️ 口径必须同步（本轮未动，属其他写域）：产品侧 guideTouchUI()
+        （src/11-loop.js:1931）与门禁 probe/mobile-panel-guard.mjs:86 仍写死
+        `(max-width:520px), (hover:none)` 这条 matchMedia 表达式，
+        它们是「同一条媒体查询」的复制品（见 README:672 与 mobile-panel-guard 头部注释）。
+        该表达式与本断点在 521~767 非触控带不一致（CSS 判窄屏 / JS 判桌面
+        ⇒ 引导会替用户展开面板）。门禁四个视口是 390 / 820 / 900 / 1440，
+        **没有一个落在该带内**，故不会红；但要保住「同一条媒体查询」这条不变量，
+        这两处的 520px 应一并改成 768px。 */
+  @media (max-width:768px),(hover:none) {
     #env{ left:10px; right:auto; bottom:10px;
       /* 触屏档：圆球与轨道都放大（拇指比鼠标指针钝得多）。三处定位公式共用这两个变量，
          所以放大后"已过段裁宽 / 读数气泡 / 四个锚点刻度"仍然对准圆球中心。 */
@@ -500,6 +535,14 @@
     /* row-gap 只管"折行之后行与行之间"的距离 —— 2px 是"手指不会误点、又省高度"的折中
        （拆行后的面板总高见 drawer-content 那条注释的实测） */
     #env .row{ flex-wrap: wrap; gap: 6px; row-gap: 2px; }
+    /* 手机端“看灯笼”浮动入口（2026-10-14 手机适配）：默认 display:none，窄屏/触屏才显示；
+       置于右下角，避开左下角面板与顶部字幕；≥46px 触控下限。 */
+    #see-lantern{ display:inline-flex; position:fixed; right:10px; bottom:74px; z-index:8;
+      align-items:center; justify-content:center; min-width:64px; min-height:46px; padding:0 14px;
+      border-radius:10px; font-size:13px; letter-spacing:.1em; color:#EDE6D6;
+      background:rgba(14,17,22,.72); border:1px solid rgba(207,65,54,.6);
+      box-shadow:0 3px 10px rgba(0,0,0,.4); touch-action:manipulation;
+      -webkit-tap-highlight-color:transparent; }
     #env .lbl {
       width: auto;
       min-width: 2.7em;
@@ -519,6 +562,20 @@
       touch-action: manipulation;
       -webkit-tap-highlight-color: transparent;
     }
+    /* ── 缺口② 快捷键复选框命中区（2026-10-12 · MobileBot）────────────
+       改前实测：\`#env .hint-toggle\` 命中盒 ≈ 58×13px（label 是 inline-flex，
+         高度由 11px 字号那枚 13×13px 复选框决定；\`padding:0 4px\`）。
+       为什么漏网：上面那条放大规则写的是 \`#env button{min-height:46px}\`，而画质行
+         末尾的「快捷键」是 \`<label class="hint-toggle">\` 包 \`<input type="checkbox">\`
+         —— **两个都不是 button**，46px 契约整条绕过它；而 smoke / mobile-panel-guard
+         的命中区判据查的也都是 \`#env button\`，同样照不到。
+       改后目标：label 命中盒 ≥46px（点 label 即切换内层 checkbox，故这就是有效命中区）。
+         ⚠️ 只加高度、不加宽 ⇒ 画质行不会因此多折一行，面板总高不变。 */
+    #env .hint-toggle{
+      min-height: 46px;
+      touch-action: manipulation;
+      -webkit-tap-highlight-color: transparent;
+    }
     #env .hint {
       display: none;
     }
@@ -527,19 +584,30 @@
       display: inline-block;
       min-width: 3.2em;
     }
+    /* ── 缺口⑤ 滑块命中区（2026-10-12 · MobileBot）───────────────────
+       改前实测：窄屏/触屏档 \`input[type="range"]{height:34px}\` ⇒ 可拖命中区 34px 高。
+       为什么漏网：34px 是 2026-10-06 从 22px 抬上来的，当时只对着「22px 太薄拖不住」
+         这条观感判据，没对 44px 的触控线；而所有命中区判据量的都是 \`#env button\`，
+         滑杆是 \`<input type="range">\` ⇒ 三处判据谁都不扫它。
+       改后目标：44px。⚠️ 几何安全（本条的要点）：滑杆在 \`.time-track\`（96px、
+         align-items:center）里**垂直居中**，加高 10px 只是上下各多 5px，**中心 y 恒为
+         96/2=48 不变** ⇒ 圆球（26px，占 35~61）、读数气泡（--r 定位）、四个锚点刻度
+         的公式全部不动，\`.time-track\` 自身高度也不变 ⇒ 时段行行高不变。 */
     #env input[type="range"] {
       width: 104px;                 /* 留影行的音量滑杆（时段条由下面一条按 100% 覆盖） */
-      height: 34px;                 /* 输入框本身就是命中区，22px 太薄，拖不住 */
+      height: 44px;                 /* 44px 触控下限；中心仍在 48，圆球/气泡/锚点不位移 */
     }
     #env input[type="range"]:hover::-webkit-slider-thumb{ transform: scale(1); }  /* 触屏别留 hover 放大 */
     /* 时段条在窄屏：容器 96px —— 要同时容下
-       "34px 的滑杆框（垂直居中，故占 31~65）+ 46px 的锚点标签（贴底，占 50~96）"，
+       "44px 的滑杆框（垂直居中，故占 26~70）+ 46px 的锚点标签（贴底，占 50~96）"，
        这样圆球上半截露在标签**命中框**之外，手指能直接捏到它开始拖
        （命中框盖住的地方点下去仍是"跳到该锚点"，那是它们本来的职责）。
        ⚠️ 标签这条**不写 min-height**，好让上面的 `#env button{min-height:46px}`
          继续生效（smoke 量 `#env button` 最小高度 ≥44px）。 */
     /* 时段条：容器 96px —— 要同时容下
-       "34px 的滑杆框（垂直居中，占 31~65）+ 46px 的锚点标签（贴底，占 50~96）"。
+       "44px 的滑杆框（垂直居中，占 26~70）+ 46px 的锚点标签（贴底，占 50~96）"。
+       ⚠️ 2026-10-12：滑杆框 34→44（缺口⑤）后圆心仍在 96/2=48 ⇒ 下一条的
+          「圆球占 35~61 / 色块占 66~96 / 5px 空气」一个数都没变。
        圆球 26px 居中 → 占 35~61；选中色块只画下半 30px → 占 66~96 ⇒ 圆球与色块之间
        留 **5px 空气**。⚠️ 别把它压到 88px：那样两者只差 1px，实测多模态与肉眼都读成
        "圆球被色块压住了"（数字上"没重叠"但观感是贴死的）。
@@ -652,8 +720,12 @@
      触控设备：面板收进视口内（原 left:22px 会让面板右缘顶出 320px 屏外）、
      命中区加大（2026-10-07 起按钮 46px / 方印 56px，见上面那条媒体查询）、
      键盘提示隐藏（触控没有键盘，还给面板省宽度）。
-     hourReadout 是时辰读数不是提示，单独恢复显示。stats 限宽防右侧溢出。 */
-  @media (max-width:520px),(hover:none){
+     hourReadout 是时辰读数不是提示，单独恢复显示。stats 限宽防右侧溢出。
+     ⚠️ 2026-10-12：断点与上面那条**同源同值**（520 → 768），两条必须一起改。
+        反例（只改上面那条的后果）：521~767px 下字幕 #caption 仍是桌面的
+        `bottom:96px` 居中，而面板此时已向上弹出成近乎通栏 ⇒ 字幕直接压在面板上；
+        同档的 stats / hud 也还停在桌面位置。两条共用一个条件才是「一种窄屏口径」。 */
+  @media (max-width:768px),(hover:none){
     /* #env / 按钮 / 滑块的窄屏规则已合并进上一条媒体查询；
        这里只剩"锚点之外"的排布（stats 让位、字幕上浮）。
        ⚠️ 不要在窄屏重新给 #env 加 left+right+padding —— 那是"拉满整条的横条面板"时代的写法，
@@ -664,6 +736,22 @@
     #hud p{display:none}
     /* P2-2：窄屏字幕上浮，避开左下角弹出的面板 */
     #caption{bottom:auto;top:64px;font-size:11px;max-width:calc(100vw - 24px)}
+
+    /* ── 缺口③ 引导气泡按钮命中区（2026-10-12 · MobileBot）─────────────
+       改前实测：\`#guide .g-acts button{min-height:38px}\`（见上面 #guide 段）⇒ 38px 高。
+       为什么漏网：\`#guide\` **不在 #env 内**；smoke 与 mobile-panel-guard 的命中区判据
+         写的都是 \`#env button\`，而 guide-guard 那条只判 \`≥38px\` —— 正好等于实现
+         现值，是一条"与实现同值、永远不会红"的判据。三处合起来没有任何人在量它。
+       改后目标：≥46px（与面板按钮同档）。guide-guard 的 ≥38px 仍满足，不冲突。 */
+    #guide .g-acts button{ min-height:46px; padding:10px 16px; touch-action:manipulation; }
+
+    /* ── 缺口④ 加载页「先用基础版进入」命中区（2026-10-12 · MobileBot）───
+       改前实测：\`#loading #ld-quick{padding:6px 9px;font-size:11px;line-height:1}\`
+         ⇒ 盒高 ≈ 11 + 12 = 23px（宽 ≈ 95px）。
+       为什么漏网：它在 \`#loading\` 里，既不在 #env 也不在 #guide ⇒ 三条命中区判据都不扫；
+         basic-enter-guard 只验它的 hidden / opacity / show / 可点，**从不量尺寸** ⇒ 静默至今。
+       改后目标：≥46px（仍是右下角一行小字的观感，只把盒子垫高给手指；不动显隐语义）。 */
+    #loading #ld-quick{ min-height:46px; padding:12px 14px; touch-action:manipulation; }
   }
 </style>
 </head>
@@ -707,6 +795,11 @@
         </div>
         <span class="hint" id="hourReadout">12:30</span>
       </div>
+      <!-- 时光自动流转（2026-10-17 由「导览」行挪回本行）：它驱动的就是这一行的 ENV.hour
+           （0.4 h/s ≈ 一整天 60 秒），与时辰滑杆是同一条轴的两种操作。
+           ⚠️ 必须挂在**行的直接子元素**这一层（.time-track 的兄弟），不能塞进 track 里：
+           track 是滑杆自身的容器，塞进去按钮会被压成 58×51 并压在轨道上（2026-10-17 实测）。 -->
+      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
     </div>
     <div class="row">
       <span class="lbl">季节</span>
@@ -714,7 +807,11 @@
       <button data-axis="season" data-v="summer">夏</button>
       <button data-axis="season" data-v="autumn">秋</button>
       <button data-axis="season" data-v="winter">冬</button>
-      <span class="hint">Q W E R</span>
+      <!-- 四季自动演示（2026-10-17 由「导览」行挪回本行）：它演示的就是这一行的春→夏→秋→冬，
+           放在季节行比放在机位行更贴题。⚠️ 挪动原因见「导览」行注释：那一行已放满，再加两个
+           机位按钮会在 1440 宽下把整行挤换行（mobile-panel-guard 有「行高 ≤56px」的断言）。 -->
+      <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
+      <span class="hint">Q W E R / Y 四季</span>
     </div>
     <div class="row">
       <span class="lbl">天气</span>
@@ -723,7 +820,9 @@
       <button data-axis="weather" data-v="afterrain">雨后初晴</button>
       <button data-axis="weather" data-v="snow">银装素裹</button>
       <button data-axis="weather" data-v="mist">薄雾烟霭</button>
-      <span class="hint">A S J F G</span>
+      <button data-axis="weather" data-v="drizzle">细雨</button>
+      <button data-axis="weather" data-v="snowclear">雪霁</button>
+      <span class="hint">A S J F G H K</span>
     </div>
     <!-- 陈设：竹帘卷起 / 放下（老黄 2026-10-05："右侧亭子里加的帘子挡住了里面的人和景，
          是不是加一个帘子可以升起和放下的按钮或者其它什么方式"）——
@@ -789,6 +888,17 @@
       <button data-view="hall">远香堂</button>
       <button data-view="pavilion">荷风四面</button>
       <button data-view="overview">全园</button>
+      <!-- 导览增补三站（2026-10-13 · P0-4③）：观鱼 / 匾联 / 曲桥 —— 与上方五站同一条路，
+           机位在 VIEWPOINTS（08-assemble）、字幕在 TOUR_CAPTIONS、巡游在 TOUR_ORDER；
+           锚点取项目里已存在的落点（锦鲤轨道中点 / 远香堂匾联 / 石拱桥），坐标见 08-assemble。 -->
+      <button data-view="koi">观鱼</button>
+      <button data-view="plaque">匾联</button>
+      <button data-view="bridge">曲桥</button>
+      <!-- 导览再补两站（2026-10-17 · 方案 research/tour-lantern-hero-plan.md）：
+           石灯笼是新落地的实体、主峰换了 GLB（3639b6f），补上入口让它们在巡游与被看到；
+           机位与字幕同在 08d-tour（VIEWPOINTS / TOUR_CAPTIONS / TOUR_ORDER），本行只管按钮。 -->
+      <button data-view="lantern">石灯笼</button>
+      <button data-view="heroPeak">主峰近观</button>
       <button data-view="plumRed">红梅</button>
       <button data-view="plumYellow">腊梅</button>
       <!-- 马厩（2026-10-09）：南墙外的马厩院子（4 匹马 + 2 驾双轮马车 + 马夫）。
@@ -798,11 +908,9 @@
            站位在院门外、视线正好从院门穿进院场（门框把院场框住），minDist 放开到 1.2
            ⇒ 进来之后还能一路推到马与马车跟前。与「马厩」（越墙远看）互为远近两档。 -->
       <button data-view="stableNear" aria-label="进马厩院近距离观察" title="厩内：站院门口看院场，可一路推到马与马车跟前（0 后面的那个键）">厩内</button>
-      <button data-act="season-demo" aria-label="四季自动演示" title="四季自动演示：春→夏→秋→冬（Y）">四季▸</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
-      <button data-act="reel" aria-label="时光自动流转" title="时光自动流转（L）">流转▸</button>
       <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得</button>
-      <span class="hint">Z 巡览 / T 巡游 / Y 四季 / 5 6 7 8 9 机位</span>
+      <span class="hint">Z 巡览 / T 巡游</span>
     </div>
     <div class="row">
       <span class="lbl">留影</span>
@@ -814,6 +922,9 @@
     </div>
   </div>
 </div>
+    <!-- 手机端“看灯笼”入口（2026-10-14 手机适配）：默认隐藏，仅窄屏/触屏媒体查询显示；
+         置于 #env 之外，不进 aria-pressed / 命中区门禁。 -->
+    <button id="see-lantern" data-act="lantern" aria-label="走近看石灯笼，夜里火袋发光" title="飞到石灯笼近前，夜里火袋发光">看灯笼</button>
 <div id="loading">
   <div class="ld-bg"></div>
   <div class="ld-wash"></div>
@@ -843,6 +954,7 @@
   </div>
 </div>
 <div id="caption" aria-live="polite"><b></b><span></span></div>
+<div id="hover-label" role="status" aria-live="polite"></div>
 <div id="guide" role="dialog" aria-label="首次引导">
   <div class="g-ring"></div>
   <div class="g-bubble">
@@ -855,128 +967,39 @@
   </div>
 </div>
 
-<script type="module">
-// three 与全部 addons 已用 esbuild 打包进同目录的 vendor.js（见 build-entry.js），
-// 页面不依赖任何外部 CDN —— 大陆网络下 unpkg / jsDelivr 常不稳定
-import { THREE, OrbitControls, EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass, GLTFLoader, Reflector, mergeGeometries, GTAOPass, DRACOLoader, KTX2Loader, MeshoptDecoder } from './vendor.js';
-import { CFG, rnd, rr, pick, mulberry32, TAU, DEG, registry } from './src/00-config.js';
-import { rockNormalTex, pavingTex, pavingNormalTex, groundTex, waterNormalTex, makePondBedTex, makePlaqueTex, makeSteleTex, makeInkWashTex, WATER_REFLECT_SHADER, waterSurface, setWaterSurface, auxPass, setAuxPass, BOOT, bootMark, SEASON_TINT_REGISTRY, registerSeasonTint, MAT, DISTANT_MATS, SNOW_COVER_MATS, WET_MATS, registerWeatherRoles, wetUniform, WIND, willowOrigins, addWind } from './src/01-materials.js';
-
-// ═════════════════════════════════════════════════════════════
-// 中式古典江南风格 · 抽屉式 UI 交互
-// ☆ 默认**收起**：只有点左下角那枚方印才展开（触屏没有"悬停"，手机/平板只认点击，
-//    点面板之外也收起）；桌面鼠标移开面板 300ms 后自动收起（见下面的 canHover 分支）。
-// ⚠️ 旧注释写的"鼠标悬停即展开"**从来没有实现过**（mouseenter 只清收起计时器），
-//    别再照着它去加悬停展开 —— 触屏上那会变成"点一下就自己弹出来"的观感问题。
-// ═════════════════════════════════════════════════════════════
-(function initDrawerUI() {
-  const envEl = document.getElementById('env');
-  const toggleEl = envEl ? envEl.querySelector('.drawer-toggle') : null;
-  if (!envEl || !toggleEl) return;
-
-  const setOpen = (on) => {
-    envEl.classList.toggle('expanded', on);
-    toggleEl.setAttribute('aria-expanded', on ? 'true' : 'false');
-  };
-  const isOpen = () => envEl.classList.contains('expanded');
-
-  /* 点方印开关本身：切换开合。
-     stopPropagation 防止这次点击被下面的"点面板外收起"当成外部点击而立刻关掉。 */
-  toggleEl.addEventListener('click', (e) => {
-    e.stopPropagation();
-    setOpen(!isOpen());
-  });
-
-  /* ── 自动收起 ──
-     旧版的 autoCollapse() 定义了却**从未被调用**（只挂了 mouseenter 清计时器，没挂 mouseleave），
-     所以点开之后只能再点一次才关，跟"自动抽屉"的承诺不符。这里补齐两条路径：
-       · 桌面（有 hover）：鼠标离开面板 300ms 后收起（留一点时间从容移到相邻按钮）；
-       · 触屏（无 hover）：点面板之外 / 按 Esc 收起 —— 触屏没有"移开"这个动作，
-         装 mouseleave 只会让刚点开的抽屉被合成事件误关。
-     判断用 matchMedia，而不是 UA 嗅探。 */
-  let hideTimer = 0;
-  const canHover = matchMedia('(hover:hover)').matches;
-  /* ⚠️ 拖动滑块时鼠标一定会移出面板边缘 —— 若不设防，"鼠标移开 300ms 收起"会在
-     拖动中途把面板收掉（时辰滑杆就在面板里，这条必踩）。按下期间一律不自动收起。 */
-  let pressing = false;
-  envEl.addEventListener('pointerdown', () => { pressing = true; });
-  addEventListener('pointerup', () => {
-    pressing = false;
-    /* 松手时若指针已经不在面板上（拖到外面才松的），补一次收起判定 */
-    if (canHover && isOpen() && !envEl.matches(':hover')){
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => setOpen(false), 300);
+<script type="module" src="./src/main.js"></script>
+<!-- 手机端「看灯笼」接线（2026-10-14 手机适配②）：只在此文件内，不碰 11-loop.js
+     （悬停等价物已划给 VisualBot）。点 #see-lantern → 走 __garden.flyTo 飞到石灯笼近前 + 出字幕。 -->
+<script>
+(function(){
+  var btn = document.getElementById('see-lantern');
+  if (!btn) return;
+  btn.addEventListener('click', function(){
+    var g = window.__garden; if (!g) return;
+    /* ⚠️ 2026-10-17：石灯笼已从池北岸搬到院外石板路两侧（15-stable 的 makeStableRoad，
+       成对、每约 8m 一对）—— 落点以导览站 lantern 为唯一出处，这里不再自己算机位，
+       免得两处各写一份、改一处忘一处。 */
+    function showCap(txt){
+      var cap = document.getElementById('caption');
+      if (!cap) return;
+      var b = cap.querySelector('b'), s = cap.querySelector('span');
+      if (b) b.textContent = '石灯笼';
+      if (s) s.textContent = txt;
+      cap.classList.add('show');
+      setTimeout(function(){ cap.classList.remove('show'); }, 6000);
     }
+    if (g.gotoViewpoint && g.gotoViewpoint('lantern', 1.4, 'lantern')){
+      showCap('院外石板路两侧一路石灯，夜里火袋自发光，走夜路不必点烛。');
+      return;
+    }
+    /* 兜底（导览站没建成时）：飞到场院一侧的灯笼锚点 */
+    var pos = null;
+    g.scene.traverse(function(o){ if (!pos && o.name === 'stoneLanternAnchor'){ var v = new g.THREE.Vector3(); o.getWorldPosition(v); pos = v; } });
+    if (!pos || !g.flyTo) return;
+    g.flyTo(new g.THREE.Vector3(pos.x + 1.8, pos.y + 0.9, pos.z + 3.2), pos, 1.4, 1.5, 'lantern');
+    showCap('院外石板路两侧一路石灯，夜里火袋自发光。');
   });
-
-  if (canHover){
-    envEl.addEventListener('mouseenter', () => { clearTimeout(hideTimer); });
-    envEl.addEventListener('mouseleave', () => {
-      if (pressing) return;                 // 正在拖滑块/按住按钮：别收
-      clearTimeout(hideTimer);
-      hideTimer = setTimeout(() => setOpen(false), 300);
-    });
-  }
-  /* 点面板之外：一律收起（pointerdown 比 click 更早，且能覆盖触屏） */
-  document.addEventListener('pointerdown', (e) => {
-    if (isOpen() && !envEl.contains(e.target)) setOpen(false);
-  });
-  /* 键盘：Esc 收起（无障碍 + 快速退出） */
-  addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && isOpen()) setOpen(false);
-  });
-
-  setOpen(false);
 })();
-
-
-/* ── 启动失败态 ──
-   审计 B14：加载层原来是"第 2 帧就无条件撤掉"，GLB 失败只 console.warn ——
-   WebGL 不可用 / vendor.js 没加载成功 / 脚本异常时，用户看到的是**永远的"营造中"**
-   或者一个半成品场景，没有任何可读信息，也没有重试入口。这里在模块最前面挂兜底。 */
-function bootFail(msg){
-  const el = document.getElementById('loading');
-  if (!el) return;
-  el.classList.remove('done');
-  el.style.display = '';
-  el.style.opacity = '1';
-  el.innerHTML =
-    '<div style="font:500 15px/1.7 system-ui, sans-serif;color:#f2efe6;'
-    + 'background:rgba(18,22,28,.86);padding:18px 22px;border-radius:10px;'
-    + 'max-width:min(600px,84vw);text-align:left">'
-    + '<div style="font-size:17px;font-weight:600;margin-bottom:8px">场景没能启动</div>'
-    + '<div style="opacity:.82;margin-bottom:10px">' + String(msg).slice(0, 300) + '</div>'
-    + '<div style="opacity:.62;margin-bottom:14px">常见原因：WebGL 不可用 · vendor.js 没加载成功 · '
-    + '用 file:// 直接打开（会被 CORS 拦）· 着色器编译失败</div>'
-    + '<button id="boot-retry" style="font:inherit;padding:6px 14px;border-radius:6px;'
-    + 'border:1px solid rgba(240,236,226,.5);background:rgba(240,236,226,.14);color:#f2efe6;cursor:pointer">重试</button>'
-    + '</div>';
-  const b = document.getElementById('boot-retry');
-  if (b) b.addEventListener('click', () => location.reload());
-}
-addEventListener('error', (e) => { if (!window.__garden) bootFail(e.message || '脚本错误'); });
-addEventListener('unhandledrejection', (e) => {
-  if (!window.__garden) bootFail((e.reason && e.reason.message) || '未处理的 Promise 拒绝');
-});
-setTimeout(() => { if (!window.__garden) bootFail('初始化超时（15 秒仍未就绪）'); }, 15000);
-
-import { windClock, DIR_N, DIR_STEP, WIND_DIR, updateWindDir, FORCE_TIERS, WIND_FORCE, forceBand, windGain, updateWindForce, gust, updateWind } from './src/2b-wind.js';
-
-import { app, renderer, GPU_NAME, SOFTWARE_GL, PROBE_DRIVEN, QOS_IMMUNE, GPU_TIER, SUPERSAMPLE, RENDER_SCALE, scene, camera, controls, CAM_MIN_DIST, CAM_HOME, resetCamera, skyMesh, lumOf, ENV_BAKE_LUM } from './src/02-scene.js';
-import { mesh, box, makeColumn, instancedBoxes, instancedGeo, makeCorrugatedSlab, DOUGONG_H, makeDougongGeo, makeChineseRoof, makeCeiling, makeQueTu, makeGuaLuo, makeJiangnanWindow, makeChangChuang, makeLatticePanel, makeWallRun, makeWallCap } from './src/03-factory.js';
-import { makeYuanxiangHall, makeWaterPavilion, makeCorridor } from './src/04-buildings.js';
-import { POND_PTS, insidePond, POND_RADII, makePond, makeBankRocks, makeArchBridge, makeSteppingStones } from './src/05-water.js';
-import { makeReedBladeGeo, makeBamboo, makeWisteria, perchingAnchors, makeAquatic, KOI_ORBITS, rippleInst, spawnRipple, updateRipples, makeKoiGroup, assetFailures, loadAssetOnce, placeAssets, MIST_WHITE, MIST, makeMistField, makeTaihuHeroGeo, makeWillow, makeBananaPlant, makeLotusPod, makeRockChain, makeRockery, makeWaterGrass } from './src/06-vegetation.js';
-import { makeGround, makePaving, makeWalls, makeDistantHills, makeDragonfly } from './src/07-ground.js';
-import { world, runDeferredBoot, FIG_HAIR, FIG_PALETTE, figures, koiGroup, dragonflies, perchingDragonflies, PERCH_LIFT, perchShowOK, updatePerchingDragonflies, GLB_LOTUS_STEM_H, swimTurtles, HERO_POS, CAM_FLY, flyTo, updateCamFly, VIEWPOINTS, gotoViewpoint, TOUR, captionEl, showCaption, hideCaption, tourStop, tourStart, updateTour, tourUserTakeover } from './src/08-assemble.js';
-
-import { sun, casterBox, casterBoxDirty, refreshCasterBox, fitShadowCamera, amb, fill, hemiLight } from './src/09-lights.js';
-
-import { composer, AO_ENABLED, gtaoPass, bloom, gradePass } from './src/10-post.js';
-
-import { lanternGroups, hash21Lantern, weatherMutexReason, weatherTag, effectiveWeather, ENV_SEASON, mixInto, timeLabelNow, applyEnv, applyPresence, wetApplied, ENV, setEnv, weatherAllowed, envEl, REEL, toggleReel, advanceReel, PRECIP, updatePrecip, updatePostRain, updateRainRipples } from './src/12-env.js';
-
-import './src/11-loop.js';
 </script>
 </body>
 </html>

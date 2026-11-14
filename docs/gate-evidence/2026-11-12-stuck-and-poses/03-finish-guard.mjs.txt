@@ -1,0 +1,60 @@
+// 负例自检：让 mergeStatics 强制抛错，验证加载层仍然收起（修复前会永久卡死）。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { listenEphemeral } from '../../probe/_harness.mjs';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const MIME = { '.html':'text/html; charset=utf-8', '.js':'text/javascript', '.glb':'model/gltf-binary',
+               '.mp3':'audio/mpeg', '.webmanifest':'application/webmanifest', '.svg':'image/svg+xml' };
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end('nf'); return; }
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+const port = await listenEphemeral(server);
+const { chromium } = createRequire(import.meta.url)('playwright');
+
+async function run(arm, tag){
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fg-'));
+  const ctx = await chromium.launchPersistentContext(dir, { headless: true, viewport:{width:1280,height:720},
+    args: ['--use-angle=d3d11','--ignore-gpu-blocklist','--enable-gpu-rasterization'] });
+  const page = ctx.pages()[0] || await ctx.newPage();
+  page.setDefaultTimeout(400000);
+  if (arm === 'throw'){
+    await page.route(u => u.pathname.endsWith('/08-assemble.js'), r => {
+      let s = fs.readFileSync(path.join(ROOT, 'src/08-assemble.js'), 'utf8');
+      /* 让收尾四步的第一步步抛错 */
+      s = s.replace("guard('mergeStatics', () => mergeStatics(deferRoot));",
+                    "guard('mergeStatics', () => { throw new Error('负例：故意让收尾抛错'); });");
+      r.fulfill({ status: 200, contentType: 'text/javascript', body: s });
+    });
+  }
+  const warns = [];
+  page.on('console', m => { if (m.type()==='warning') warns.push(m.text()); });
+  const t0 = Date.now();
+  await page.goto(`http://127.0.0.1:${port}/index.html?tier=low`, { waitUntil: 'load' });
+  let ok = false, waited = 0;
+  try {
+    await page.waitForFunction(() => document.getElementById('loading') &&
+      document.getElementById('loading').classList.contains('done'), null, {timeout:120000, polling:200});
+    ok = true;
+  } catch(e){}
+  waited = Date.now()-t0;
+  const st = await page.evaluate(() => ({
+    bootDone: window.__garden.bootDone ? window.__garden.bootDone() : 'n/a',
+    loopErr: window.__garden.loopErrors ? window.__garden.loopErrors().count : 'n/a' }));
+  console.log(`${tag.padEnd(24)} 收层=${String(ok).padEnd(5)}（${(waited/1000).toFixed(1)}s） bootDone=${st.bootDone} loopErr=${st.loopErr}`);
+  const rel = warns.filter(w => /收尾/.test(w));
+  rel.slice(0,2).forEach(w => console.log('   ⚠ ' + w.slice(0,160)));
+  await ctx.close(); try { fs.rmSync(dir,{recursive:true,force:true}); } catch {}
+  return ok;
+}
+await run('none', '正常');
+await run('throw', '负例·收尾第一步抛错');
+server.close();

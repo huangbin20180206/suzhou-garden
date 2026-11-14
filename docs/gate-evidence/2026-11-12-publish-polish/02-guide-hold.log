@@ -1,0 +1,20 @@
+# 引导静置期 2.5s
+
+## 实测（outputs/_diag/guide-hold-20261112.mjs，?guide=1 强制弹）
+收层后引导显示: true
+  静置期内点击画布 => 仍显示 ✓
+  静置期后点击画布 => 被关 ✓
+
+## guide-guard 21 项全过，其中新增 6 项
+✓ 静置期内遇到 pointerdown 不消失（<2500ms） — true→true
+✓ 引导显示中遇到 pointerdown 即消失（静置期后） — true→false
+✓ 静置期内遇到 wheel 不消失（<2500ms） — true→true
+✓ 引导显示中遇到 wheel 即消失（静置期后） — true→false
+✓ 静置期内遇到 keydown 不消失（<2500ms） — true→true
+✓ 引导显示中遇到 keydown 即消失（静置期后） — true→false
+
+## 负例自检：把 GUIDE_HOLD_MS 改成 0
+✗ 静置期内遇到 pointerdown 不消失（<2500ms） — true→false
+✗ 静置期内遇到 wheel 不消失（<2500ms） — true→false
+✗ 静置期内遇到 keydown 不消失（<2500ms） — true→false
+⇒ 三条全部报红，新判据有牙。

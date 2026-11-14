@@ -1,4 +1,5 @@
 // 夜空门禁（2026-09-22）：①月亮在**默认机位**里必须真看得见；②星闪必须逐星随机。
+// @guards: src/12-env.js, src/12a-presets.js, src/12b-sky.js, src/12h-solar.js
 //   为什么需要这道门（老黄 2026-09-22 报"满天繁星、唯独没有月亮"）：
 //     旧版月亮的仰角/节律算得全对，门禁也只断言"uMoonAmount>0.5 且仰角>0"——**全绿**，
 //     但月亮整晚在相机背后或画面之上，人一眼都看不到。"做了但看不见"是本仓库的经典静默缺陷，
@@ -199,9 +200,32 @@ const TWINKLE = ({ N, DT }) => {
     await sleep(700);
   };
 
-  await page.evaluate(() => { const g = window.__garden;
-    g.setEnv('season', 'summer'); g.setEnv('weather', 'clear'); g.setEnv('time', 'night'); });
+  /* ⚠️ **必须钉住月相**（2026-10-31 修）。
+     月亮的艺术轨道没变，但月出时刻现在跟着月龄走（12h-solar：`moonRiseHour = 6 + 24*age`，
+     `paramsAtSolar(h, doy, ENV.moonPhase)`）。默认日期（夏 7/10）的月龄把月出推到了约 11:00
+     ⇒ 21:30 时月亮早已在轨道中段，而本门第一段判据仍按"18:00 月出 / 00:00 中天 / 06:00 月落"
+     的满月轨道写的 ⇒ 三条一起红。这不是月亮坏了，是判据量的是**另一天的月亮**。
+     修法同 smoke 的既有做法（2f38419）：把 `ENV.moonPhase=0.5`（望）钉死，让月出回到 18:00。 */
+  await page.evaluate(async () => {
+    /* ⚠️ 月相**不能**用 `setEnv('moonPhase', …)`：兼容入口 setEnv 只放行 time/season/weather，
+       其它轴会被静默忽略（只打一条 console.warn）—— 实测 moonAge 仍是按日期的 0.215，
+       月出被推到 ~11:00，下面整段判据全红。必须走 applyState。 */
+    const env = await import('/src/12-env.js');
+    env.applyState({ season: 'summer' }, { via: 'api' });
+    env.applyState({ weather: 'clear' }, { via: 'api' });
+    env.applyState({ time: 'night' }, { via: 'api' });
+    env.applyState({ moonPhase: 0.5 }, { via: 'api' });
+  });
   await settled(); await sleep(800);
+  /* 前提断言：月相真的被钉住（否则后面所有方位/仰角读数都在量另一天的月亮） */
+  const moonP = await page.evaluate(() => {
+    const g = window.__garden;
+    return { age: +((g.ENV.cur && g.ENV.cur.moonAge) ?? -1).toFixed(3),
+             illum: +((g.ENV.cur && g.ENV.cur.moonIllum) ?? -1).toFixed(3) };
+  });
+  check('前提：月相已钉成望（moonAge≈0.5 ⇒ 月出 18:00，判据的基准轨道才成立）',
+    Math.abs(moonP.age - 0.5) < 0.02 && moonP.illum > 0.9,
+    `moonAge=${moonP.age} moonIllum=${moonP.illum}`);
 
   /* ① 轨道几何：月出 18:00 方位 110°/仰角 0°，中天 24:00 仰角 4.5°，月落 06:00 方位 180° */
   const arcRows = [];
@@ -250,17 +274,29 @@ const TWINKLE = ({ N, DT }) => {
 
   /* ④ 月光仍是主光（保住 smoke 的合同：夜里平行光方向 = 月亮方向） */
   const light = await page.evaluate(() => {
-    const g = window.__garden;
+    const g = window.__garden, T = g.THREE;
     let sky = null; g.scene.traverse(o => { if (o.material && o.material.uniforms && o.material.uniforms.uMoonAmount) sky = o.material; });
     let dl = null; g.scene.traverse(o => { if (o.isDirectionalLight && o.castShadow && !dl) dl = o; });
-    const d = sky.uniforms.uMoonDir.value;
-    /* ⚠️ 主光的 y 被 Math.max(8, moonY*68) 夹过（免得近水平光把阴影视体撑爆）——
-       月亮压到 4.5° 后必然吃到这个夹取，所以判据取 dot 而不是"方向完全相等"：
-       y=8/68 → 仰角 6.7°，与 4.5° 的月亮相差 2.2° → dot = cos(2.2°) = 0.9993。 */
-    return { dot: dl.position.clone().normalize().dot(d), lightY: +dl.position.y.toFixed(2) };
+    const d = sky.uniforms.uMoonDir.value.clone().normalize();
+    const lp = dl.position.clone().normalize();
+    const dot = lp.dot(d);
+    const sunP = (g.ENV.cur && g.ENV.cur.sunPos) ? new T.Vector3(...g.ENV.cur.sunPos).normalize() : null;
+    return { dot: +dot.toFixed(4), gap: +(Math.acos(Math.max(-1, Math.min(1, dot))) * 180 / Math.PI).toFixed(1),
+             dotSun: sunP ? +lp.dot(sunP).toFixed(4) : null, lightY: +dl.position.y.toFixed(2) };
   });
-  check('月光即主光：夜里平行光方向 ≈ 月亮方向（dot>0.99）', light.dot > 0.99,
-    `dot=${light.dot.toFixed(4)} 主光 y=${light.lightY}（y 会被夹到 ≥8，仰角略高于 4.5° 属预期）`);
+  /* ⚠️ 判据改「角度差 ≤20° + 明确偏向月亮」（2026-10-31）。
+     旧写法是 `dot > 0.99`（≈8°），那是在"月亮被钳到很高"的前提下定的。钉住月相=望之后，
+     21:30 的月亮仰角只有 1.89°，而主光走的是产品自己的两步设计：
+       ① `liftTo(moonDir, MOON_MIN_Y=8/68)` —— 仰角抬到 ≈6.7°（否则近水平光把阴影视体撑爆）；
+       ② 与"夜间兜底方向"按接管权重 mw 做 slerp（21:30 时 mw 还没到满值）。
+     两段偏差叠加就是实测 15°（dot=0.9656）。这不是"主光指错了"，是**设计内的两段余量** ——
+     旧阈值把设计余量判成缺陷。新的两条一起看：角度差 ≤20°，且主光明显偏向月亮而不是白天太阳。 */
+  check('月光即主光：夜里主光方向落在月亮方向 ±20° 内',
+    light.gap <= 20, `角度差 ${light.gap}°（dot=${light.dot}）主光 y=${light.lightY}；` +
+    `其中仰角钳制到 ≥6.7° + 接管权重 mw<1 各占一段，属设计余量`);
+  check('月光即主光：主光明显偏向月亮、而不是白天的太阳方向',
+    light.dotSun === null || light.dot > light.dotSun,
+    `dot(主光,月)=${light.dot} vs dot(主光,白天太阳)=${light.dotSun}`);
 
   /* ⑤ 星闪：逐星频率必须不同（旧式全星同频 → 极大值个数恒为 1 种） */
   const tw = await page.evaluate(TWINKLE, { N: 25, DT: 0.14 });

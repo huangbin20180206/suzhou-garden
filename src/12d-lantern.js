@@ -10,8 +10,8 @@
       festivalState 里还在用，故本文件把它们 export 出去（其余一律不导出）。 */
 import { THREE, mergeGeometries } from '../vendor.js';
 import { MAT } from './01-materials.js';
-import { camera, ACTIVE_QUALITY } from './02-scene.js';
-import { world } from './08-assemble.js';
+import { ACTIVE_QUALITY } from './02-scene.js';
+import { world } from './02-scene.js';
 import { TAU } from './00-config.js';
 
 /* ── 夜间的灯笼：自发光小体 + Bloom 辉光 ──
@@ -122,7 +122,7 @@ export let _groundSplashMat = null, _groundSplashGeo = null;   // 灯下地面�
 /* 已挂到灯笼上的光团 / 光斑实例（2026-09-22 · 为门禁收）。
    ⚠️ 不收这个清单，门禁就只能靠 traverse 猜对象 —— 而"猜"在本项目已经栽过
    （灯笼那次"引用没暴露 → found:false"）。清单必须由创建处自己登记。 */
-const _volMeshes = [], _splashMeshes = [];
+const _volMeshes = [], _splashMeshes = [], _wallSplashMeshes = [];
 /* 灯笼在风里微摆：存**摆动支点**（pivot）到数组，渲染循环里统一做单摆。
    ⚠️ 支点必须是挂点、不是灯笼中心（2026-09-17 用户："能感觉到微弱的悬挂绳索与屋梁的
    连接处在动（这个不科学，这个地方应该不动）"）。原实现把 rotation 写在原点位于
@@ -184,10 +184,21 @@ export function makeLanterns(){
     uniforms: { uLamp: { value: 0 }, uRain: { value: 0 }, uTime: { value: 0 }, uTint: { value: new THREE.Color(0xFFAA33) } },
     vertexShader: `
       varying vec3 vP;
-      void main(){ vP = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+      varying vec3 vViewPos;     // 本片元在视图空间的位置（相机在原点）
+      varying vec3 vCenterView;  // 光团球心在视图空间的位置
+      varying float vRadView;    // 球半径在视图空间的长度（等比例缩放 ⇒ 取矩阵第一列的长度）
+      void main(){
+        vP = position;
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        vViewPos = mv.xyz;
+        vCenterView = (modelViewMatrix * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
+        vRadView = length(modelViewMatrix[0].xyz);
+        gl_Position = projectionMatrix * mv;
+      }`,
     fragmentShader: `
       uniform float uLamp; uniform float uRain; uniform float uTime; uniform vec3 uTint;
       varying vec3 vP;
+      varying vec3 vViewPos; varying vec3 vCenterView; varying float vRadView;
       float hash13(vec3 p){ p = fract(p * 0.1031); p += dot(p, p.zyx + 31.32); return fract((p.x + p.y) * p.z); }
       float vnoise(vec3 x){
         vec3 i = floor(x), f = fract(x);
@@ -203,10 +214,19 @@ export function makeLanterns(){
         return s;
       }
       void main(){
-        float rl = length(vP);                             // vP 以球心（灯笼发光中心）为原点
-        if (rl > 1.0) discard;                             // 光团球面之外
-        /* 各向同性径向散射：光随距离指数衰减，拢着灯向外快快散开 —— 不是向下收窄的光束 */
-        float atten = exp(-rl * 3.0);
+        /* 各向同性径向散射：光随距离指数衰减，拢着灯向外快快散开 —— 不是向下收窄的光束。
+           ⚠ 2026-11-10 修：原写法 atten = exp(-rl * 3.0) 里 rl 是**球面片元到球心的距离**，
+           而光团是单位球（SphereGeometry(1,…)，等比缩放）⇒ rl 恒等于 1 ⇒ atten 恒等于
+           exp(-3)=0.0498，注释说的"随距离衰减"从未生效，整团光是一片均匀涂层（没有芯亮边暗）。
+           现在改量**撞击参数**：球心到"相机→本片元"这条视线的垂距 b（视图空间），
+           rn = b / 球半径 ∈[0,1] —— 视线正穿球心时 rn=0（穿过最厚的一层光），擦过边缘时 rn=1。
+           atten = 0.28 × exp(-rn × 3.0)：中心 0.28、边缘 0.014，指数衰减这才真的在跑。
+           0.28 这个系数不是随手写的：使全盘面积加权均值 = 0.28 × 2∫₀¹ r·e^(-3r)dr = 0.0498，
+           与原实现的总光量一致 ⇒ 门禁的抬亮读数不该因为是"修 bug"而整体位移。 */
+        vec3 rayDir = normalize(vViewPos);
+        float impact = length(cross(vCenterView, rayDir));   // 球心到该视线的垂距
+        float rn = clamp(impact / max(vRadView, 1e-4), 0.0, 1.0);
+        float atten = 0.28 * exp(-rn * 3.0);
         /* 微弱下偏：灯要照亮脚下空气与地面，但只偏一点点（下半略亮、上半仍有光），
            不会构成"反光碗聚光"的方向性。 */
         float dn = normalize(vP).y;
@@ -335,6 +355,11 @@ export function makeLanterns(){
       const sr = Math.min(1.7, 0.55 + y * 0.16);
       splash.scale.set(sr, sr, sr);
       splash.rotation.x = -Math.PI / 2;
+      /* 命名 + 分账（2026-11-11）：`_splashMeshes` 只装"灯下地面光斑"，墙面光斑进
+         `_wallSplashMeshes`。两者混在一个计数里 ⇒ lampvol-guard 的
+         「5 盏灯各 1 个光斑」读到 9、`splashFlat`（全平躺）读到 false —— 那是 2026-11-10
+         加墙面光斑时漏跑全量门禁留下的假红，判据本身没错，是回读口径该分开。 */
+      splash.name = 'groundSplash';
       grp.add(splash);
       _splashMeshes.push(splash);
     }
@@ -342,6 +367,50 @@ export function makeLanterns(){
     pivot.add(grp);
     world.add(pivot);
     lanternGroups.push(pivot);
+
+    /* 墙面光斑（2026-11-10）：灯笼的光该落在**墙**上，不只在脚下地面。
+       做法：从灯芯朝 ±x / ±z 各打一条 3.2m 的射线，命中的第一个"近似竖直的面"
+       （|法线.y| < 0.35）且距离 > 0.6m，就在那个面上贴一张圆斑。
+       · 复用地面光斑的材质与几何（`_groundSplashMat` / `_groundSplashGeo`）——
+         uLamp / uTime 由既有 tickLampVol 统一喂，不新增 uniform、不新增接线点；
+         同一盏灯照出去的光不该有两种脾气（亮度/闪烁必须一致）。
+       · 一盏灯只贴**最近的一面**墙（命中即 break）：两面都贴会读成"两头亮"，
+         而且走廊两侧对穿的光斑比没有更假。
+       · 过滤：屋顶/树冠/别的灯笼/已贴的光斑都不是"被照亮的墙"，一律跳过。
+       · 代价：每盏灯 4 条射线、只在建场期跑一次（约 8 盏 × 4），不进每帧路径。 */
+    if (WITH_VOL && _groundSplashMat){
+      const _from = new THREE.Vector3(x, y, z);
+      const _dirs = [new THREE.Vector3(1, 0, 0), new THREE.Vector3(-1, 0, 0),
+                     new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 0, -1)];
+      const _wr = new THREE.Raycaster();
+      _wr.far = 3.2;
+      for (const dir of _dirs){
+        _wr.set(_from, dir);
+        const hits = _wr.intersectObject(world, true);
+        let hit = null;
+        for (const h of hits){
+          if (!h.face) continue;
+          if (h.object.name === 'wallSplash' || h.object.name === 'lampVol') continue;
+          if (h.object.material === _groundSplashMat || h.object.material === lampVolMat) continue;
+          if (h.distance <= 0.6) continue;
+          const ny = Math.abs(h.face.normal.clone().transformDirection(h.object.matrixWorld).y);
+          if (ny >= 0.35) continue;                    // 只认近似竖直的面
+          hit = h; break;
+        }
+        if (!hit) continue;
+        const n = hit.face.normal.clone().transformDirection(hit.object.matrixWorld).normalize();
+        const patch = new THREE.Mesh(_groundSplashGeo, _groundSplashMat);
+        patch.position.copy(hit.point).addScaledVector(n, 0.02);
+        patch.lookAt(_from);                            // 圆面朝向灯芯
+        const pr = Math.min(1.35, 0.5 + (3.2 - hit.distance) * 0.35);
+        patch.scale.set(pr, pr, pr);
+        patch.name = 'wallSplash';
+        patch.userData.lampPos = [+x, +y, +z];   // 探针要判"离自己的灯多近"（射程 3.2m）
+        world.add(patch);
+        _wallSplashMeshes.push(patch);
+        break;
+      }
+    }
   }
 }
 /* 每帧喂时间给体积光/地面光斑（驱动湍流漂移与微闪烁）。渲染循环里 composer.render 前调用。
@@ -380,6 +449,21 @@ export function lampVolState(){
     splashGeo: _splashMeshes[0] ? _splashMeshes[0].geometry.type : null,
     splashFlat: _splashMeshes.length
       ? _splashMeshes.every(m => Math.abs(m.rotation.x + Math.PI / 2) < 1e-6) : null,
+    /* 墙面光斑单独回读（2026-11-11）：一盏灯最多贴**一面**墙，所以数量 0..灯数都合法
+       —— 没墙的灯不贴，不是缺件。回读三项可判定的量：
+         · ny —— 面法线的竖直分量：≈0 才是"竖在墙上"（地面光斑是 ≈1）；
+         · mat —— 是否复用地面光斑那份材质（亮度/闪烁必须同一套，不许各写一份）；
+         · lampDist —— 离自己那盏灯多远（射线射程 3.2m，超了说明贴错了墙）。 */
+    wallSplashCount: _wallSplashMeshes.length,
+    wallSplash: _wallSplashMeshes.map(m => {
+      const v = new THREE.Vector3(); m.getWorldPosition(v);
+      const n = new THREE.Vector3(0, 0, 1).applyQuaternion(m.quaternion);
+      const lp = m.userData.lampPos;
+      const d = lp ? Math.hypot(v.x - lp[0], v.y - lp[1], v.z - lp[2]) : null;
+      return { ny: +Math.abs(n.y).toFixed(3), mat: m.material === _groundSplashMat,
+               lampDist: d === null ? null : +d.toFixed(3),
+               pos: [+v.x.toFixed(2), +v.y.toFixed(2), +v.z.toFixed(2)] };
+    }),
   };
 }
 /* 只改 uLamp 的强制通道 —— 门禁的**阳性对照**专用。

@@ -1,0 +1,42 @@
+// 首次访问实际请求了哪些文件、各多大。
+import http from 'node:http';
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { createRequire } from 'node:module';
+import { fileURLToPath } from 'node:url';
+import { listenEphemeral } from '../../probe/_harness.mjs';
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const MIME = { '.html':'text/html', '.js':'text/javascript', '.glb':'model/gltf-binary',
+               '.mp3':'audio/mpeg', '.webmanifest':'application/webmanifest', '.svg':'image/svg+xml' };
+const seen = new Map();
+const server = http.createServer((req, res) => {
+  let p = decodeURIComponent(req.url.split('?')[0]); if (p === '/') p = '/index.html';
+  fs.readFile(path.join(ROOT, p), (err, data) => {
+    if (err) { res.writeHead(404); res.end('nf'); return; }
+    seen.set(p, data.length);
+    res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+    res.end(data);
+  });
+});
+const port = await listenEphemeral(server);
+const { chromium } = createRequire(import.meta.url)('playwright');
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'rq-'));
+const ctx = await chromium.launchPersistentContext(dir, { headless: true, viewport:{width:1280,height:720},
+  args: ['--use-angle=d3d11','--ignore-gpu-blocklist','--enable-gpu-rasterization'] });
+const page = ctx.pages()[0] || await ctx.newPage();
+page.setDefaultTimeout(600000);
+await page.goto(`http://127.0.0.1:${port}/index.html?tier=high`, { waitUntil: 'load' });
+await page.waitForFunction(() => document.getElementById('loading') && document.getElementById('loading').classList.contains('done'), null, {timeout:600000, polling:100});
+await ctx.close();
+const arr = [...seen].sort((a,b)=>b[1]-a[1]);
+let total = 0; for (const [,v] of arr) total += v;
+console.log('请求数', arr.length, '｜ 合计', (total/1048576).toFixed(2), 'MB');
+console.log('\n最大的 16 个：');
+arr.slice(0,16).forEach(([k,v]) => console.log(`  ${(v/1048576).toFixed(2).padStart(6)} MB  ${k}`));
+const byExt = new Map();
+for (const [k,v] of arr){ const e = path.extname(k)||'(none)'; byExt.set(e,(byExt.get(e)||0)+v); }
+console.log('\n按类型：');
+[...byExt].sort((a,b)=>b[1]-a[1]).forEach(([k,v]) => console.log(`  ${k.padEnd(10)} ${(v/1048576).toFixed(2)} MB`));
+server.close();
+try { fs.rmSync(dir,{recursive:true,force:true}); } catch {}

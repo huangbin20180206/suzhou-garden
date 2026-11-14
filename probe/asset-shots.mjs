@@ -35,7 +35,7 @@ const SHOTS = [
   { name: 'koi.png',    find: 'KoiFish',     dist: 2.4, elev: 0.9 },
   { name: 'turtle.png', find: 'Turtle',      dist: 1.6, elev: 0.8 },
   { name: 'banana.png', find: 'BananaPlant', dist: 4.2, elev: 1.6 },
-  { name: 'lotus.png',  find: 'LotusPlant',  dist: 3.0, elev: 1.4 },
+  { name: 'lotus.png',  find: 'lotusState_lotusBloom', dist: 3.0, elev: 1.4 },
 ];
 
 (async () => {
@@ -53,7 +53,7 @@ const SHOTS = [
   await page.goto('http://127.0.0.1:' + port + '/index.html', { waitUntil: 'load', timeout: 90000 });
   await page.waitForFunction(() => window.__garden && window.__garden.ENV, null, { timeout: 90000 });
   await page.waitForFunction(() => {
-    const seen = { KoiFish: 0, Turtle: 0, BananaPlant: 0, LotusPlant: 0 };
+    const seen = { KoiFish: 0, Turtle: 0, BananaPlant: 0, lotusState_lotusBloom: 0 };
     window.__garden.scene.traverse(o => { for (const k of Object.keys(seen)) if (o.name && o.name.includes(k)) seen[k]++; });
     return Object.values(seen).every(n => n > 0);
   }, null, { timeout: 90000 });
