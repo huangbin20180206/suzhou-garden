@@ -246,6 +246,9 @@ const statsLine = txt => (String(txt).split('\n').find(l => l.includes('·')) ||
   check(`三角形上限（${info.tris.toLocaleString()} < 4,200,000 · 晴夏基线）`, info.tris < 4_200_000);
   /* ⚠️ 2026-10-19 上限 800→950：马厩换 Tinker 真马后，6 匹 × 7 个蒙皮网格 = 42 个几何，
      再加门口拴马桩/上马石 10 件、月洞门补铺 1 件 ⇒ 基线从 ~714 抬到 ~896。
+     ⚠️ 2026-11-14 复核：当前默认是 HORSE_MODEL='rodin'（src/15c-horse-life.js:426，三匹无骨骼
+     伪蒙皮马），实测 geos=388；950 这条上限是**为 Tinker 路径留的余量**，别按当前读数往下压 ——
+     切回 tinker 会回到 ~896。
      这条防的是"每实例复制几何"这类事故（如芭蕉 8 株各一份），不是防正常资产增量；
      950 仍能抓住翻倍（~1800）。 */
   check('几何/纹理数量健康', info.geos < 950 && info.tex < 300, `geos=${info.geos} tex=${info.tex}`);

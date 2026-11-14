@@ -451,7 +451,8 @@ export function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
        · **63° 以上立刻读成"脖子被压扁/折断"**（环状管在急转处自交）——所以上限锁 45°。
      枢轴 (y0.04, z0.13) 是"颈在胸口上的根"（模型局部坐标，包围盒 y∈[−0.451,0.451]）；
      权重 = z 门 × y 门，**y 门是为了不碰前腿**（腿在 y<0.05）。 */
-  // eslint-disable-next-line no-unused-vars -- 保留：换回 Tinker 骨骼马时的低头烘焙路径
+/* 保留：换回 Tinker 骨骼马时的低头烘焙路径。已导出、被 src/15c-horse-life.js 引用，
+   故不再需要 eslint-disable-next-line no-unused-vars（2026-11-14 清理过期指令）。 */
 export function bendHeadDown(geo, deg){
   const th = deg * Math.PI / 180, p = geo.attributes.position;
   const PY = 0.04, PZ = 0.13;

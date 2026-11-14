@@ -399,7 +399,8 @@ export function tickStableLife(dt){
    **摆放与换装那一套仍留在延迟批**（它要等马厩建好、拿到 horseSlots）。
    ⚠️ settleAsset / reportAssetProgress 都不消耗任何随机流 ⇒ 不影响布局指纹。 */
 export let _horseSrc = null;
-  // eslint-disable-next-line no-unused-vars -- 保留：换回 Tinker 模型时的资产回退路径
+/* 保留：换回 Tinker 模型时的资产回退路径（HORSE_MODEL='tinker' 才会走到）。
+   已导出、被 src/15b-horse-rig.js 引用，故删掉过期的 eslint-disable（2026-11-14）。 */
 export function horseSrcOnce(){
   if (_horseSrc) return _horseSrc;
   _horseSrc = new Promise((resolve, reject) => {
@@ -944,7 +945,8 @@ export function loadStableHorses(stableGroup){
       与本项目其它 Canvas 贴图同一套做法（重复 2×2 时不能有接缝）。
    ⚠️ 最细一层的格宽 8px（512/64）—— 再细就过采样，远景会闪（mipmap 也救不了）。 */
 export let _horseCoat = null;
-  // eslint-disable-next-line no-unused-vars -- 保留：换回 Tinker 模型时的程序化毛流贴图
+/* 保留：换回 Tinker 模型时的程序化毛流贴图（HORSE_MODEL='tinker' 才会用到）。
+   已导出、被 src/15b-horse-rig.js 引用，故删掉过期的 eslint-disable（2026-11-14）。 */
 export function horseCoatMaps(){
   if (_horseCoat) return _horseCoat;
   const S = 512;

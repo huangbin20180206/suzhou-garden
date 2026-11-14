@@ -42,7 +42,8 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
   await page.goto(`http://127.0.0.1:${port}/index.html?intro=0`, { waitUntil: 'domcontentloaded' });
   /* boot 单独给 120s 预算（2026-11-11 修）：本门跑的是**默认档（tier=auto）**，
-     要跑满暖编译 + 预载（含 6 匹 Tinker 马的 GLB），实测 20~35s；沿用 page 默认的 30s
+     要跑满暖编译 + 预载（马/人物/荷花等 GLB；HorseTinker.glb 已移进 lazy 段，不在预载里），
+     实测 20~35s；沿用 page 默认的 30s
      会在机器稍忙时假红 —— 全量 verify 就是这么报的：
        [season-demo-guard] 探针异常： page.waitForFunction: Timeout 30000ms exceeded.
      其它场景探针都靠 `?tier=low` 把启动压到几秒，本门**不能**这么做：它测的是"用户
