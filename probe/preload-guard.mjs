@@ -149,8 +149,9 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
   const t0 = Date.now();
   while (Date.now() - t0 < 60000 && !bootLog.length) await sleep(200);
   const marks = parseFirstFrame(bootLog);
+  const gpuName = await page.evaluate(() => (window.__garden && window.__garden.gpuName) || '').catch(() => '');
   await browser.close();
-  return { ...d, programs, errs, first: marks };
+  return { ...d, programs, errs, first: marks, gpuName };
 }
 
 (async () => {
@@ -247,12 +248,18 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
     `B 独有族: ${famOnlyB.join(',') || '无'}（A ${A.programs} / B ${B.programs}，`
     + `完整 key 差 A${onlyA.length}/B${onlyB.length} 属正常变体差）`);
   /* 真正对用户有意义的是"那 1 个换到别处编去了，会不会变成一次卡顿" ⇒ 断首帧段。 */
+  /* 档位分档（同 warmboot-guard）：核显 shader 编译慢一个量级，800ms 的线会假红。
+     实测 Iris Xe 全量 verify 首帧 890/1080ms、独显档 60~132ms。low 档预算 2400ms，其余 800ms。 */
+  const LOW_RE = /Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i;
+  const HIGH_RE = /Apple M[1-9]|Intel Arc|GTX\s*\d{3,4}|RTX\s*\d{3,4}|Radeon RX\s*\d+/i;
+  const tierOf = (gpuName) => LOW_RE.test(String(gpuName || '')) ? 'low' : (HIGH_RE.test(String(gpuName || '')) ? 'high' : 'mid');
+  const fbBudget = tierOf(A.gpuName) === 'low' ? 2400 : 800;
   check('前提：取得到「首帧」刻度（否则 ⑥c 是永真，不许静默通过 —— 铁律 4）',
     A.first !== null && Number.isFinite(A.first),
     A.first === null ? '启动分段里没有「首帧」刻度' : `首帧段 ${A.first.toFixed(1)}ms`);
-  check('⑥c 补编（若发生）在首帧预算内（≤800ms，与 warmboot-guard 同阈值）',
-    A.first !== null && Number.isFinite(A.first) && A.first <= 800,
-    A.first === null ? '取不到刻度，不能判' : `首帧段 ${A.first.toFixed(1)}ms`);
+  check(`⑥c 补编（若发生）在首帧预算内（≤${fbBudget}ms，档位 ${tierOf(A.gpuName)}）`,
+    A.first !== null && Number.isFinite(A.first) && A.first <= fbBudget,
+    A.first === null ? '取不到刻度，不能判' : `首帧段 ${A.first.toFixed(1)}ms ｜ GPU=${A.gpuName || '(未知)'}`);
 
   check('零 pageerror / console error', A.errs.length === 0 && B.errs.length === 0,
     (A.errs[0] || B.errs[0]) || `${A.errs.length}/${B.errs.length} 条`);
