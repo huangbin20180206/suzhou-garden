@@ -26,9 +26,14 @@ function closeNum(a, b){
   if (a === '-' || b === '-' || a === 'true' || b === 'true' || a === 'false' || b === 'false') return false;
   const na = Number(a), nb = Number(b);
   if (!Number.isFinite(na) || !Number.isFinite(nb)) return false;   // 相位名/状态串等非数值，必须逐位相等
+  /* 帧串用 toPrecision(15) 序列化（sim.mjs:96），15 位有效数字在量级 ~1 时末位 = 1e-15，
+     对应 ~4.5 个二进制 ULP（实测 0.843882518873581 vs …582 = 4.5 ULP）。跨 CPU/负载 sin/cos 连乘
+     末位差 1 个十进制位很常见，所以容差必须按「十进制末位」立，不能按二进制 ULP 立（4 ULP 太紧）。
+     这里放 1e-14 相对（≈ 末 2 个十进制位 = ~9 ULP），能兜住末位抖一格，又远小于真实行为变化
+     （行为变化通常 ≥1e-6 量级）。整数（骨骼校验和/计数）不在此路径：它们是纯数字串，
+     数值差 ≥1 会超 1e-14 相对，自然零容差。 */
   const scale = Math.max(Math.abs(na), Math.abs(nb), 1);
-  const ulp = Number.EPSILON * scale;
-  return Math.abs(na - nb) <= 4 * ulp;                              // 4×机器精度 = 约末 2 个最小刻度
+  return Math.abs(na - nb) <= 1e-14 * scale;                        // 相对 1e-14 ≈ 末 2 个十进制位
 }
 export function diffRuns(A, B){
   const n = Math.min(A.frames.length, B.frames.length);
