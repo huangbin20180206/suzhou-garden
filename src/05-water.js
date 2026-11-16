@@ -538,11 +538,16 @@ export function makeArchBridge(){
     g.add(st);
   }
   // 桥头抱鼓石
+  /* ⚠️ 2026-11-15 老黄真机截图（石桥两端"造型悬空"）—— 实测抱鼓石底面 1.534、
+     下方平板石顶面 1.302，悬空 0.23m（outputs/_diag/bridge-drums-20261115.mjs，
+     4 只鼓射线全中同一间隙）。鼓是横放圆柱（r=0.32、半高 0.14），底面 =
+     中心 − sqrt(0.32²−0.14²) = 中心 − 0.288；要让底面落在 1.302 上，
+     中心应为 1.590 = rise*0.62 + 0.288。 */
   [-1, 1].forEach(sgn=>{
     [1, -1].forEach(zs=>{
       const drum = mesh(new THREE.CylinderGeometry(0.32, 0.32, 0.28, 12), MAT.marble, { name:'drumStone' });
       drum.rotation.x = Math.PI / 2;
-      drum.position.set(sgn * (span / 2 + 0.15), rise * 0.62 + 0.52, zs * (thick / 2 - 0.12));
+      drum.position.set(sgn * (span / 2 + 0.15), rise * 0.62 + 0.29, zs * (thick / 2 - 0.12));
       g.add(drum);
     });
   });

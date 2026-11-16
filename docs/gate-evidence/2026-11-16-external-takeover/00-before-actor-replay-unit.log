@@ -1,0 +1,98 @@
+✖ 重播回归网 carriage-2：与基线逐帧一致 (4391.7786ms)
+✖ 重播回归网 walk-1：与基线逐帧一致 (7.9245ms)
+✖ 重播回归网 carriage-rite：与基线逐帧一致 (464.8936ms)
+✖ 重播回归网 carriage-walkback：与基线逐帧一致 (227.9434ms)
+✔ 接马礼仪后马车驶离时，引绳已收起 (31.3133ms)
+✔ 出堂后走到游园起点，不发生可见水平跳位 (19.9682ms)
+✔ 礼仪三段：开启时首场到 done 比全关晚 60–90s，且三段的相位都走到 (0.2647ms)
+✔ 走回去：冷却复位期间可见演员单帧水平位移 ≤0.5m（兜底瞬移除外），第二场正常开演 (19.0331ms)
+ℹ tests 8
+ℹ suites 0
+ℹ pass 4
+ℹ fail 4
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 5174.0125
+
+✖ failing tests:
+
+test at probe\actor-replay-unit.mjs:58:3
+✖ 重播回归网 carriage-2：与基线逐帧一致 (4391.7786ms)
+  AssertionError [ERR_ASSERTION]: 首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000
+  + actual - expected
+  
+  + '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000'
+  - null
+  
+      at TestContext.<anonymous> (file:///E:/ai_test/codex_test/suzhou-garden/probe/actor-replay-unit.mjs:68:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async startSubtestAfterBootstrap (node:internal/test_runner/harness:358:3) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at probe\actor-replay-unit.mjs:58:3
+✖ 重播回归网 walk-1：与基线逐帧一致 (7.9245ms)
+  AssertionError [ERR_ASSERTION]: 首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000
+  + actual - expected
+  
+  + '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000'
+  - null
+  
+      at TestContext.<anonymous> (file:///E:/ai_test/codex_test/suzhou-garden/probe/actor-replay-unit.mjs:68:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at probe\actor-replay-unit.mjs:58:3
+✖ 重播回归网 carriage-rite：与基线逐帧一致 (464.8936ms)
+  AssertionError [ERR_ASSERTION]: 首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000
+  + actual - expected
+  
+  + '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000'
+  - null
+  
+      at TestContext.<anonymous> (file:///E:/ai_test/codex_test/suzhou-garden/probe/actor-replay-unit.mjs:68:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
+
+test at probe\actor-replay-unit.mjs:58:3
+✖ 重播回归网 carriage-walkback：与基线逐帧一致 (227.9434ms)
+  AssertionError [ERR_ASSERTION]: 首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000
+  + actual - expected
+  
+  + '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000'
+  - null
+  
+      at TestContext.<anonymous> (file:///E:/ai_test/codex_test/suzhou-garden/probe/actor-replay-unit.mjs:68:12)
+      at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+      at async Test.run (node:internal/test_runner/test:1125:7)
+      at async Test.processPendingSubtests (node:internal/test_runner/test:787:7) {
+    generatedMessage: false,
+    code: 'ERR_ASSERTION',
+    actual: '首个不同帧 0（t=0.4s，基线相位 idle）92:-2.36000000000000≠2.37000000000000',
+    expected: null,
+    operator: 'strictEqual',
+    diff: 'simple'
+  }
