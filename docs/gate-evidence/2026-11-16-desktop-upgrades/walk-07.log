@@ -1,0 +1,18 @@
+SHORE {"p":[0,1.3031509819897447,23.616666666666642],"blocked":7,"steps":33,"inPond":false}
+FLOORS [{"z":-2.4,"y":1.0847692489624023,"exp":1.085},{"z":-3.32,"y":0.6903076767921448,"exp":0.69},{"z":-4.24,"y":0.295846164226532,"exp":0.296},{"z":-1.1,"y":1.3020000457763672,"exp":1.302},{"z":4.6,"y":2.100653460328519,"exp":2.099}]
+RAIL [{"z":0,"feet":null},{"z":2.3,"feet":1.8589023293220182,"px":{"blocked":true,"minDist":1.014999961853027},"nx":{"blocked":true,"minDist":1.0149997711181644}},{"z":4.6,"feet":2.100653460328519,"px":{"blocked":true,"minDist":1.014999961853027},"nx":{"blocked":true,"minDist":1.0149997711181644}}]
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: deck floor at z=0
+    at file:///E:/ai_test/codex_test/suzhou-garden/probe/walk-real-guard.mjs:98:11 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.14.0

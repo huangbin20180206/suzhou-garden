@@ -1,0 +1,16 @@
+SHORE {"p":[0,1.3346901469674852,24.203333333333315],"blocked":0,"steps":25,"inPond":false}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: pond shore blocks
+    at file:///E:/ai_test/codex_test/suzhou-garden/probe/walk-real-guard.mjs:31:9 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.14.0

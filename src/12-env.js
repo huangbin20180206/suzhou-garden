@@ -982,6 +982,8 @@ envEl.addEventListener('click', (e)=>{
   if (!b || b.disabled) return;
   if (b.dataset.quality){ HOOKS.setQuality?.(b.dataset.quality); return; }
   /* 动作按钮（明信片/音景）没有 data-axis，先于环境轴处理，避免落进 setEnv 的非法告警 */
+  if (b.dataset.act === 'walk'){ HOOKS.walk?.(); return; }
+  if (b.dataset.view || ['tour','season-demo','random'].includes(b.dataset.act)) HOOKS.walkExit?.();
   if (b.dataset.act === 'shot'){ HOOKS.postcard?.(); return; }
   if (b.dataset.act === 'long'){ HOOKS.longExposure?.(); return; }
   if (b.dataset.act === 'sound'){ HOOKS.sound?.(); syncEnvUI(); return; }
@@ -1257,6 +1259,7 @@ addEventListener('keydown', (e)=>{
   if (e.ctrlKey || e.metaKey || e.altKey || e.repeat || e.isComposing) return;
   const el = e.target;
   if (el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)) return;
+  if (['0','Home','t','T','y','Y','x','X','z','Z'].includes(e.key)) HOOKS.walkExit?.();
   if (e.key === '0' || e.key === 'Home'){ tourUserTakeover(); seasonDemoUserTakeover(); resetCamera(); return; }   // 视角复位
   if (e.key === 'p' || e.key === 'P'){ HOOKS.postcard?.(); return; }     // 明信片
   if (e.key === 't' || e.key === 'T'){ seasonDemoUserTakeover(); TOUR.on ? tourStop() : tourStart(); return; }  // P2-2 巡游开关

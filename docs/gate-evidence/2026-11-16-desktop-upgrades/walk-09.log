@@ -1,0 +1,17 @@
+SHORE {"p":[0,1.3031509819897447,23.616666666666642],"blocked":4,"steps":33,"inPond":false}
+GATE {"z":23.62,"y":1.3,"crossedGate":false}
+node:internal/modules/run_main:107
+    triggerUncaughtException(
+    ^
+
+AssertionError [ERR_ASSERTION]: crosses the moon-gate threshold, z=23.62
+    at file:///E:/ai_test/codex_test/suzhou-garden/probe/walk-real-guard.mjs:47:9 {
+  generatedMessage: false,
+  code: 'ERR_ASSERTION',
+  actual: false,
+  expected: true,
+  operator: '==',
+  diff: 'simple'
+}
+
+Node.js v24.14.0

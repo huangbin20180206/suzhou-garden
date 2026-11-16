@@ -1,0 +1,5 @@
+SHORE {"p":[0,1.2345260865775944,18.483333333333253],"blocked":9,"steps":103,"inPond":false}
+GATE {"z":18.48,"y":1.23,"crossedGate":true}
+FLOORS [{"z":-2.4,"y":1.0847692489624023,"exp":1.085},{"z":-3.32,"y":0.6903076767921448,"exp":0.69},{"z":-4.24,"y":0.295846164226532,"exp":0.296},{"z":-1.1,"y":1.3020000457763672,"exp":1.302},{"z":4.6,"y":2.100653460328519,"exp":2.099}]
+RAIL [{"z":0,"feet":1.337648977186295,"px":{"blocked":true,"minDist":0.9400001525878903},"nx":{"blocked":true,"minDist":0.9399999618530277}},{"z":2.3,"feet":1.7687087123482788,"px":{"blocked":true,"minDist":1.014999961853027},"nx":{"blocked":true,"minDist":1.0149997711181644}},{"z":4.6,"feet":1.5690000026000737,"px":{"blocked":true,"minDist":1.014999961853027},"nx":{"blocked":true,"minDist":1.0149997711181644}}]
+ALL PASS: real pond shore / bridge steps+deck / railings / page errors

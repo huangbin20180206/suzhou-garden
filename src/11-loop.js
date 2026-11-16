@@ -1,5 +1,7 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
+import { createWalk } from './11a-walk.js';
+import { groundHeight as walkGroundHeight, insidePond as walkInsidePond } from './05-water.js';
 import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState } from './10-post.js';
@@ -422,6 +424,14 @@ export function queuePostcard(){ takePostcard(); }
    本模块又依赖 2b-wind → 静态 import 成环，本模块 body 会在 2b-wind 求值完成前跑
    `animate()` / `window.__garden` → 启动期 TDZ（详见 00-config.js 的 HOOKS 注释）。
    登记动作放在模块顶层没问题：回调是用户点击时才触发的。 */
+const WALK = createWalk({ camera, controls, world, canvas:renderer.domElement,
+  groundHeight:walkGroundHeight, insidePond:walkInsidePond,
+  stop:()=>{ introCancel(); tourStop(); stopSeasonDemo(); CAM_FLY.on=false; } });
+HOOKS.walk = () => WALK.start();
+HOOKS.walkExit = () => WALK.end();
+HOOKS.walkState = () => WALK.state;
+HOOKS.walkMove = (dx, dz) => WALK.move(dx, dz);
+HOOKS.walkFloor = (x, z, base) => WALK.floor(x, z, base);
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.sound = toggleSound;
@@ -1588,10 +1598,13 @@ function frameWork(){
   }
 
   if (SEASON_DEMO.on) advanceSeasonDemo(dt);
-  updateCamFly(dt);
-  updateTour(dt);
-  updateIntro(dt);                        // 开场运镜（controls 已被它禁用，update 只刷新阻尼）
-  controls.update();
+  if (WALK.state.active) WALK.update(dt);
+  else {
+    updateCamFly(dt);
+    updateTour(dt);
+    updateIntro(dt);
+    controls.update();
+  }
   /* 自适应改档在这里落地（不是在上帧渲染完之后）：画布与 RT 的重建必须发生在
      本帧 composer.render() **之前**，否则浏览器会合成一张刚清空、还没画过的缓冲 ——
      那就是老黄 2026-11-02 报的"左键拖动出现黑框/黑屏闪烁"。 */

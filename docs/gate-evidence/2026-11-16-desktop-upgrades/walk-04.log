@@ -1,0 +1,4 @@
+START {"p":[-20,17,32],"on":true,"start":[0,1.3741376633876359,26]}
+MOVE {"p":[0,1.3643173954921448,25.559999999999995],"s":{"active":true,"blocked":0,"steps":6}}
+COLLISION {"wallZ":24.399999999999977,"stepY":1.8500000014901161,"pondZ":25.049999999999986}
+ALL PASS: walk entry / keyboard movement / exit restoration / page errors / wall / step / pond
