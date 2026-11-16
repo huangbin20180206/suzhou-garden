@@ -1,5 +1,6 @@
 // 一条命令验到底（2026-09-17；2026-09-21 增至 25 门；2026-09-22 回填缺口增至 30 门；
-// 其后陆续加门，**当前 58 道**：2026-10-04 新增 sky-layer-guard（天空视觉层不许进 GTAO）；
+// 其后陆续加门（**别在这行写死门数**，准数一律看 SUITES 数组；2026-11-17 实为 98 道）：
+// 2026-10-04 新增 sky-layer-guard（天空视觉层不许进 GTAO）；
 // 2026-10-03 新增 preload-manifest-sync + 把 pwa-cache 入链，随后的 figure-foot-guard 让它到 57
 // —— 准数以 SUITES 数组为准，别在本注释里写死）。
 // 串行跑 check
@@ -247,6 +248,15 @@ const SUITES = [
   ['夜雾远山 mist-guard',     'probe/mist-guard.mjs'],
   ['明信片款式 postcard-guard','probe/postcard-guard.mjs'],
   ['长曝光明信片 longexposure-guard','probe/longexposure-guard.mjs'],
+  /* ── 2026-11-17 · 明信片四季四联（浏览器 · ~45s · canvas 直读，不拍 DOM）──
+     老黄批准的 ⑤→⑥→④ 最后一项："同一机位拍四季拼成一张"。
+     守四件事：①「四联」按钮在、data-ic 字形由 CSS 注入而非 textContent、两个 HOOKS 都挂上；
+     ② settleEnv 一步落位（点完立刻 t=1，不必等 2.8s 过渡 —— 否则四格会各停在过渡中间）；
+     ③ 四格真的不同（**逐像素**平均差两两 ≥2.5；噪声底 0.00、实测最小一对 5.04）；
+     ④ 拍完季节还原、纸边角是宣纸色、无 pageerror。
+     ⚠️ 判据为什么是逐像素差不是"两格均值之差"：初版用均值差，春↔夏只读出 1.00 直接误报红——
+        均值会把逐像素差异抵消掉（花开几万像素、别处暗了同样多）。这是本门第二次量具纠错。 */
+  ['四季四联 seasons-postcard','probe/postcard-season-guard.mjs'],
   ['桃花四季与晴午波光 peach-guard','probe/peach-guard.mjs'],
   ['音景分层 sound-guard',   'probe/sound-guard.mjs'],
   ['首次引导 guide-guard',   'probe/guide-guard.mjs'],
@@ -264,6 +274,14 @@ const SUITES = [
      （散步区间越过游廊那条腿的端点）。自带负例自检（把人按回 y=0 且还原旧散步区间
      ⇒ 两条判据都必须报红）。 */
   ['人物落脚 figure-foot-guard','probe/figure-foot-guard.mjs'],
+  /* ── 2026-11-16 · 第一人称自由行走（浏览器 · 合成场景 ~40s / 真园子 ~150s）──
+     老黄批准的 ⑤。walk-guard 用合成场景守"进得去、W 能走、Esc 能退出并还原镜头、
+     假墙挡得住、20cm 台阶上得去、池边不掉进去"；walk-real-guard 用真园子守
+     "池岸挡住、桥面台阶高度逐点对得上、真栏杆东西两侧都拦得住、能跨过月洞门门槛石"。
+     ⚠️ 真园子那道必须"按住 W 轮询 walkState 直到 blocked>0"，不能用固定按键时长——
+        无头软渲染约 2.5fps，固定 10s 走不到池边，会变成"没走到"冒充"没挡住"。 */
+  ['自由行走 walk-guard','probe/walk-guard.mjs'],
+  ['真园子行走 walk-real-guard','probe/walk-real-guard.mjs'],
   ['水面真折射 refract-guard','probe/refract-guard.mjs'],
   ['折射层覆盖度 refract-coverage','probe/refract-coverage.mjs'],
   ['天气覆盖度 weather-coverage','probe/weather-coverage.mjs'],
@@ -697,6 +715,9 @@ const GATE_TIMEOUT = new Map([
      单跑实测 ~300s（观察窗 120s + 冬季 30s + 负例 60s + 关闭 30s + 启动）。
      按上面那条 1.7× 散热降速的经验，热机器上就贴到 600s 默认预算 ⇒ 同样放宽。 */
   ['probe/turtle-wake-guard.mjs', 900000],
+  /* 2026-11-16：walk-real-guard 靠"按住 W 轮询"推进，软渲染下走完池岸→桥→栏杆要 2~3 分钟；
+     热机器再乘 1.7× 就贴 600s 默认预算 ⇒ 与 mist/turtle 同档放宽（测量预算，不是判据）。 */
+  ['probe/walk-real-guard.mjs', 900000],
 ]);
 const timeoutFor = (rel) => GATE_TIMEOUT.get(rel) || 600000;
 const GATES_ARG = (process.argv.find(a => a.startsWith('--gates=')) || '').slice(8);

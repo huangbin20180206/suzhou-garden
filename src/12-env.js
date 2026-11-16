@@ -717,6 +717,21 @@ export function setEnv(axis, val){
   applyState({ [axis]: val }, { via: 'api' });
 }
 
+/* 立刻落位（2026-11-16）：把正在走的过渡直接推到终点，不走 2.8s 插值。
+   用途是四季四联明信片 —— 四张画必须"同一机位、同一时辰、只换季节"。
+   若让过渡自己走完，拍完第一张到第二张之间风、云、水、柳都在动，
+   四联拼起来就不是"同一刻的四季"，而是"四段不同时刻的录像截帧"。
+   做法与 advanceReel 的落位分支同源：from/to 都传 target（out 与 from 若同对象，
+   非数值通道会边写边读被自己污染），e=1 等价直接落位，且零 clone。 */
+export function settleEnv(){
+  if (ENV.t >= 1) return false;              // 已经在终点：什么都不用做
+  mixInto(ENV.cur, ENV.to, ENV.to, 1);
+  ENV.from = ENV.to; ENV.t = 1;
+  renderer.shadowMap.needsUpdate = true;
+  applyEnv(ENV.cur);                          // ENV.t>=1 ⇒ applyEnv 里顺带把排队的环境贴图换掉
+  return true;
+}
+
 /* ── PMREM 环境贴图（审查 M2）──
    旧：只有"按时段按钮"这一条路切贴图，键 = 时段名，烘焙用的却是叠过天气去色的天色 ⇒
        第一次在雪天切到夜，之后所有晴夜都复用一张灰雪夜（不可复现，依赖切换历史）；滑杆 / 流转 /
@@ -986,6 +1001,7 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.view || ['tour','season-demo','random'].includes(b.dataset.act)) HOOKS.walkExit?.();
   if (b.dataset.act === 'shot'){ HOOKS.postcard?.(); return; }
   if (b.dataset.act === 'long'){ HOOKS.longExposure?.(); return; }
+  if (b.dataset.act === 'seasons'){ HOOKS.postcardSeasons?.(); return; }   // 四季四联（同一机位连拍春夏秋冬）
   if (b.dataset.act === 'sound'){ HOOKS.sound?.(); syncEnvUI(); return; }
   if (b.dataset.act === 'reel'){ toggleReel(); return; }   // 时光流转（按钮态由 toggleReel 自己同步）
   if (b.dataset.act === 'random'){ seasonDemoUserTakeover(); HOOKS.randomScene ? HOOKS.randomScene() : randomScene(); return; }
@@ -1099,7 +1115,7 @@ hourSlider.addEventListener('change', ()=>{ ENV.dur = ENV_TRANS_DUR; });
     'view:rainbow': '◠', 'view:hero': '▲', 'view:stele': '◆', 'view:hall': '⌂', 'view:pavilion': '◇', 'view:overview': '◎',
     'view:plumRed': '✿', 'view:plumYellow': '✽', 'view:stable': '❖', 'view:stableNear': '⌂',
     'act:season-demo': '❁', 'act:tour': '◈', 'act:reel': '◔', 'act:random': '✷',
-    'act:shot': '▤', 'act:long': '✧', 'act:sound': '♪',
+    'act:shot': '▤', 'act:long': '✧', 'act:sound': '♪', 'act:seasons': '▦',   // 四联：2×2 格栅，与标签文字不重复
   };
   for (const b of envEl.querySelectorAll('button')){
     const d = b.dataset;

@@ -6,7 +6,7 @@ import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PR
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 /* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
 import { worldLights } from './12d-lantern.js';
@@ -434,6 +434,8 @@ HOOKS.walkMove = (dx, dz) => WALK.move(dx, dz);
 HOOKS.walkFloor = (x, z, base) => WALK.floor(x, z, base);
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
+HOOKS.postcardSeasons = takeSeasonsPostcard;
+HOOKS.postcardSeasonsData = seasonsPostcardData;
 HOOKS.sound = toggleSound;
 HOOKS.soundState = () => Snd.on;
 /* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
@@ -652,6 +654,106 @@ export function queueLongExposurePostcard(){
     a.href = longExposureData();
     a.click();
   } catch (e){ console.warn('[长曝] 生成失败：', e); }
+}
+
+/* ══ 四季四联明信片（2026-11-16）════════════════════════════════════════
+   一张画里并四格：同一机位、同一时辰，只换季节。三件事必须做到，否则四联没意义：
+   ① 季节要"立刻落位"——用 12-env 的 settleEnv() 把 2.8s 插值直接推到终点，
+      否则春那张与夏那张之间风、云、水、柳各走了一段，四格不是"同一刻的四季"；
+   ② 相机一帧不动——全程只动季节通道，不碰 camera / controls；
+   ③ 拍完把用户原来的季节还原，并且同样立刻落位（不能让他点一下按钮就被丢进 2.8s 过渡）。
+   版面用"宣纸留白"：外圈纸色、四格之间留缝、每格左下压一个季节字，
+   顶栏题「远 香 堂 · 四 季」，底栏落日期与钤印。 */
+const SEASON_QUAD = ['spring', 'summer', 'autumn', 'winter'];
+/* 上一次合成的版面（每格在整张画里的像素矩形）。只给门禁量四格用：
+   四联要证的事是"四格确实不同"，量之前必须知道每格在哪——不让门去猜版面数字。 */
+let _seasonsLayout = null;
+export function seasonsLayout(){ return _seasonsLayout; }
+
+export function seasonsPostcardData(){
+  const src = renderer.domElement;
+  const sw = src.width, sh = src.height;
+  const pad = Math.round(sh * 0.05);          // 纸边
+  const head = Math.round(sh * 0.10);         // 顶栏（标题）
+  const foot = Math.round(sh * 0.115);        // 底栏（日期 / 钤印）—— 留足印章到纸边的呼吸，否则像被裁
+  const gap = Math.round(sh * 0.022);         // 四格之间的纸缝
+  const c = document.createElement('canvas');
+  c.width = pad * 2 + sw * 2 + gap;
+  c.height = pad + head + sh * 2 + gap + foot + pad;
+  const g = c.getContext('2d');
+  g.fillStyle = '#efe9dc'; g.fillRect(0, 0, c.width, c.height);
+
+  /* 时间/天气先取一次：四格只换季节，其余环境项一律沿用用户当前状态 */
+  const stamp = (() => { const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  const meta = `${stamp} · ${timeLabelNow()} · ${weatherTag()}`;
+
+  const keep = ENV.season;
+  try {
+    for (let i = 0; i < 4; i++){
+      setEnv('season', SEASON_QUAD[i]);
+      settleEnv();                            // 立刻落位，不等过渡
+      composer.render();                      // 每格现渲一帧，保证画的是这一季的当下
+      g.drawImage(src, pad + (i % 2) * (sw + gap),
+                  pad + head + Math.floor(i / 2) * (sh + gap), sw, sh);
+    }
+  } finally {
+    if (ENV.season !== keep){ setEnv('season', keep); settleEnv(); composer.render(); }
+  }
+
+  _seasonsLayout = {
+    w: c.width, h: c.height,
+    rects: SEASON_QUAD.map((s, i) => ({ season: s,
+      x: pad + (i % 2) * (sw + gap), y: pad + head + Math.floor(i / 2) * (sh + gap), w: sw, h: sh })),
+  };
+
+  const px = c.height / 45;
+  /* ── 顶栏：标题 + 右侧小字 ── */
+  g.textBaseline = 'alphabetic'; g.textAlign = 'left';
+  g.fillStyle = '#2b2b2b';
+  g.font = `600 ${px * 1.75}px "Songti SC","SimSun","Noto Serif SC",serif`;
+  g.fillText('远 香 堂 · 四 季', pad, pad + head * 0.66);
+  g.textAlign = 'right';
+  g.font = `${px * 0.78}px "Songti SC","SimSun",serif`;
+  g.fillStyle = 'rgba(43,43,43,.62)';
+  g.fillText(meta, c.width - pad, pad + head * 0.64);
+  g.textAlign = 'left';
+
+  /* ── 四格：细边框 + 左下季节字（白字压暗影，四季底色都压得住）── */
+  for (let i = 0; i < 4; i++){
+    const x = pad + (i % 2) * (sw + gap);
+    const y = pad + head + Math.floor(i / 2) * (sh + gap);
+    g.save();
+    g.strokeStyle = 'rgba(43,43,43,.24)';
+    g.lineWidth = Math.max(1, px * 0.09);
+    g.strokeRect(x + 0.5, y + 0.5, sw - 1, sh - 1);
+    g.font = `600 ${px * 2.1}px "Songti SC","SimSun","Noto Serif SC",serif`;
+    g.shadowColor = 'rgba(0,0,0,.62)'; g.shadowBlur = px * 0.9;
+    g.fillStyle = '#f7f4ec';
+    g.fillText(ENV_SEASON[SEASON_QUAD[i]].label, x + px * 1.15, y + sh - px * 1.05);
+    g.restore();
+  }
+
+  /* ── 底栏：一句话说明 + 压角章 ── */
+  g.save();
+  g.fillStyle = 'rgba(43,43,43,.7)';
+  g.font = `${px * 0.8}px "Songti SC","SimSun",serif`;
+  g.fillText('春 · 夏 · 秋 · 冬　同一机位连拍，四季并置一纸', pad, c.height - pad * 0.62);
+  g.restore();
+  drawSeal(g, c.width - pad - px * 1.15, c.height - pad * 0.62 - px * 1.15, px * 2.3, '云根');
+
+  return c.toDataURL('image/png');
+}
+
+export function takeSeasonsPostcard(){
+  try {
+    const d = new Date();
+    const a = document.createElement('a');
+    a.download = `远香堂-四季四联-${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}.png`;
+    a.href = seasonsPostcardData();
+    a.click();
+  } catch (e){ console.warn('[四季四联] 生成失败：', e); }
 }
 
 /* ── 帧率自适应（P1-1 附带项 / 审计 P01·P07）──
@@ -2116,6 +2218,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   queuePostcard, postcardData, toggleSound, sndState: () => Snd.on,
                   /* 长曝光明信片：门禁要能触发并量 uStarRot 是否归零（叠完忘复位=星星天天靠它转） */
                   longExposure: queueLongExposurePostcard, longExposureData,
+                  postcardSeasons: takeSeasonsPostcard, postcardSeasonsData: seasonsPostcardData,
                   lxpConfig: () => ({ ...LXP }), lxpStarRot: () => skyMesh.material.uniforms.uStarRot.value,
                   /* 音景（2026-09-19）：门禁要能读**分层计划**（纯函数，不依赖真的出声）
                      和**真实节点电平**（判"接上了"）。只给 sndState 一个布尔值守不住

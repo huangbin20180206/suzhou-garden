@@ -1,0 +1,15 @@
+WIRED {"btn":true,"label":"四联","ic":"▦","hook":"function","dataHook":"function"}
+SETTLE {"keep":"summer","tMid":0,"tEnd":1,"did":true,"back":"summer","backT":1}
+COMPOSITE {"before":{"season":"summer","t":1},"after":{"season":"summer","t":1},"ms":539,"size":[2648,1683],"paper":[239,233,220]}
+QUAD spring rect=[36,108,1280,720] px=921600
+QUAD summer rect=[1332,108,1280,720] px=921600
+QUAD autumn rect=[36,844,1280,720] px=921600
+QUAD winter rect=[1332,844,1280,720] px=921600
+DIFF spring-summer 5.37
+DIFF spring-autumn 7.7
+DIFF spring-winter 15.04
+DIFF summer-autumn 8.74
+DIFF summer-winter 16.05
+DIFF autumn-winter 10.84
+SAVED docs\gate-evidence\2026-11-16-seasons-postcard\01-seasons-quad.png 5832596B
+ALL PASS: seasons button / settleEnv lands instantly / four quadrants differ / paper margin / season restored / page errors

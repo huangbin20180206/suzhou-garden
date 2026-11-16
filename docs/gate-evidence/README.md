@@ -37,7 +37,8 @@ docs/gate-evidence/<YYYY-MM-DD>-<主题>/
 
 ## 当前门数真值
 
-**95 道**（2026-11-10 09:30 亲数，口径 = `probe/verify-all.mjs` 第 123 行 `const SUITES = [` 数组的条目数）。
+**98 道**（2026-11-17 01:00 亲数，口径 = `probe/verify-all.mjs` 的 `const SUITES = [` 数组条目数；
+2026-11-16/17 新增第一人称行走 `walk-guard` / 真园子 `walk-real-guard` 与四季四联 `seasons-postcard` 三道）。
 
 数法（别用手数，容易把超时预算表的行首 `['` 也算进去）：
 
