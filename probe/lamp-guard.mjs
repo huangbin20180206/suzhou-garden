@@ -15,6 +15,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { launchChromium, listenEphemeral } from './_harness.mjs';
 import { decodePNG, meanAbsDiff, meanLuma } from './_png.mjs';
+import { hideChrome, showChrome, occludersAt } from './_chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'outputs', '_diag', 'lamp-guard');
@@ -192,6 +193,30 @@ function lumaBox(img, cx, cy, r = 14) {
   const onScreen = pts.filter(p => p.x > 0 && p.x < 900 && p.y > 0 && p.y < 600 && p.z < 1);
   console.log(`  堂前地面投影点: ${JSON.stringify(pts.map(p => [Math.round(p.x), Math.round(p.y)]))}`);
 
+  /* ── 2026-11-16：藏浮层再拍（reel-guard 68.4% 事故的推广）───────────────
+     本门判据是**全帧** meanAbsDiff > 0.3。浮层在两帧里像素完全一样 ⇒ 差分贡献 0，
+     但它们占掉了画框的分子分母，把真实信号按比例稀释（reel-guard 就是这么被 68.4%
+     的抽屉稀释掉的）。判据、阈值一个都没改，只是让画面里只剩场景本身。
+     ⚠️ 遮挡占比必须用 elementFromPoint 撒点直读（occludersAt）。用"矩形列表求和"
+     会把透明的画布外壳也算进去 —— mist-guard 曾因此打出「120/120 落在浮层里」的假警报，
+     而改前/改后读数一字未差，等于自己骗自己。 */
+  {
+    const vp = page.viewportSize() || { width: 900, height: 600 };
+    const pts = [];
+    for (let i = 1; i <= 40; i++) {
+      for (let j = 1; j <= 24; j++) {
+        pts.push({ x: Math.round(vp.width * i / 41), y: Math.round(vp.height * j / 25) });
+      }
+    }
+    const occluded = await occludersAt(page, pts);
+    const pct = occluded.length / pts.length * 100;
+    console.log(`  [量具自检] 撒 ${pts.length} 点直读：${occluded.length} 点被非画面元素遮住`
+      + `＝占画框 ${pct.toFixed(1)}%`
+      + (occluded.length ? `（例 ${occluded[0].tag}）` : '（整帧都是画面）')
+      + '；两帧都在藏掉浮层后拍');
+  }
+  await hideChrome(page);
+
   const bufA = await page.screenshot();
   fs.writeFileSync(path.join(OUT, 'A-lamp-on.png'), bufA);
   const shotA = decodePNG(bufA);
@@ -204,6 +229,7 @@ function lumaBox(img, cx, cy, r = 14) {
   const bufB = await page.screenshot();
   fs.writeFileSync(path.join(OUT, 'B-lamp-off.png'), bufB);
   const shotB = decodePNG(bufB);
+  await showChrome(page);
 
   const dAll = meanAbsDiff(shotA, shotB);
   /* SpotLight 是**定向锥形光**：只照亮脚下一小圈，不会把整幅画面提亮。

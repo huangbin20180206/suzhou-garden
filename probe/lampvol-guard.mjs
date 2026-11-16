@@ -46,6 +46,7 @@ import { launchChromium, listenEphemeral } from './_harness.mjs';
 /* ⚠️ meanAbsDiff 已在本文件退场（2026-10-12 局部性判据换度量后无人再用）—— 顺手摘掉，
    免得下一个人以为还有谁在用它。meanLuma 是更早留下的未用项，不属本轮，未动。 */
 import { decodePNG, meanLuma } from './_png.mjs';
+import { hideChrome, showChrome, occludersAt } from './_chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'outputs', 'visual');
@@ -404,6 +405,24 @@ const CELL = 80;   // 差分热点用 80×80px 栅格定位
       missing === null && fwOn === false, missing || `fireworksState().on=${fwOn}`);
   }
   await sleep(900);
+
+  /* ── 2026-11-16：藏浮层再取像素（reel-guard 68.4% 事故的推广）────────────
+     本门量的是**定点小框**（灯心在屏幕上的位置 ±rWin）。框一旦落进界面浮层
+     （左上标题块 282×43、右下读数块、环境抽屉），量到的就是浮层的像素，
+     与光团无关。判据、阈值、取样框一个都没动，只是把浮层藏掉再拍。 */
+  {
+    /* 直读式自检：框心 + 四角各自问一次浏览器「这点最上面是谁」。
+       矩形列表会把透明的画布外壳也算成浮层（mist-guard 曾因此打出 120/120 的假警报），
+       所以这里只认 elementFromPoint 的结果。 */
+    const bx = view.sx, by = view.sy, rr = Math.max(4, rWin);
+    const hit = await occludersAt(page, [
+      { x: bx, y: by }, { x: bx - rr, y: by - rr }, { x: bx + rr, y: by - rr },
+      { x: bx - rr, y: by + rr }, { x: bx + rr, y: by + rr },
+    ]);
+    console.log(`  [量具自检] 取样框 (${bx},${by}) r=${rr}：5 个测点里 ${hit.length} 个被非画面元素遮住`
+      + (hit.length ? `（例 ${hit[0].tag}）` : '（全部命中画布）') + '；取像素前先藏浮层');
+  }
+  await hideChrome(page);
 
   const shot = () => page.screenshot();
   const box = { x: view.sx, y: view.sy, r: rWin };

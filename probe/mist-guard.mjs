@@ -23,6 +23,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { launchChromium, listenEphemeral } from './_harness.mjs';
 import { decodePNG } from './_png.mjs';
+import { hideChrome, showChrome, occludersAt } from './_chrome.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'outputs', '_diag', 'mist-guard');
@@ -209,13 +210,34 @@ function median(arr) {
        改成连拍 N 张（间隔 ~160ms）、每一列取**跨帧中位数**：瞬时粒子被中位数吃掉，
        而"某列结构性反超"（真缺陷）会稳定留下来 ⇒ 判据意图不变，只是不再靠运气。
        （night+clear / night+mist / night+overcast 三条本来已可复现：2.00 / 11.00 / 2.93。） */
+    /* ── 2026-11-16：量具自检 + 藏浮层再量 ────────────────────────────
+       取样点是**定点**（按列取山脊/天空），一旦落进界面浮层（左上标题块、右下读数块、
+       环境抽屉…），读到的就是浮层的像素，与画面无关。先自检并把落进去的点数打进日志，
+       再把浮层藏掉重拍 —— 判据、阈值、取样列一个都没动，只是不再量错对象。
+       ⚠️ 自检口径必须是 elementFromPoint 直读（occludersAt）。第一版用"矩形列表包含"，
+       把透明的画布外壳也算成浮层，打印出「120/120 落在浮层里」的假警报，
+       而改前/改后读数一字不差 —— 假警报比不报更坏。 */
+    const pts = [];
+    for (const q of pairs) {
+      for (const y of q.hillYs) pts.push({ x: q.x, y, r: 6 });
+      for (const y of q.skyYs) pts.push({ x: q.x, y, r: 6 });
+    }
+    const occluded = await occludersAt(page, pts);
+    console.log(`  [量具自检] ${tag}：${pts.length} 个取样点里 ${occluded.length} 个被非画面元素遮住`
+      + (occluded.length ? `（例 x=${occluded[0].x} y=${occluded[0].y} → ${occluded[0].tag}）` : '（全部直读命中画布）')
+      + '；取像素前先藏浮层');
+    await hideChrome(page);
     const N_SHOT = 5;
     const shots = [];
-    for (let i = 0; i < N_SHOT; i++){
-      const b = await page.screenshot();
-      if (i === 0) fs.writeFileSync(path.join(OUT, `${tag}.png`), b);   // 存证仍存第一张
-      shots.push(decodePNG(b));
-      if (i < N_SHOT - 1) await sleep(160);
+    try {
+      for (let i = 0; i < N_SHOT; i++){
+        const b = await page.screenshot();
+        if (i === 0) fs.writeFileSync(path.join(OUT, `${tag}.png`), b);   // 存证仍存第一张
+        shots.push(decodePNG(b));
+        if (i < N_SHOT - 1) await sleep(160);
+      }
+    } finally {
+      await showChrome(page);
     }
     const colLuma = (q, ys) => median(shots.map(im => median(ys.map(y => lumaBox(im, q.x, y, 6)))));
 

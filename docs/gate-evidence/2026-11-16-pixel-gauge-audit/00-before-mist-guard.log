@@ -1,0 +1,39 @@
+
+[mist-guard] http://127.0.0.1:44821/index.html
+  ✓ 正午晴天：地平线天光明度 ≥0.30（钳位分支不进，白天零改动） — skyHorizon luma=0.78424
+  ✓ 正午晴天：scene 雾色 = 参数雾色（未被 multiplyScalar 压暗） — scene=0.59503 vs param=0.59503
+  ✓ 正午晴天：远山 albedo 保持白天原色（压暗比 ≥0.80，白天观感零改动） — hillDim=0.9619（基准 luma=0.0504）
+  ✓ 远山材质有 baseColor 快照（否则重算会逐帧累积衰减成纯黑） — baseColor 存在=true
+  [night+clear] fogLum=0.01552 paramLum=0.01552 skyHorizonLum=0.02983 density=0.0092 hillDim=0.06 az=200 列数=20
+  ✓ night+clear：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.06 期望=0.0600
+  ✓ night+clear：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.06
+  ✓ night+clear：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.01552 ≤ 0.02685
+    山均=11.75 天均=16.80 最差列 x=550 山=14.53 天=13.46
+  ✓ night+clear：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 11.75 vs 天 16.80
+  ✓ night+clear：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=550: 1.07
+  [night+mist] fogLum=0.07551 paramLum=0.10187 skyHorizonLum=0.0878 density=0.011923 hillDim=0.125 az=180 列数=21
+  ✓ night+mist：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.125 期望=0.1250
+  ✓ night+mist：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.125
+  ✓ night+mist：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.07551 ≤ 0.07902
+    山均=61.14 天均=59.22 最差列 x=750 山=64.31 天=55.6
+  ✓ night+mist：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 61.14 vs 天 59.22
+  ✓ night+mist：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=750: 8.71
+  [night+overcast] fogLum=0.15 paramLum=0.22144 skyHorizonLum=0.21954 density=0.01426 hillDim=0.3442 az=200 列数=20
+  ✓ night+overcast：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.3442 期望=0.3442
+  ✓ night+overcast：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.3442
+  ✓ night+overcast：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.15 ≤ 0.15000
+    山均=107.62 天均=123.82 最差列 x=550 山=113.45 天=119.59
+  ✓ night+overcast：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 107.62 vs 天 123.82
+  ✓ night+overcast：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=550: -6.14
+  [night+storm] fogLum=0.11516 paramLum=0.11516 skyHorizonLum=0.18093 density=0.01564 hillDim=0.2745 az=180 列数=21
+  ✓ night+storm：远山 albedo = clamp(天光/白天基准, 0.06, 1.0)（机制一致） — hillDim=0.2745 期望=0.2745
+  ✓ night+storm：远山 albedo 明显暗于白天（≤0.40） — hillDim=0.2745
+  ✓ night+storm：钳位真的生效（雾色 ≤ 天光 ×0.90 + 上限 0.15） — fog=0.11516 ≤ 0.15000
+    山均=83.68 天均=99.66 最差列 x=750 山=89.52 天=95.38
+  ✓ night+storm：远山亮度 ≤ 天空亮度（剪影不再反白发亮） — 山 83.68 vs 天 99.66
+  ✓ night+storm：逐列最差也不反用电白（单列山 − 天 ≤ 12） — 最差列 x=750: -5.86
+  ✓ 全程零 pageerror — 0 条
+
+[mist-guard] ALL PASS（25 项）
+样张：E:\ai_test\codex_test\suzhou-garden\outputs\_diag\mist-guard
+耗时：320.1s
