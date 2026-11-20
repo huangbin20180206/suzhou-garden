@@ -1,6 +1,7 @@
 // 11-loop: from index.html inline 503..1363
 import { THREE } from '../vendor.js';
 import { createWalk } from './11a-walk.js';
+import { createVista } from './11b-vista.js';
 import { groundHeight as walkGroundHeight, insidePond as walkInsidePond } from './05-water.js';
 import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
@@ -427,7 +428,13 @@ export function queuePostcard(){ takePostcard(); }
 const WALK = createWalk({ camera, controls, world, canvas:renderer.domElement,
   groundHeight:walkGroundHeight, insidePond:walkInsidePond,
   stop:()=>{ introCancel(); tourStop(); stopSeasonDemo(); CAM_FLY.on=false; } });
-HOOKS.walk = () => WALK.start();
+/* 驻足点（11b-vista，2026-11-20）：走模式里按距离弹景点的"一句话导游"卡片。
+   与 WALK 同处创建、同批登记：走 HOOKS 同款理由（11b 动态 import 08d 取坐标，
+   若静态反 import 本模块会成环）。walkState 回调让 11b 自己判断激活态，
+   setCamera 注入相机引用 —— 11b 不直接 import 02-scene，保持它可独立删除。 */
+const VISTA = createVista({ walkState: () => WALK.state });
+VISTA.setCamera(camera);
+HOOKS.walk = () => { VISTA.reset(); WALK.start(); };
 HOOKS.walkExit = () => WALK.end();
 HOOKS.walkState = () => WALK.state;
 HOOKS.walkMove = (dx, dz) => WALK.move(dx, dz);
@@ -1700,12 +1707,13 @@ function frameWork(){
   }
 
   if (SEASON_DEMO.on) advanceSeasonDemo(dt);
-  if (WALK.state.active) WALK.update(dt);
+  if (WALK.state.active){ WALK.update(dt); VISTA.update(); }
   else {
     updateCamFly(dt);
     updateTour(dt);
     updateIntro(dt);
     controls.update();
+    VISTA.hide();
   }
   /* 自适应改档在这里落地（不是在上帧渲染完之后）：画布与 RT 的重建必须发生在
      本帧 composer.render() **之前**，否则浏览器会合成一张刚清空、还没画过的缓冲 ——
