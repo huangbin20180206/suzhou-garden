@@ -295,7 +295,20 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
           float cloud = smoothstep(0.50, 0.88, f * 0.74 + f2 * 0.36);
           cloud *= smoothstep(0.015, 0.28, d.y);           // 地平线附近淡出，避免硬边
           cloudCover = cloud * uCloudAmount;
-          col = mix(col, uCloudTint, cloudCover);
+          /* ── 云受光方向（2026-11-21 · 美术批次 #3）─────────────────────────
+             旧式把 uCloudTint 一色平铺 ⇒ 云有形状没光照，暮色里云底与云顶同色，
+             读成"贴在幕布上的棉花"。受光方向物理上是"云顶朝日亮、云底背日暗"，
+             这里用**云采样平面上的方位点乘**近似：cp 空间里朝太阳的那一侧云更亮。
+             azg 是视线方位与太阳方位的点乘（sunAz 已在上方算好）：
+               朝日侧（azg→1）：云色往 uSunColor 暖光抬 0.34×cloudCover 的量
+               背日侧（azg→0）：云色保持 uCloudTint（preset 已按暮云压灰）
+             f2 是高频 FBM——把它当"云的碎明暗"用：边缘（f2 低）受光更明显、
+             云芯（f2 高）保持底色，絮状感更立体。幅度上限 0.34：高于此
+             暮云会越过 bloom 阈值糊成光团（月轮亮度的历史教训）。
+             ⚠️ 同吃 (1.0-uDiskFade)：阴雨天云由 uFlash 另行照亮，此路熄灭。 */
+          float azg = max(dot(normalize(d.xz + vec2(1e-5, 0.0)), sunAz), 0.0);
+          vec3 litTint = uCloudTint + uSunColor * (pow(azg, 2.0) * 0.34 * (1.0 - f2) * (1.0 - uDiskFade));
+          col = mix(col, litTint, cloudCover);
         }
 
         /* 电闪（2026-09-30 电闪雷鸣）：云层最先被照亮（uFlash × cloudCover 的强项），
