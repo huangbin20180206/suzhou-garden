@@ -126,9 +126,16 @@ export function applyEnv(p){
       if (wu.uMoonDir){ wu.uMoonDir.value.copy(_moonV); wu.uMoonVis.value = vis; }
     }
     /* ── 晴午太阳波光 → 水面（2026-09-21）：与月光同构，但只补水面不补天空（日轮本就在
-       sky shader / 平面反射里）。uSunVis = 白天度 × 接近正午 × 晴天：
+       sky shader / 平面反射里）。uSunVis = 白天度 × 日光系数 × 晴天：
        ① 白天度用 starAmount 判（夜 1 / 昼 0，日照越深越关，避免夜里把月亮当太阳打出白刺）；
-       ② 接近正午用太阳仰角判 —— 太阳几乎在头顶时反射才够锐，晨昏仰角低就归零；
+       ② 日光系数 —— 2026-11-22 美术批次 #7 改造：旧版 noonC 只在仰角 0.52~0.72
+          （≈31°~46°）起坡 ⇒ 晨暮太阳仰角 10~25° 时**整条金色波光带缺席**，
+          水面白天只有正午那一小时有波光，晨光/夕照里池面死寂。
+          新版两段式：正午段保持旧口径（0.52 起坡到 0.72 全亮，观感一字不动）；
+          低仰角段 0.05~0.52 给 0.35 的**低档恒定值** —— 晨暮太阳斜挂时波光带
+          低而长、亮度压到正午的三成半（物理上斜射的镜面反射更弱，观感上
+          '金色长带'比'白刺一片'耐看得多）。雨后初晴 + 暮的组合由此第一次
+          能看到'夕阳在湿水面拖金'——这正是全项目最上镜的一帧。
        ③ 晴天用 cloudAmount 判 —— 云一厚（>0.82）就关，阴雨雪/阴天整片不闪。
        ⚠️ 真实太阳模式下方向取**真实太阳**（_sunTrue），旧模式沿用主光方向（同旧行为）。 */
     if (waterSurface){
@@ -138,9 +145,10 @@ export function applyEnv(p){
         wu.uSunDir.value.copy(sd);
         const nightness = Math.max(0, Math.min(1, p.starAmount || 0));
         const dayW  = 1.0 - Math.max(0, Math.min(1, (nightness - 0.05) / 0.25));     // 昼 1 → 夜 0
-        const noonC = Math.max(0, Math.min(1, (sd.y - 0.52) / 0.20));                // 仰角 0.72≧ 全亮，0.52 以下 0
+        const noonC = Math.max(0, Math.min(1, (sd.y - 0.52) / 0.20));                // 正午段：0.72≧ 全亮，0.52 以下交给低仰角段
+        const lowC  = Math.max(0, Math.min(1, (sd.y - 0.05) / 0.15)) * 0.35;         // 低仰角段：0.05~0.20 起坡，封顶 0.35
         const clear = Math.max(0, Math.min(1, (0.82 - (p.cloudAmount || 0)) / 0.34));// 云 ≤0.48 全亮，≥0.82 关
-        wu.uSunVis.value = dayW * noonC * clear;
+        wu.uSunVis.value = dayW * Math.max(noonC, lowC) * clear;
       }
     }
     /* 主光交给月亮的前提是**真的入夜了**：starAmount 是现成的"夜色深度"通道。
