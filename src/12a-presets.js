@@ -328,6 +328,14 @@ function applyWeatherTo(p, eff){
     p.cloudTint = CLOUD_GRAY.clone();
     p.skyGray = Math.max(p.skyGray, 0.80);
     p.exposure *= 0.92;
+    /* ── 雨天湿光（2026-11-21 · 美术批次 #6）───────────────────────────────
+       暴雨与晴天此前只差"雨丝+暗光"，湿地面/瓦面那层镜面反光没有视觉上的
+       "湿光感" —— 湿反光该在 bloom 里晕开（水面/石面高光拖出柔和光斑），
+       这是"刚下大雨"的标志性视觉语言，灯会分支（applyFestivalTo）同款手法：
+       bloom 抬一档但封顶 0.62，阈值不动 ⇒ 不炸死白；同时把对比压一档
+       （雨幕是散射介质，近远对比被拉近——"闷"是对的，旧值对比满档显得"雨里通透"）。 */
+    p.bloomStrength = Math.min(0.62, p.bloomStrength * 1.18);
+    p.grade.contrast *= 0.82;
   }
   const overcast = (eff === 'storm' || eff === 'winterrain');
   p.weatherLabel = weatherLabelOf(ENV.weather, ENV.season);
