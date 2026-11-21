@@ -910,7 +910,6 @@
            ⇒ 进来之后还能一路推到马与马车跟前。与「马厩」（越墙远看）互为远近两档。 -->
       <button data-view="stableNear" aria-label="进马厩院近距离观察" title="厩内：站院门口看院场，可一路推到马与马车跟前（0 后面的那个键）">厩内</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
-      <button data-act="walk" aria-label="自由行走" aria-pressed="false" title="WASD或方向键移动，右键转头，Esc返回">步行</button>
       <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得</button>
       <span class="hint">Z 巡览 / T 巡游</span>
     </div>
@@ -921,6 +920,11 @@
       <button data-act="seasons" aria-label="四季四联：同一机位连拍春夏秋冬拼成一张" title="四季四联：同一机位、同一时辰，只换季节，四季并置一纸">四联</button>
       <button data-act="sound" aria-label="开关音景">音景</button>
       <input id="sndVol" type="range" min="0" max="100" step="1" value="100" aria-label="音景音量">
+      <!-- 「步行」（2026-11-16 功能 · 2026-11-21 挪位）：原先在导览行 —— 那行已有 12 机位
+           + 巡游 + 偶得共 15+ 按钮，1440 宽屏下加进这枚就被挤爆换行（mobile-panel-guard
+           宽屏对照门报红「1/7 行换行」）。留影行只有 4 按钮 + 1 滑杆，实测 1440 下挪入后
+           两行都是 27~28px 不换行。语义也说得通：步行是"把自己放进园子里"的留影前置动作。 -->
+      <button data-act="walk" aria-label="自由行走" aria-pressed="false" title="WASD或方向键移动，右键转头，Esc返回">步行</button>
       <span class="hint">P / M</span>
     </div>
   </div>

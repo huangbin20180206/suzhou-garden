@@ -9,7 +9,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { codeOnly, referencesName, topLevelDecls, localBindings, shadowCoversAll } from './_codeonly.mjs';
+import { codeOnly, referencesName, topLevelDecls, localBindings, shadowCoversAll, enclosingBlock } from './_codeonly.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 /* 入口：2026-10-31 起 index.html 只剩一行 `<script type="module" src="./src/main.js">`，
@@ -81,6 +81,42 @@ function excusedByLocal(vis, name){
   return vis.loc.has(name) && shadowCoversAll(vis.code, name);
 }
 
+/* 解构形参豁免（2026-11-21 加 · 修 11a-walk 六条假红）：
+   `function f({camera}){...camera...}` / `const f = ({camera}) => {...}` —— 名字声明在
+   **签名**里、引用在**函数体**里。shadowCoversAll 的"最小覆盖"只认块内 const：
+   挖空任一引用块都罩不住签名里的参数名 ⇒ 形参永远判 false ⇒ 依赖注入式工厂
+   （createWalk({camera,controls,world,...})，11a/11b 的既有形态）被报"缺 import"。
+   判据：签名解构名 + 该函数体块**合并挖空**后引用残留为零 ⇒ 视同罩住。
+   ⚠️ 只放"签名与函数体都收进同一个合并区"的形态 —— 文件别处的同名引用（没进合并区）
+   仍会残留 ⇒ 照判缺 import。假阴性面：签名解构的函数体里如果还有**别的**块的引用点，
+   只要那个块也进了 candidates 就一并罩住 —— 与 shadowCoversAll 的保守度一致。
+   ⚠️ 负例自检在 _audit-selftest.mjs ④'：把解构名改回裸名后本豁免必须失效。 */
+function destructureParamsCovered(code, name){
+  const reDestructure = new RegExp('\\{[^{}]*\\b' + name + '\\b[^{}]*\\}\\s*(?:=>|\\)\\s*\\{)', 'g');
+  const found = [];
+  for (const m of code.matchAll(reDestructure)){
+    /* 签名块：从解构 `{` 向外找包裹它的调用/定义体 —— enclosingBlock 给的就是最近的 {...} */
+    found.push(m.index + m[0].indexOf('{'));
+  }
+  if (!found.length) return false;
+  /* 合并挖空：所有签名块 + 所有引用块（复用 shadowCoversAll 的候选块收集） */
+  const refRe = new RegExp('\\b' + name + '\\b', 'g');
+  const blocks = [...code.matchAll(refRe)].map(m => enclosingBlock(code, m.index)).filter(Boolean);
+  const all = [...found.map(i => enclosingBlock(code, i)).filter(Boolean), ...blocks];
+  if (!all.length) return false;
+  all.sort((a, b) => a[0] - b[0]);
+  const merged = [];
+  for (const b of all){
+    if (merged.length && b[0] <= merged[merged.length - 1][1] + 1)
+      merged[merged.length - 1][1] = Math.max(merged[merged.length - 1][1], b[1]);
+    else merged.push([...b]);
+  }
+  let masked = code;
+  for (const [s, e] of merged)
+    masked = masked.slice(0, s) + ' '.repeat(e - s + 1) + masked.slice(e + 1);
+  return !referencesName(masked, name);
+}
+
 const srcFiles = fs.readdirSync(path.join(ROOT, 'src')).filter(f => /\.js$/.test(f));
 const exportsByFile = new Map();
 for (const f of srcFiles) exportsByFile.set(f, declsOf(fs.readFileSync(path.join(ROOT, 'src', f), 'utf8')));
@@ -100,6 +136,7 @@ for (const [file, names] of exportsByFile){
     if (inlineImported.has(name) || bodyVis.top.has(name)) continue;
     if (!occ(body, name)) continue;
     if (excusedByLocal(bodyVis, name)){ notes.push(`src/${ENTRY}: ${name} 被本地声明整体罩住（另有同名导出）—— 不判缺 import`); continue; }
+    if (destructureParamsCovered(bodyVis.code, name)){ notes.push(`src/${ENTRY}: ${name} 是解构形参且被函数体罩住 —— 不判缺 import`); continue; }
     problems.push(`src/${ENTRY}（页面入口）用到 ${name}（${file} 导出）但没 import`);
   }
 }
@@ -116,6 +153,7 @@ for (const [file, names] of exportsByFile){
       if (vis.top.has(name) || vis.imp.has(name)) continue;
       if (!occ(src, name)) continue;
       if (excusedByLocal(vis, name)){ notes.push(`${file}: ${name} 被本地声明整体罩住（另有同名导出）—— 不判缺 import`); continue; }
+      if (destructureParamsCovered(vis.code, name)){ notes.push(`${file}: ${name} 是解构形参且被函数体罩住 —— 不判缺 import`); continue; }
       problems.push(`${file} 用到 ${name}（${other} 导出）但没 import`);
     }
   }

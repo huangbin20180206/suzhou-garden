@@ -56,6 +56,24 @@ try {
   ok &= caught2;
   console.log((caught2 ? '✓' : '✗') + ' 负例C（import 了对面没导出的名字）必须报红 —— '
                + (caught2 ? '报红 ✓ 有牙' : '没报红 ⇒ ⑤ 段是假的！\n' + (r4.stdout + r4.stderr).slice(0, 400)));
+
+  /* ④′ 负例 D（2026-11-21 加，对应 destructureParamsCovered 豁免）：
+     把 11a-walk 的解构签名换成裸形参 —— 引用不再被任何"声明块"罩住，
+     豁免必须失效、② 段必须报红。否则那条新豁免是恒真的假门。 */
+  const WALK = path.join(ROOT, 'src', '11a-walk.js');
+  const WALK_ORIG = fs.readFileSync(WALK, 'utf8');
+  const SIG = 'export function createWalk({ camera, controls, world, canvas, groundHeight, insidePond, stop }) {';
+  const WALK_BROKEN = WALK_ORIG.replace(SIG, 'export function createWalk(opts) { const camera = opts.camera, controls = opts.controls, world = opts.world;');
+  if (WALK_BROKEN === WALK_ORIG){ console.error('自检：没找到 createWalk 签名片段（代码已变？）'); ok = false; }
+  else {
+    fs.writeFileSync(WALK, WALK_BROKEN);
+    const r5 = run();
+    const caught5 = r5.status !== 0 && /11a-walk\.js 用到 (world|camera)/.test(r5.stdout + r5.stderr);
+    ok &= caught5;
+    console.log((caught5 ? '✓' : '✗') + ' 负例D（解构签名改裸名，引用悬空）必须报红 —— '
+                 + (caught5 ? '报红 ✓ 有牙' : '没报红 ⇒ 解构豁免是假的！\n' + (r5.stdout + r5.stderr).slice(0, 400)));
+  }
+  fs.writeFileSync(WALK, WALK_ORIG);
 } finally {
   fs.writeFileSync(P, ORIG);      // 无论中途怎么炸都还原
 }
