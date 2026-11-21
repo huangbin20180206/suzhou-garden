@@ -273,6 +273,19 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
            horizon，而不是这一项全方位补橙。 */
         col += uSunColor * (pow(s, 620.0) * 0.55 + pow(s, 10.0) * 0.10) * (1.0 - uDiskFade);
 
+        /* ── 方位余辉（2026-11-21 · 美术批次 #1）─────────────────────────────
+           旧项的 pow(s,10) 仰角半径只有 ~10°：太阳一离开画面（俯视机位全天只有
+           4° 仰角带，晨暮太阳仰角 15~20°）s 就塌到 0，整片可见天幕读不出
+           "那边有个太阳"——暮色实测与阴天不可区分（天带 RGB 106,102,97 均匀灰）。
+           补一条**只按水平方位**的宽晕：把视线与太阳都压到地平面再点乘，
+           半功率方位角 ≈ 60°（pow 2.6），亮度上限 0.22 —— 够把朝日侧天幕
+           烘出"余辉聚过去"的层次，又不越 bloom 阈值；高度上再乘
+           smoothstep(0.0,0.35,hh) 压住天顶（余辉是地平线现象，不该爬到头顶）。
+           ⚠️ 同吃 (1.0-uDiskFade)：阴/雨/雪天上没有太阳，此项一并熄灭。 */
+        vec2 sunAz = normalize(uSunDir.xz + vec2(1e-5, 0.0));
+        float az = max(dot(normalize(d.xz + vec2(1e-5, 0.0)), sunAz), 0.0);
+        col += uSunColor * (pow(az, 2.6) * 0.22 * smoothstep(0.0, 0.35, hh)) * (1.0 - uDiskFade);
+
         // 云：把视线方向投影到天空平面做 FBM，两层叠出絮状结构。
         float cloudCover = 0.0;
         if (d.y > 0.015){
