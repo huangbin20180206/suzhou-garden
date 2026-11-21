@@ -396,7 +396,7 @@ export const ENV_TIME = {
     cloudTint:0xFBF3E8, cloudAmount:0.62,
     fogColor:0xE6E0D4, fogDensity:0.0088, exposure:1.06,
     bloomStrength:0.36, bloomRadius:0.52, bloomThreshold:1.00, gtaoBlend:0.85,
-    grade:{ contrast:0.13, saturation:1.02, split:0.30, vignette:0.50, warm:0xFFF2E0, cool:0xE6EEFF },
+    grade:{ contrast:0.13, saturation:1.02, split:0.30, vignette:0.38, warm:0xFFF2E0, cool:0xE6EEFF },
     /* 活雾三键（仅 mist 天气生效，见 applyWeatherTo）：晨 = 大雾裹正堂 ——
        mistMul 再乘雾密度、正堂雾团最浓、竹林雾团只留一线。 */
     starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12, bankBridge:0.25, bankRockery:0.50,
@@ -436,7 +436,10 @@ export const ENV_TIME = {
        与 skyHorizon 的差从 1.4% 拉到 ~10%，"山与天同值"的根源解除。 */
     fogColor:0xC6CCCB, fogDensity:0.0052, exposure:1.00,
     bloomStrength:0.26, bloomRadius:0.50, bloomThreshold:1.02, gtaoBlend:0.85,
-    grade:{ contrast:0.25, saturation:1.12, split:0.24, vignette:0.50, warm:0xFFF6E8, cool:0xE2EEFF },
+    /* vignette 0.50→0.32（2026-11-21 美术批次 #4）：正午光该通透，
+       0.50 的暗角把四角压闷——晨午是"看景"，暮夜才是"氛围"。
+       暮 0.56/夜 0.55 保持不动。改的只是 preset 数值，运行链路不变。 */
+    grade:{ contrast:0.25, saturation:1.12, split:0.24, vignette:0.32, warm:0xFFF6E8, cool:0xE2EEFF },
     /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul
        0.82→1.10（有效 1.98，晨 2.61 的 ~76%——比晨淡、但明显有雾）；雾团也留三成
        而不是归零（bankHall 0.28 / bankBamboo 0.22）。 */
