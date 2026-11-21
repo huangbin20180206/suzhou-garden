@@ -979,6 +979,18 @@ addWind(MAT.willowLeaf, 0.07, 0.95, 'crown');   // 叶帘飘带：0.26→0.20→
 addWind(MAT.wisteria, 0.05, 1.15, 'crown', 3.2);  // 花穗轻摆：0.08→0.05（用户"非常杂乱"）
 addWind(MAT.wisteriaLeaf, 0.045, 1.05, 'crown', 3.2);  // 羽状复叶卡：0.07→0.045，与花穗同频但更轻
 addWind(MAT.peachLeaf, 0.05, 1.0, 'crown');            // 桃叶冠轻摆（同柳叶的 crown 支点）
+/* ── 梅树入风场（2026-11-22 · 美术批次 #8）─────────────────────────────────
+   梅整族此前不在表里：狂风暴雨时柳/荷/桃全在摆，墙角两株梅纹丝不动，
+   同框出戏（与"荷花为啥不动"同款病）。接风只接**叶与干**：
+   · plumLeaf 用 crown 支点（同桃叶）：梅叶聚在小枝端头，越靠枝梢越摆；
+   · plumTrunk 幅度压到 0.02：主干只是"被风推得微微晃"，不是树干弯腰；
+   · ⚠️ blossom 族（plumBlossomRed/Yellow/Bud/Withered）**刻意不接**：
+     installBlossomDistanceScale 已占用它们的 onBeforeCompile（距离放大），
+     addWind 会整个覆盖掉 ⇒ 远处梅花缩回 1.0，冬景最上镜的两株梅直接"消失"。
+     花瓣纸薄贴在枝上，叶/干摆动已足够读出"梅树在风里活"。
+   摆幅对齐桃叶档（0.05/0.045）：梅树形比桃小一号，过大就成"摇呼啦圈"。 */
+addWind(MAT.plumLeaf, 0.045, 1.05, 'crown');            // 梅叶：枝梢轻摆
+addWind(MAT.plumTrunk, 0.02, 0.55, 'base');            // 梅干：根部锚定，整体微晃
 addWind(MAT.reed,   0.15, 1.10, 'base');    // 水草
 /* ⚠️ 荷叶 / 荷花 / 芭蕉 此前不在风场表里 —— 狂风暴雨里柳枝疯摆而池面/芭蕉纹丝不动，
    同框对比出戏（用户反馈）。
