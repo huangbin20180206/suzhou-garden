@@ -312,8 +312,14 @@ function applyWeatherTo(p, eff){
     p.bankBamboo = (p.bankBamboo === undefined ? 0 : p.bankBamboo);
     p.bankBridge = (p.bankBridge === undefined ? 0 : p.bankBridge);
     p.bankRockery= (p.bankRockery === undefined ? 0 : p.bankRockery);
+    p.bankPond   = (p.bankPond === undefined ? 0 : p.bankPond);
   } else {
     p.bankHall = 0; p.bankBamboo = 0; p.bankBridge = 0; p.bankRockery = 0;
+    /* 池面晨雾例外（2026-11-22 · 美术批次 #16）：别的团是"雾天才有"，
+       池上辐射雾晴晨也有 —— 留三成（×0.3），正午 preset 本来就 ~0 不怕穿帮。
+       雨天雨幕会把它洗掉：rainAmount>0.5 时再压半。 */
+    p.bankPond = (p.bankPond === undefined ? 0 : p.bankPond) * 0.3
+              * ((w.rainAmount || 0) > 0.5 ? 0.5 : 1);
   }
   p.skyGray    = w.skyGray;    p.fogGray    = w.fogGray;  p.diskFade = w.diskFade;
   /* ⚠️⚠️ 2026-10-06「狂风暴雨的天空还是蓝天白云」（老黄反馈）：
@@ -407,7 +413,7 @@ export const ENV_TIME = {
     grade:{ contrast:0.13, saturation:1.02, split:0.30, vignette:0.38, warm:0xFFF2E0, cool:0xE6EEFF },
     /* 活雾三键（仅 mist 天气生效，见 applyWeatherTo）：晨 = 大雾裹正堂 ——
        mistMul 再乘雾密度、正堂雾团最浓、竹林雾团只留一线。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12, bankBridge:0.25, bankRockery:0.50,
+    starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12, bankBridge:0.25, bankRockery:0.50, bankPond:0.55,
     rainbowMul:1.20 },   // 晨（第八轮）：背景冷、虹本就跳得出，只微抬防"太淡"
   noon: { label:'午',
     /* F8 光照"晴感"再平衡（2026-09-21 · 三张正午样张一致指出"像阴天"）：
@@ -451,7 +457,7 @@ export const ENV_TIME = {
     /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul
        0.82→1.10（有效 1.98，晨 2.61 的 ~76%——比晨淡、但明显有雾）；雾团也留三成
        而不是归零（bankHall 0.28 / bankBamboo 0.22）。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20,
+    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20, bankPond:0.10,
     /* rainbowMul 1.35（第九轮）：正午背景最亮，同一 alpha 下彩带的差分最小 ——
        半透明彩纱化（alpha 0.80→0.66）之后 noon 峰值差实测只有 72/765（门禁线 90），
        正午恰好是老黄最常看效果的时刻 ⇒ 只给正午相对加浓，晨/暮各自的补偿不变。 */
@@ -479,7 +485,7 @@ export const ENV_TIME = {
     /* saturation 1.04→0.97：暮色草地旧值下仍是高饱和翠绿，整体去艳半档，
        让暮色统一在灰暖调里。 */
     grade:{ contrast:0.20, saturation:0.97, split:0.42, vignette:0.56, warm:0xFFE4C0, cool:0xC8D8F0 },
-    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55, bankBridge:0.50, bankRockery:0.30,
+    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55, bankBridge:0.50, bankRockery:0.30, bankPond:0.22,
     /* rainbowMul（2026-10-02 第八轮）：暮色暖橙天幕会把虹的橙红段"同化"掉
        —— 同样的浓度晨/午一眼可见、暮里却融进余晖（1.45 倍时冻结帧 A/B 仍有
        6064px 差分，但单图判读完全读不出）。暮是雨后彩虹最经典的时刻，抬到 2.2
@@ -516,7 +522,7 @@ export const ENV_TIME = {
     grade:{ contrast:0.15, saturation:0.92, split:0.34, vignette:0.55, warm:0xE8D8C0, cool:0x9FB8E0 },
     /* 夜 mistMul 0.72 ⇒ 有效雾系数 1.8×0.72≈1.30，与旧版常数持平：night+mist 的画面
        与 mist-guard 的水位完全不动（夜里不加浓，画面别变脏）。 */
-    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08, bankBridge:0.30, bankRockery:0.08, rainbowMul:1.00 },
+    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08, bankBridge:0.30, bankRockery:0.08, rainbowMul:1.00, bankPond:0.10 },
 };
 
 /* ── 季节预设 ──

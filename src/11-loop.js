@@ -1365,6 +1365,10 @@ function frameWork(){
     FOG_BANKS.rockery.uColor.value.copy(MIST.uColor.value);
     FOG_BANKS.bridge.uOpacity.value = ENV.cur.bankBridge || 0;
     FOG_BANKS.rockery.uOpacity.value = ENV.cur.bankRockery || 0;
+    /* 2026-11-22 增：池面晨雾（同上套路随时辰淡入，ENV.cur.bankPond 见 12a） */
+    FOG_BANKS.pond.uTime.value = windClock;
+    FOG_BANKS.pond.uColor.value.copy(MIST.uColor.value);
+    FOG_BANKS.pond.uOpacity.value = ENV.cur.bankPond || 0;
   }
   // 云层缓慢漂移（天空球只有一张材质）
   /* ⚠️ B2 修复（2026-09-20）：云的 uTime 必须吃**累加仿真时钟** windClock，不能吃墙钟 t。

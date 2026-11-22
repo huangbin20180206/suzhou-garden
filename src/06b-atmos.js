@@ -29,6 +29,12 @@ export const FOG_BANKS = {
              uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
   rockery: { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
              uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
+  /* 2026-11-22 增一团（美术批次 #16 池面晨雾）：池心一带贴水薄雾 ——
+     默认机位正对池面，晨间池上鳞鳞水汽是"第一眼的江南"。
+     flat 贴水矮片（与 bridge 同构），n=36 盖住 18×10 的池面；
+     种子独立（铁律：布局随机零全局流）。 */
+  pond:    { uTime:{ value:0 }, uOpacity:{ value:0 }, uColor:{ value:new THREE.Color(0xDCE0E2) },
+             uMap:{ value:null }, uNear:{ value:3.5 }, uNearEnd:{ value:12.0 }, uWindVec: WIND.uWindVec },
 };
 function makeFogBank(u, cx, cy, cz, spreadX, spreadZ, n, seed, name, flat = false){
   /* 独立随机流（铁律：布局类随机绝不碰全局 rnd / Math.random） */
@@ -123,8 +129,14 @@ export function makeFogBanks(){
      的 fogBank 豁免线 ≤0.6m 内）。 */
   g.add(makeFogBank(FOG_BANKS.bridge, 8.4, 0.9, 4.6, 1.4, 2.2, 6, 20260930, 'fogBankBridge', true));
   /* 2026-09-29 增：假山晨雾 —— 南岸峰群（x -6.5 / 9.5 两座，z≈14~16）半没入雾、
-     只露峰尖，晨最浓。 */
+     只露峰尖，最浓。 */
   g.add(makeFogBank(FOG_BANKS.rockery, 1.5, 2.2, 14.5, 9.5, 0.8, 8, 20260931, 'fogBankRockery', false));
+  /* 2026-11-22 增：池面晨雾 —— 池心 (0,·,3.0) 贴水薄雾（池 uCenter=(0,3.0)，
+     椭圆半轴 15.7×9.4 ⇒ spreadX 9 / spreadZ 5 盖住大半池面，n=36 密度对齐 bridge 档）。
+     y=0.55：水面之上、荷叶之下（叶盘 0.075？不 —— 荷叶贴水 0.075，荷花 0.5~1.1；
+     flat 矮片半高 0.8±0.25 ⇒ 雾顶 ~1.3 会漫过低荷叶 —— 要的就是"荷叶半没入雾"，
+     高花茎照旧挑出雾面。CPU 包围盒仍是单位阵占位（与 bridge 同豁免）。 */
+  g.add(makeFogBank(FOG_BANKS.pond, 0, 0.55, 3.0, 9, 5, 36, 20261122, 'fogBankPond', true));
   return g;
 }
 
