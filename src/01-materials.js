@@ -606,7 +606,14 @@ export const MAT = {
   // —— 装饰 ——
   gauze:    new THREE.MeshPhysicalMaterial({ color:0xF4F0E4, roughness:0.55, metalness:0.0,
                                              transparent:true, opacity:0.2, side:THREE.DoubleSide, depthWrite:false }),
-  latticeBack: new THREE.MeshStandardMaterial({ color:0xE6DFCC, roughness:0.92, metalness:0.0, envMapIntensity:0.25 }),
+  /* 2026-11-22 · 美术批次 #10：夜里**堂内暖光透窗**。旧版夜档四面厅的窗纸死黑，
+     夜景主画面缺了'园子有人住'的那口暖。emissive 基色 0xFFC98A（烛暖），
+     intensity 由 applyEnv 按 p.lamp 驱动（夜 1 ⇒ 0.55、暮 0.25 ⇒ 0.14、昼 0）——
+     复用灯笼已有的'夜亮昼熄'通道，零新 uniform。共用本材质的构件（主堂门扇/堂侧墙
+     /马厩透气窗）一起透光，语义统一（灯会档 lamp 同样点亮）。
+     ⚠️ 强度压在 bloom 阈值 0.90 之下：0.55×暖色峰值≈0.42 ⇒ 窗纸是'透暖'不是'打光晕'。 */
+  latticeBack: new THREE.MeshStandardMaterial({ color:0xE6DFCC, roughness:0.92, metalness:0.0, envMapIntensity:0.25,
+                                                emissive:0xFFC98A, emissiveIntensity:0.0 }),
   bark:     new THREE.MeshStandardMaterial({ color:0x4A3628, roughness:0.95, metalness:0.0, envMapIntensity:0.25, flatShading:true }),
   gold:     new THREE.MeshStandardMaterial({ color:0xC9A227, roughness:0.34, metalness:0.86, emissive:0x2A1E00, envMapIntensity:1.2 }),
   // 远山：四层递远递淡。fog:true 让它们按距离融进雾色（=天光色），

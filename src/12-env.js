@@ -347,6 +347,10 @@ export function applyEnv(p){
 
   lanternMat.emissiveIntensity = p.lamp * 1.15;
   if (lanternMat.userData.uLampS) lanternMat.userData.uLampS.value = p.lamp * 1.15;   // SSS 纸粒强度与发光同步
+  /* 堂内暖光透窗（2026-11-22 · 美术批次 #10）：窗纸衬板随同一盏"夜灯"通道点亮。
+     夜 1 ⇒ 0.55、暮 0.25 ⇒ 0.14、昼 0。与灯笼同步过渡（同吃 p.lamp，mixInto 缓动），
+     灯会档一并亮。强度低于 bloom 阈值 ⇒ '透暖'不是'光晕'。 */
+  MAT.latticeBack.emissiveIntensity = (p.lamp || 0) * 0.55;
   /* ⚠️ 自发光 3.4 → 1.15（2026-09-21 方案 n2 二轮·特写实测）：3.4 在 ACES+bloom
      下把灯身整体打成纯白，"宫灯"退化成光球，腰鼓轮廓/纸纹/顶珠全部淹没。
      1.15 仍在 bloom 阈值 0.90 之上 → 光晕照旧挂得住，但灯面保留纸纹明暗，
