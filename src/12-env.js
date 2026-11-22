@@ -1406,7 +1406,7 @@ for (const [mat, boost] of SNOW_BOOST){
    只登记"朝上、面积大、该被雪整片盖住"的三种瓦构件；地面/石头/植被继续走原来的斑驳版 ——
    那些面上的斑驳是对的（雪被风刮、被踩、被屋檐滴水打穿）。
    ⚠️ 与 snowBoost 同一条路：必须在 installSnow 之前写进 userData，着色器编译时才读得到。 */
-const SNOW_FLAT = new Map([[MAT.roof, 1.0], [MAT.ridge, 1.0], [MAT.wallCap, 1.0]]);
+const SNOW_FLAT = new Map([[MAT.roof, 1.0], [MAT.roofHall, 1.0], [MAT.ridge, 1.0], [MAT.wallCap, 1.0]]);
 for (const [mat, flat] of SNOW_FLAT){
   mat.userData.snowFlat = { value: flat };
 }

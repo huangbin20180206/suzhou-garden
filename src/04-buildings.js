@@ -338,6 +338,9 @@ export function makeYuanxiangHall(){
   const roofH = 3.0;
   const roof = makeChineseRoof({
     w: W + 4.6, d: D + 4.6, hRidge: roofH, ridgeLen: W, lift: 1.15,
+    /* 瓦色分档（2026-11-22 · 美术批次 #9）：主堂用深黛 roofHall —— 瓦色深浅即等级
+       （正厅最深），游廊/亭/马厩保持 MAT.roof 浅灰蓝。材质定义与积雪登记见 01-materials。 */
+    mat: MAT.roofHall,
     /* ⚠️ ridgeLen 原来取 W−6：正脊只占面阔的 70%，收山宽 5.3m（≈0.84·D），
        于是两端坡比主坡缓得多（0.28 vs 0.48），不像歇山。
        让端坡与主坡同陡的收山宽 = 山花底高 / 主坡在山花处的坡度

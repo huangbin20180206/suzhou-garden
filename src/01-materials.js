@@ -416,6 +416,12 @@ export const MAT = {
   wall:     new THREE.MeshStandardMaterial({ color:0xDCD8CF, roughness:0.95, metalness:0.0,  envMapIntensity:0.35 }),
   wallCap:  new THREE.MeshStandardMaterial({ map:roofTileTex, normalMap:roofNormalTex, normalScale:new THREE.Vector2(0.9,0.9), color:0x6C7783, roughness:0.72, metalness:0.06, envMapIntensity:0.7 }),
   roof:     new THREE.MeshStandardMaterial({ map:roofTileTex, normalMap:roofNormalTex, normalScale:new THREE.Vector2(1.1,1.1), color:0x8B95A1, roughness:0.66, metalness:0.08, envMapIntensity:0.85, side:THREE.DoubleSide }),
+  /* 主堂黛瓦（2026-11-22 · 美术批次 #9）：全园原一色 8B95A1 ⇒ 主堂与游廊/马厩/亭
+     不分主次。真园子里瓦色深浅就是等级语言（正厅最深）。此材质只给**主堂坡顶**：
+     其余建筑维持 MAT.roof。⚠️ SNOW_FLAT（12-env 积雪表）按材质身份认"整片盖雪"
+     —— 本材质也要登记 1.0，否则主堂屋面雪回斑驳版（老黄拍过'霉斑'）。
+     0x5F6B79 ≈ 原色明度 × 0.68：黛意出来了，夜里仍读得出是瓦不是墨。 */
+  roofHall: new THREE.MeshStandardMaterial({ map:roofTileTex, normalMap:roofNormalTex, normalScale:new THREE.Vector2(1.1,1.1), color:0x5F6B79, roughness:0.66, metalness:0.08, envMapIntensity:0.85, side:THREE.DoubleSide }),
   ridge:    new THREE.MeshStandardMaterial({ color:0x3C444F, roughness:0.6,  metalness:0.12, envMapIntensity:0.9 }),
   // 博风板：歇山/悬山山面沿屋面边缘的封檐板。用 DoubleSide —— 它是一条很薄的闭合板条，
   // 与其在代码里赌四个侧面的绕序，不如两面都画（薄板没有性能意义）
