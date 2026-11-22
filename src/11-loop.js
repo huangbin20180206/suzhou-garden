@@ -59,22 +59,6 @@ timer.connect(document);
 const statsEl = document.getElementById('stats');
 let acc = 0, frames = 0, fps = 0, sndAcc = 0;
 
-/* ── 云影扫地的 JS 端噪声（2026-11-22 · 美术批次 #11）───────────────────────
-   公式逐字复刻 02-scene 天空云的 hash21 / vnoise / fbm（GLSL→JS 手转），
-   保证"天上的云"与"地上的影"同源：参数一致 ⇒ 云动影随。 */
-function _hash21(x, y){ const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123; return s - Math.floor(s); }
-function _vnoise(x, y){
-  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
-  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
-  return (_hash21(ix, iy) * (1 - ux) + _hash21(ix + 1, iy) * ux) * (1 - uy)
-       + (_hash21(ix, iy + 1) * (1 - ux) + _hash21(ix + 1, iy + 1) * ux) * uy;
-}
-function _fbmCloud(x, y){
-  let v = 0, a = 0.5, px = x, py = y;
-  for (let i = 0; i < 5; i++){ v += a * _vnoise(px, py); px *= 2.03; py *= 2.03; a *= 0.5; }
-  return v;
-}
-function _smooth01(t){ t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }
 
 /* 锦鲤"两遍走"的暂存（2026-10-27 复核 C1）：数组本体模块级复用，
    元素对象挂在每条鱼的 userData（d.base / d.peer）上持久复用 —— 每帧零新建。 */
@@ -211,10 +195,10 @@ const BIRD_SPECIES = [
   { name:'白头鹎', f0:[2000, 2450], n:[2, 4], slope:1.10, dur:0.11, gap:0.13, vol:0.045, w:{ spring:1.5, summer:1.2, autumn:1.0, winter:0.3 } },
 ];
 const Snd = (()=>{
-  let ctx = null, master = null, rainG = null, windG = null;
+  let ctx = null, master = null, rainG = null, windG = null, lapG = null;
   let cricketCarrier = null, cricketMod = null, cricketG = null;
   let cicadaG = null, frogG = null;
-  let on = false, birdNext = 0, frogNext = 0, vol = 1;
+  let on = false, birdNext = 0, frogNext = 0, drumNext = 0, vol = 1;
   function ensure(){
     if (ctx) return true;
     try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
@@ -234,6 +218,24 @@ const Snd = (()=>{
     };
     windG = mkNoise(0.5, 'lowpass',  380, 0.50);
     rainG = mkNoise(1.0, 'bandpass', 1500, 0.55);
+    /* ── 水声（2026-11-22 · 美术批次 #12）────────────────────────────────
+       园子的灵魂是水，音景却一直缺"池畔拍岸"这一层。雨是 1.5kHz 带通的"沙沙"，
+       水是低频的"呼噜"：低通 220Hz 白噪 + 0.11Hz 慢 LFO 幅度调制 ⇒
+       波纹一阵一阵推上岸，不是恒定电平（恒定就听出是合成器了——蝉鸣层同款教训，
+       LFO 走独立 amGain 闸门不进负增益）。风推水才拍岸：目标电平由 plan()
+       按 windMul 联动，无风的平静池面只剩 0.004 的底噪。 */
+    {
+      const src = ctx.createBufferSource();
+      src.buffer = buf; src.loop = true; src.playbackRate.value = 0.8;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 220; lp.Q.value = 0.4;
+      const am = ctx.createGain(); am.gain.value = 0.5;
+      const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.11;
+      const depth = ctx.createGain(); depth.gain.value = 0.42;
+      lfo.connect(depth); depth.connect(am.gain);
+      lapG = ctx.createGain(); lapG.gain.value = 0;
+      src.connect(lp); lp.connect(am); am.connect(lapG); lapG.connect(master);
+      src.start(); lfo.start();
+    }
     /* 虫鸣：载波 × 幅度调制。调制振荡器接到 gain 口上（不是 setInterval），
        节拍永远贴着音频时钟走。modDepth 控制颤动深度，cricketG 整体闸门由 tick 拉起。 */
     cricketCarrier = ctx.createOscillator(); cricketCarrier.type = 'triangle';
@@ -281,6 +283,14 @@ const Snd = (()=>{
     return {
       wind:    0.015 + wind * 0.085,
       rain:    rain * 0.14,
+      /* 水声（批次 #12）：底 0.004（平静池面近耳的微响）+ 风推水（wind 0~1 ⇒ +0.014）。
+        ⚠️ 与雨分层不冲突：暴雨里 lap 只占雨声的 1/10，被自然掩蔽——物理也对，
+        暴雨的水声本来就是雨声本身的一部分。 */
+      lap:     0.004 + wind * 0.014,
+      /* 叶鼓（2026-11-22 · 美术批次 #13 雨打芭蕉·音频侧）：大叶击鼓的低频扑通。
+         rain ≤ 0.12 不起（毛毛雨打不响叶子）；起后强度跟雨量（视觉侧芭蕉叶的
+         uRain 抖动同吃 rainAmount ⇒ 视音频天然联动）。plan 只给门径不断言音色。 */
+      drum:    rain > 0.12 ? rain : 0,
       cricket: (night && quiet && season !== 'winter') ? 0.016 : 0,
       cicada:  (season === 'summer' && dayLight && !night && quiet) ? 0.020 : 0,
       frog:    (season === 'summer' && (night || time === 'dusk') && quiet) ? 0.030 : 0,
@@ -330,6 +340,21 @@ const Snd = (()=>{
       o.start(t); o.stop(t + 0.12);
     }
   }
+  /* 叶鼓：雨点砸芭蕉大叶的低频扑通（批次 #13）。
+     短正弦 150~230Hz + 0.15s 指数衰减 —— 大叶是鼓面不是镲片，不要高频。
+     音量 0.05 封顶（雨声的 1/3）：它是雨里的点缀不是第二层雨。 */
+  function drum(intensity){
+    const t0 = ctx.currentTime + 0.02;
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(150 + Math.random() * 80, t0);
+    o.frequency.exponentialRampToValueAtTime(70, t0 + 0.15);
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(0.015 + intensity * 0.035, t0 + 0.015);
+    g.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.18);
+    o.connect(g); g.connect(master);
+    o.start(t0); o.stop(t0 + 0.2);
+  }
   function tick(p){
     if (!on || !ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
@@ -340,9 +365,16 @@ const Snd = (()=>{
     cicadaG.gain.setTargetAtTime(q.cicada, now, 0.8);
     /* 蛙声是脉冲串：这里只给闸门电平（0 / 满），节奏由下面的调度器拍板 */
     frogG.gain.setTargetAtTime(q.frog > 0 ? 1 : 0, now, 0.4);
+    lapG.gain.setTargetAtTime(q.lap, now, 0.8);   // 水声（批次 #12）：与雨同源慢跟
     if (q.bird > 0 && performance.now() > birdNext){
       chirp();
       birdNext = performance.now() + 4000 + Math.random() * 9000;
+    }
+    /* 叶鼓调度（批次 #13）：雨越大敲得越密（暴雨 ~250ms 一记、细雨 ~1s 一记），
+       时值抖 ±40% —— 等间隔就是鼓机。强度进 drum(intensity) 不进闸门。 */
+    if (q.drum > 0 && performance.now() > drumNext){
+      drum(q.drum);
+      drumNext = performance.now() + (1150 - q.drum * 900) * (0.6 + Math.random() * 0.8);
     }
     if (q.frog > 0 && performance.now() > frogNext){
       croak();
@@ -417,6 +449,7 @@ const Snd = (()=>{
       cricket:cricketG ? +cricketG.gain.value.toFixed(5) : 0,
       cicada: cicadaG  ? +cicadaG.gain.value.toFixed(5)  : 0,
       frog:   frogG    ? +frogG.gain.value.toFixed(5)    : 0,
+      lap:    lapG     ? +lapG.gain.value.toFixed(5)     : 0,
     }),
     ctxState: () => (ctx ? ctx.state : 'none'),
     species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
@@ -457,6 +490,7 @@ HOOKS.walkExit = () => WALK.end();
 HOOKS.walkState = () => WALK.state;
 HOOKS.walkMove = (dx, dz) => WALK.move(dx, dz);
 HOOKS.walkFloor = (x, z, base) => WALK.floor(x, z, base);
+HOOKS.walkTouch = (f, r) => WALK.setTouch(f, r);   // 触屏摇杆测试钩子（门禁无真触屏时验证行走数学）
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.postcardSeasons = takeSeasonsPostcard;
@@ -1348,35 +1382,22 @@ function frameWork(){
      放在这一行（而不是雾团那个 if 块里）是因为**雾团那段在条件分支里**（低档位不进），
      烟不该跟着一起消失。 */
   CENSER_SMOKE.uTime.value = windClock;
-  /* ── 云影扫地（2026-11-22 · 美术批次 #11）─────────────────────────────────
-     天上的云在动、地面光照却恒定 ⇒ 画面"假得很安静"。这里按与天空云**同源的
-     value-noise FBM**（公式逐字复刻 02-scene 的 hash21/vnoise/fbm），用
-     『园心投影平面 + windClock』采样出一个全局遮蔽度，写进 grade 的 uCloudShade。
-     同钟同源 ⇒ 云在天上走、影在地上扫，视觉同步（云那么高，无人能逐像素对齐，
-     全屏近似在 ~80m 俯视视野下成立：一朵云影直径就是几十米）。
-     门控：cloudAmount（云量 0=晴朗无云无影）×（1-diskFade）（阴/雨/雪
-     diskFade≥0.85 本来就"云盖全天"，恒暗不需要再扫）× 白天度（夜里
-     starAmount 高 ⇒ 无日头可挡）。幅度封顶 0.18：云影是"太阳被挡一块"，
-     不是乌云压城（那是 storm 天气自己的活）。每帧 JS 一次 FBM（5 octave ×
-     4 hash ≈ 20 次 sin），摊到帧预算可忽略。 */
+  /* 云影扫地（2026-11-22 · 美术批次 #11 第二轮：纹理网）──────────────────
+     第一轮是 JS 端全局遮蔽度 —— 全屏增益漂移把 reel-guard 闲置噪声底顶穿
+     （0.02 → 0.5）。改逐像素云影网（GradeShader 内采样，见 10-post）：
+     网纹漂移只重排不明暗均值。死掉的 JS 端 FBM 已删（孤儿代码不留）。
+     这里只写时间和幅度两只 uniform：T 吃 windClock（与天空云同钟），
+     Amt = 0.18 x 门控（cloudAmount x (1-diskFade) x 白天度；流转时冻结为 0，
+     见下注释）。 */
   {
     const cl = ENV.cur;
     const gate = (cl.cloudAmount || 0) * (1 - (cl.diskFade || 0)) * (1 - Math.min(1, (cl.starAmount || 0) * 1.4));
-    let shade = 0;
-    if (gate > 0.03){
-      /* 噪声公式与天空云同源（hash21/vnoise/fbm 同式），但**时间速率不同**：
-         天空云 0.0035 是几百米天幕平面的"缓慢漂移"；云影要"扫过园子"必须在
-         园尺度上进出 —— 0.05 ⇒ 噪声场 ~2 分钟扫过一轮，正午看 30s 内必有
-         明暗一涨一落。首轮实测教训：照抄 0.0035 时固定采样点 47s 恒 0.001，
-         云影"存在但不动"，读不出来。 */
-      const cx = 0.52 + windClock * 0.05, cz = 0.9 + windClock * 0.027;
-      const f1 = _fbmCloud(cx * 1.55, cz * 1.55), f2 = _fbmCloud(cx * 4.10 + 7.3, cz * 4.10 + 7.3);
-      const cloud = f1 * 0.74 + f2 * 0.36;
-      /* smoothstep(0.50,0.88) 与天空云同一形状函数：FBM 过 0.5 才算云、
-         0.88 满云。取'过均值'的软段 ⇒ 有云时 shade 在 0~0.18 间缓移。 */
-      shade = _smooth01((cloud - 0.50) / 0.38) * 0.18 * gate;
-    }
-    gradePass.uniforms.uCloudShade.value = shade;
+    /* 时光流转时冻结（reel-guard 复盘保留结论）：流转 3s 走 1.2h，
+       云影缓变在 24x 时间里是 strobe；冻结后流转帧的云影恒零，
+       与闲置噪声底采样的静态前提一致。 */
+    const amt = (!REEL.on && gate > 0.03) ? 0.18 * gate : 0;
+    gradePass.uniforms.uCloudShadeT.value = windClock;
+    gradePass.uniforms.uCloudShadeAmt.value = amt;
   }
   const _heavyPrecip = (ENV.cur.rainAmount || 0) > 0.5 || (ENV.cur.snowAmount || 0) > 0.5;
   CENSER_SMOKE.uAlpha.value = _heavyPrecip ? 0.22 : 0.40;

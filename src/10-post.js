@@ -14,6 +14,42 @@ import { bootMark } from './00-config.js';
 const composerTarget = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
 export const composer = new EffectComposer(renderer, composerTarget);
 
+/* ── 云影噪声纹理（2026-11-22 · 美术批次 #11 第二轮）────────────────────────
+   第一轮是 JS 端每帧算全局遮蔽度写 uniform —— 全屏增益漂移把 reel-guard 的
+   "闲置噪声底"模型（|均值差| 对局部运动不敏感）顶穿：闲置 0.02 → 0.5。
+   改走逐像素云影网：图案漂移只重排网纹、区域均值恒定 ⇒ 门禁模型恢复；
+   产品也更对（云影扫过地面，不是全屏呼吸）。
+   运行时生成（零外部资源）：256² 可平铺 value-noise，LCG 定种子 ——
+   不碰全局 rr/rnd 流（布局零漂移），模块加载时一次生成。 */
+function makeCloudNoiseTex(){
+  const S = 256, data = new Uint8Array(S * S * 4);
+  let seed = 0xC10D5EED >>> 0;
+  const rnd = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 4294967296;
+  const P = 32, lat = new Float32Array(P * P);
+  for (let i = 0; i < P * P; i++) lat[i] = rnd();
+  const at = (x, y) => lat[((y % P + P) % P) * P + ((x % P + P) % P)];
+  for (let y = 0; y < S; y++) for (let x = 0; x < S; x++){
+    const gx = x / S * 8, gy = y / S * 8;   // 8 周期铺满 ⇒ 最密一档
+    let v = 0, amp = 0.5, fx = gx, fy = gy;
+    for (let o = 0; o < 3; o++){
+      const ix = Math.floor(fx), iy = Math.floor(fy), tx = fx - ix, ty = fy - iy;
+      const sx = tx * tx * (3 - 2 * tx), sy = ty * ty * (3 - 2 * ty);
+      v += amp * (at(ix, iy) * (1 - sx) + at(ix + 1, iy) * sx) * (1 - sy)
+         + amp * (at(ix, iy + 1) * (1 - sx) + at(ix + 1, iy + 1) * sx) * sy;
+      amp *= 0.5; fx *= 2.03; fy *= 2.03;
+    }
+    const b = Math.max(0, Math.min(255, Math.round(v * 255)));
+    const i = (y * S + x) * 4;
+    data[i] = data[i + 1] = data[i + 2] = b; data[i + 3] = 255;
+  }
+  const t = new THREE.DataTexture(data, S, S);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  t.magFilter = t.minFilter = THREE.LinearFilter;
+  t.needsUpdate = true;
+  return t;
+}
+const cloudNoiseTex = makeCloudNoiseTex();
+
 /* ══════════════════════════════════════════════════════════════
    深度纹理（高度雾的输入）—— **必须在 EffectComposer 构造之后再挂**
    ══════════════════════════════════════════════════════════════
@@ -324,7 +360,9 @@ const GradeShader = {
        由 11-loop 每帧按『园心世界 XZ + windClock』跑与天空同源的 value-noise FBM 算出
        全局遮蔽度（一朵云影几十米 ≈ 全园视野，全屏近似成立），写进本 uniform。
        阴/雨/雪（diskFade≥0.85）写 0 —— 本来就没太阳，无影可扫。 */
-    uCloudShade:{ value:0.0 },
+    uCloudTex:{ value: cloudNoiseTex },
+    uCloudShadeT:{ value: 0.0 },
+    uCloudShadeAmt:{ value: 0.0 },
   },
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader:`
@@ -332,7 +370,8 @@ const GradeShader = {
     uniform float uContrast, uSaturation, uSplit, uVignette, uVigSize, uSoften;
     uniform vec3 uWarmHi, uCoolLo;
     uniform vec2 uTexel;
-    uniform float uCloudShade;
+    uniform sampler2D uCloudTex;
+    uniform float uCloudShadeT, uCloudShadeAmt;
     varying vec2 vUv;
     void main(){
       vec4 src = texture2D(tDiffuse, vUv);
@@ -353,10 +392,18 @@ const GradeShader = {
       }
       vec3 c = src.rgb;
 
-      /* ── 云影扫地（美术批次 #11）────────────────────────────────────────
-         uCloudShade==0（绝大多数帧与全部探针）整段不进 ⇒ 逐位一致。
-         有云影时全屏乘软暗——放在对比之前，暗部不会被 S 曲线再压。 */
-      if (uCloudShade > 0.0) c *= 1.0 - uCloudShade;
+      /* ── 云影扫地·纹理网（美术批次 #11 第二轮）────────────────────────────
+         第一轮是 JS 全局遮蔽度 —— 全屏增益漂移把 reel-guard 闲置噪声底顶穿。
+         改逐像素：两档尺度相乘成网（与水面焦散同构），网纹漂移只重排不明暗均值。
+         uCloudShadeAmt==0（夜/阴雨/流转冻结/旧探针帧）整段不进 ⇒ 逐位一致。
+         放在对比之前，暗部不会被 S 曲线再压。 */
+      if (uCloudShadeAmt > 0.0){
+        vec2 cuv = vUv * vec2(1.6, 1.6) + vec2(uCloudShadeT * 0.021, uCloudShadeT * 0.011);
+        float cn1 = texture2D(uCloudTex, cuv).r;
+        float cn2 = texture2D(uCloudTex, cuv * 2.7 + 0.37).r;
+        float cnet = cn1 * cn2 * 4.0 - 1.0;
+        c *= 1.0 - clamp(cnet, 0.0, 1.2) / 1.2 * uCloudShadeAmt;
+      }
 
       // ① 对比：以 0.5 为轴的 S 曲线
       vec3 cc = clamp(c, 0.0, 1.0);

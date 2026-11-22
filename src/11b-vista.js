@@ -45,7 +45,7 @@ const SPOT_DEFS = [
 ];
 
 /* DOM：右下角卡片（挂在 body，独立于 #env 面板 —— 那是交互面板，这是被动的展示件）。 */
-let _el = null;
+let _el = null, _dismiss = null;
 function ensureEl(){
   if (_el) return _el;
   _el = document.createElement('div');
@@ -56,7 +56,18 @@ function ensureEl(){
     'background:#fffbeee8;color:#302c25;border-radius:6px;z-index:12;' +
     'font:13px/1.7 serif;box-shadow:0 6px 18px rgba(0,0,0,.25);pointer-events:none;' +
     'transition:opacity .3s;opacity:0';
-  _el.innerHTML = '<b style="font-size:15px;display:block;margin-bottom:4px"></b><span></span>';
+  _el.innerHTML = '<b style="font-size:15px;display:block;margin-bottom:4px;padding-right:28px"></b>' +
+    '<span></span>' +
+    '<button type="button" aria-label="关闭介绍" style="position:absolute;top:8px;right:8px;' +
+    'width:32px;height:32px;border:none;background:transparent;color:#8a7a5f;font-size:16px;' +
+    'line-height:1;pointer-events:auto;cursor:pointer">✕</button>';
+  _el.querySelector('button').addEventListener('click', (e) => {
+    /* 移动端收口（2026-11-22 #3A）：桌面有 Esc，手机没有 —— 卡片此前只能走开消。
+       容器保持 pointer-events:none，只有按钮自身 auto不吞行走手势。
+       visited 已记 ⇒ 同一圈内不再重弹。 */
+    e.stopPropagation();
+    if (_dismiss) _dismiss();
+  });
   document.body.appendChild(_el);
   return _el;
 }
@@ -97,6 +108,7 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
     if (!_el || _el.hidden) return;
     _el.hidden = true; _el.style.opacity = '0';
   }
+  _dismiss = hide;
 
   let _probeWait = 0;
   /* 每帧由走模式 tick 调（walk.update 之后）—— 未激活或表没建好直接回。 */

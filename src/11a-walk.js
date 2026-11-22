@@ -6,6 +6,31 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   const down = new THREE.Vector3(0,-1,0);
   const state = { active:false, blocked:0, steps:0 };
   let saved, yaw = 0, pitch = 0, feet = 0, drag = false;
+  /* 触屏行走（2026-11-22 · 移动端收口 #3B）：手机没有键盘+右键，走模式是死的。
+     左半屏相对摇杆走（touchF/R ∈ [-1,1]，update() 里与键盘叠加走同一套 move 碰撞），
+     右半屏滑动转头。pointerId 双指并发：走与看各跟各的手指。 */
+  let touchF = 0, touchR = 0, moveId = null, lookId = null;
+  let moveAX = 0, moveAY = 0, lookX = 0, lookY = 0;
+  const TOUCH_UI = (() => { try {
+    return matchMedia('(hover: none)').matches || 'ontouchstart' in window;
+  } catch { return false; } })();
+  let joyBase = null, joyKnob = null;   // 浮动摇杆：按住左半屏才出现跟手指走
+  function ensureJoy(){
+    if (joyBase) return;
+    joyBase = document.createElement('div');
+    joyBase.id = 'walk-joy'; joyBase.hidden = true;
+    joyBase.style.cssText = 'position:fixed;width:120px;height:120px;border-radius:50%;' +
+      'border:2px solid #fffbeeb0;background:#302c2518;z-index:13;pointer-events:none';
+    joyKnob = document.createElement('div');
+    joyKnob.style.cssText = 'position:absolute;left:34px;top:34px;width:52px;height:52px;' +
+      'border-radius:50%;background:#fffbeed0;box-shadow:0 2px 8px rgba(0,0,0,.3)';
+    joyBase.appendChild(joyKnob);
+    document.body.appendChild(joyBase);
+  }
+  function joyHide(){
+    touchF = 0; touchR = 0; moveId = null;
+    if (joyBase){ joyBase.hidden = true; }
+  }
   const button = document.querySelector('[data-act="walk"]');
   const hint = document.createElement('div');
   hint.id = 'walk-help'; hint.hidden = true;
@@ -68,7 +93,7 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   }
   function end() {
     if(!state.active)return;
-    state.active=false; keys.clear();drag=false;hint.hidden=true;
+    state.active=false; keys.clear();drag=false;joyHide();lookId=null;hint.hidden=true;
     camera.position.copy(saved.p);camera.quaternion.copy(saved.q);camera.near=saved.near;camera.updateProjectionMatrix();
     controls.target.copy(saved.target);controls.enabled=saved.enabled;
     button?.setAttribute('aria-pressed','false');
@@ -81,13 +106,15 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     // South courtyard, outside pond and clear of the moon gate pillars.
     feet=groundHeight(0,26); const sampled=floor(0,26,feet+0.3);if(sampled!==null)feet=sampled;
     camera.position.set(0,feet+1.65,26);camera.near=0.08;camera.updateProjectionMatrix();yaw=0;pitch=0;
+    if (TOUCH_UI) hint.textContent = '左半屏拖动行走 · 右半屏拖动转头 · 点"步行"按钮退出';
+    else hint.textContent = 'WASD / 方向键行走 · 按住鼠标右键转头 · Esc 返回';
     state.active=true;hint.hidden=false;button?.setAttribute('aria-pressed','true');
     update(0);
   }
   function update(dt) {
     if(!state.active)return;
-    const forward=Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'));
-    const right=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'));
+    const forward=Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'))+touchF;
+    const right=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'))+touchR;
     const len=Math.hypot(forward,right)||1, distance=Math.min(dt,0.1)*2.2/len;
     const dx=(right*Math.cos(yaw)-forward*Math.sin(yaw))*distance;
     const dz=(-right*Math.sin(yaw)-forward*Math.cos(yaw))*distance;
@@ -104,11 +131,51 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     }
   },true);
   addEventListener('keyup',e=>keys.delete(e.code));
-  addEventListener('blur',()=>{keys.clear();drag=false;});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){keys.clear();drag=false;}});
+  addEventListener('blur',()=>{keys.clear();drag=false;joyHide();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){keys.clear();drag=false;joyHide();}});
   canvas.addEventListener('pointerdown',e=>{if(state.active&&e.button===2){drag=true;canvas.setPointerCapture(e.pointerId);e.preventDefault();e.stopImmediatePropagation();}},true);
   canvas.addEventListener('pointermove',e=>{if(state.active&&drag){yaw-=e.movementX*0.003;pitch=THREE.MathUtils.clamp(pitch-e.movementY*0.003,-1.35,1.35);}},true);
+  /* 触屏双区（#3B）：左半屏走、右半屏看。pointerType 判 touch ⇒ 鼠标行为一字不动。
+     OrbitControls 在 controls.enabled=false 时直接 return ⇒ 不会抢手势。 */
+  canvas.addEventListener('pointerdown',e=>{
+    if(!state.active || e.pointerType!=='touch')return;
+    if(e.clientX < innerWidth*0.45 && moveId===null){
+      moveId=e.pointerId;moveAX=e.clientX;moveAY=e.clientY;
+      ensureJoy();
+      joyBase.style.left=(e.clientX-60)+'px';joyBase.style.top=(e.clientY-60)+'px';
+      joyBase.hidden=false;joyKnob.style.transform='translate(0px,0px)';
+      try{canvas.setPointerCapture(e.pointerId);}catch{}
+      e.preventDefault();e.stopImmediatePropagation();
+    } else if (lookId===null){
+      lookId=e.pointerId;lookX=e.clientX;lookY=e.clientY;
+      try{canvas.setPointerCapture(e.pointerId);}catch{}
+      e.preventDefault();e.stopImmediatePropagation();
+    }
+  },true);
+  canvas.addEventListener('pointermove',e=>{
+    if(!state.active || e.pointerType!=='touch')return;
+    if(e.pointerId===moveId){
+      let dx=(e.clientX-moveAX)/48, dy=(e.clientY-moveAY)/48;
+      const l=Math.hypot(dx,dy);
+      if(l>1){dx/=l;dy/=l;}
+      touchR=dx;touchF=-dy;   // 上推=前进
+      joyKnob.style.transform=`translate(${dx*30}px,${dy*30}px)`;
+      e.preventDefault();e.stopImmediatePropagation();
+    } else if(e.pointerId===lookId){
+      yaw-=(e.clientX-lookX)*0.0042;lookX=e.clientX;
+      pitch=THREE.MathUtils.clamp(pitch-(e.clientY-lookY)*0.0042,-1.35,1.35);lookY=e.clientY;
+      e.preventDefault();e.stopImmediatePropagation();
+    }
+  },true);
+  const touchEnd=e=>{
+    if(e.pointerId===moveId)joyHide();
+    if(e.pointerId===lookId)lookId=null;
+  };
+  canvas.addEventListener('pointerup',touchEnd,true);
+  canvas.addEventListener('pointercancel',touchEnd,true);
   addEventListener('pointerup',()=>{drag=false;});
   canvas.addEventListener('contextmenu',e=>{if(state.active)e.preventDefault();});
-  return { state,start,end,update,move, floor };
+  /* setTouch：测试钩子（无头门禁用，无需真触屏即可验证行走数学）+ 预留外部摇杆。 */
+  function setTouch(f,r){touchF=f;touchR=r;}
+  return { state,start,end,update,move, floor, setTouch };
 }
