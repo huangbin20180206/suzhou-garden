@@ -5,7 +5,7 @@ import { createVista } from './11b-vista.js';
 import { groundHeight as walkGroundHeight, insidePond as walkInsidePond } from './05-water.js';
 import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
-import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState } from './10-post.js';
+import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
@@ -58,6 +58,24 @@ const timer = new THREE.Timer();
 timer.connect(document);
 const statsEl = document.getElementById('stats');
 let acc = 0, frames = 0, fps = 0, sndAcc = 0;
+
+/* ── 云影扫地的 JS 端噪声（2026-11-22 · 美术批次 #11）───────────────────────
+   公式逐字复刻 02-scene 天空云的 hash21 / vnoise / fbm（GLSL→JS 手转），
+   保证"天上的云"与"地上的影"同源：参数一致 ⇒ 云动影随。 */
+function _hash21(x, y){ const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123; return s - Math.floor(s); }
+function _vnoise(x, y){
+  const ix = Math.floor(x), iy = Math.floor(y), fx = x - ix, fy = y - iy;
+  const ux = fx * fx * (3 - 2 * fx), uy = fy * fy * (3 - 2 * fy);
+  return (_hash21(ix, iy) * (1 - ux) + _hash21(ix + 1, iy) * ux) * (1 - uy)
+       + (_hash21(ix, iy + 1) * (1 - ux) + _hash21(ix + 1, iy + 1) * ux) * uy;
+}
+function _fbmCloud(x, y){
+  let v = 0, a = 0.5, px = x, py = y;
+  for (let i = 0; i < 5; i++){ v += a * _vnoise(px, py); px *= 2.03; py *= 2.03; a *= 0.5; }
+  return v;
+}
+function _smooth01(t){ t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); }
+
 /* 锦鲤"两遍走"的暂存（2026-10-27 复核 C1）：数组本体模块级复用，
    元素对象挂在每条鱼的 userData（d.base / d.peer）上持久复用 —— 每帧零新建。 */
 const _koiBases = [], _koiPeers = [];
@@ -1330,6 +1348,36 @@ function frameWork(){
      放在这一行（而不是雾团那个 if 块里）是因为**雾团那段在条件分支里**（低档位不进），
      烟不该跟着一起消失。 */
   CENSER_SMOKE.uTime.value = windClock;
+  /* ── 云影扫地（2026-11-22 · 美术批次 #11）─────────────────────────────────
+     天上的云在动、地面光照却恒定 ⇒ 画面"假得很安静"。这里按与天空云**同源的
+     value-noise FBM**（公式逐字复刻 02-scene 的 hash21/vnoise/fbm），用
+     『园心投影平面 + windClock』采样出一个全局遮蔽度，写进 grade 的 uCloudShade。
+     同钟同源 ⇒ 云在天上走、影在地上扫，视觉同步（云那么高，无人能逐像素对齐，
+     全屏近似在 ~80m 俯视视野下成立：一朵云影直径就是几十米）。
+     门控：cloudAmount（云量 0=晴朗无云无影）×（1-diskFade）（阴/雨/雪
+     diskFade≥0.85 本来就"云盖全天"，恒暗不需要再扫）× 白天度（夜里
+     starAmount 高 ⇒ 无日头可挡）。幅度封顶 0.18：云影是"太阳被挡一块"，
+     不是乌云压城（那是 storm 天气自己的活）。每帧 JS 一次 FBM（5 octave ×
+     4 hash ≈ 20 次 sin），摊到帧预算可忽略。 */
+  {
+    const cl = ENV.cur;
+    const gate = (cl.cloudAmount || 0) * (1 - (cl.diskFade || 0)) * (1 - Math.min(1, (cl.starAmount || 0) * 1.4));
+    let shade = 0;
+    if (gate > 0.03){
+      /* 噪声公式与天空云同源（hash21/vnoise/fbm 同式），但**时间速率不同**：
+         天空云 0.0035 是几百米天幕平面的"缓慢漂移"；云影要"扫过园子"必须在
+         园尺度上进出 —— 0.05 ⇒ 噪声场 ~2 分钟扫过一轮，正午看 30s 内必有
+         明暗一涨一落。首轮实测教训：照抄 0.0035 时固定采样点 47s 恒 0.001，
+         云影"存在但不动"，读不出来。 */
+      const cx = 0.52 + windClock * 0.05, cz = 0.9 + windClock * 0.027;
+      const f1 = _fbmCloud(cx * 1.55, cz * 1.55), f2 = _fbmCloud(cx * 4.10 + 7.3, cz * 4.10 + 7.3);
+      const cloud = f1 * 0.74 + f2 * 0.36;
+      /* smoothstep(0.50,0.88) 与天空云同一形状函数：FBM 过 0.5 才算云、
+         0.88 满云。取'过均值'的软段 ⇒ 有云时 shade 在 0~0.18 间缓移。 */
+      shade = _smooth01((cloud - 0.50) / 0.38) * 0.18 * gate;
+    }
+    gradePass.uniforms.uCloudShade.value = shade;
+  }
   const _heavyPrecip = (ENV.cur.rainAmount || 0) > 0.5 || (ENV.cur.snowAmount || 0) > 0.5;
   CENSER_SMOKE.uAlpha.value = _heavyPrecip ? 0.22 : 0.40;
   // 彩虹独立层同钟（第七轮搬出天空球，呼吸的相位要跟天空动画一致）

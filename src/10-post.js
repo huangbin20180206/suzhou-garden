@@ -320,6 +320,11 @@ const GradeShader = {
        与这两个名字不重叠。 */
     uSoften:{ value:0.0 },
     uTexel:{ value:new THREE.Vector2(1 / Math.max(1, innerWidth), 1 / Math.max(1, innerHeight)) },
+    /* 云影扫地（2026-11-22 · 美术批次 #11）：uCloudShade>0 时全屏乘一个软暗。
+       由 11-loop 每帧按『园心世界 XZ + windClock』跑与天空同源的 value-noise FBM 算出
+       全局遮蔽度（一朵云影几十米 ≈ 全园视野，全屏近似成立），写进本 uniform。
+       阴/雨/雪（diskFade≥0.85）写 0 —— 本来就没太阳，无影可扫。 */
+    uCloudShade:{ value:0.0 },
   },
   vertexShader:`varying vec2 vUv; void main(){ vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position,1.0); }`,
   fragmentShader:`
@@ -327,6 +332,7 @@ const GradeShader = {
     uniform float uContrast, uSaturation, uSplit, uVignette, uVigSize, uSoften;
     uniform vec3 uWarmHi, uCoolLo;
     uniform vec2 uTexel;
+    uniform float uCloudShade;
     varying vec2 vUv;
     void main(){
       vec4 src = texture2D(tDiffuse, vUv);
@@ -346,6 +352,11 @@ const GradeShader = {
         src.rgb = mix(src.rgb, acc * (1.0 / 6.0), uSoften);
       }
       vec3 c = src.rgb;
+
+      /* ── 云影扫地（美术批次 #11）────────────────────────────────────────
+         uCloudShade==0（绝大多数帧与全部探针）整段不进 ⇒ 逐位一致。
+         有云影时全屏乘软暗——放在对比之前，暗部不会被 S 曲线再压。 */
+      if (uCloudShade > 0.0) c *= 1.0 - uCloudShade;
 
       // ① 对比：以 0.5 为轴的 S 曲线
       vec3 cc = clamp(c, 0.0, 1.0);
