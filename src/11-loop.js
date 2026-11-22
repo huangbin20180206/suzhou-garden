@@ -196,6 +196,8 @@ const BIRD_SPECIES = [
 ];
 const Snd = (()=>{
   let ctx = null, master = null, rainG = null, windG = null, lapG = null;
+  let _stepNoiseBuf = null;          // 脚步声专用噪声（批次 #17，ensure() 里建）
+  let footstepCount = 0;             // 门禁可读：实际触发过多少次
   let cricketCarrier = null, cricketMod = null, cricketG = null;
   let cicadaG = null, frogG = null;
   let on = false, birdNext = 0, frogNext = 0, drumNext = 0, vol = 1;
@@ -208,6 +210,17 @@ const Snd = (()=>{
     const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
     const d = buf.getChannelData(0);
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    /* 脚步专用噪声（批次 #17）：120ms 短噪 + 尾部指数衰减 —— 单次脚步是一记
+       "爆"，不是循环噪声。用独立 buffer，免去每步对 2s 长 buffer 的切片。 */
+    {
+      const n = Math.round(ctx.sampleRate * 0.12);
+      _stepNoiseBuf = ctx.createBuffer(1, n, ctx.sampleRate);
+      const sd = _stepNoiseBuf.getChannelData(0);
+      for (let i = 0; i < n; i++){
+        const t = i / n;
+        sd[i] = (Math.random() * 2 - 1) * Math.pow(1 - t, 3.2);   // 指数包络：起音即峰值
+      }
+    }
     const mkNoise = (rate, type, freq, q)=>{
       const src = ctx.createBufferSource();
       src.buffer = buf; src.loop = true; src.playbackRate.value = rate;
@@ -355,6 +368,66 @@ const Snd = (()=>{
     o.connect(g); g.connect(master);
     o.start(t0); o.stop(t0 + 0.2);
   }
+  /* ── 脚步声（2026-11-22 · 美术批次 #17）───────────────────────────────
+     走模式是第一人称、却是**无声**的：画面在走、耳朵告诉你在飘。
+     合成方案：短噪声爆（40~70ms）+ 带通滤波按地面材质换音色 ——
+       · 石板步道（makePaving 那块 20×2.6 @ z=-7.9）：2.4kHz 窄带、衰减快 = "嗒"
+       · 其它（草地）：700Hz 宽带、衰减慢 = "沙"
+     触发由 WALK.state.steps 驱动（每步 +1，每 2 步响一次 = 左右脚），
+     音量随步行速度与胜在音景总线上 —— 音景关了就自然没有。
+     ⚠️ 不新增节点常驻：每次触发瞬时建 Source+Filter+Gain，播完自动 GC
+     （脚步声低频、几十毫秒，建节点的开销远小于常驻 6 个 filter 的 ALU）。 */
+  let _lastFootStep = -1;
+  function footstep(onStone){
+    const t0 = ctx.currentTime + 0.01;
+    const dur = onStone ? 0.05 : 0.085;
+    const src = ctx.createBufferSource();
+    src.buffer = _stepNoiseBuf;
+    src.playbackRate.value = onStone ? 1.0 : 0.72;      // 草地：慢放 = 更闷更散
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = onStone ? 2400 : 700;
+    bp.Q.value = onStone ? 1.8 : 0.7;                   // 石板窄（清脆），草地宽（松软）
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(onStone ? 0.055 : 0.042, t0 + 0.008);
+    g.gain.exponentialRampToValueAtTime(0.0006, t0 + dur);
+    src.connect(bp); bp.connect(g); g.connect(master);
+    src.start(t0); src.stop(t0 + dur + 0.02);
+    footstepCount++;
+  }
+  /* 步态推进：由 11-loop 每帧调（walk 激活且音景开时才动）。
+     steps 是**单调累加**的移动步数（11a 的 state.steps），取整后每 2 步触发。 */
+  function tickFootsteps(steps, x, z, active){
+    if (!on || !ctx || ctx.state !== 'running' || !active) { _lastFootStep = -1; return; }
+    const pair = Math.floor(steps / 2);
+    if (pair === _lastFootStep) return;
+    _lastFootStep = pair;
+    /* 主步道 20×2.6 @ (0,-7.9) ⇒ 半宽 10 / 深 1.3 */
+    const onStone = Math.abs(x) < 10 && Math.abs(z + 7.9) < 1.3;
+    footstep(onStone);
+  }
+  /* ── 池距声场（2026-11-22 · 美术批次 #18）──────────────────────────────
+     音景此前是"全园同响"：站在南墙根和站在池边，水声一模一样 —— 第一人称里
+     这是最出戏的一处。真实园林里水声是**跟着人走**的：近池则水声起，离开就退。
+     做法：不走 PannerNode（那要给每个声源建 3D 节点、还要 HRTF，成本高），
+     而是给 lap 层一个**距离增益**（走模式里按到池心距离调制，非走模式恒 1）：
+       池心 (0, 3.0)、池半轴 15.7×9.4 ⇒ 归一化池距 u = hypot(x/15.7, (z-3)/9.4)
+       u<1 池内：1.9（水就在脚边）→ u=2.2 池外衰减到 0.55（园深处仍有底噪）
+     平滑跟（τ=0.6s），避免走动时音量阶梯感。
+     ⚠️ 只调 lap 一层：雨/风/虫是"环境"，不随位置变（它们本就弥漫全园）。 */
+  let _lapDistGain = 1;
+  function tickPondProximity(x, z, active, dt){
+    if (!ctx) return;
+    let target = 1;
+    if (active){
+      const u = Math.hypot(x / 15.7, (z - 3.0) / 9.4);
+      target = u < 1 ? 1.9 : Math.max(0.55, 1.9 - (u - 1) * 1.13);
+    }
+    _lapDistGain += (target - _lapDistGain) * Math.min(1, dt * 1.7);
+    if (lapG) lapG.gain.setTargetAtTime((plan(ENV.cur).lap) * _lapDistGain, ctx.currentTime, 0.25);
+  }
+  function pondProximity(){ return +_lapDistGain.toFixed(3); }
   function tick(p){
     if (!on || !ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
@@ -365,7 +438,7 @@ const Snd = (()=>{
     cicadaG.gain.setTargetAtTime(q.cicada, now, 0.8);
     /* 蛙声是脉冲串：这里只给闸门电平（0 / 满），节奏由下面的调度器拍板 */
     frogG.gain.setTargetAtTime(q.frog > 0 ? 1 : 0, now, 0.4);
-    lapG.gain.setTargetAtTime(q.lap, now, 0.8);   // 水声（批次 #12）：与雨同源慢跟
+    lapG.gain.setTargetAtTime(q.lap * _lapDistGain, now, 0.8);   // 水声（#12）× 池距增益（#18）
     if (q.bird > 0 && performance.now() > birdNext){
       chirp();
       birdNext = performance.now() + 4000 + Math.random() * 9000;
@@ -438,7 +511,7 @@ const Snd = (()=>{
     return n;
   }
   return {
-    toggle, tick, plan, setVolume, thunder, playThunder,
+    toggle, tick, plan, setVolume, thunder, playThunder, tickFootsteps, tickPondProximity,
     get on(){ return on; },
     get volume(){ return vol; },
     /* 门禁读真实节点电平用（判"接上了"，不判音色） */
@@ -452,6 +525,8 @@ const Snd = (()=>{
       lap:    lapG     ? +lapG.gain.value.toFixed(5)     : 0,
     }),
     ctxState: () => (ctx ? ctx.state : 'none'),
+    footsteps: () => footstepCount,
+    pondProximity,
     species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
   };
 })();
@@ -496,6 +571,7 @@ HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.postcardSeasons = takeSeasonsPostcard;
 HOOKS.postcardSeasonsData = seasonsPostcardData;
 HOOKS.sound = toggleSound;
+HOOKS.footsteps = () => Snd.footsteps();   // 门禁读：脚步声实际触发次数（批次 #17）
 HOOKS.soundState = () => Snd.on;
 /* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
 HOOKS.blind = toggleBlinds;
@@ -1802,6 +1878,11 @@ function frameWork(){
   /* 音景每 0.25 秒跟一次环境值（setTargetAtTime 自己会平滑，不需要每帧） */
   sndAcc += dt;
   if (sndAcc >= 0.25){ sndAcc = 0; Snd.tick(ENV.cur); }
+  /* 脚步声（批次 #17）：走模式里按实际步数触发 —— 每帧都调（不能放进
+     0.25s 的音景节流里，否则步频被量化成 4Hz 的上限，快步时会丢步）。
+     Snd 内部自带 on/ctx 守卫，音景没开就是空转一行判据。 */
+  Snd.tickFootsteps(WALK.state.steps, camera.position.x, camera.position.z, WALK.state.active);
+  Snd.tickPondProximity(camera.position.x, camera.position.z, WALK.state.active, dt);
 
   /* 统计（每 0.5 秒刷新一次，避免频繁写 DOM）
      ⚠️ 必须用 rawDt：用被钳到 50ms 的 dt 记账，真实 10fps 会被显示成 20fps ——
@@ -2305,6 +2386,8 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                      和**真实节点电平**（判"接上了"）。只给 sndState 一个布尔值守不住
                      "该响的时候没响"这类全静默失效。 */
                   sndPlan: (p) => Snd.plan(p || ENV.cur), sndLevels: () => Snd.levels(),
+                  sndFootsteps: () => Snd.footsteps(),
+                  sndPondProximity: () => Snd.pondProximity(),
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),
                   sndVolume: () => Snd.volume, sndSetVolume: (v) => Snd.setVolume(v),
                   /* 首次引导（2026-09-19）：门禁要能读步序、翻页、收起，并验"非模态 + 首次交互即消失" */
