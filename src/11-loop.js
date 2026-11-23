@@ -7,7 +7,7 @@ import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PR
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 /* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
 import { worldLights } from './12d-lantern.js';
@@ -1670,6 +1670,7 @@ function frameWork(){
   tickFestival(t);                       // 上元灯会：河灯随波漂移（非灯会态零成本直接 return）
   updatePrecip(dt, t);
   updatePostRain(dt, t);                 // 雨后痕迹：屋檐滴水 + 积水（雨还在下时零成本 return）
+  updateAmbient(dt, t);                  // 环境小品：夜萤火虫 + 飘落花瓣/秋叶（门禁不满足时各自早退）
 
   /* 蜻蜓：游弋航迹 + 高频振翅。
      ⚠️ 季节/天气把它藏起来时（dragonflyShow=0：冬季、暴雨、风雪）不必再算航迹 —— 原来照算不误。 */
@@ -2273,7 +2274,7 @@ warmBoot().then(startAfterWarm, (err) => {
    GARDEN_DEBUG 分流（生产环境只挂只读快照）。不要在这里直接 window.__garden = ... */
 const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV, setEnv, applyEnv,
                   MAT,   // 材质表：门禁要按材质身份断言（如冬季紫藤花穗 count=0），别让探针靠启发式猜
-                  WIND, PRECIP, weatherAllowed, effectiveWeather, weatherMutexReason, resetCamera,
+                  WIND, PRECIP, AMBIENT, weatherAllowed, effectiveWeather, weatherMutexReason, resetCamera,
                   /* T0：装配完成信号（2026-09-23）。⚠️ bootDone 是 08-assemble 的 `let` 活绑定，
                      必须用 getter 函数读 —— 直接写 `bootDone` 会在建这个对象时把 false 定格，
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */

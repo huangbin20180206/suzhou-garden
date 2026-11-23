@@ -42,6 +42,8 @@ export { makeLanterns, tickLampVol, lampVolState, setLampVol, lanternGroups, has
 import { bindPrecipEnv, PRECIP, updatePrecip, POSTRAIN, updatePostRain,
          LOTUS_DROPS, bindLotusDrops, bindDropRipple } from './12e-precip.js';
 export { PRECIP, updatePrecip, POSTRAIN, updatePostRain, LOTUS_DROPS, bindLotusDrops, bindDropRipple };
+import { bindAmbientEnv, AMBIENT, updateAmbient } from './12i-ambient.js';
+export { AMBIENT, updateAmbient };
 /* 2026-10-05 拆分：环境三轴预设 + 合成规则已搬进 12a-presets.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, composeEnv, resolveEnv, mixInto,
          baseParamsAt, timeKeyNow, syncTimeAnchors, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
@@ -611,6 +613,9 @@ bindFestival(ENV, { syncEnvUI, resolveEnv, cloneParams, willowLeafInsts, worldLi
    没注入那边读 null 立刻崩 —— 本轮第一版正是漏了这行，靠它立刻炸出来
    （`Cannot read properties of null (reading 'cur') at updatePrecip`），比无声故障好查得多。 */
 bindPrecipEnv(ENV);
+
+/* 环境小品（2026-11-23）：萤火虫读夜色/季节/雨雪、花瓣读花期 —— 同上，注入状态机 ENV 本体 */
+bindAmbientEnv(ENV);
 
 /* 拆分（2026-10-05）：把环境状态机注入 12f-season（onAssetAttached 要按 ENV.cur 重刷一次季节）。
    与其它注入一样不做兜底：没注入那边读 null 立刻崩，好过静默不换季。 */
