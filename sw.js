@@ -122,7 +122,10 @@
    SHELL 新增 './src/main.js' —— SHELL 清单变了 ⇒ 升 CACHE 让已装 SW 按新清单重装应用壳。
    入口进预缓存：离线时 index.html 拿得到、入口也拿得到（其余 src/*.js 仍走运行期缓存，口径不变，
    见 probe/pwa-cache.mjs 的"在线预热"注释）。ASSET_CACHE 不升：本批没有模型文件变化。 */
-const CACHE = 'suzhou-garden-v45';
+/* 2026-11-24 bump v45→v46（第 4 批 · 交互体验）：改了 SHELL 成员 index.html（留影行末尾加「复制链接」按钮）
+   与 src/main.js 所在的模块图（新增 src/00c-ux.js / src/11c-ux.js，属运行期缓存、不进 SHELL）。
+   按"改了预缓存文件或新增文件就升 CACHE"的规矩整桶换壳；ASSET_CACHE 不升：本批没有任何模型文件变化。 */
+const CACHE = 'suzhou-garden-v46';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */

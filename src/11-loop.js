@@ -2,6 +2,7 @@
 import { THREE } from '../vendor.js';
 import { createWalk } from './11a-walk.js';
 import { createVista } from './11b-vista.js';
+import { initUx, copyShareLink, shareUrl, applySharedView } from './11c-ux.js';
 import { groundHeight as walkGroundHeight, insidePond as walkInsidePond } from './05-water.js';
 import { nearestOnEllipse, spatialPan } from './00c-spatial.js';
 import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
@@ -681,7 +682,9 @@ HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.postcardSeasons = takeSeasonsPostcard;
 HOOKS.postcardSeasonsData = seasonsPostcardData;
-HOOKS.sound = toggleSound;
+/* 音景开关落盘（第 4 批，11c-ux）：按钮 / M 键 / 选暴雨自动开 全走 HOOKS.sound ⇒ 只在这一处记。
+   UX 在下面 initUx 才建 —— 这里是点击时才调的闭包，不撞 TDZ。 */
+HOOKS.sound = () => { const on = toggleSound(); UX?.saveSound(); return on; };
 HOOKS.footsteps = () => Snd.footsteps();   // 门禁读：脚步声实际触发次数（批次 #17）
 HOOKS.soundState = () => Snd.on;
 /* 竹帘卷起/放下（2026-10-05）：按钮与 C 键都走这里，状态由 14-props 自己维护 */
@@ -1113,7 +1116,9 @@ const QOS = (()=>{
              probeDriven:PROBE_DRIVEN, immune:QOS_IMMUNE };
   }
   /* QOS 改档后通知 AA 归零：否则 AA 停在高档而 QOS 刚降档，两者叠加会直接卡死。 */
-  function setMode(mode){
+  /* opts.persist（第 4 批）：默认 true = 旧行为（用户点画质按钮要记住）；省电降档传 false ——
+     低电量是一时的，不能把"省电"落盘让下次开园也卡在低档。档位表一个没加，复用的就是这个入口。 */
+  function setMode(mode, opts = {}){
     const m = ['auto','high','balanced','performance'].includes(mode) ? mode : 'auto';
     st.mode = m;
     st.locked = m !== 'auto';
@@ -1123,7 +1128,7 @@ const QOS = (()=>{
     else if (m === 'balanced') apply(Math.min(1, LEVELS.length - 1));
     else if (m === 'performance') apply(LEVELS.length - 1);
     else apply(st.level);
-    if (!GPU_TIER_FORCED){
+    if (!GPU_TIER_FORCED && opts.persist !== false){
       try { localStorage.setItem('garden.quality.v1', m); } catch {}
     }
     syncQualityButtons();
@@ -1170,6 +1175,12 @@ const QOS = (()=>{
 })();
 HOOKS.setQuality = QOS.setMode;
 HOOKS.qualityState = QOS.state;
+/* 第 4 批交互体验接线（11c-ux）：音景偏好 / 省电降档 / 首访小红点 / 分享链接。放在 QOS 之后 ——
+   省电降档要调 QOS.setMode。Snd 在更前面（音景段）已建好。 */
+const UX = initUx({ Snd, QOS });
+HOOKS.shareLink = () => copyShareLink(!!WALK.state.active);
+HOOKS.shareUrl = () => shareUrl(!!WALK.state.active);   // 门禁 / 控制台读：当前景色的分享链接
+HOOKS.applySharedView = applySharedView;               // 门禁 / 控制台：按 hash 字符串恢复
 
 /* ── 静止帧渐进超采样（2026-09-26）────────────────────────────────────────
    目标：把"1.5× SSAA 的干净边缘"和"1.25× 的流畅度"两者兼得 ——
@@ -2363,7 +2374,9 @@ function startAfterWarm(){
           requestAnimationFrame(()=>{
             document.getElementById('loading').classList.add('done');
             /* 开场运镜：loading 层淡出的 0.7s 正好遮住起幅跳切。探针/减弱动效默认不播（?intro=1 强制）。 */
-            introMaybeAuto();
+            /* 第 4 批：带分享 hash 打开 ⇒ 先按链接落景（环境走 applyState、机位直接就位），
+               用上了就不再放开场运镜 —— 收链接的人要看的是"那一幅画"，不是开场飞行。 */
+            if (!applySharedView(location.hash)) introMaybeAuto();
             /* 首次引导：首帧之后才弹（早于此时画布还是白的，教人转视角没有意义）。
                ⚠️ 探针每次都是全新的 localStorage → 引导**一定会**出现。它非模态且首次交互即消失，
                  所以不会挡住任何门禁的点击。 */

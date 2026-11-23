@@ -943,6 +943,11 @@
            宽屏对照门报红「1/7 行换行」）。留影行只有 4 按钮 + 1 滑杆，实测 1440 下挪入后
            两行都是 27~28px 不换行。语义也说得通：步行是"把自己放进园子里"的留影前置动作。 -->
       <button data-act="walk" aria-label="自由行走" aria-pressed="false" title="WASD或方向键移动，右键转头，Esc返回">步行</button>
+      <!-- 「复制链接」（2026-11-24 · 第 4 批）：把季节 / 时辰 / 天气 / 机位编进 #hash，打开即同一幅景
+           （编解码在 src/00c-ux.js，接线在 src/11c-ux.js）。放在本行**末尾**：前面各按钮的位置一位不动；
+           本行在 1440 宽屏下远短于导览行（面板宽由导览行撑），加一枚不会换行。不给 data-ic 图标 ——
+           同「步行」，panel-icons-guard 只验带图标的按钮。 -->
+      <button data-act="share" aria-label="复制当前景色链接" title="复制链接：季节、时辰、天气与机位都在里面，打开即同一幅景">复制链接</button>
       <span class="hint">P / M</span>
     </div>
   </div>

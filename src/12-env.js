@@ -1087,6 +1087,8 @@ envEl.addEventListener('click', (e)=>{
   if (b.dataset.quality){ HOOKS.setQuality?.(b.dataset.quality); return; }
   /* 动作按钮（明信片/音景）没有 data-axis，先于环境轴处理，避免落进 setEnv 的非法告警 */
   if (b.dataset.act === 'walk'){ HOOKS.walk?.(); return; }
+  /* 复制链接（第 4 批）：排在"导览类按钮先退步行"之前 —— 步行中复制的就是步行视角，不该被这一下踢出步行 */
+  if (b.dataset.act === 'share'){ HOOKS.shareLink?.(); return; }
   if (b.dataset.view || ['tour','season-demo','random'].includes(b.dataset.act)) HOOKS.walkExit?.();
   if (b.dataset.act === 'shot'){ HOOKS.postcard?.(); return; }
   if (b.dataset.act === 'long'){ HOOKS.longExposure?.(); return; }
