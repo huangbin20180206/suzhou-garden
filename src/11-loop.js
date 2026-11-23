@@ -8,7 +8,8 @@ import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PR
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT, fxGates } from './12-env.js';
+import { natureGates, soundPlan, footstepVoice, koiBreachRate } from './12a-presets.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT, fxGates, tickLinger, surfaceState, setAftermathApi } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 /* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
 import { worldLights } from './12d-lantern.js';
@@ -300,39 +301,12 @@ const Snd = (()=>{
     return true;
   }
   /* 纯函数：环境参数 → 各层目标音量。门禁靠它断言"哪一层该响"。 */
+  /* 2026-11-24（批次 2 · A）：判据搬进 12a soundPlan（纯函数，node 单测直接断言季节 × 天气 × 时段互斥表）。
+     这里只把风场 uniform 折算成 wind01 传过去 —— 原式 uWindGlobal×0.5 + uWindStrength×0.35 逐字未改。
+     原各层注释（水声 #12 / 叶鼓 #13 / 风铃 #21 / 鸣虫"安静"判据）随判据一起搬到 12a。 */
   function plan(p){
-    const rain = p.rainAmount || 0;
-    const windMul = p.windMul || 1;
-    const wind = Math.min(1, Math.max(0, (windMul - 1) * 0.30)
-                        + WIND.uWindGlobal.value * 0.5 + WIND.uWindStrength.value * 0.35);
-    /* "安静" = 没下雨、没大风。鸣虫在雨里和大风里都不叫 —— 这是真的生物学，
-       也是听感上的必需：暴雨里再叠虫鸣，整段音景会糊成一片噪声。 */
-    const quiet = rain < 0.15 && windMul < 2.2;
-    const time = ENV.time, season = ENV.season;
-    const night = time === 'night';
-    const dayLight = time === 'morning' || time === 'noon' || time === 'dusk';
-    return {
-      wind:    0.015 + wind * 0.085,
-      rain:    rain * 0.14,
-      /* 水声（批次 #12）：底 0.004（平静池面近耳的微响）+ 风推水（wind 0~1 ⇒ +0.014）。
-        ⚠️ 与雨分层不冲突：暴雨里 lap 只占雨声的 1/10，被自然掩蔽——物理也对，
-        暴雨的水声本来就是雨声本身的一部分。 */
-      lap:     0.004 + wind * 0.014,
-      /* 叶鼓（2026-11-22 · 美术批次 #13 雨打芭蕉·音频侧）：大叶击鼓的低频扑通。
-         rain ≤ 0.12 不起（毛毛雨打不响叶子）；起后强度跟雨量（视觉侧芭蕉叶的
-         uRain 抖动同吃 rainAmount ⇒ 视音频天然联动）。plan 只给门径不断言音色。 */
-      drum:    rain > 0.12 ? rain : 0,
-      cricket: (night && quiet && season !== 'winter') ? 0.016 : 0,
-      cicada:  (season === 'summer' && dayLight && !night && quiet) ? 0.020 : 0,
-      frog:    (season === 'summer' && (night || time === 'dusk') && quiet) ? 0.030 : 0,
-      bird:    (time === 'morning' && quiet && season !== 'winter') ? 1 : 0,
-      /* 廊下风铃（2026-11-23 · 批次 #21）：与鸣虫反着来 —— 它**要风**（windMul>1.6 才起，
-         即"阵风/大风"档；微风里铃不响才是对的）。季节不忌（廊下铜铃年年挂着），但冬季
-         实际上响不了 —— 不是门限的锅：WEATHER_RULES 禁了冬季暴雨（老黄 2026-10-06 拍板），
-         冬季最大风只有雪天 1.35。plan 只给门径，节奏由 tick 的 chimeNext 拍板。 */
-      chime:   windMul > 1.6 ? Math.min(1, (windMul - 1.6) / 1.5) : 0,
-      quiet:   quiet ? 1 : 0,
-    };
+    return soundPlan(p, { time: ENV.time, season: ENV.season,
+      wind01: WIND.uWindGlobal.value * 0.5 + WIND.uWindStrength.value * 0.35 });
   }
   function chirp(){
     /* 按季节权重挑鸟种：冬天只剩山雀，春天画眉多 —— 别一年四季一个叫声 */
@@ -475,22 +449,41 @@ const Snd = (()=>{
      ⚠️ 不新增节点常驻：每次触发瞬时建 Source+Filter+Gain，播完自动 GC
      （脚步声低频、几十毫秒，建节点的开销远小于常驻 6 个 filter 的 ALU）。 */
   let _lastFootStep = -1;
+  /* 2026-11-24（批次 2 · A）：音色参数改由 12a footstepVoice(onStone, 有效湿度, 地面有效积雪) 给 ——
+     干地逐值同旧（石 2.4kHz/Q1.8/×1.0/0.055/50ms；草 700Hz/Q0.7/×0.72/0.042/85ms）；
+     雪地压低频带 / 慢放 / 收音量 = 闷；积水地另叠一记 3.2kHz 高通短噪 = 带水声（splash 强度）。 */
+  let footSplashCount = 0;
   function footstep(onStone){
     const t0 = ctx.currentTime + 0.01;
-    const dur = onStone ? 0.05 : 0.085;
+    const sf = surfaceState();
+    const v = footstepVoice(onStone, sf.wet, sf.snowGround);
+    const dur = v.dur;
     const src = ctx.createBufferSource();
     src.buffer = _stepNoiseBuf;
-    src.playbackRate.value = onStone ? 1.0 : 0.72;      // 草地：慢放 = 更闷更散
+    src.playbackRate.value = v.rate;                    // 草地：慢放 = 更闷更散
     const bp = ctx.createBiquadFilter();
     bp.type = 'bandpass';
-    bp.frequency.value = onStone ? 2400 : 700;
-    bp.Q.value = onStone ? 1.8 : 0.7;                   // 石板窄（清脆），草地宽（松软）
+    bp.frequency.value = v.freq;
+    bp.Q.value = v.Q;                                   // 石板窄（清脆），草地宽（松软）
     const g = ctx.createGain();
     g.gain.setValueAtTime(0, t0);
-    g.gain.linearRampToValueAtTime(onStone ? 0.055 : 0.042, t0 + 0.008);
+    g.gain.linearRampToValueAtTime(v.gain, t0 + 0.008);
     g.gain.exponentialRampToValueAtTime(0.0006, t0 + dur);
     src.connect(bp); bp.connect(g); g.connect(master);
     src.start(t0); src.stop(t0 + dur + 0.02);
+    if (v.splash > 0.02){
+      /* 水声层：同一段噪声快放 + 高通，晚 12ms（脚落地后水才溅起），40ms 即收 */
+      const s2 = ctx.createBufferSource();
+      s2.buffer = _stepNoiseBuf; s2.playbackRate.value = 1.35;
+      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3200; hp.Q.value = 0.8;
+      const g2 = ctx.createGain(), t1 = t0 + 0.012;
+      g2.gain.setValueAtTime(0, t1);
+      g2.gain.linearRampToValueAtTime(0.032 * v.splash, t1 + 0.006);
+      g2.gain.exponentialRampToValueAtTime(0.0004, t1 + 0.045);
+      s2.connect(hp); hp.connect(g2); g2.connect(master);
+      s2.start(t1); s2.stop(t1 + 0.07);
+      footSplashCount++;
+    }
     footstepCount++;
   }
   /* 步态推进：由 11-loop 每帧调（walk 激活且音景开时才动）。
@@ -544,7 +537,7 @@ const Snd = (()=>{
     lapG.gain.setTargetAtTime(q.lap * _lapDistGain, now, 0.8);   // 水声（#12）× 池距增益（#18）
     if (q.bird > 0 && performance.now() > birdNext){
       chirp();
-      birdNext = performance.now() + 4000 + Math.random() * 9000;
+      birdNext = performance.now() + (4000 + Math.random() * 9000) / q.bird;   // 冬只剩山雀：bird 0.5 ⇒ 间隔 ×2（批次 2）
     }
     /* 叶鼓调度（批次 #13）：雨越大敲得越密（暴雨 ~250ms 一记、细雨 ~1s 一记），
        时值抖 ±40% —— 等间隔就是鼓机。强度进 drum(intensity) 不进闸门。 */
@@ -635,6 +628,7 @@ const Snd = (()=>{
     }),
     ctxState: () => (ctx ? ctx.state : 'none'),
     footsteps: () => footstepCount,
+    footSplashes: () => footSplashCount,   // 批次 2：积水地脚步的"带水声"层实际触发次数
     chimes: () => chimeCount,   // 门禁读：风铃实际触发次数（与 footsteps 同款事件计数）
     plops: () => plopCount,     // 门禁读：涟漪声实际触发次数（批次 #22）
     plopsByKind: () => ({ ...plopByKind }),   // 按类分别计数：全局计数会被园里的鱼跃/泳龟污染
@@ -1476,6 +1470,10 @@ function frameWork(){
     applyEnv(ENV.cur);
     renderer.shadowMap.needsUpdate = true;   // 过渡中 sunPos/存在性逐帧在动，阴影跟渲
   }
+  /* 天气余韵（2026-11-24 · 批次 2 · C）：必须在过渡块与流转**之后** —— 它们刚把 ENV.cur（预设直出）写好、
+     applyEnv 按直出值写过一遍；这里推进余韵水位并经 applySurfaces 统一重写积雪 / 湿地 / 空气含水量。
+     流转按本帧走过的游戏小时一起推进（REEL.speed × dt）。稳态（无过渡无流转）也每帧走：余韵就是稳态里在变的东西。 */
+  tickLinger(dt, REEL.on ? REEL.speed * dt : 0);
   /* 路灯烛火摇曳（2026-10-18 · 老黄："石头灯要加灯光（带随机摇曳效果）"）：
      8 盏路灯各有确定性相位（布点序号派生，不吃随机流，保证门禁复现；2026-10-19 南门口一对撤掉）。
      双层正弦（11.3/27.7 rad/s 两档抖）+ 偶发下凹（pow12 只在波峰附近开口，
@@ -1729,7 +1727,9 @@ function frameWork(){
            ⚠️ 下界 9s 保留：不能短到"鱼刚沉回去就又窜起来"（那才叫机械）。
            ⚠️ 初值 `riseAt`（06-vegetation 的 KOI_DRAW.rise = Math.random()*18 + 6）**未动**：
              它只决定开场多久起第一条鱼，与稳态频率无关。 */
-        d.riseAt = t + KOI_BREACH.floor + Math.random() * KOI_BREACH.spread;
+        /* ÷ koiBreachRate（批次 2 · A）：冬季巡游 0.42 ⇒ 跃水频率 ×0.25（冷水鱼不跃）；夏 / 春 / 秋 = 1 逐字不变。
+           Math.random() 调用次数与位置不变（全局流拓扑零漂移，同上）。 */
+        d.riseAt = t + (KOI_BREACH.floor + Math.random() * KOI_BREACH.spread) / koiBreachRate(ENV.cur);
       } else {
         lift = Math.sin(Math.PI * (e / rd)) * 0.11; // 上浮再沉回
       }
@@ -1875,8 +1875,9 @@ function frameWork(){
      镜前雨雪：强度直接跟解析后的 rainAmount / snowAmount —— 冬·狂风细雨（0.62）天然比夏雨（1.0）疏。
      风向向量传进去给雨丝倾斜用。 */
   {
-    const fireWant = ENV.season === 'summer' && ENV.time === 'night'
-      && (effW === 'clear' || effW === 'mist') ? 0.9 : 0;
+    /* 2026-11-24（批次 2 · A）：判据收进 12a natureGates —— 加上夏细雨（= 梅雨，萤火盛期，×0.55）与雨后初晴；
+       夜判据由 time==='night' 改为 starAmount 连续量（夜锚点 =1 ⇒ 门禁的"夏夜晴 0.9"不变）。 */
+    const fireWant = natureGates(ENV.cur, ENV.season, effW).fireflies;
     const fu = fireflies.material.uniforms.uOpacity;
     fu.value += (fireWant - fu.value) * Math.min(1, dt * 1.6);
     fireflies.visible = fu.value > 0.01;
@@ -2506,7 +2507,11 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                      和**真实节点电平**（判"接上了"）。只给 sndState 一个布尔值守不住
                      "该响的时候没响"这类全静默失效。 */
                   sndPlan: (p) => Snd.plan(p || ENV.cur), sndLevels: () => Snd.levels(),
-                  sndFootsteps: () => Snd.footsteps(),
+                  sndFootsteps: () => Snd.footsteps(), sndFootSplashes: () => Snd.footSplashes(),
+                  /* 天气余韵 / 空气含水量（2026-11-24 · 批次 2）：surface() 读当前有效湿度 / 两档积雪 / 空气系数；
+                     aftermath(true) 让 setEnv（api 路径）也带余韵 —— 默认关，门禁要的是各天气的稳态。 */
+                  surface: () => surfaceState(), aftermath: (on) => setAftermathApi(on),
+                  linger: () => ({ ...ENV.linger, hold: ENV.lingerHold, api: ENV.lingerApi }),
                   sndPondProximity: () => Snd.pondProximity(),
                   sndPondPan: () => Snd.pondPan(),   // 批次 #24：水声当前左右（-1 全左 / +1 全右）
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),

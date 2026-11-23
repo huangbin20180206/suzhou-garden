@@ -47,7 +47,8 @@ export { AMBIENT, updateAmbient };
 /* 2026-10-05 拆分：环境三轴预设 + 合成规则已搬进 12a-presets.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, composeEnv, resolveEnv, mixInto,
          baseParamsAt, timeKeyNow, syncTimeAnchors, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
-         weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow, fxGates, waterSunGates } from './12a-presets.js';
+         weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow, fxGates, waterSunGates,
+         natureGates, lingerInit, lingerReset, lingerStep, lingerEff, airHumidity, aerialFromHumidity } from './12a-presets.js';
 export { mixInto, TIME_ANCHORS, ENV_SEASON, weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow, fxGates };
 /* 2026-10-30：太阳 / 月相（12h）与花历 / 节令（12g）两个纯模块。 */
 import { SOLAR, wrapDoy, timeAnchorsFor, mainLightDir } from './12h-solar.js';
@@ -55,7 +56,7 @@ import { SEASON_DOY, PLUM_VIEW_DOY, seasonOfDoy, festivalFor } from './12g-pheno
 /* 2026-10-05 拆分：植被季节表现 + 存在性 + 积雪/湿地已搬进 12f-season.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindSeasonEnv, SEASON_TINT_MATS, seasonMixUniform, seasonMeshCache, applyPresence,
          collectSeasonCaches, onAssetAttached, applyGLBSeason, collectSeasonGLB, willowLeafInsts,
-         bambooLeafInsts, snowUniform, snowTintUniform, installSnow, applyWetness, wetApplied } from './12f-season.js';
+         bambooLeafInsts, snowUniform, snowFastUniform, snowTintUniform, installSnow, applyWetness, wetApplied } from './12f-season.js';
 export { applyPresence, collectSeasonCaches, onAssetAttached, wetApplied };
 /* ══════════════════════════════════════════════════════════════
    12 · 环境时序系统（ENV）
@@ -83,6 +84,53 @@ const _moonV = new THREE.Vector3();
 const _sunTrue = new THREE.Vector3(), _tmpV = new THREE.Vector3();
 const SUN_LIGHT_D = 68;                                      // 主光离原点的距离（旧月光分支同值）
 let _shadowDefer = false;              // 仅 advanceReel 调 applyEnv 期间为 true（见 M7 注释）
+/* ══ 地表与空气的统一写口（2026-11-24 · 视觉打磨批次 2 · B / C）══════════════════════════════════
+   积雪 / 湿地 / 空气含水量这三件事都要"预设直出值 ∨ 余韵水位"，且稳态里余韵还在走 ——
+   applyEnv 只在过渡 / 流转期间被调，所以单独成一个写口：applyEnv 末尾调一次，11-loop 每帧 tickLinger 之后再调一次。
+   全部从 p（ENV.cur，预设直出）与 ENV.linger 现算、**不就地累乘** ⇒ 幂等，一帧调几次都一样。
+   默认（夏晴午、无余韵）：snow 0 / wet 0 / fogK 1 / horizonMix 0 / satK 1 / hillHazeK 1 / reflHaze 0 ⇒ 与改前逐值相同。 */
+const _horizonTmp = new THREE.Color();
+export function surfaceState(p = ENV.cur){
+  const e = lingerEff(ENV.linger, p);
+  const dayK = Math.max(0, Math.min(1, p.dayK ?? (1 - (p.starAmount || 0))));
+  const air = aerialFromHumidity(airHumidity(p, e.wetExcess), dayK);
+  return { ...e, air };
+}
+export function applySurfaces(p){
+  const st = surfaceState(p);
+  snowUniform.value     = st.snowGround;
+  snowFastUniform.value = st.snowFast;     // 屋顶 / 石面（12f 的 uSnowFastK 材质）先化
+  applyWetness(st.wet);
+  const a = st.air;
+  scene.fog.density = p.fogDensity * a.fogK;
+  /* 地平线：往（已天气去色的）雾色发白。夜里 horizonMix=0 ⇒ 不碰夜空"山≤天"那条钳制的参照。 */
+  const su = skyMesh.material.uniforms;
+  su.uHorizon.value.copy(a.horizonMix > 0 ? _horizonTmp.copy(p.skyHorizon).lerp(p.fogColor, a.horizonMix) : p.skyHorizon);
+  gradePass.uniforms.uSaturation.value = p.grade.saturation * a.satK;
+  for (const m of DISTANT_MATS){
+    const u = m.uniforms && m.uniforms.uHaze;
+    if (!u) continue;
+    if (m.userData.baseHaze === undefined) m.userData.baseHaze = u.value;
+    u.value = Math.min(0.92, m.userData.baseHaze * a.hillHazeK);
+  }
+  if (waterSurface && waterSurface.material.uniforms.uReflHaze) waterSurface.material.uniforms.uReflHaze.value = a.reflHaze;
+  return st;
+}
+/* 余韵每帧推进（11-loop 在过渡块 / 流转之后调）：dHours = 本帧流转走过的游戏小时（流转快进时余韵也快进）。
+   lingerHold（换季 / 偶得 / 演示）期间水位贴着预设走，过渡落地即解除。 */
+export function tickLinger(dt, dHours = 0){
+  if (ENV.lingerHold){
+    lingerReset(ENV.linger, ENV.cur);
+    if (ENV.t >= 1) ENV.lingerHold = false;
+  } else lingerStep(ENV.linger, ENV.cur, dt, dHours);
+  return applySurfaces(ENV.cur);
+}
+/* 控制台 / 门禁开关：api 路径（setEnv）是否带余韵。无参只读。 */
+export function setAftermathApi(on){
+  if (typeof on === 'boolean') ENV.lingerApi = on;
+  return ENV.lingerApi;
+}
+
 export function applyEnv(p){
   sun.color.copy(p.sunColor); sun.intensity = p.sunIntensity;
   /* ── 主光方向（2026-10-30 · 审查 M3/M4 重写）──
@@ -425,13 +473,12 @@ export function applyEnv(p){
   /* 蜻蜓：季节管"存不存在"，天气管"飞不飞"。
      暴雨/风雪里蜻蜓是停栖的，不该照常游弋 —— 这是之前漏掉的一层天气修正。 */
   {
-    const eff = effectiveWeather();
-    const grounded = eff === 'storm' || eff === 'winterrain'
-                  || (p.rainAmount || 0) > 0.4 || (p.windMul || 1) > 2.5;
-    for (const d of dragonflies) d.visible = !grounded && p.dragonflyShow > 0.03;
-    /* 停栖蜻蜓同口径：冬（dragonflyShow=0）与暴雨/风雪都藏起来。
-       这里只写开关，位置在渲染循环里逐帧算（隐藏期间不更新，重现时从停栖态重算）。 */
-    setPerchShowOK(!grounded && p.dragonflyShow > 0.03);
+    /* 2026-11-24（批次 2 · A）：判据收进 12a natureGates —— 旧 rain>0.4 放过了细雨（夏 0.342 / 春 0.304），
+       且没有昼夜门（夏夜 21:30 七只游弋 + 两只停栖全在）。现：雨 >0.12 / 雪 / 大风 / 冬 / 白天度 ≤0.35 全收。 */
+    const dfOn = natureGates(p, ENV.season, effectiveWeather()).dragonfly;
+    for (const d of dragonflies) d.visible = dfOn;
+    /* 停栖蜻蜓同口径。这里只写开关，位置在渲染循环里逐帧算（隐藏期间不更新，重现时从停栖态重算）。 */
+    setPerchShowOK(dfOn);
     /* 大雁（2026-09-30）：按**季节**迁徙（春/秋 gooseShow=1，夏/冬 0 ⇒ 整队隐藏）。
        ⚠️⚠️ 2026-10-05 老黄："春秋季大雁在狂风暴雨场景依旧在天上飞，这个不合理" ⇒ 加**恶劣天气落地**：
        判据用**参数**而不是天气名（`rainAmount / snowAmount` 够大就不飞）—— 真雁遇狂风暴雨/风雪会落地
@@ -454,9 +501,10 @@ export function applyEnv(p){
      写在这里会立刻被每帧的 updateWind 覆盖（实测底值 2.2 → 0.153）。
      风力统一由 updateWind 每帧合成，这里只交代"阵风该有多猛"。 */
   gust.peakMul = p.gustMul !== undefined ? p.gustMul : 1;   // 狂风下随机阵风不再叠得很高
-  snowUniform.value      = p.snowCover  !== undefined ? p.snowCover  : 0;
   if (p.snowTint) snowTintUniform.value.copy(p.snowTint);
-  applyWetness(p.wetness !== undefined ? p.wetness : 0);
+  /* 积雪 / 湿地 / 空气含水量统一走 applySurfaces（批次 2 · B/C）：余韵水位与预设取大，
+     稳态（无过渡、无流转）时由 tickLinger 每帧单独调它，不必整套 applyEnv。 */
+  applySurfaces(p);
 
   /* 界面主题直接由**时段轴**决定，不由渲染出来的颜色反推。
      走这条路之前试过两种"算亮度"的写法，都栽在同一件事上：天气会改天色。
@@ -590,6 +638,11 @@ bindPresetsEnv(ENV);
 ENV.cur  = resolveEnv();          // 必须走组合规则：季节通道也要在参数集里
 ENV.from = cloneParams(ENV.cur);
 ENV.to   = cloneParams(ENV.cur);
+/* 天气余韵水位（2026-11-24 · 批次 2 · C，纯逻辑在 12a lingerStep）：不进 ENV.cur ——
+   cur 每帧被 mixInto / 流转就地重写，水位要的是"上一帧的自己"。读侧一律经 surfaceState()。 */
+ENV.linger = lingerInit(ENV.cur);
+ENV.lingerApi = false;             // api 路径默认不带余韵（门禁要稳态），__garden.aftermath(true) 打开
+ENV.lingerHold = false;            // true = 本次过渡期间水位贴着预设走（换季 / 偶得 / 演示：时间跳了，不带余韵）
 /* 发布给 2b-wind（它只在函数体里读 windMul，但若直接 import 本模块会成环 → 见 00-config
    的 ENV_REF 注释）。放在 ENV.cur 就位之后、applyEnv 之前：后续任何风力计算都拿得到。
    ⚠️ 发布的是**参数集 ENV.cur**，不是状态机 ENV —— windMul 挂在参数集上，发布错了对象会
@@ -646,6 +699,11 @@ bindSeasonEnv(ENV);
      'api' / 'demo'                      —— 控制台 / 外部脚本 / 四季演示：只收灯会（setEnv 的旧语义）
      'scene' / 'festival'                —— 景按钮自己发起的切夜 / 切晴：什么都不收（否则自己收自己）
    ⚠️ 流转（REEL）不走这里：它每帧只推进 hour，见 advanceReel（那边也不再吞别的过渡）。 */
+/* 余韵按发起方（批次 2 · C）：用户在面板 / 键盘 / 滑杆 / 景按钮上换天气 ⇒ 有余韵；偶得 / 四季演示 = 换一幕 ⇒ 不带。
+   'api'（控制台 / 外部脚本 / **全部浏览器门禁**的 setEnv）默认**不带**：门禁的语义是"设到某个天气的稳态再量"
+   （postrain-guard 的"晴天不该有积水"就是 afterrain → clear 紧接着量），带余韵会把上一个天气的湿 / 雪拖进来。
+   控制台要看余韵：__garden.aftermath(true) 打开 api 路径（ENV.lingerApi），或直接点面板按钮。 */
+const LINGER_VIA = { ui: true, key: true, slider: true, scene: true, festival: true, api: true };
 const SCENE_POLICY = { ui: 'all', key: 'all', slider: 'all', random: 'all',
                        api: 'festival', demo: 'festival', scene: 'none', festival: 'none' };
 export function applyState(next = {}, opts = {}){
@@ -716,9 +774,15 @@ export function applyState(next = {}, opts = {}){
     || ENV.season !== before.season || ENV.doy !== before.doy || ENV.weather !== before.weather
     || ENV.festival !== before.festival || ENV.moonPhase !== before.moonPhase;
   if (!changed){ syncEnvUI(); return false; }
+  /* ⑤' 天气余韵（批次 2 · C）：换季 / 换日序 / 偶得 / 四季演示 = 时间跳了几个月或换了一幕 ⇒ 本次过渡里水位贴着预设走；
+     只拨时辰（按钮 / 键盘 / 滑杆）⇒ 按跳过的游戏小时把余韵推进（暴雨刚停、拨到 3 小时后 ⇒ 地面已干）。 */
+  ENV.lingerHold = ENV.season !== before.season || ENV.doy !== before.doy || !LINGER_VIA[via]
+                 || (via === 'api' && !ENV.lingerApi);
+  const jumpHr = _hourDiff(ENV.hour, before.hour);
   /* ⑤ 过渡：从「当前实际画面」出发，连点也不会跳 */
   ENV.from = cloneParams(ENV.cur);
   ENV.to   = resolveEnv();
+  if (!ENV.lingerHold && Math.abs(jumpHr) > 1e-6) lingerStep(ENV.linger, ENV.to, 0, jumpHr, true);   // 朝新目标推进"跳过的小时"
   ENV.t    = 0;
   ENV.dur  = Number.isFinite(opts.dur) ? Math.max(0.05, opts.dur) : ENV_TRANS_DUR;
   /* ⑥ PMREM（M2）⑦ 阴影 */
@@ -747,9 +811,11 @@ export function setEnv(axis, val){
    做法与 advanceReel 的落位分支同源：from/to 都传 target（out 与 from 若同对象，
    非数值通道会边写边读被自己污染），e=1 等价直接落位，且零 clone。 */
 export function settleEnv(){
+  lingerReset(ENV.linger, ENV.cur);           // 余韵也落位（批次 2 · C）：即便过渡已走完，"立刻落位"也不该带着上一幕的雪 / 湿
   if (ENV.t >= 1) return false;              // 已经在终点：什么都不用做
   mixInto(ENV.cur, ENV.to, ENV.to, 1);
   ENV.from = ENV.to; ENV.t = 1;
+  lingerReset(ENV.linger, ENV.cur);           // 明信片"同一刻的四季"：不许带上一张的雪 / 湿（批次 2 · C）
   renderer.shadowMap.needsUpdate = true;
   applyEnv(ENV.cur);                          // ENV.t>=1 ⇒ applyEnv 里顺带把排队的环境贴图换掉
   return true;
@@ -1425,6 +1491,14 @@ for (const [mat, boost] of SNOW_BOOST){
 const SNOW_FLAT = new Map([[MAT.roof, 1.0], [MAT.roofHall, 1.0], [MAT.ridge, 1.0], [MAT.wallCap, 1.0]]);
 for (const [mat, flat] of SNOW_FLAT){
   mat.userData.snowFlat = { value: flat };
+}
+/* 先化的面（2026-11-24 · 批次 2 · C）：雪停后瓦面 / 屋脊 / 墙帽（屋顶受日、底下有室内余温）与石材（吸热、比土快）
+   先化，草地 / 铺地 / 植被后化。与 snowFlat 同一条路：installSnow 之前写进 userData，编译时读。 */
+const SNOW_FAST = [MAT.roof, MAT.roofHall, MAT.ridge, MAT.wallCap,
+                   MAT.stone, MAT.stoneDark, MAT.marble, MAT.rock, MAT.rockDark, MAT.rockSmooth, MAT.rockSmoothDark,
+                   MAT.taihu, MAT.taihuDark, MAT.taihuHero, MAT.taihuLobe, MAT.taihuLobeDark, MAT.riverStone];
+for (const mat of SNOW_FAST){
+  if (mat) mat.userData.snowFastK = { value: 1 };
 }
 
 /* ══ 天气表现 · 二 · 雨 / 雪 + 雨后檐滴与积水 ⇒ 已移入 12e-precip.js（2026-10-05 拆分）═══════

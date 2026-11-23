@@ -11,6 +11,8 @@ import { THREE } from '../vendor.js';
 import { scene, camera, ACTIVE_QUALITY } from './02-scene.js';
 import { insidePond } from './05-water.js';
 import { TAU, mulberry32, CFG } from './00-config.js';
+/* 2026-11-24（批次 2 · A/C）：有效湿度（预设 ∨ 雨后余韵）与荷叶水珠门控是 12a 的纯函数（12a 只依赖 12g/12h，不成环）。 */
+import { lingerEff, lotusDropK } from './12a-presets.js';
 
 /* ↓ 由 12-env.js 的 bindPrecipEnv(...) 注入（见文件头；沿用原名字 "ENV" 是故意的，搬来的代码零改动） */
 let ENV = null;
@@ -415,7 +417,8 @@ const PUDDLES = (() => {
 export const POSTRAIN = { drip: EAVE_DRIP, puddles: PUDDLES };   // 给门禁读的句柄
 function postRainK(){
   const p = ENV.cur || {};
-  const wet = p.wetness || 0;
+  /* 有效湿度：雨停后余韵水位慢慢降（5 分钟干透，见 12a lingerStep）⇒ 积水 / 檐滴跟着慢慢收，不再 3 秒消失。 */
+  const wet = lingerEff(ENV.linger, p).wet;
   const raining = (p.rainAmount || 0) > 0.05 || (p.snowAmount || 0) > 0.05;
   if (raining) return 0;
   return Math.max(0, Math.min(1, (wet - 0.30) / 0.45));
@@ -523,8 +526,10 @@ function tickLotusDrops(dt, t){
   const D = LOTUS_DROPS;
   if (!D.im || !D.pads.length) return;
   const p = ENV.cur || {};
-  /* 有水才显形：雨中 wetness=1、雨后初晴 0.85、晴 0 ⇒ 0.25 起显、0.7 满。 */
-  const k = Math.max(0, Math.min(1, ((p.wetness || 0) - 0.25) / 0.45));
+  /* 有水才显形：0.25 起显、0.7 满（雨后初晴 0.85）。2026-11-24（批次 2 · A）改走 12a lotusDropK：
+     ⚠️ 旧门只看 wetness ⇒ 暴雨 / 细雨**正下着**就在滚珠（雨中 wetness=1），冬季叶盘已收（lilyShow 0）
+     冬细雨里水珠悬在空水面上；现乘"雨已停 × 叶盘在 × 未下雪"，湿度取有效值（余韵里慢慢干掉）。 */
+  const k = lotusDropK(p, lingerEff(ENV.linger, p).wet);
   D.visible = k > 0.02;
   D.im.visible = D.visible;
   D.im.material.opacity = 0.92 * k;
@@ -561,7 +566,7 @@ function tickLotusDrops(dt, t){
   D.im.instanceMatrix.needsUpdate = true;
 }
 export function updatePostRain(dt, t){
-  tickLotusDrops(dt, t);        // 荷叶水珠：不看"雨停没停"，只看 wetness（雨中也湿）
+  tickLotusDrops(dt, t);        // 荷叶水珠：雨停后才有（12a lotusDropK，2026-11-24 起；旧版"雨中也湿"见 tickLotusDrops 注释）
   const k = postRainK();
   const D = EAVE_DRIP;
   D.im.visible = k > 0.001;

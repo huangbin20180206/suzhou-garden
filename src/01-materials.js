@@ -23,6 +23,9 @@ export const WATER_REFLECT_SHADER = {
     uSkyMid:       { value: new THREE.Color(0xBFD2E6) },
     uSkyHorizon:   { value: new THREE.Color(0xE6E2D8) },
     uReflMix:      { value: 1.0 },                          // 1=真实平面反射，0=天空近似
+    /* 空气含水量蒙在倒影上（2026-11-24 · 批次 2 · B，12a aerialFromHumidity().reflHaze）：薄雾 / 暴雨里倒影
+       往地平线色压一层、对比收窄。晴 / 雨后 / 雪 / 雪霁恒 0 ⇒ 下面 mix(..., 0.0) 逐位等于原式。 */
+    uReflHaze:     { value: 0.0 },
     uRain:         { value: 0.0 },                          // 降雨强度（0=不改变水面）
     /* 月（2026-09-19）：镜面方向命中月亮 → 池面拉出一条随波纹抖动的光带。
        平面反射贴图分辨率有限 + 菲涅尔会把月轮压得很淡，单靠镜像渲不出"池心那道月光"，
@@ -66,6 +69,7 @@ export const WATER_REFLECT_SHADER = {
     uniform vec3  uAbsorb;
     uniform vec3  uSkyTop, uSkyMid, uSkyHorizon;
     uniform float uReflMix;
+    uniform float uReflHaze;
     uniform float uRain;
     uniform vec3  uMoonDir, uMoonColor;
     uniform float uMoonVis;
@@ -129,6 +133,8 @@ export const WATER_REFLECT_SHADER = {
       vec3 skyFake = mix(fakeH, fakeM, smoothstep(0.0, 0.45, upv));
       skyFake = mix(skyFake, fakeT, smoothstep(0.40, 1.0, upv));
       refl = mix(skyFake, refl, uReflMix);
+      /* 湿空气里的倒影：远处物体先被水汽蒙成天光色，倒影对比随之收窄（0.55 = 倒影本身比天暗那一档，同上 fakeH 的口径）。 */
+      refl = mix(refl, uSkyHorizon * 0.55, uReflHaze);
 
       // 水体吸收：水柱越厚、视线越斜 → 光程越长 → 越不透明、越偏青。
       // 这一步是「看得见水下」与「深不见底」的分界；靠一个固定 alpha 是做不出来的。

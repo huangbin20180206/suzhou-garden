@@ -367,6 +367,10 @@ export function collectSeasonCaches(){
    雪在标准 PBR 里着色（不改 emissive 之类），所以它照样接受阴影与雾，看上去才是"落在地上"的。
    ❗ 必须链式挂接 onBeforeCompile：叶/柳/苇已有风场注入，季节色调也在同一个钩子上。 */
 export const snowUniform = { value: 0 };
+/* 屋顶 / 石面的积雪覆盖（2026-11-24 · 批次 2 · C）：雪停后它比 snowUniform 降得快（12a lingerStep），
+   材质按 userData.snowFastK（12-env 的 SNOW_FAST 表：瓦面 / 屋脊 / 墙帽 / 石材 = 1）在两者之间取。
+   没有余韵时两者恒等（12-env applySurfaces 都取预设 snowCover）⇒ 着色结果逐位不变。 */
+export const snowFastUniform = { value: 0 };
 export const snowTintUniform = { value: new THREE.Color(0xF2F6FA) };
 export function installSnow(list){
   for (const m of list){
@@ -402,6 +406,9 @@ export function installSnow(list){
       /* 逐材质：平顶面（瓦面/屋脊/墙帽）走"整片覆盖"分支，其余为 0 = 原来的斑驳（见片元里 amtFlat） */
       shader.uniforms.uSnowFlat = (this.userData && this.userData.snowFlat)
                                 ? this.userData.snowFlat : { value: 0 };
+      shader.uniforms.uSnowFast  = snowFastUniform;
+      shader.uniforms.uSnowFastK = (this.userData && this.userData.snowFastK)
+                                 ? this.userData.snowFastK : { value: 0 };
       shader.vertexShader = shader.vertexShader
         .replace('#include <common>', '#include <common>\nvarying vec3 vSnowW;\nvarying vec3 vSnowN;')
         .replace('#include <begin_vertex>',
@@ -429,6 +436,8 @@ export function installSnow(list){
           'uniform vec3 uSnowTint;\n' +
           'uniform float uSnowBoost;\n' +
           'uniform float uSnowFlat;\n' +
+          'uniform float uSnowFast;\n' +
+          'uniform float uSnowFastK;\n' +
           'uniform vec3 uInLo[6];\n' +
           'uniform vec3 uInHi[6];\n' +
           'uniform int uInN;\n' +
@@ -438,7 +447,9 @@ export function installSnow(list){
           '             mix(snowHash(i + vec2(0.0, 1.0)), snowHash(i + vec2(1.0, 1.0)), u.x), u.y); }')
         .replace('#include <color_fragment>',
           '#include <color_fragment>\n' +
-          '  if (uSnowCover > 0.001){\n' +
+          /* 余韵（批次 2 · C）：屋顶 / 石面取 uSnowFast（先化），其余取 uSnowCover。uSnowFastK=0 的材质 = 原式。 */
+          '  float snowCov = mix(uSnowCover, uSnowFast, uSnowFastK);\n' +
+          '  if (snowCov > 0.001){\n' +
           '    // 平摊的薄叶面（竹叶/芭蕉等）法线基本水平，upness≈0，光靠朝上程度挂不住雪；\n' +
           '    // 用 uSnowBoost 给这类材质放宽：把 upness 的下限抬到"只要不是朝下就认"\n' +
           '    float upness = smoothstep(0.30, 0.78, vSnowN.y) * (1.0 - uSnowBoost)\n' +
@@ -459,7 +470,7 @@ export function installSnow(list){
              绘制的背面 —— 不加这一句，廊内顶棚会被刷成一片白（斑驳版看不出来，平铺版一眼就穿帮）。 */
           '    float amtFlat = smoothstep(0.05, 0.55, vSnowN.y);\n' +
           '    if (uSnowFlat > 0.5 && !gl_FrontFacing) amtFlat = 0.0;\n' +
-          '    float amt = mix(amtMottled, amtFlat, uSnowFlat) * uSnowCover;\n' +
+          '    float amt = mix(amtMottled, amtFlat, uSnowFlat) * snowCov;\n' +
           '    amt *= 1.0 + 0.25 * uSnowBoost;\n' +
           /* ⚠️ 室内剔除（2026-10-02）：盒子内的片元（堂内/廊下/亭下的地面与家具顶面）
              雪量归零 —— snowCover 只认"面朝上"，没有它堂内地面会与门外台阶雪连成一片

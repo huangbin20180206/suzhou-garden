@@ -368,13 +368,23 @@ function applyWeatherTo(p, eff){
   if (eff === 'snow'){
     p.snowAmount = 1.0; p.snowCover = 1.0; p.rainAmount = 0.0;
   }
+  let kFog = 1;
   if (eff === 'drizzle'){
     /* 细雨按日期换性格（梅雨 / 春雨 / 冷雨……，表在 DRIZZLE_KIND）：只乘不覆盖，过渡照样连续。 */
     const k = DRIZZLE_KIND[drizzleKind(envDoy())] || DRIZZLE_KIND.meiyu;
     p.fogDensity *= k.fog; p.grade.saturation *= k.sat; p.exposure *= k.exp;
     p.grade.contrast *= k.con; p.windMul *= k.wind;
     p.rainAmount *= k.rain; p.rainDensity = Math.min(1, p.rainDensity * k.dens);
+    kFog = k.fog;
   }
+  /* 天气侧的空气含水量 humidW（2026-11-24 · 批次 2 · B，见文件末 airHumidity）：
+     **从本预设已标定的雾倍率反推**，不另立一张手填表 —— 这样它与 fogMul 严格同序
+     （薄雾 1.8 > 暴雨 1.7 > 细雨 1.6 > 阴 1.55 > 雪 1.3 > 雨后 1.08 > 晴 1 > 雪霁 0.72），
+     画面读起来不会"雾说潮、山说干"。⚠️ 不掺 wetness：雨后初晴是"空气被雨洗过、地面湿"，
+     地湿不等于空气湿（掺进来 雨后 0.34→0.43，远山谷雾比它自己的雾倍率 1.08 浓一截）；
+     "刚停雨那几分钟空气还潮"由余韵增量 wetExcess 负责。
+     晴 = 0.30 = HUMID_DEFAULT（默认画面零偏差的锚点）。每个天气都写 ⇒ mixInto 可插值。 */
+  p.humidW = Math.max(0, Math.min(1, 0.30 + 0.5 * (w.fogMul * kFog - 1)));
   /* ⚠️⚠️ 2026-10-12 · **夜段阻尼**（只作用于 overcast 分支）：
      上面 2026-10-06 那次「白底 + 乌云密布」是为**白天**暴雨做的（旧病是"暴雨天还像蓝天白云"），
      但天空去色**不分时段** —— 夜暴雨天也被 0.86 拉向浅灰白，于是 12-env 的
@@ -414,6 +424,9 @@ export const ENV_TIME = {
     /* 活雾三键（仅 mist 天气生效，见 applyWeatherTo）：晨 = 大雾裹正堂 ——
        mistMul 再乘雾密度、正堂雾团最浓、竹林雾团只留一线。 */
     starAmount:0.0, lamp:0.0, mistMul:1.45, bankHall:0.55, bankBamboo:0.12, bankBridge:0.25, bankRockery:0.50, bankPond:0.55,
+    /* dawnHumid（2026-11-24 · 批次 2 · B）：晨间辐射雾的空气含水量（只此一档非零），进 airHumidity。
+       只喂远山谷雾 / 水面反射这两个没有时段通道的地方 —— 晨雾的雾密度早已在本预设的 fogDensity 里（0.0088 vs 午 0.0052）。 */
+    dawnHumid:0.35,
     rainbowMul:1.20 },   // 晨（第八轮）：背景冷、虹本就跳得出，只微抬防"太淡"
   noon: { label:'午',
     /* F8 光照"晴感"再平衡（2026-09-21 · 三张正午样张一致指出"像阴天"）：
@@ -457,7 +470,7 @@ export const ENV_TIME = {
     /* 2026-09-28 二轮（老黄："中午几乎就没有了，不能没有，只是淡一点"）：mistMul
        0.82→1.10（有效 1.98，晨 2.61 的 ~76%——比晨淡、但明显有雾）；雾团也留三成
        而不是归零（bankHall 0.28 / bankBamboo 0.22）。 */
-    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20, bankPond:0.10,
+    starAmount:0.0, lamp:0.0, mistMul:1.10, bankHall:0.28, bankBamboo:0.22, bankBridge:0.15, bankRockery:0.20, dawnHumid:0, bankPond:0.10,
     /* rainbowMul 1.35（第九轮）：正午背景最亮，同一 alpha 下彩带的差分最小 ——
        半透明彩纱化（alpha 0.80→0.66）之后 noon 峰值差实测只有 72/765（门禁线 90），
        正午恰好是老黄最常看效果的时刻 ⇒ 只给正午相对加浓，晨/暮各自的补偿不变。 */
@@ -485,7 +498,7 @@ export const ENV_TIME = {
     /* saturation 1.04→0.97：暮色草地旧值下仍是高饱和翠绿，整体去艳半档，
        让暮色统一在灰暖调里。 */
     grade:{ contrast:0.20, saturation:0.97, split:0.42, vignette:0.56, warm:0xFFE4C0, cool:0xC8D8F0 },
-    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55, bankBridge:0.50, bankRockery:0.30, bankPond:0.22,
+    starAmount:0.0, lamp:0.25, mistMul:1.30, bankHall:0.14, bankBamboo:0.55, bankBridge:0.50, bankRockery:0.30, dawnHumid:0, bankPond:0.22,
     /* rainbowMul（2026-10-02 第八轮）：暮色暖橙天幕会把虹的橙红段"同化"掉
        —— 同样的浓度晨/午一眼可见、暮里却融进余晖（1.45 倍时冻结帧 A/B 仍有
        6064px 差分，但单图判读完全读不出）。暮是雨后彩虹最经典的时刻，抬到 2.2
@@ -522,7 +535,7 @@ export const ENV_TIME = {
     grade:{ contrast:0.15, saturation:0.92, split:0.34, vignette:0.55, warm:0xE8D8C0, cool:0x9FB8E0 },
     /* 夜 mistMul 0.72 ⇒ 有效雾系数 1.8×0.72≈1.30，与旧版常数持平：night+mist 的画面
        与 mist-guard 的水位完全不动（夜里不加浓，画面别变脏）。 */
-    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08, bankBridge:0.30, bankRockery:0.08, rainbowMul:1.00, bankPond:0.10 },
+    starAmount:1.0, lamp:1.0, mistMul:0.72, bankHall:0.08, bankBamboo:0.08, bankBridge:0.30, bankRockery:0.08, rainbowMul:1.00, dawnHumid:0, bankPond:0.10 },
 };
 
 /* ── 季节预设 ──
@@ -912,4 +925,187 @@ export function fxGates(p){
      旧模式夜里主光是月亮替身（仰角 49°），但 dayK=0 ⇒ 不收。 */
   const hallWarm = (p.lamp || 0) * 0.55 * (1 - dayK * _sstep(12, 22, alt));
   return { milkyWay, sunGlow, cloudShade, hallWarm };
+}
+
+/* ══ 自然真实 · 物候 × 天气 × 时段的生灵 / 声景门控（2026-11-24 · 视觉打磨批次 2 · A）══════════════════
+   为什么集中到这里：萤火、花瓣、蜻蜓、荷叶水珠、鱼跃、声景各自在 11-loop / 12-env / 12e / 12i 里
+   拿 ENV.time / ENV.season / 天气名就近现算门控，扫"季节 × 天气 × 时段"全组合（probe/env-nature-unit.mjs）
+   查出的穿帮（数值为改前实测）：
+     ① 萤火：只认 晴 / 薄雾 —— 夏季细雨（= 梅雨，6 中 ~7 上，正是苏州萤火盛期）与雨后初晴的夏夜一只都没有；
+     ② 蜻蜓：落地判据 rain>0.4，夏细雨 rain=0.342、春细雨 0.304 ⇒ 细雨里照常游弋 / 停栖；
+        且**没有昼夜门** —— 夏夜 21:30 两只停栖 + 七只游弋全在；
+     ③ 荷叶水珠：门只看 wetness ⇒ 暴雨 / 细雨**正下着**时盘上就在滚珠（应是雨停后的事）；
+        冬季 lilyShow=0 叶盘已收，冬细雨（wet 0.9）水珠悬在空水面上滚；
+     ④ 飘落花瓣 / 秋叶：着色器是**不受光**的固定色 ⇒ 春夜花瓣按白天亮度发粉光；暴雨里照常 0.6 强度慢悠悠漂；
+     ⑤ 鱼跃：冬季巡游已减速（koiSpeed 0.42），跃水间隔却与夏天一样（中位 53s）；
+     ⑥ 声景：叶鼓（雨打芭蕉）只看雨量 —— 冬季 bananaShow=0（叶幕枯落）照敲，冬细雨 rain 0.437 ⇒ 0.437；
+        鸟鸣门写死"非冬"，可鸟种表里山雀冬季权重 2.0（全年留鸟）是死数据；
+        脚步声与天气无关：雪地、积水地都是晴天的"嗒 / 沙"。
+   全部只读参数集里的连续量（starAmount / dayK / rainAmount / snowAmount / windMul / 物候通道）+ 季节 / 有效天气，
+   纯函数、不读 ENV、不碰 THREE，node 单测直接 import。 */
+/* 萤火的天气适宜度：雨后湿夜是萤火最盛的时候；细雨（梅雨）里照飞但少；暴雨 / 雷雨 / 阴雪 = 0。 */
+export const FIREFLY_WX = { clear: 1, afterrain: 1, mist: 1, drizzle: 0.55 };
+export function natureGates(p, season, eff){
+  const rain = p.rainAmount || 0, snow = p.snowAmount || 0, wind = p.windMul || 1;
+  const star = p.starAmount || 0;
+  const dayK = _clamp01(p.dayK ?? (1 - star));
+  const nightK = _sstep(0.45, 0.85, star);                 // 夜锚点 starAmount=1 ⇒ 1（门禁"夏夜晴有萤火"不受影响）
+  /* ① 萤火：夏 × 夜 × 适宜天气；雨量 0.40→0.55 之间收掉（夏细雨 0.342 留、冬细雨/暴雨不可能进来） */
+  const fireflies = season === 'summer'
+    ? 0.9 * (FIREFLY_WX[eff] || 0) * nightK * (1 - _sstep(0.40, 0.55, rain)) * (1 - _sstep(0.02, 0.2, snow))
+    : 0;
+  /* ② 飘落：花期 / 秋季给量，雨把它们打下来 —— 空中的少、落得直、摆得小（湿花瓣贴着雨线掉）。
+     光照：0.16 夜底 + 0.84 × 白天度，再按日轮被遮的程度压三成（阴雨天的花瓣不该比天亮）。
+     默认（夏）花量 0 ⇒ 默认画面不受影响。 */
+  const rainBeat = _sstep(0.2, 0.9, rain);
+  const petalWx = 1 - 0.75 * rainBeat;
+  const petalFall = 1 + 2.2 * rainBeat, petalSway = 1 - 0.7 * rainBeat;
+  const petalLight = (0.16 + 0.84 * dayK) * (1 - 0.30 * _clamp01(p.diskFade || 0));
+  /* ③ 蜻蜓（游弋 + 停栖同口径）：雨天（rain>0.12，与叶鼓起敲同一档"雨点打得响"）/ 下雪 / 大风 / 冬 / 夜 全收。
+     夜判据用白天度 0.35（日落后约 −3°；真实蜻蜓黄昏还在捕食，天黑才栖）。 */
+  const dragonfly = (p.dragonflyShow || 0) > 0.03 && rain <= 0.12 && snow <= 0.05 && wind <= 2.5
+                  && eff !== 'storm' && eff !== 'winterrain' && eff !== 'thunder' && dayK > 0.35;
+  return { fireflies, petalWx, petalFall, petalSway, petalLight, dragonfly };
+}
+/* ④ 荷叶水珠强度（12e tickLotusDrops）：有水（wet 0.25 起显、0.70 满）× 雨已停 × 叶盘在（lilyShow）× 未结冰。
+   wet 传**有效湿度**（含雨后余韵，见 lingerStep）—— 雨停后水珠随地面一起慢慢干掉。 */
+export function lotusDropK(p, wet){
+  return _clamp01((wet - 0.25) / 0.45) * (1 - _sstep(0.05, 0.2, p.rainAmount || 0))
+       * _sstep(0.05, 0.3, p.lilyShow ?? 1) * (1 - _sstep(0.02, 0.2, p.snowAmount || 0));
+}
+/* ⑤ 鱼跃频率倍率：跟巡游速度走（koiSpeed 夏 1.0 → 冬 0.42 ⇒ 1.0 → 0.25）。冷水鱼不跃；间隔 ÷ 本值。 */
+export function koiBreachRate(p){
+  return 0.25 + 0.75 * _clamp01(((p.koiSpeed ?? 1) - 0.42) / 0.58);
+}
+/* ⑥ 声景各层目标（原 11-loop Snd.plan 的判据逐字搬来，wind01 由调用方从风场 uniform 算好传入）。
+   改动只有三处（见上表头 ⑥），其余与旧 plan 同值：
+     · drum × smoothstep(0.05, 0.35, bananaShow) —— 没有芭蕉叶就没有"雨打芭蕉"；
+     · bird 冬季给 0.5（只剩山雀，频度减半；tick 把间隔 ÷ bird），其余季节 1 不变；
+     · rain 与 quiet 判据不变（雨天无鸟、无虫；冬夜无虫）。 */
+export function soundPlan(p, { time, season, wind01 = 0 }){
+  const rain = p.rainAmount || 0;
+  const windMul = p.windMul || 1;
+  const wind = Math.min(1, Math.max(0, (windMul - 1) * 0.30) + wind01);
+  /* "安静" = 没下雨、没大风。鸣虫在雨里和大风里都不叫 —— 这是真的生物学，
+     也是听感上的必需：暴雨里再叠虫鸣，整段音景会糊成一片噪声。 */
+  const quiet = rain < 0.15 && windMul < 2.2;
+  const night = time === 'night';
+  const dayLight = time === 'morning' || time === 'noon' || time === 'dusk';
+  return {
+    wind:    0.015 + wind * 0.085,
+    rain:    rain * 0.14,
+    /* 水声（批次 #12）：底 0.004（平静池面近耳的微响）+ 风推水（wind 0~1 ⇒ +0.014）。
+       ⚠️ 与雨分层不冲突：暴雨里 lap 只占雨声的 1/10，被自然掩蔽——物理也对，
+       暴雨的水声本来就是雨声本身的一部分。 */
+    lap:     0.004 + wind * 0.014,
+    /* 叶鼓（2026-11-22 · 美术批次 #13 雨打芭蕉·音频侧）：大叶击鼓的低频扑通。
+       rain ≤ 0.12 不起（毛毛雨打不响叶子）；起后强度跟雨量（视觉侧芭蕉叶的
+       uRain 抖动同吃 rainAmount ⇒ 视音频天然联动）。plan 只给门径不断言音色。
+       × bananaShow（批次 2）：冬季叶幕枯落（bananaShow 0）就没有可打的叶。 */
+    drum:    rain > 0.12 ? rain * _sstep(0.05, 0.35, p.bananaShow ?? 1) : 0,
+    cricket: (night && quiet && season !== 'winter') ? 0.016 : 0,
+    cicada:  (season === 'summer' && dayLight && !night && quiet) ? 0.020 : 0,
+    frog:    (season === 'summer' && (night || time === 'dusk') && quiet) ? 0.030 : 0,
+    bird:    (time === 'morning' && quiet) ? (season === 'winter' ? 0.5 : 1) : 0,
+    /* 廊下风铃（2026-11-23 · 批次 #21）：与鸣虫反着来 —— 它**要风**（windMul>1.6 才起，
+       即"阵风/大风"档；微风里铃不响才是对的）。季节不忌（廊下铜铃年年挂着），但冬季
+       实际上响不了 —— 不是门限的锅：WEATHER_RULES 禁了冬季暴雨（老黄 2026-10-06 拍板），
+       冬季最大风只有雪天 1.35。plan 只给门径，节奏由 tick 的 chimeNext 拍板。 */
+    chime:   windMul > 1.6 ? Math.min(1, (windMul - 1.6) / 1.5) : 0,
+    quiet:   quiet ? 1 : 0,
+  };
+}
+/* ⑦ 脚步声音色：干地与旧版逐字相同（石 2.4kHz/Q1.8/×1.0/0.055/50ms；草 700Hz/Q0.7/×0.72/0.042/85ms）。
+   雪（地面有效积雪 >0.15 起渐变、0.6 满）：频带压到 520/380Hz、Q 放宽、慢放、音量 ×0.7、尾巴拉长 = "闷"；
+   积水（有效湿度 0.30 起、0.80 满，雪地不叠）：叠一记 3.2kHz 高通短噪 = "啪嗒"，强度 splash。 */
+export function footstepVoice(onStone, wet = 0, snow = 0){
+  const v = onStone
+    ? { freq: 2400, Q: 1.8, rate: 1.0, gain: 0.055, dur: 0.05 }
+    : { freq: 700,  Q: 0.7, rate: 0.72, gain: 0.042, dur: 0.085 };
+  const s = _sstep(0.15, 0.6, snow);
+  if (s > 0){
+    const lerp = (a, b) => a + (b - a) * s;
+    v.freq = lerp(v.freq, onStone ? 520 : 380); v.Q = lerp(v.Q, 0.55); v.rate = lerp(v.rate, 0.58);
+    v.gain = lerp(v.gain, v.gain * 0.7); v.dur = lerp(v.dur, 0.12);
+  }
+  v.splash = _sstep(0.30, 0.80, wet) * (1 - s);
+  return v;
+}
+
+/* ══ 空气含水量：远山 / 雾 / 地平线 / 水面反射 / 饱和 共用一个量（2026-11-24 · 批次 2 · B）══════════════════
+   量证（outputs/_diag/humidity-survey-2026-11-24.mjs，改前）：五处各算各的 ——
+     · 雾密度：时段 fogDensity × 季节 fogMul × 天气 fogMul（× 薄雾 mistMul）；晨 0.0088 / 午 0.0052；
+     · 地平线发白：天气 skyGray（晴 0 / 雨后 0.06 / 薄雾 0.22 / 暴雨 0.80）；
+     · 饱和：时段 grade × 季节 × 天气 satMul；
+     · 远山谷雾 uHaze：四层**常数** 0.26/0.40/0.60/0.62 —— 雪霁（雾 ×0.72）与薄雾（雾 ×1.8×晨 1.45）一样浓；
+     · 水面反射：**不受任何湿度影响** —— 薄雾 / 暴雨里倒影与晴天一样锐；
+     · 雨停后：上面全部 3 秒内跳回晴天值（余韵只有材质湿度，见 lingerStep）。
+   收口：H = 1 − (1−天气 humidW)(1−晨 dawnHumid)(1 − 0.55×余韵湿度增量)。
+     · 雾 / 地平线 / 饱和：预设已按天气与时段标定过（老黄逐轮拍板的观感），只吃**预设之外**的增量 dH = H − Hp
+       （= 雨后余韵）—— 不重复乘；
+     · 远山谷雾 / 水面反射：原来不吃任何湿度，吃全量（相对晴 0.30）。
+   默认（夏 · 晴 · 午）：humidW 0.30、dawnHumid 0、余韵 0 ⇒ H = Hp = 0.30 ⇒ 五个系数恰为 1 / 0（偏差 0，单测断言 <1%）。 */
+export const HUMID_DEFAULT = 0.30;
+export function airHumidity(p, wetExcess = 0){
+  const hw = _clamp01(p.humidW ?? HUMID_DEFAULT), ht = _clamp01(p.dawnHumid || 0);
+  const Hp = 1 - (1 - hw) * (1 - ht);
+  const H = 1 - (1 - Hp) * (1 - 0.55 * _clamp01(wetExcess));
+  return { H, Hp };
+}
+export function aerialFromHumidity(h, dayK = 1){
+  const dH = Math.max(0, h.H - h.Hp), full = h.H - HUMID_DEFAULT;
+  /* 远山 / 倒影两项乘白天度：夜里不动 —— mist-guard 的夜+薄雾"山 ≤ 天 + 2.5"只剩 ~0.5 余量
+     （见该门 2026-11-06 重定标注释），夜里远山本就只剩雾填充的剪影，加谷雾没有可读的收益。 */
+  const dk = _clamp01(dayK);
+  return {
+    fogK: 1 + 0.65 * dH,                                     // 雨刚停：雾 +25%（余韵满档 dH≈0.39）
+    horizonMix: 0.30 * dH * dk,                  // 地平线往雾色发白；夜里不动（mist-guard 的"山≤天"）
+    satK: 1 - 0.10 * dH,                                     // 水汽压一点饱和（−4%）
+    /* 远山谷雾（午）：雪霁 0.78 / 晴 1 / 雨后 1.06 / 晴晨 ≈1.36 / 暴雨 1.56 / 薄雾 1.64（四层 uHaze 封顶 0.92，峰顶照旧 100% 山色） */
+    hillHazeK: Math.max(0.6, Math.min(2.0, 1 + 1.6 * full * dk)),
+    /* 水面反射往地平线色蒙一层：H ≤ 0.45 不动（晴 / 雨后 / 雪 / 雪霁倒影照旧锐），薄雾 / 暴雨 ≈0.25 */
+    reflHaze: Math.max(0, Math.min(0.32, 0.5 * (h.H - 0.45) / 0.55)) * dk,
+  };
+}
+
+/* ══ 天气余韵：雨停慢慢干、雪停先化屋顶石面再化地面（2026-11-24 · 批次 2 · C）══════════════════════════
+   为什么要它：wetness / snowCover 是天气预设的直出值，切天气走 3 秒过渡 ⇒ 暴雨 → 晴，3 秒后地面全干、
+   积水 / 檐滴 / 荷叶水珠一齐消失；银装素裹 → 晴，3 秒后满园雪一起化光（屋顶与地面同速）。
+   现有"雨后"只有 afterrain 这个**静态预设**（wetness 0.85 恒定），没有计时器（已搜：12e postRainK / tickLotusDrops
+   都直读 wetness，12-env / 11-loop 无相关计时）。
+   做法：不改预设、不动 ENV.cur（mixInto / 流转每帧都会重写它），另存三条**慢降快升**的水位
+     L = max(预设直出值, L − 速率 × 进度)：
+       · 升（开始下雨 / 下雪）立即跟随 —— 余韵只管"停之后"；
+       · 降按"游戏秒 + 流转小时"两路累计：静看 5 分钟干透 / 屋顶石面 3 分钟化完 / 地面 8 分钟；
+         时光流转（0.4 时/秒）按游戏内小时算：2 / 1.5 / 4 小时 —— 流转快进时余韵也跟着快进；
+   applyState 换季 / 偶得 / 四季演示、settleEnv（明信片）⇒ reset：时间跳了几个月，不该带着上一幕的雪。 */
+export const LINGER = { wetSec: 300, snowFastSec: 180, snowGroundSec: 480, wetHr: 2.0, snowFastHr: 1.5, snowGroundHr: 4.0 };
+export function lingerInit(p){
+  const L = { wet: 0, snowF: 0, snowG: 0 };
+  return lingerReset(L, p);
+}
+export function lingerReset(L, p){
+  L.wet = p.wetness || 0; L.snowF = p.snowCover || 0; L.snowG = p.snowCover || 0;
+  return L;
+}
+/* decayOnly：只许降不许升 —— applyState 拨时辰时朝**新目标**推进"跳过的小时"用：
+   新目标若更湿（开始下雨），升要等 3 秒过渡把 cur 带上来，不能在过渡开始前一帧就把地面打湿。 */
+const _slew = (cur, target, drop, decayOnly) =>
+  target >= cur ? (decayOnly ? cur : target) : Math.max(target, cur - drop);
+export function lingerStep(L, p, dt, dHours = 0, decayOnly = false){
+  const dts = Math.max(0, dt), dh = Math.abs(dHours);
+  L.wet   = _slew(L.wet,   p.wetness   || 0, dts / LINGER.wetSec        + dh / LINGER.wetHr,        decayOnly);
+  L.snowF = _slew(L.snowF, p.snowCover || 0, dts / LINGER.snowFastSec   + dh / LINGER.snowFastHr,   decayOnly);
+  L.snowG = _slew(L.snowG, p.snowCover || 0, dts / LINGER.snowGroundSec + dh / LINGER.snowGroundHr, decayOnly);
+  /* 屋顶石面化得快：任何时刻不比地面多（升时两者同值，降时 F 先走） */
+  if (L.snowF > L.snowG) L.snowF = L.snowG;
+  return L;
+}
+/* 实际落到画面的三项：wet（材质湿光 / 积水 / 檐滴 / 水珠 / 脚步）、snowGround（地面 / 植被）、snowFast（屋顶 / 石面），
+   以及余韵比预设多出的湿度 wetExcess（喂 airHumidity）。 */
+export function lingerEff(L, p){
+  const w0 = p.wetness || 0, s0 = p.snowCover || 0;
+  const wet = Math.max(w0, L ? L.wet : 0);
+  return { wet, snowGround: Math.max(s0, L ? L.snowG : 0), snowFast: Math.max(s0, L ? L.snowF : 0),
+           wetExcess: wet - w0 };
 }

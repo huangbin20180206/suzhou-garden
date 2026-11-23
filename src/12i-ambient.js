@@ -10,6 +10,8 @@ import { THREE } from '../vendor.js';
 import { scene, camera } from './02-scene.js';
 import { mulberry32 } from './00-config.js';
 import { PRECIP_INDOOR } from './12e-precip.js';
+/* 2026-11-24（批次 2 · A）：花瓣的天气 / 光照门控在 12a natureGates（纯函数，12a 不依赖本文件）。 */
+import { natureGates, effectiveWeather } from './12a-presets.js';
 
 /* ↓ 由 12-env.js 注入（见文件头） */
 let ENV = null;
@@ -35,7 +37,10 @@ const PETALS = (()=>{
     uniforms: { uIntensity: { value: 0 },
                 uPink: { value: new THREE.Color(0xF2C2D2) },   // 春：桃粉（与 tinLotus 同系）
                 uGold: { value: new THREE.Color(0xDFAF62) },   // 秋：落叶金（与秋 tinWillow 同系）
-                uMix: { value: 0 } },
+                uMix: { value: 0 },
+                /* 受光（批次 2 · A）：着色器是不受光的固定色 ⇒ 春夜花瓣按白天亮度发粉光。
+                   乘 12a natureGates().petalLight（0.16 夜底 + 0.84×白天度，阴雨再压三成）。 */
+                uLight: { value: 1 } },
     vertexShader: `attribute float aVariation; attribute float aSpeed;
       uniform float uIntensity;
       varying float vAlpha;
@@ -48,14 +53,14 @@ const PETALS = (()=>{
         gl_PointSize = clamp(8.0 * aVariation * (26.0 / dist), 2.0, 9.0);
       }`,
     fragmentShader: `varying float vAlpha;
-      uniform vec3 uPink; uniform vec3 uGold; uniform float uMix;
+      uniform vec3 uPink; uniform vec3 uGold; uniform float uMix; uniform float uLight;
       void main(){
         vec2 d = gl_PointCoord - 0.5;
         /* 花瓣形：横向椭圆（x 收紧比 y 快），不是圆点也不是雪团 */
         float r = length(vec2(d.x * 1.7, d.y));
         float a = exp(-r * r * 14.0) * smoothstep(0.5, 0.32, r) * vAlpha;
         if (a < 0.004) discard;
-        gl_FragColor = vec4(mix(uPink, uGold, uMix), a);
+        gl_FragColor = vec4(mix(uPink, uGold, uMix) * uLight, a);
       }`,
   });
   const points = new THREE.Points(geo, mat);
@@ -78,12 +83,15 @@ export function updateAmbient(dt, t){
   const p = ENV.cur;
   const petal = p.peachPetalShow || 0;
   const autumn = ENV.season === 'autumn' ? 0.8 : 0;
-  const amt = Math.max(petal, autumn);
+  /* 雨把花瓣 / 落叶打下来：空中的少（暴雨 ×0.25）、落得直（下坠 ×3.2）、摆得小（×0.3）。见 12a natureGates ②。 */
+  const ng = natureGates(p, ENV.season, effectiveWeather());
+  const amt = Math.max(petal, autumn) * ng.petalWx;
   PETALS.points.visible = amt > 0.02;
   if (!PETALS.points.visible) return;
   const uu = PETALS.points.material.uniforms;
   uu.uIntensity.value = Math.min(1, amt) * 0.75;
   uu.uMix.value = autumn / (petal + autumn + 1e-5);   // 谁主导就偏谁的颜色
+  uu.uLight.value = ng.petalLight;
   const cam = camera.position;
   const dcx = _prevCamX === null ? 0 : cam.x - _prevCamX;
   const dcz = _prevCamZ === null ? 0 : cam.z - _prevCamZ;
@@ -103,9 +111,9 @@ export function updateAmbient(dt, t){
   for (let i = 0; i < active; i++){
     const j = i * 3;
     /* 花瓣比雪落得慢、摆得开：慢速下坠 + 大幅摇摆 + 顺风漂 */
-    a[j]   += dcx + (Math.sin(t * 0.9 + i * 0.53) * 1.1 + wind * 0.55) * dt;
-    a[j+1] += -(0.55 + amt * 0.5) * spArr[i] * dt;
-    a[j+2] += dcz + Math.cos(t * 0.7 + i * 0.41) * 1.1 * dt;
+    a[j]   += dcx + (Math.sin(t * 0.9 + i * 0.53) * 1.1 * ng.petalSway + wind * 0.55) * dt;
+    a[j+1] += -(0.55 + amt * 0.5) * spArr[i] * ng.petalFall * dt;
+    a[j+2] += dcz + Math.cos(t * 0.7 + i * 0.41) * 1.1 * ng.petalSway * dt;
     if (a[j+1] < YB){ a[j+1] = YT; a[j] = cam.x + (Math.random() * 2 - 1) * X; a[j+2] = cam.z + (Math.random() * 2 - 1) * X; }
     else if (a[j] - cam.x >  X) a[j] -= 2 * X;
     else if (cam.x - a[j] >  X) a[j] += 2 * X;
