@@ -654,6 +654,7 @@ HOOKS.walkState = () => WALK.state;
 HOOKS.walkMove = (dx, dz) => WALK.move(dx, dz);
 HOOKS.walkFloor = (x, z, base) => WALK.floor(x, z, base);
 HOOKS.walkTouch = (f, r) => WALK.setTouch(f, r);   // 触屏摇杆测试钩子（门禁无真触屏时验证行走数学）
+HOOKS.walkBob = () => WALK.bobPhase();              // 批次 #23：门禁验"走动有起伏、站立不抖"
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.postcardSeasons = takeSeasonsPostcard;

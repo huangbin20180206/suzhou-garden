@@ -105,12 +105,28 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     controls.enabled=false;
     // South courtyard, outside pond and clear of the moon gate pillars.
     feet=groundHeight(0,26); const sampled=floor(0,26,feet+0.3);if(sampled!==null)feet=sampled;
-    camera.position.set(0,feet+1.65,26);camera.near=0.08;camera.updateProjectionMatrix();yaw=0;pitch=0;
+    camera.position.set(0,feet+1.65,26);camera.near=0.08;camera.updateProjectionMatrix();yaw=0;pitch=0;bobPhase=0;
     if (TOUCH_UI) hint.textContent = '左半屏拖动行走 · 右半屏拖动转头 · 点"步行"按钮退出';
     else hint.textContent = 'WASD / 方向键行走 · 按住鼠标右键转头 · Esc 返回';
     state.active=true;hint.hidden=false;button?.setAttribute('aria-pressed','true');
     update(0);
   }
+  /* 走动的头部晃动（2026-11-23 · 批次 #23）：
+     走模式是第一人称，之前相机 y 是**死值** feet+1.65 —— 画面平移、身体不动，
+     因而不出戏但也不"在此处"。加两路低频摆动：
+       · 竖直 bob：每步一次起伏（步频 = 实际位移 / 步长 0.85m ⇒ 2.2m/s 时约 2.6Hz）
+       · 横向 roll：每步左右交替一次微倾（bob 的半频）
+     幅度刻意**很小**（y ±3.2cm、roll ±0.35°）：这是"身体在走"的暗示，不是过山车；
+     真机晕动症（motion sickness）在第三人称转第一人称时最容易被放大，宁轻勿重。
+     ⚠️ amplitude 乘 **实际位移**（不是 dt）：站着看风景时相位冻结、不晃 ——
+        否则人不动画面自己在抖，那是 bug 不是手感。
+     ⚠️⚠️ 横向摆动**不能改 camera.position.x/z**：move() 的碰撞射线是从
+        camera.position 起算的（三条肩宽射线，见 move 内 origin.set），
+        借位置做 sway 会让"人在晃"和"墙在哪"混成一件事 —— 走着走着之间
+        忽然被旁边的柱子挡住。所以横向那一路改走 **roll**（绕视线轴的极小平移感倾斜），
+        位置的 x/z 永远只由真实行走决定。 */
+  const BOB_STEP = 0.85, BOB_Y = 0.032, BOB_ROLL = 0.0061;   // 0.0061 rad ≈ 0.35°
+  let bobPhase = 0;
   function update(dt) {
     if(!state.active)return;
     const forward=Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'))+touchF;
@@ -119,9 +135,14 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     const dx=(right*Math.cos(yaw)-forward*Math.sin(yaw))*distance;
     const dz=(-right*Math.sin(yaw)-forward*Math.cos(yaw))*distance;
     const n=Math.max(1,Math.ceil(Math.hypot(dx,dz)/0.08));
+    const px = camera.position.x, pz = camera.position.z;
     for(let i=0;i<n;i++)move(dx/n,dz/n);
-    camera.position.y=feet+1.65;
-    camera.quaternion.setFromEuler(new THREE.Euler(pitch,yaw,0,'YXZ'));
+    /* 只量**水平**位移：上下台阶（y 变化）不该被算成"走了步"，否则爬台阶时狂晃 */
+    const moved = Math.hypot(camera.position.x - px, camera.position.z - pz);
+    bobPhase += moved / BOB_STEP * Math.PI * 2;   // 走满一个步长 = 一个完整起伏周期
+    camera.position.y = feet + 1.65 + Math.sin(bobPhase) * BOB_Y;
+    /* roll 作第三轴（YXZ 的中轴仍是 pitch/yaw，roll 只影响画面倾角） */
+    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, Math.sin(bobPhase * 0.5) * BOB_ROLL, 'YXZ'));
   }
   addEventListener('keydown',e=>{
     if(!state.active || e.ctrlKey || e.metaKey || e.altKey || e.target?.closest?.('input,textarea,select,[contenteditable="true"]'))return;
@@ -177,5 +198,5 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   canvas.addEventListener('contextmenu',e=>{if(state.active)e.preventDefault();});
   /* setTouch：测试钩子（无头门禁用，无需真触屏即可验证行走数学）+ 预留外部摇杆。 */
   function setTouch(f,r){touchF=f;touchR=r;}
-  return { state,start,end,update,move, floor, setTouch };
+  return { state,start,end,update,move, floor, setTouch, bobPhase: () => bobPhase };
 }
