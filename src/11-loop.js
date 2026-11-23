@@ -200,7 +200,7 @@ const Snd = (()=>{
   let footstepCount = 0;             // 门禁可读：实际触发过多少次
   let cricketCarrier = null, cricketMod = null, cricketG = null;
   let cicadaG = null, frogG = null;
-  let on = false, birdNext = 0, frogNext = 0, drumNext = 0, vol = 1;
+  let on = false, birdNext = 0, frogNext = 0, drumNext = 0, chimeNext = 0, vol = 1;
   function ensure(){
     if (ctx) return true;
     try { ctx = new (window.AudioContext || window.webkitAudioContext)(); }
@@ -308,6 +308,11 @@ const Snd = (()=>{
       cicada:  (season === 'summer' && dayLight && !night && quiet) ? 0.020 : 0,
       frog:    (season === 'summer' && (night || time === 'dusk') && quiet) ? 0.030 : 0,
       bird:    (time === 'morning' && quiet && season !== 'winter') ? 1 : 0,
+      /* 廊下风铃（2026-11-23 · 批次 #21）：与鸣虫反着来 —— 它**要风**（windMul>1.6 才起，
+         即"阵风/大风"档；微风里铃不响才是对的）。季节不忌（廊下铜铃年年挂着），但冬季
+         实际上响不了 —— 不是门限的锅：WEATHER_RULES 禁了冬季暴雨（老黄 2026-10-06 拍板），
+         冬季最大风只有雪天 1.35。plan 只给门径，节奏由 tick 的 chimeNext 拍板。 */
+      chime:   windMul > 1.6 ? Math.min(1, (windMul - 1.6) / 1.5) : 0,
       quiet:   quiet ? 1 : 0,
     };
   }
@@ -367,6 +372,28 @@ const Snd = (()=>{
     g.gain.exponentialRampToValueAtTime(0.0008, t0 + 0.18);
     o.connect(g); g.connect(master);
     o.start(t0); o.stop(t0 + 0.2);
+  }
+  /* 廊下风铃：五声音阶高频 ping + 非谐泛音（金属味）+ 1.1s 长衰减。
+     基频 C7~A7 随机挑（2112/2349/2637/3136/3520），泛音 ×2.76（铜管非谐列）音量约 1/4、
+     ×5.40 音量约 1/10 —— 三个正弦叠出"叮"而不是"哔"。峰值 0.022（比鸟叫还轻一档，
+     风铃是远处廊下传来的）。触发瞬时建节点，播完 GC（与 chirp/croak/drum 同款）。 */
+  const CHIME_SCALE = [2112, 2349, 2637, 3136, 3520];
+  let chimeCount = 0;
+  function chime(){
+    const t0 = ctx.currentTime + 0.02;
+    const f0 = CHIME_SCALE[(Math.random() * CHIME_SCALE.length) | 0] * (0.99 + Math.random() * 0.02);
+    const parts = [[1, 0.022], [2.76, 0.006], [5.40, 0.0022]];
+    for (const [mult, vol] of parts){
+      const o = ctx.createOscillator(), g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(f0 * mult, t0);
+      g.gain.setValueAtTime(0, t0);
+      g.gain.linearRampToValueAtTime(vol, t0 + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0006, t0 + 1.1);
+      o.connect(g); g.connect(master);
+      o.start(t0); o.stop(t0 + 1.15);
+    }
+    chimeCount++;
   }
   /* ── 脚步声（2026-11-22 · 美术批次 #17）───────────────────────────────
      走模式是第一人称、却是**无声**的：画面在走、耳朵告诉你在飘。
@@ -453,6 +480,12 @@ const Snd = (()=>{
       croak();
       frogNext = performance.now() + 2500 + Math.random() * 4500;
     }
+    /* 风铃调度（批次 #21）：风越大越密（满风 ~2s 一记、起风门槛 ~6.5s 一记），
+       时值抖 ±40% —— 等间隔就是风铃机。强度进 chime() 不进闸门（它是事件不是持续层）。 */
+    if (q.chime > 0 && performance.now() > chimeNext){
+      chime();
+      chimeNext = performance.now() + (6500 - q.chime * 4500) * (0.6 + Math.random() * 0.8);
+    }
   }
   function setVolume(v){
     vol = Math.max(0, Math.min(1, v));
@@ -526,6 +559,7 @@ const Snd = (()=>{
     }),
     ctxState: () => (ctx ? ctx.state : 'none'),
     footsteps: () => footstepCount,
+    chimes: () => chimeCount,   // 门禁读：风铃实际触发次数（与 footsteps 同款事件计数）
     pondProximity,
     species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
   };
@@ -2390,6 +2424,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   sndFootsteps: () => Snd.footsteps(),
                   sndPondProximity: () => Snd.pondProximity(),
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),
+                  sndChimes: () => Snd.chimes(),
                   sndVolume: () => Snd.volume, sndSetVolume: (v) => Snd.setVolume(v),
                   /* 首次引导（2026-09-19）：门禁要能读步序、翻页、收起，并验"非模态 + 首次交互即消失" */
                   guideState: () => ({ on: GUIDE.on, i: GUIDE.i, steps: GUIDE_STEPS.length }),
