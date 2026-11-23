@@ -286,7 +286,7 @@ suzhou-garden/
 ├─ build-entry.js        vendor 打包入口（新增 addon 时在这里补一行）
 ├─ assets/               约 2.7 MB · 5 个 GLB（贴图已重编码压缩）：锦鲤 / 龟 / 荷 / 芭蕉 / 金刚鹦鹉
 │                        ＋ thunder.mp3（懒加载的点缀音效）。其余全部程序化生成
-├─ probe/                探针 175 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
+├─ probe/                探针 176 个 .mjs：门禁 / 审计 / 样张 / 诊断（串行跑，并行会争渲染资源）
 │                        ⚙️ 一次性诊断脚本归档在 `probe/_attic/<日期>/`（不入库，搬回原路径即复原）
 │  ├─ verify-all.mjs     **一条命令串行跑全部 102 道门**（`npm run verify`，≈90m，2026-10-13 实测 91 分钟；门数以它的 SUITES 表为准）
 │  ├─ check.mjs          语法门禁：index.html 只许一行入口 src/main.js + src/*.js 逐个 node --check + no-undef
