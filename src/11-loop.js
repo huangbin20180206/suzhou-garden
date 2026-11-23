@@ -47,7 +47,7 @@ import { tickGroomFeed } from './08-assemble.js';
 import { tickFigureAction } from './08b-figures.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
 import { isDebugSurface, qosThresholds, qosVerdict, estimateRefreshHz } from './00a-quality.js';
-import { FIXED_STEP, planFixedSteps, maxStepsFor } from './00b-fixedstep.js';
+import { FIXED_STEP, planFixedSteps, maxStepsFor, FIXED_STEP_POLICY, tickBySteps } from './00b-fixedstep.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
 import { preloadPhase, aggregate as preloadAggregate, describe as preloadDescribe, slowNotice, degradedList, PRELOAD_MANIFEST, PRELOAD_TOTAL_BYTES, setPreloadConfig, preloadConfig, OFFLINE_URL, enterBasic as preloadEnterBasic, assetUrl, ASSET_CDN, withCdnFallback } from './13-preload.js';
@@ -1372,6 +1372,7 @@ if (document.hidden) pageHidden = true;      // 启动即在后台（如后台�
    · 上限按"每帧最多 100ms 仿真"表述（= 6 步，与旧 MAX_STEPS 同值），超出部分丢弃并记账（simState().dropped）。
    接口不变：stepSim(rawDt) 仍返回本帧推进秒数（整步 × FIXED_DT），simClock / simState 字段只增不减。 */
 const FIXED_DT = FIXED_STEP.dt;
+try { if (/[?&]perstep=1(&|$)/.test(location.search)) FIXED_STEP_POLICY.perStep = true; } catch { /* 非浏览器 */ }
 const MAX_STEPS = maxStepsFor(FIXED_STEP);   // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
 let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
 const _fxOut = {}, _ngOut = {};          // fxGates / natureGates 的复用输出（帧内零分配，第 5 批）
@@ -1519,7 +1520,9 @@ function frameWork(){
      visible/position/rotation，也不写任何全局灯光（与闪电/烟花/流星同一条纪律）。 */
   tickStableLife(dt);
   /* P1 半写实人物：只写骨骼（以绑定姿态为基准），不碰 root / 灯光 / 材质。 */
-  tickActors(dt);
+  /* 2026-11-24 · 第 5 批：经 tickBySteps 按策略调（默认关 = tickActors(simSteps×1/60)，与原 tickActors(dt) 逐字相同；
+     ?perstep=1 ⇒ 每个固定步各调一次，见 00b FIXED_STEP_POLICY）。simSteps 即本帧 stepSim 推进的整步数。 */
+  tickBySteps(simSteps, tickActors);
   /* 马夫递草料（2026-10-11）：只转他自己的肩枢轴组 —— 不碰 root、不写灯光。 */
   tickGroomFeed(dt);
   /* 看烟花的一家人（2026-10-05 · 老黄："大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃"）：
@@ -2500,7 +2503,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   /* 固定步长仿真（2026-09-25）：门禁要在**低帧率**下验证“仿真速度不膨胀”，
                      但无头浏览器很难稳定造出 20fps ⇒ 暴露纯函数让它直接按指定 dt 步进。 */
                   simClock: () => simTime, stepSim, windClockNow: () => windClock,
-                  simState: () => ({ simTime, steps: simSteps, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS,
+                  simState: () => ({ simTime, steps: simSteps, perStep: FIXED_STEP_POLICY.perStep, accum: simAccum, fixed: FIXED_DT, maxSteps: MAX_STEPS,
                                       snap: FIXED_STEP.snap, maxFrame: FIXED_STEP.maxFrame, dropped: simDropped }),
                   /* 涟漪容量：门禁要断言"暴雨+密集点击+鱼跃"不抢不到槽（2026-09-25 由 20 提到 64） */
                   rippleCapacity,

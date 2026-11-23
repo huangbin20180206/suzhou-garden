@@ -2,7 +2,7 @@
 // 被测：src/00b-fixedstep.js planFixedSteps —— 11-loop.js 的 stepSim 只是它的薄壳。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { FIXED_STEP, planFixedSteps, maxStepsFor } from '../src/00b-fixedstep.js';
+import { FIXED_STEP, planFixedSteps, maxStepsFor, FIXED_STEP_POLICY, tickBySteps } from '../src/00b-fixedstep.js';
 
 const DT = FIXED_STEP.dt;
 /* 按给定帧间隔序列跑累加器，返回每帧步数与总仿真秒数 */
@@ -72,4 +72,23 @@ test('吸附余量有界：负余量不超过 0.25 步，非法输入按 0', () 
   assert.ok(p.accum < 0 && p.accum >= -0.25 * DT - 1e-12);
   assert.deepEqual(planFixedSteps(0, NaN), { steps: 0, accum: 0, dropped: 0 });
   assert.deepEqual(planFixedSteps(0, -1), { steps: 0, accum: 0, dropped: 0 });
+});
+
+/* 第 5 批：人物更新的步进策略（00b tickBySteps，11-loop 用它调 tickActors） */
+test('步进策略：默认关 = 每帧一次 tick(步数×dt)；开 = 每步一次 tick(dt)；上限仍是每帧 6 步', () => {
+  assert.equal(FIXED_STEP_POLICY.perStep, false, '默认必须关（保持现状，Kyle 决定是否打开）');
+  const calls = [];
+  const tick = d => calls.push(d);
+  tickBySteps(3, tick);
+  assert.deepEqual(calls, [3 * DT], '关：一次，参数与原 tickActors(dt) 的 dt（steps×FIXED_DT）逐位相同');
+  calls.length = 0; tickBySteps(0, tick);
+  assert.deepEqual(calls, [0], '关：0 步也照旧调一次 tick(0)');
+  calls.length = 0; tickBySteps(3, tick, { perStep: true });
+  assert.deepEqual(calls, [DT, DT, DT], '开：每步一调');
+  calls.length = 0; tickBySteps(0, tick, { perStep: true });
+  assert.deepEqual(calls, [], '开：0 步不调');
+  /* 长帧（切回标签页）：步数先被 planFixedSteps 截到 6 ⇒ 开启口径最多 6 次 */
+  const p = planFixedSteps(0, 5.0);
+  calls.length = 0; tickBySteps(p.steps, tick, { perStep: true });
+  assert.equal(calls.length, maxStepsFor(), '每帧最多补 100ms');
 });

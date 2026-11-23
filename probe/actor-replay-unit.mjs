@@ -11,7 +11,9 @@
 // 为什么：改相位机（礼仪相位、走回原位）之前先锁住现状 —— 任何行为变化都会在这里报出首个不同帧。
 // 有意改行为时重录基线：ACTOR_SIM_RECORD=1 node --test probe/actor-replay-unit.mjs（提交说明里写清为什么变）。
 //   只重录其中一份：ACTOR_SIM_RECORD=carriage-rite（逗号分隔多份）；其余用例照常比对。
-// 耗时：全量约 13s（四进程并行，远低于 60s ⇒ 默认就跑全量，不设 ACTOR_SIM_FULL 截断开关）。
+//   · carriage-walkback-perstep：同产品默认，但按真实帧驱动 + FIXED_STEP_POLICY.perStep 开（2026-11-24 · 第 5 批）；
+//     另跑一份关闭口径（legacy，不锁基线）做相位链 / 时长 / 路线几何的容差对照。
+// 耗时：全量约 30s（六进程，2 核机器上；远低于 120s ⇒ 默认就跑全量，不设 ACTOR_SIM_FULL 截断开关）。
 //   ACTOR_SIM_STEPS=N 只比前 N 帧（调试时快速看开头）。
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,7 +23,7 @@ import path from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { fileURLToPath } from 'node:url';
-import { readRun, writeRunGz, diffRuns } from './_actor-sim/compare.mjs';
+import { readRun, writeRunGz, diffRuns, pathDeviation } from './_actor-sim/compare.mjs';
 
 const run = promisify(execFile);
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -32,7 +34,12 @@ const recording = (name) => REC_ENV === '1' || REC_ENV.split(',').includes(name)
 const STEPS = +(process.env.ACTOR_SIM_STEPS || 0);
 const CASES = [{ name: 'carriage-2', mode: 'carriage', visits: 2 }, { name: 'walk-1', mode: 'walk', visits: 1 },
                { name: 'carriage-rite', mode: 'carriage-rite', visits: 2 },
-               { name: 'carriage-walkback', mode: 'carriage-walkback', visits: 2 }];
+               { name: 'carriage-walkback', mode: 'carriage-walkback', visits: 2 },
+               /* 2026-11-24 · 第 5 批 · 固定步长逐步调用：按真实帧驱动（sim.mjs runFrames，帧间隔取 FRAME_RAW 抖动序列）。
+                  perstep = FIXED_STEP_POLICY.perStep 开（每步一调 tickActors(1/60)），锁 baseline/carriage-walkback-perstep.json.gz；
+                  legacy  = 现状（每帧一次 tickActors(步数×1/60)），不锁基线，只与 perstep 做容差对照（见下方测试）。 */
+               { name: 'carriage-walkback-perstep', mode: 'carriage-walkback', visits: 2, driver: 'perstep' },
+               { name: 'carriage-walkback-legacy', mode: 'carriage-walkback', visits: 2, driver: 'legacy', noBaseline: true }];
 /* 礼仪合计让首场到 done 推迟的窗口（任务口径 60–90s；2026-10-31 录基线时实测 +76.0s）。
    2026-11-04 迎客重排（老黄"主人和红衣孩童一起到门口迎接"）：门房通报三段
    （await/usher/announce ≈40s）停用，礼仪只余奉茶（serve/offer）与接马的时序差
@@ -46,15 +53,18 @@ async function simulate(c){
   const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'actor-sim-')), c.name + '.json');
   const args = ['--import', './probe/_actor-sim/register.mjs', 'probe/_actor-sim/sim.mjs', c.mode, String(c.visits), out];
   if (STEPS && !recording(c.name)) args.push(String(STEPS));
-  await run(process.execPath, args, { cwd: ROOT, maxBuffer: 1 << 24 });
+  const env = { ...process.env };
+  if (c.driver) env.ACTOR_SIM_DRIVER = c.driver; else delete env.ACTOR_SIM_DRIVER;
+  await run(process.execPath, args, { cwd: ROOT, maxBuffer: 1 << 24, env });
   const r = JSON.parse(fs.readFileSync(out, 'utf8'));
   fs.rmSync(path.dirname(out), { recursive: true, force: true });
   return r;
 }
 
-const runs = Object.fromEntries(CASES.map(c => [c.name, simulate(c)]));      // 四进程并行
+const runs = Object.fromEntries(CASES.filter(c => !(STEPS && c.driver)).map(c => [c.name, simulate(c)]));      // 多进程并行（截断调试时不跑按帧驱动的两份）
 
 for (const c of CASES){
+  if (c.noBaseline || (STEPS && c.driver)) continue;
   test('重播回归网 ' + c.name + '：与基线逐帧一致', async () => {
     const r = await runs[c.name];
     const file = path.join(BASE, c.name + '.json.gz');
@@ -152,4 +162,35 @@ test('走回去：冷却复位期间可见演员单帧水平位移 ≤0.5m（兜
   const tH = r.phases[h][0], tI = r.phases[h + 1][0];
   const car2 = r.phases.filter(p => p[1] === 'carIn')[1][0], car2Ref = ref.phases.filter(p => p[1] === 'carIn')[1][0];
   assert.ok(Math.abs((car2 - car2Ref) - (tI - tH)) < 0.81, '第二场开演推迟 ' + (car2 - car2Ref).toFixed(1) + 's ≠ homing ' + (tI - tH).toFixed(1) + 's');
+});
+
+/* ── 固定步长两种口径对照（2026-11-24 · 第 5 批）──────────────────────────────────────────
+   同一份抖动帧序列（FRAME_RAW：1~3 步 / 帧，夹 100ms 上限的 6 步帧），perStep 开 vs 关：
+   ① 相位链逐项一致（开启口径一帧多步时逐步记相位，瞬时相位 wrap 也不漏）；
+   ② 时长：每个相位的进入时刻差 ≤ 0.5s + 0.6% × 已演时长（实测关闭口径大步积分走得略慢，两场末尾累计慢 2.9s / 835s ≈ 0.35%）；
+   ③ 轨迹：按场分段的路线几何偏差（pathDeviation byPhase=false，双向取大）≤ 0.35m（实测 0.275m，劳工绕车那一段）；
+   ④ 开启口径与入库的理想口径基线（carriage-walkback，runVisit 1/60 量子）相位链一致、各相位时刻差 ≤ 0.5s ——
+      即"每步一调"就是重播网一直假设的那条时间线。 */
+const PS_TOL = { t0: 0.5, rel: 0.006, path: 0.35 };
+test('固定步长逐步调用：perStep 开/关相位链一致、时长与轨迹差在容差内，开启口径贴合理想基线', async () => {
+  if (STEPS) return;
+  const P = await runs['carriage-walkback-perstep'], L = await runs['carriage-walkback-legacy'];
+  assert.equal(P.driver, 'perstep'); assert.equal(L.driver, 'legacy');
+  assert.equal(P.doneAt.length, 2); assert.equal(L.doneAt.length, 2);
+  assert.deepEqual(L.phases.map(p => p[1]), P.phases.map(p => p[1]), '两种口径的相位链应一致');
+  let worstT = 0;
+  for (let i = 0; i < P.phases.length; i++){
+    const tp = P.phases[i][0], tl = L.phases[i][0], d = Math.abs(tp - tl);
+    worstT = Math.max(worstT, d);
+    assert.ok(d <= PS_TOL.t0 + PS_TOL.rel * tp, `相位 ${P.phases[i][1]}（第 ${i} 项）进入时刻 开 ${tp}s / 关 ${tl}s，差 ${d.toFixed(2)}s`);
+  }
+  const dev = Math.max(pathDeviation(P, L, { byPhase: false }).worst, pathDeviation(L, P, { byPhase: false }).worst);
+  assert.ok(dev <= PS_TOL.path, `路线几何偏差 ${dev}m`);
+  /* 理想基线每 0.4s 才看一次相位：开启口径里不足 0.4s 的瞬时相位（wrap 0.02s）它看不见 ⇒ 只从开启口径一侧滤掉再比
+     （基线侧不滤：持续 ≥0.4s 的相位必被 0.4s 采样看到；它记下的时刻是 0.4 的整倍数，浮点上会差一点点） */
+  const B = readRun(path.join(BASE, 'carriage-walkback.json.gz'));
+  const Pv = P.phases.filter((p, i) => !(i + 1 < P.phases.length && P.phases[i + 1][0] - p[0] < 0.4)), Bv = B.phases;
+  assert.deepEqual(Pv.map(p => p[1]), Bv.map(p => p[1]), '开启口径应与理想口径基线相位链一致');
+  for (let i = 0; i < Bv.length; i++)
+    assert.ok(Math.abs(Pv[i][0] - Bv[i][0]) <= 0.5, `相位 ${Bv[i][1]} 开启口径 ${Pv[i][0]}s / 基线 ${Bv[i][0]}s`);
 });

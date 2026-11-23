@@ -43,3 +43,22 @@ export function planFixedSteps(accum, rawDt, opt = FIXED_STEP){
   }
   return { steps, accum: a - steps * dt, dropped: 0 };
 }
+
+/* ── 人物更新的步进策略（2026-11-24 · 第 5 批）──────────────────────────────────────────
+   技术债（docs/HANDOFF-2026-10-31-batch3.md："仿真主体每帧仍只跑一次（传 步数×1/60）"）：
+   11-loop 每帧把人物更新一次性按 tickActors(步数 × 1/60) 调；tickActors 内部再按 ≤50ms 切片 ⇒
+   60Hz 每帧 1 步时与"每步一调"相同，掉帧时（2~3 步/帧）变成一次 advance(1/30) / advance(1/20)，
+   6 步（100ms）切成两次 advance(0.05)。人物的步态 / 转身 / 导演层计时都是按 dt 积分的，
+   大步与小步的轨迹在毫米到厘米级上不同，相位切换时刻也可能差一步。
+   perStep = true：每个固定步各调一次 tickActors(1/60) —— 与 probe/_actor-sim 的重播口径（actorStep 内部 1/60 量子）
+   一致，人物轨迹与帧率无关。每帧最多补步的上限不变（planFixedSteps 的 100ms）。
+   **默认关**：保持现状，四份重播基线不动；开启后的基线见 probe/_actor-sim/baseline/carriage-walkback-perstep.json.gz，
+   两种口径的对照断言在 actor-replay-unit（相位链一致、到 done 的时刻与轨迹差在容差内）。
+   浏览器里可用 ?perstep=1 试开（11-loop 读）。默认是否打开由 Kyle 定。 */
+export const FIXED_STEP_POLICY = { perStep: false };
+/** 把本帧 steps 个固定步交给 tick：perStep 关 ⇒ tick(steps·dt) 一次（现状）；开 ⇒ tick(dt) 调 steps 次。
+    steps=0 时关闭口径仍调 tick(0)（与现状逐字相同；tickActors(0) 不推进），开启口径不调。 */
+export function tickBySteps(steps, tick, policy = FIXED_STEP_POLICY, dt = FIXED_STEP.dt){
+  if (policy.perStep){ for (let i = 0; i < steps; i++) tick(dt); }
+  else tick(steps * dt);
+}

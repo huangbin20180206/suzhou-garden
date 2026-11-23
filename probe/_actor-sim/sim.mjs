@@ -4,6 +4,7 @@
 //   carriage-rite 带 `?walkback=0` = 礼仪三段全开、旧瞬移复位，锁 baseline/carriage-rite.json.gz；
 //   carriage-walkback 不带参数 = 产品默认（礼仪全开 + 走回去），相机换到开机机位，锁 baseline/carriage-walkback.json.gz。
 //   场数 = 跑到第几次 'done' 为止（马车版 2 = 首场 + 冷却 45s 复位 + 重播一场）。
+//   环境变量 ACTOR_SIM_DRIVER=perstep|legacy：按真实帧驱动（runFrames，固定步长两种口径，2026-11-24 · 第 5 批）。
 // 为什么要它：visit-carriage-guard 要起浏览器 + 软件渲染跑十几分钟；改导演层/相位机时
 //   需要"逐帧与基线一致"的证据 —— 导演层只读演员状态推进、与渲染无关，桩掉场景即可逐帧比对。
 // ⚠️ 演员记录按 16-actors 的 loadActor 字段原样构造；骨架是假骨架（见 fakeRig），姿态层照样逐层执行；
@@ -146,6 +147,44 @@ export async function runVisit(A, { visits = 1, dt = 0.4, maxSteps = 20000, onSt
   return r;
 }
 
+/* ── 按"真实帧"驱动（2026-11-24 · 第 5 批 · 固定步长逐步调用）─────────────────────────────
+   runVisit 每 0.4s 调一次 actorStep（内部 1/60 量子）= 与帧率无关的理想口径。产品里则是 11-loop 每帧：
+   planFixedSteps(余量, 帧间隔) 得到本帧步数 → tickBySteps(步数, tickActors)（00b FIXED_STEP_POLICY）。
+   这里用同一对纯函数复现：帧间隔取确定性的抖动序列 FRAME_RAW（覆盖 1~3 步与 100ms 上限的 6 步），
+   perStep 关 = 现状（tickActors(步数×1/60) 一次），开 = 每步一调。
+   快照节拍：累计步数每跨过 24 步（0.4s）记一帧（关闭口径下一帧可能跨过边界 1~2 步 —— 那正是现状的粒度）；
+   相位 / 车况时刻按累计步数 /60 记，两种口径可比。 */
+export const FRAME_RAW = [1 / 60, 1 / 30, 1 / 20, 1 / 24, 1 / 45, 1 / 30, 0.1, 1 / 60, 1 / 40, 1 / 30];
+export async function runFrames(A, { visits = 1, perStep = false, maxFrames = 200000 } = {}){
+  publish(A);
+  const FS = await import('../../src/00b-fixedstep.js');
+  if (!A.ACTORS.length) for (const d of A.defs){ const a = makeActor(d, A.props); A.ACTORS.push(a); addProps(a, A.props); }
+  const policy = { perStep };
+  const frames = [], phases = [], cars = [], doneAt = [];
+  let lastP = '', lastC = '', accum = 0, steps = 0, nextSnap = 24;
+  /* 相位 / 车况在**每次 tickActors 之后**记（开启口径一帧内有几步就记几次）：一帧多步时，
+     只存在一步的瞬时相位（如 wrap → done）在开启口径里也不会被帧采样漏掉。 */
+  const tick = (d) => {
+    A.tickActors(d);
+    steps += Math.round(d * 60);
+    const simT = +(steps / 60).toFixed(2), v = A.VISIT;
+    if (v.phase !== lastP){ phases.push([simT, v.phase]); if (v.phase === 'done') doneAt.push(simT); lastP = v.phase; }
+    const cs = A.VISCAR.state + (A.VISCAR.leg ? '/' + A.VISCAR.leg : '');
+    if (cs !== lastC){ cars.push([simT, cs]); lastC = cs; }
+  };
+  for (let f = 0; f < maxFrames; f++){
+    const plan = FS.planFixedSteps(accum, FRAME_RAW[f % FRAME_RAW.length]);
+    accum = plan.accum;
+    FS.tickBySteps(plan.steps, tick, policy);
+    if (steps >= nextSnap){ frames.push(snapshot(A, A.VISIT, A.VISCAR)); nextSnap += 24; }
+    if (doneAt.length >= visits) break;
+  }
+  const r = { mode: A.VISIT.mode, etiquette: !!A.etiquette, driver: perStep ? 'perstep' : 'legacy', frames, phases, cars,
+              simT: +(steps / 60).toFixed(2), doneAt };
+  if (A.VISIT.homeLog) r.walkback = { log: A.VISIT.homeLog.slice(), snaps: A.VISIT.homeSnaps || 0 };
+  return r;
+}
+
 /* 进程内装载：先按模式设好 location，再 import（模式是模块求值期读的） */
 const SEARCH = {
   carriage: '?etiquette=0&walkback=0',
@@ -176,7 +215,9 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href){
   const t0 = Date.now();
   const A = await loadSim(mode);
   const quiet = console.log; console.log = () => {}; console.warn = () => {};
-  const r = await runVisit(A, { visits, maxSteps });
+  /* ACTOR_SIM_DRIVER=perstep|legacy：改用按真实帧驱动（runFrames，见上）；缺省仍是 runVisit */
+  const drv = process.env.ACTOR_SIM_DRIVER;
+  const r = drv ? await runFrames(A, { visits, perStep: drv === 'perstep' }) : await runVisit(A, { visits, maxSteps });
   console.log = quiet;
   if (out) fs.writeFileSync(out, JSON.stringify(r));
   console.log(mode, 'frames', r.frames.length, 'simT', r.simT, 'doneAt', r.doneAt.join(','), 'wall', ((Date.now() - t0) / 1000).toFixed(1) + 's');

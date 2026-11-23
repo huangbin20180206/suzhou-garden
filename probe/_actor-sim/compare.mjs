@@ -61,3 +61,45 @@ if (import.meta.url === pathToFileURL(process.argv[1]).href){
   console.log(d || '逐帧一致 ✓');
   process.exit(d ? 1 : 0);
 }
+
+/* 路径形状偏差（2026-11-24 · 第 5 批 · 固定步长两种口径对照）：
+   两份按帧驱动的录像时间轴会慢慢错开（关闭口径大步积分，走得略慢），按帧号直接比位置会把"晚到 1 秒"量成"偏了 1 米"。
+   这里按 (第几场, 相位名) 分段（byPhase=false：只按场分段 —— 不受相位外的个人计时器影响，量纯路线几何），每段里取 a 的每个快照点到 b 同段同一演员折线的最近距离，取最大 —— 量的是"走的路线是否一样"。
+   只比两边都可见的演员；返回 { worst, at:[段, 演员], segs, pts }。 */
+export function pathDeviation(a, b, { byPhase = true } = {}){
+  const segs = (r) => {
+    const m = new Map(); let visit = 0, prev = '';
+    for (const f of r.frames){
+      const x = f.split('|'), ph = x[0];
+      if (ph === 'carIn' && prev !== 'carIn') visit++;
+      prev = ph;
+      for (let k = 12; k + 19 <= x.length && x[k] !== 'rite'; k += 19){
+        if (x[k + 10] !== 'true') continue;
+        const key = byPhase ? visit + '/' + ph + '/' + x[k] : visit + '/' + x[k];
+        let arr = m.get(key); if (!arr) m.set(key, arr = []);
+        arr.push(+x[k + 1], +x[k + 2]);
+      }
+    }
+    return m;
+  };
+  const A = segs(a), B = segs(b);
+  let worst = 0, at = null, n = 0, pts = 0;
+  for (const [key, pa] of A){
+    const pb = B.get(key); if (!pb) continue;
+    n++;
+    for (let i = 0; i < pa.length; i += 2){
+      const px = pa[i], pz = pa[i + 1];
+      let best = Infinity;
+      if (pb.length === 2) best = Math.hypot(px - pb[0], pz - pb[1]);
+      for (let j = 0; j + 3 < pb.length; j += 2){
+        const ax = pb[j], az = pb[j + 1], dx = pb[j + 2] - ax, dz = pb[j + 3] - az;
+        const l2 = dx * dx + dz * dz;
+        const t = l2 > 0 ? Math.max(0, Math.min(1, ((px - ax) * dx + (pz - az) * dz) / l2)) : 0;
+        best = Math.min(best, Math.hypot(px - ax - dx * t, pz - az - dz * t));
+      }
+      pts++;
+      if (best > worst){ worst = best; at = key; }
+    }
+  }
+  return { worst: +worst.toFixed(4), at, segs: n, pts };
+}
