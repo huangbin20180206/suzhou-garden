@@ -2232,9 +2232,23 @@ function visitWeatherOK(){
   const w = ENV.weather;
   if (w === 'storm' || w === 'snow' || w === 'thunder' || w === 'drizzle') return false;
   const c = ENV.cur;
-  if (c && ((c.rainAmount || 0) > 0.05 || (c.snowAmount || 0) > 0.05 || (c.snowCover || 0) > 0.05)) return false;
+  if (c && ((c.rainAmount || 0) > 0.05 || (c.snowAmount || 0) > 0.05)) return false;
+  /* 积雪读**余韵后的有效值**（2026-11-24 · 批次 3）：批次 2 起雪停后积雪不再 3 秒跳光，
+     而是 ENV.linger 慢慢化（屋顶 / 石面 snowF 3 分钟、地面 snowG 8 分钟；流转按 1.5 / 4 游戏小时）。
+     旧判据只看预设直出的 c.snowCover ⇒ 银装素裹 → 晴，3 秒后 snowCover 已是 0，
+     满园还白着客人就坐车来了（仿真：snowCover 0、linger.snowG 0.9 时旧判据放行）。
+     规则：石面化净（snowF ≤ 0.05：客人、马车、主客走的都是石板路 / 台阶 / 桥面）
+           且 地面化过半（snowG ≤ 0.5：草地还有残雪无妨，"雪后访友"本是雅事，但不在大雪刚停时）。
+     从满雪静看：石面 180s 化净、地面 240s 过半 ⇒ 雪停约 4 分钟后才会开演；流转里约 2 游戏小时。
+     有效值 = max(预设直出, 余韵水位)，与 12a lingerEff 同式（这里内联：12a 的依赖面比本模块大，
+     而判据只需要两个数）。ENV.linger 缺省（仿真桩 / 12-env 旧版）⇒ 退化为原判据。 */
+  const L = ENV.linger, s0 = c ? (c.snowCover || 0) : 0;
+  const snowFast = Math.max(s0, L ? (L.snowF || 0) : 0), snowGround = Math.max(s0, L ? (L.snowG || 0) : 0);
+  if (snowFast > VISIT_SNOW.fast || snowGround > VISIT_SNOW.ground) return false;
   return true;
 }
+/* 到访的残雪门槛（见 visitWeatherOK）：石面要化净、地面化过半 */
+const VISIT_SNOW = { fast: 0.05, ground: 0.5 };
 
 /* 车局部点 → 世界（车的 +z 是车头方向） */
 function carPoint(P, lx, lz){
@@ -3181,6 +3195,14 @@ function resetVisit(hostHome){
     host.floorY = null; host.floorDone = false; host.floorTries = 0;
     if (!_avoidReveal.some(r => r.o === host.holder)) host.holder.visible = true;
   }
+  /* 并排 / 游园段的"位置归导演层"标记（2026-11-24 · 批次 3）：正常收尾时 drivePair / driveTour
+     到终点自己清；但全场看门狗（1500s）在 pair / tour 中途 resetVisit 时它还是 true ⇒
+     tickRoute 第一行就 return，下一场主人拿到出迎路线却**一步不动**，整场停在 gwalk，
+     看门狗再复位也不清 ⇒ 永久卡死（仿真 outputs/_diag/visit-abort-20261124.mjs：
+     pair / tour 中途复位后 2400s 内停在 gwalk、age 805；清掉后下一场 378s 到 done）。
+     正常路径到这里时两者已是 false ⇒ 基线逐帧不变。 */
+  if (host) host.pairDrive = false;
+  if (guest) guest.pairDrive = false;
   riteReset();
   VISIT.phase = 'idle'; VISIT.t = 0; VISIT.bowW = 0;
   VISIT.tourS = 0; VISIT.guestSent = false; VISIT.hostAtQin = false; VISIT.waveW = 0;
@@ -3973,6 +3995,11 @@ function actorVisibleNow(a){
   /* ① 到访演员：戏在演（phase 不是 idle）⇒ 恒可见；散场后按普通人物处理。 */
   const playing = VISIT.phase !== 'idle' && VISIT.phase !== 'done' && VISIT.phase !== 'homing';
   if (VISIT_IDS.has(def.id) && playing) return true;
+  /* 抚琴人是"听琴"这一幕的对手戏（2026-11-24 · 批次 3）：主人回水榭站到他身边（hostAtQin）
+     之后若入夜，旧规则把抚琴人按白昼时段收走，主人仍面朝空凳"听琴"直到散场
+     （仿真 outputs/_diag/visit-night-20261124.mjs listen 150：入夜帧 qin 隐藏、scholar 仍在 QIN_STAND）。
+     戏在演且主人已在琴边 ⇒ 抚琴人随戏可见；散场（done）后与主人一同按时段收工。 */
+  if (def.id === 'qin' && playing && VISIT.hostAtQin) return true;
   /* ② 灯会 / 烟花：夜里的豁免 */
   const festivalOn = !!env.festival || (HOOKS.fireworksOn && HOOKS.fireworksOn());
   /* ③ 各人时段（def.hours 优先；lady 沿用 LADY_SCHEDULE；其余白昼 6~18） */

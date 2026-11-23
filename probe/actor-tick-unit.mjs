@@ -43,6 +43,27 @@ test('到访只在太阳实际升起后的原定时段开演', () => {
   ENV.hour = 10;
 });
 
+test('雪停后积雪余韵未化：石面化净且地面化过半前不开演', () => {
+  /* 批次 2 起雪停后 ENV.linger 慢化（屋顶石面 snowF 3 分钟、地面 snowG 8 分钟），预设直出 snowCover 3 秒归零。
+     旧判据只看 snowCover ⇒ 满园还白着客人就来了。 */
+  ENV.weather = 'clear'; ENV.hour = 10; ENV.doy = 22;
+  ENV.cur.snowCover = 0;
+  try {
+    ENV.linger = { wet: 0, snowF: 0.6, snowG: 0.9 };   // 雪刚停约 1 分钟
+    assert.equal(A.visitWeatherOK(), false, '屋顶石面仍有雪（snowF 0.6）不应开演');
+    ENV.linger = { wet: 0, snowF: 0, snowG: 0.62 };    // 石面化净、地面仍过半
+    assert.equal(A.visitWeatherOK(), false, '地面积雪仍过半（snowG 0.62）不应开演');
+    ENV.linger = { wet: 0, snowF: 0, snowG: 0.45 };    // 雪停约 4.4 分钟
+    assert.equal(A.visitWeatherOK(), true, '石面化净、地面化过半后可开演');
+    ENV.linger = { wet: 0.9, snowF: 0, snowG: 0 };     // 雨后湿地不拦（原判据就允许雨后初晴）
+    assert.equal(A.visitWeatherOK(), true, '雨后余韵湿地不应拦到访');
+    ENV.cur.snowCover = 0.3; ENV.linger = { wet: 0, snowF: 0, snowG: 0 };
+    assert.equal(A.visitWeatherOK(), false, '预设直出仍有积雪时照旧不开演');
+  } finally {
+    delete ENV.linger; ENV.cur.snowCover = 0; ENV.doy = 191;
+  }
+});
+
 test('刚切细雨、雨量尚未升起时，不应开始到访', () => {
   ENV.weather = 'drizzle';
   ENV.cur.rainAmount = 0;
