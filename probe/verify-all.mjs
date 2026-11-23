@@ -132,6 +132,9 @@ const SUITES = [
      （冬夏至日落与正午高度、中秋望 / 除夕朔）。node:test，零浏览器，<0.2s。 */
   ['花历单测 env-phenology-unit', 'probe/env-phenology-unit.mjs'],
   ['日轨月相单测 env-solar-unit', 'probe/env-solar-unit.mjs'],
+  /* 环境叠加单测（2026-11-23 · 视觉打磨批次 1）：时段×天气×季节全组合扫 12a 合成参数与 fxGates /
+     waterSunGates 特效门控 —— 连续性、曝光/bloom 上限、银河/云影/焦散/窗暖/余辉互斥。node:test，<1s。 */
+  ['环境叠加单测 env-blend-unit', 'probe/env-blend-unit.mjs'],
   /* 固定步长 / 到访重播单测（2026-10-31 登记）：fixed-step-unit 守 00b-fixedstep 的 planFixedSteps
      （11-loop stepSim 的纯函数内核，<0.1s）；actor-replay-unit 用 probe/_actor-sim 重跑到访整场、
      与入库基线逐帧比对（马车 / 步行 / 礼仪三段，纯 node 不起浏览器，三进程并行约 13~50s）。
@@ -685,6 +688,7 @@ const QUICK = new Set([
   'probe/changed-map-unit.mjs',        // 纯 node <0.2s：--changed 的映射自检，日常改动必跑
   'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
   'probe/env-phenology-unit.mjs', 'probe/env-solar-unit.mjs',   // 纯 node 单测 <0.2s
+  'probe/env-blend-unit.mjs',          // 纯 node 单测 <1s（2026-11-23 环境叠加）
   'probe/fixed-step-unit.mjs',         // 纯 node 单测 <0.1s
   'probe/actor-replay-unit.mjs',       // 纯 node 重播回归网，三进程并行 ~13~50s（仍在 quick 的 ≤1 分钟线内）
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
