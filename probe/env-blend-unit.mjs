@@ -12,7 +12,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { bindPresetsEnv, composeEnv, baseParamsAt, paramsAtHour, cloneParams, mixInto,
-         ENV_WEATHER, ENV_SEASON, weatherMutexReason, fxGates, waterSunGates, sunAltDeg } from '../src/12a-presets.js';
+         ENV_WEATHER, ENV_SEASON, weatherMutexReason, fxGates, waterSunGates, sunAltDeg,
+         makeReelSampler, REEL_KEY_H, SurfaceGate, SURFACE_EPS, lingerInit, lingerStep } from '../src/12a-presets.js';
 import { SEASON_DOY } from '../src/12g-phenology.js';
 
 const ENV = { season: 'summer', weather: 'clear', doy: SEASON_DOY.summer, festival: false, moonPhase: null };
@@ -194,4 +195,63 @@ test('互斥：池面晨雾不与雨雾叠满（雨天 ≤ 晴天，雾天才是
     }
     assert.ok(peak('mist') > clear, `${season} 雾天池雾应为满档`);
   }
+});
+
+/* ── 第 5 批 · 慢更新分流（2026-11-24）：流转关键帧插值 + 地表"变了才算"门 ──────────────────────
+   流转目标由 makeReelSampler 给（每 REEL_KEY_H 游戏小时一帧关键帧、帧间线性插值、急变格精确）。断言：
+   ① 与逐帧精确合成的偏差：颜色 / 标量 ≤ 0.012、日月方向 ≤ 0.005（outputs/_diag/reel-sampler-check 全组合实测 ≤ 0.0087）；
+   ② 无阶跃：按 60Hz × 0.4 时/秒逐帧走，插值输出的单帧跳变不大于精确合成在同一帧的跳变 + 0.003（关键帧边界不跳）；
+   ③ 重合成次数显著少于逐帧（≤ 0.35 次/帧）。 */
+const flatP = (p, out) => { let i = 0;
+  for (const k in p){ const v = p[k];
+    if (typeof v === 'number') out[i++] = v;
+    else if (v && v.isColor){ out[i++] = v.r; out[i++] = v.g; out[i++] = v.b; }
+    else if (Array.isArray(v)) for (const x of v) out[i++] = x;
+  }
+  out.length = i; return out; };
+test('流转关键帧插值：贴合逐帧精确合成、关键帧边界无阶跃、重合成次数降到三成以下', () => {
+  const dh = 0.4 / 60;
+  let worst = 0, worstJump = 0, frames = 0, builds = 0;
+  for (const season of SEASONS) for (const weather of ['clear', 'storm', 'mist', season === 'winter' ? 'snow' : 'drizzle']){
+    if (weatherMutexReason(weather, season) !== null) continue;
+    setAxes(season, weather);
+    const S = makeReelSampler();
+    let pa = null, pb = null;
+    for (let h = 0.01; h < 23.9; h += dh){
+      const a = flatP(S.sample(h), []), b = flatP(composeEnv(baseParamsAt(h)), []);
+      assert.equal(a.length, b.length, `${season}/${weather}@${h.toFixed(2)} 通道数不一致`);
+      for (let i = 0; i < a.length; i++) worst = Math.max(worst, Math.abs(a[i] - b[i]));
+      if (pa) for (let i = 0; i < a.length; i++)
+        worstJump = Math.max(worstJump, Math.abs(a[i] - pa[i]) - Math.abs(b[i] - pb[i]));
+      pa = a; pb = b; frames++;
+    }
+    builds += S.builds;
+  }
+  assert.ok(worst <= 0.012, `插值与精确合成最大偏差 ${worst.toFixed(4)}`);
+  assert.ok(worstJump <= 0.003, `插值单帧跳变比精确合成多出 ${worstJump.toFixed(4)}`);
+  assert.ok(builds / frames <= 0.35, `重合成 ${(builds / frames).toFixed(3)} 次/帧（关键帧步长 ${REEL_KEY_H}h）`);
+});
+
+test('地表门：稳态不重算、余韵按 1e-3 台阶推进且终值精确、预设通道一变即算', () => {
+  setAxes('winter', 'snow');
+  const p = cloneParams(composeEnv(baseParamsAt(10)));
+  const L = lingerInit(p);
+  const G = new SurfaceGate();
+  assert.equal(G.dirty(L, p), true, '首帧必须算');
+  for (let i = 0; i < 120; i++) assert.equal(G.dirty(L, p), false, '输入不变不应重算');
+  /* 雪停：预设积雪归零，水位按余韵慢化 —— 每帧都推进，但写入只在累计变化 >1e-3 时发生 */
+  const q = cloneParams(p); q.snowCover = 0; q.snowAmount = 0;
+  assert.equal(G.dirty(L, q), true, '预设通道变化（积雪直出 → 0）应立即重算');
+  let runs = 0, lastApplied = Math.max(q.snowCover, L.snowF), maxGap = 0;
+  for (let f = 0; f < 60 * 600 && (L.snowG > 0 || L.snowF > 0); f++){
+    lingerStep(L, q, 1 / 60, 0);
+    if (G.dirty(L, q)){ runs++; lastApplied = L.snowF; }
+    maxGap = Math.max(maxGap, Math.abs(L.snowF - lastApplied));
+  }
+  assert.ok(maxGap <= SURFACE_EPS + 1e-12, `写入值与真值的最大差 ${maxGap}`);
+  assert.equal(L.snowG, 0, '地面雪应化完');
+  assert.equal(G.dirty(L, q), false, '化完之后终值已写入，不应再算');
+  assert.ok(runs > 50 && runs < 3000, `余韵 8 分钟里重算 ${runs} 次（逐帧会是 28800 次）`);
+  /* 写口新就绪（延迟编译出来的 uniform）：extra 变了即算 */
+  assert.equal(G.dirty(L, q, 1), true, '写口就绪数变化应重算');
 });

@@ -710,6 +710,77 @@ export function baseParamsAt(h){
   return SOLAR.enabled ? paramsAtSolar(h, envDoy(), ENV ? ENV.moonPhase : null) : paramsAtHour(h);
 }
 
+/* ══ 时光流转的目标参数：关键帧 + 线性插值（2026-11-24 · 第 5 批 · 慢更新分流）═════════════════════════
+   旧：advanceReel 每帧 composeEnv(baseParamsAt(h)) —— 真实太阳 + 三套时段预设 makeParams + 物候 + 天气 + 灯会，
+       每帧新建整套参数集（几十个 THREE.Color + 数组），node 实测约 30KB/帧、28µs/帧（probe/perf-sim-bench.mjs）。
+   新：每 REEL_KEY_H = 0.05 游戏小时（3 游戏分钟）算一个关键帧，帧间按小时线性插值（mixInto）。
+       0.4 时/秒的流转下关键帧间隔 0.125 秒 ≈ 7.5 帧 ⇒ 重合成次数降到约 1/7.5。
+   为什么不会有可见阶跃：插值是连续的（关键帧上恰好等于精确值）；3 分钟内太阳只走约 0.75°，
+       弦与弧的偏差 ~1e-5 rad，颜色 / 强度按小时的二阶量更小。env-blend-unit 正是按 3 分钟一步断言连续性的，
+       关键帧取同一步长 ⇒ 插值后的单帧变化不会大于那张表允许的跳变。
+       非数值通道（标签串等）随 mixInto 取下一关键帧的值，最多提前 3 游戏分钟（≈0.45 秒）换。
+   立即刷新：合成规则读的轴（季节 / 天气 / 年内日 / 灯会 / 月相 / 真实太阳开关）任一变了，或 h 跳出当前关键帧区间
+       （拖滑杆、跨午夜回绕），当帧重算关键帧。
+   sample(h) 返回同一个对象（就地改写），调用方不要长期持有它当快照。 */
+export const REEL_KEY_H = 0.05;
+/* 急变格判据：相邻两关键帧之间任一数值通道变化超过 REEL_RAPID × max(1, |值|)，或日 / 月方向夹角超过
+   REEL_DIR_JUMP（月亮过地平线时 MOON_ARC 从落点跳回升点；午夜回绕），这一格退回逐帧精确合成 ——
+   线性插值在"快坡 + 拐点"（例：春暴雨 5:04 天空去色 0.43→0.80 只用 4 游戏分钟，到顶后钳平）上会偏离真曲线，
+   跳变处会把一次瞬跳摊成扫过天空的 7 帧。门限下的平缓格，插值与精确值之差不超过该格的变化量（≤0.02）。 */
+export const REEL_RAPID = 0.02, REEL_DIR_JUMP = 0.1;
+function _dirAngle(a, b){
+  const la = Math.hypot(a[0], a[1], a[2]) || 1, lb = Math.hypot(b[0], b[1], b[2]) || 1;
+  return Math.acos(Math.max(-1, Math.min(1, (a[0] * b[0] + a[1] * b[1] + a[2] * b[2]) / (la * lb))));
+}
+const _rapid = (x, y) => Math.abs(y - x) > REEL_RAPID * Math.max(1, Math.abs(x), Math.abs(y));
+function reelCellRapid(a, b){
+  for (const k in a){
+    const va = a[k], vb = b[k];
+    if (typeof va === 'number'){ if (_rapid(va, vb)) return true; }
+    else if (va && va.isColor){ if (_rapid(va.r, vb.r) || _rapid(va.g, vb.g) || _rapid(va.b, vb.b)) return true; }
+    else if (Array.isArray(va)){
+      if (va.length === 3 && (k === 'sunPos' || k === 'moonPos')){ if (_dirAngle(va, vb) > REEL_DIR_JUMP) return true; }
+      else for (let i = 0; i < va.length; i++) if (_rapid(va[i], vb[i])) return true;
+    }
+    else if (k === 'grade'){
+      for (const gk in va){
+        const x = va[gk], y = vb[gk];
+        if (typeof x === 'number' ? _rapid(x, y) : (x && x.isColor && (_rapid(x.r, y.r) || _rapid(x.g, y.g) || _rapid(x.b, y.b)))) return true;
+      }
+    }
+  }
+  return false;
+}
+export function makeReelSampler(step = REEL_KEY_H){
+  let k0 = null, k1 = null, h0 = NaN, out = null, exact = false;
+  let sSeason, sWeather, sDoy, sFest, sMoon, sSolar;
+  const sigSame = () => ENV.season === sSeason && ENV.weather === sWeather && envDoy() === sDoy
+    && !!ENV.festival === sFest && ENV.moonPhase === sMoon && SOLAR.enabled === sSolar;
+  const sigTake = () => { sSeason = ENV.season; sWeather = ENV.weather; sDoy = envDoy(); sFest = !!ENV.festival;
+                          sMoon = ENV.moonPhase; sSolar = SOLAR.enabled; };
+  const at = (h) => composeEnv(baseParamsAt(((h % 24) + 24) % 24));
+  /* 跨午夜那一格（右端 ≥24）一律精确：右端取模回 0 点会把午夜那一跳提前摊开 */
+  const judge = () => { exact = h0 + step > 24 - 1e-9 || reelCellRapid(k0, k1); if (exact) S.exactCells++; else S.lerpCells++; };
+  const S = {
+    builds: 0, exactCells: 0, lerpCells: 0,
+    reset(){ k0 = k1 = out = null; h0 = NaN; },
+    sample(h){
+      const base = Math.floor(h / step) * step;
+      if (!k0 || !sigSame()){
+        sigTake(); h0 = base; k0 = at(h0); k1 = at(h0 + step); out = cloneParams(k0); S.builds += 2; judge();
+      } else if (base !== h0){
+        if (Math.abs(base - (h0 + step)) < 1e-9){ k0 = k1; h0 = base; k1 = at(h0 + step); S.builds++; }   // 顺流转进下一格：沿用上一格的右端
+        else { h0 = base; k0 = at(h0); k1 = at(h0 + step); S.builds += 2; }                                  // 跳格（滑杆 / 午夜回绕）
+        judge();
+      }
+      if (exact){ const t = at(h); S.builds++; mixInto(out, t, t, 1); return out; }
+      mixInto(out, k0, k1, Math.min(1, Math.max(0, (h - h0) / step)));
+      return out;
+    },
+  };
+  return S;
+}
+
 /* ── 连续昼夜（时辰滑杆）──
    四锚点取各时段"性格"的中间时刻：晨 7:30 / 午 12:30 / 暮 17:30 / 夜 21:30。
    夜里 21:30 → 次日 4:30 整段保持深夜（不是匀速往晨过渡——凌晨两点不该"半亮"），
@@ -1108,6 +1179,52 @@ export function lingerStep(L, p, dt, dHours = 0, decayOnly = false){
   if (L.snowF > L.snowG) L.snowF = L.snowG;
   return L;
 }
+/* ══ 地表三项的"变了才算"门（2026-11-24 · 第 5 批 · 慢更新分流）════════════════════════════════
+   12-env 的 tickLinger 每帧都调 applySurfaces：现算 lingerEff / airHumidity / aerialFromHumidity（4 个新对象）、
+   写雪 / 湿 / 雾 / 地平线 / 饱和 / 四层远山谷雾 / 水面反射。可这些输入在稳态里几乎不动：
+   余韵最快的屋顶雪化速率 1/180 每秒 ≈ 每帧 9e-5；预设值只在过渡 / 流转 / applyState 时变（那时 applyEnv 自己会全量写）。
+   判据（dirty 返回 true 才重算并记下这次的输入）：
+     · 余韵生效值 max(预设, 水位) 三项：变化超过 SURFACE_EPS = 1e-3 才算 —— 1e-3 的积雪 / 湿度台阶肉眼不可见
+       （applyWetness 自己就有 0.004 的死区；雪覆盖 1e-3 ≈ 一张 2048 雪罩上 2 个像素级的阈值移动）。
+       末梢：生效值落回预设值（化完 / 干透）但与上次写入不同 ⇒ 立刻补写，保证终值精确、不残留 <1e-3 的尾巴。
+       最大"台阶" = 1e-3，间隔约 0.18s（屋顶雪化）～0.3s（地面变干），见上 —— 不需要插值。
+     · 其余直读的预设通道（湿 / 雪直出、两项湿度、白天度 / 星量、雾密度、饱和、地平线色 / 雾色）：任何变化即重算（零阈值）。
+     · extra：调用方给的"写口就绪数"（远山 uHaze uniform 编译出来了几个、水面 uReflHaze 在不在）——
+       延迟编译出来的 uniform 第一帧就补写，不靠下一次输入变化。
+   时光流转 / 拖滑杆 / setEnv 都会让 applyEnv 跑，applyEnv 末尾的 applySurfaces 不经此门，并调 sync 记下输入（立即刷新）。 */
+export const SURFACE_EPS = 1e-3;
+const _SG_N = 17;
+export class SurfaceGate {
+  constructor(){ this.k = new Float64Array(_SG_N).fill(NaN); this.v = new Float64Array(_SG_N); this.skips = 0; this.runs = 0; }
+  _read(L, p, extra){
+    const v = this.v, w0 = p.wetness || 0, s0 = p.snowCover || 0;
+    v[0] = Math.max(w0, L ? L.wet : 0); v[1] = Math.max(s0, L ? L.snowG : 0); v[2] = Math.max(s0, L ? L.snowF : 0);
+    v[3] = w0; v[4] = s0; v[5] = p.humidW ?? NaN; v[6] = p.dawnHumid || 0; v[7] = p.dayK ?? NaN; v[8] = p.starAmount || 0;
+    v[9] = p.fogDensity; v[10] = p.grade ? p.grade.saturation : NaN;
+    const h = p.skyHorizon, f = p.fogColor;
+    v[11] = h ? h.r : NaN; v[12] = h ? h.g : NaN; v[13] = h ? h.b : NaN;
+    v[14] = f ? f.r : NaN; v[15] = f ? f.g : NaN; v[16] = extra || 0;
+    /* fogColor.b 并进 16 号位会丢精度 ⇒ 单独比（见 dirty） */
+    this._fb = f ? f.b : NaN;
+    return v;
+  }
+  /** true = 需要重算（同时把当前输入记为"已写入"）；false = 与上次写入相同或只差亚阈值的余韵 */
+  dirty(L, p, extra = 0){
+    const v = this._read(L, p, extra), k = this.k;
+    let d = !(this._fb === this._kfb);
+    for (let i = 0; i < 3 && !d; i++){
+      const dv = Math.abs(v[i] - k[i]);
+      if (!(dv <= SURFACE_EPS)) d = true;                         // 超阈值（含首帧 NaN）
+      else if (dv > 0 && v[i] === v[i < 1 ? 3 : 4]) d = true;     // 末梢：落回预设值，补写精确终值
+    }
+    for (let i = 3; i < _SG_N && !d; i++) if (!(v[i] === k[i] || (v[i] !== v[i] && k[i] !== k[i]))) d = true;
+    if (d){ k.set(v); this._kfb = this._fb; this.runs++; } else this.skips++;
+    return d;
+  }
+  /** 外部已全量写过（applyEnv）：记下这次输入，下一帧起按它判 */
+  sync(L, p, extra = 0){ this.k.set(this._read(L, p, extra)); this._kfb = this._fb; }
+}
+
 /* 实际落到画面的三项：wet（材质湿光 / 积水 / 檐滴 / 水珠 / 脚步）、snowGround（地面 / 植被）、snowFast（屋顶 / 石面），
    以及余韵比预设多出的湿度 wetExcess（喂 airHumidity）。 */
 export function lingerEff(L, p){

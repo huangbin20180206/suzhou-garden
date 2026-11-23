@@ -45,10 +45,11 @@ export { PRECIP, updatePrecip, POSTRAIN, updatePostRain, LOTUS_DROPS, bindLotusD
 import { bindAmbientEnv, AMBIENT, updateAmbient } from './12i-ambient.js';
 export { AMBIENT, updateAmbient };
 /* 2026-10-05 拆分：环境三轴预设 + 合成规则已搬进 12a-presets.js（那边不能 import 本模块，故注入 ENV）。 */
-import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, composeEnv, resolveEnv, mixInto,
-         baseParamsAt, timeKeyNow, syncTimeAnchors, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
+import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, resolveEnv, mixInto,
+         timeKeyNow, syncTimeAnchors, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
          weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow, fxGates, waterSunGates,
-         natureGates, lingerInit, lingerReset, lingerStep, lingerEff, airHumidity, aerialFromHumidity } from './12a-presets.js';
+         natureGates, lingerInit, lingerReset, lingerStep, lingerEff, airHumidity, aerialFromHumidity,
+         makeReelSampler, SurfaceGate } from './12a-presets.js';
 export { mixInto, TIME_ANCHORS, ENV_SEASON, weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow, fxGates };
 /* 2026-10-30：太阳 / 月相（12h）与花历 / 节令（12g）两个纯模块。 */
 import { SOLAR, wrapDoy, timeAnchorsFor, mainLightDir } from './12h-solar.js';
@@ -104,6 +105,8 @@ export function surfaceState(p = ENV.cur){
 }
 export function applySurfaces(p){
   const st = surfaceState(p);
+  _surfLast = st;
+  _surfGate.sync(ENV.linger, p, surfaceSinkCount());   // 记下这次写入的输入（见 tickLinger 的门）
   snowUniform.value     = st.snowGround;
   snowFastUniform.value = st.snowFast;     // 屋顶 / 石面（12f 的 uSnowFastK 材质）先化
   applyWetness(st.wet);
@@ -124,13 +127,29 @@ export function applySurfaces(p){
 }
 /* 余韵每帧推进（11-loop 在过渡块 / 流转之后调）：dHours = 本帧流转走过的游戏小时（流转快进时余韵也快进）。
    lingerHold（换季 / 偶得 / 演示）期间水位贴着预设走，过渡落地即解除。 */
+/* 2026-11-24 · 第 5 批 · 慢更新分流：余韵水位照旧每帧推进（它是积分量，不能跳帧），但地表三项的现算与写入
+   只在输入真的变了时做（12a SurfaceGate：余韵生效值变化 >1e-3 或落回终值、其余输入任何变化、写口新就绪）。
+   稳态（无余韵、无过渡）每帧省掉 4 个新对象 + 远山四材质循环 + 天空 / 调色 / 水面 uniform 写。
+   applyEnv 末尾的 applySurfaces 不经门且会 sync（过渡 / 流转 / 拖滑杆 / setEnv 都走 applyEnv ⇒ 立即刷新）。
+   返回值：与原来一样是 surfaceState（门挡住时返回上次写入的那份，内容等价）。 */
+const _surfGate = new SurfaceGate();
+let _surfLast = null;
+function surfaceSinkCount(){
+  let n = 0;
+  for (const m of DISTANT_MATS) if (m.uniforms && m.uniforms.uHaze) n++;
+  if (waterSurface && waterSurface.material.uniforms.uReflHaze) n += 16;
+  return n;
+}
 export function tickLinger(dt, dHours = 0){
   if (ENV.lingerHold){
     lingerReset(ENV.linger, ENV.cur);
     if (ENV.t >= 1) ENV.lingerHold = false;
   } else lingerStep(ENV.linger, ENV.cur, dt, dHours);
+  if (_surfLast && !_surfGate.dirty(ENV.linger, ENV.cur, surfaceSinkCount())) return _surfLast;
   return applySurfaces(ENV.cur);
 }
+/* 门禁 / 诊断读：地表门跳过 / 执行了多少帧 */
+export function surfaceGateStats(){ return { runs: _surfGate.runs, skips: _surfGate.skips }; }
 /* 控制台 / 门禁开关：api 路径（setEnv）是否带余韵。无参只读。 */
 export function setAftermathApi(on){
   if (typeof on === 'boolean') ENV.lingerApi = on;
@@ -1264,6 +1283,7 @@ export function toggleReel(){
   return REEL.on;
 }
 let reelUiAcc = 0, reelShadowAcc = 0, _reelMapKey = '';
+const _reelSampler = makeReelSampler();
 /* 把流转期间攒下的阴影拟合做掉（M7）：4Hz 节拍里调，停流转时也调一次，免得停在最后 0.25s 的旧影上 */
 function flushShadowFit(){
   if (!sun.userData.fitDirty) return false;
@@ -1276,7 +1296,11 @@ export function advanceReel(dt){
   ENV.hour = (ENV.hour + REEL.speed * dt) % 24;
   const key = timeKeyNow(ENV.hour, ENV.doy);
   if (key !== ENV.time){ ENV.time = key; syncEnvUI(); }   // 按钮高亮只在跨锚点时刷，不必每帧
-  const target = composeEnv(baseParamsAt(ENV.hour));
+  /* 2026-11-24 · 第 5 批：目标参数改由关键帧采样器给（12a makeReelSampler：每 3 游戏分钟一帧关键帧、帧间线性插值，
+     急变格 / 跨午夜退回逐帧精确合成）—— 原来每帧 composeEnv(baseParamsAt(h)) 新建整套参数集。
+     target 是采样器里同一个对象（就地改写）：下面 ENV.to / ENV.from 指向它与原来"每帧换新对象"等价 ——
+     applyState / 灯会 / settleEnv 换目标时都另建新对象，不会就地改它。 */
+  const target = _reelSampler.sample(ENV.hour);
   /* ⚠️ 2026-10-30（审查 M1）：流转中切季节 / 天气，原来这里每帧 `ENV.t = 1` 直接落位 ⇒ 2.8s 过渡被吞、
      06b 的"起风→压暗→落雨"因果链也被跳过。现在：有过渡在走就**只把过渡的终点换成新时辰的目标**，
      ENV.t 不动，由 11-loop 的过渡块照常插值并 applyEnv（那边过渡期每帧刷阴影）；过渡走完再接手落位。 */
