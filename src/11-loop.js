@@ -660,7 +660,9 @@ export function queuePostcard(){ takePostcard(); }
    登记动作放在模块顶层没问题：回调是用户点击时才触发的。 */
 const WALK = createWalk({ camera, controls, world, canvas:renderer.domElement,
   groundHeight:walkGroundHeight, insidePond:walkInsidePond,
-  stop:()=>{ introCancel(); tourStop(); stopSeasonDemo(); CAM_FLY.on=false; } });
+  stop:()=>{ introCancel(); tourStop(); stopSeasonDemo(); CAM_FLY.on=false; },
+  /* 第 4 批：驻足卡开着时 Esc 只关卡（VISTA 在下一行才建 —— 这里是按键时才调用的闭包，不撞 TDZ） */
+  escapeFirst:()=>VISTA.dismissIfOpen() });
 /* 驻足点（11b-vista，2026-11-20）：走模式里按距离弹景点的"一句话导游"卡片。
    与 WALK 同处创建、同批登记：走 HOOKS 同款理由（11b 动态 import 08d 取坐标，
    若静态反 import 本模块会成环）。walkState 回调让 11b 自己判断激活态，

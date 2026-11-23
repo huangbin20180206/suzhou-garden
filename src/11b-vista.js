@@ -21,7 +21,15 @@
 //   · VIEWPOINTS 是延迟构建的（08d-tour buildViewpoints()）⇒ 首次使用时动态
 //     import 兜底；取不到坐标时驻足点静默不建（页面照常跑，只是没卡片）。
 //   · 文案不新增考据断言：匾联本就是自拟的（03a-names 注释），照实引用。
+//
+// ── 第 4 批（2026-11-24 · 交互体验）──────────────────────────────────────────
+//   · 关闭途径补齐：桌面 Esc（经 11a-walk 的 escapeFirst：卡在时 Esc 只关卡、不退步行）；
+//     手机"在卡上往下滑"或"轻点卡外"。两种手势都用 window 捕获阶段的**被动**监听 + 坐标判卡矩形，
+//     卡片本身仍是 pointer-events:none ⇒ 落在卡上的手指照样是转头 / 摇杆输入，走路不被打断。
+//   · 关掉 ≠ 走开：用户主动关掉的那一条进 VISTA_COOLDOWN_MS（2 分钟）冷却，重开步行也不再弹；
+//     冷却表放在模块级（跨 reset() 存活）—— reset 只清"本轮已弹过"。判定在 00c-ux（纯 node 可测）。
 import { HALL_COUPLET } from './03a-names.js';
+import { VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture } from './00c-ux.js';
 
 const RADIUS = 3.5;        // 进入半径（m）
 const REENTER_GAP = 1.5;    // 离开这么多米才允许重弹（防边界抖动反复弹）
@@ -46,6 +54,7 @@ const SPOT_DEFS = [
 
 /* DOM：右下角卡片（挂在 body，独立于 #env 面板 —— 那是交互面板，这是被动的展示件）。 */
 let _el = null, _dismiss = null;
+const _cooldown = new Map();   // 景点名 → 冷却截止（performance.now 毫秒）；模块级 ⇒ 跨轮步行存活
 function ensureEl(){
   if (_el) return _el;
   _el = document.createElement('div');
@@ -108,7 +117,39 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
     if (!_el || _el.hidden) return;
     _el.hidden = true; _el.style.opacity = '0';
   }
-  _dismiss = hide;
+  /* 用户主动关（✕ / Esc / 下滑 / 点卡外）：记冷却再收。走开自动收走 hide()，不记冷却。 */
+  function dismiss(){
+    if (current >= 0 && spots && spots[current]){
+      _cooldown.set(spots[current].name, performance.now() + VISTA_COOLDOWN_MS);
+    }
+    hide();
+  }
+  _dismiss = dismiss;
+  /* Esc 先关卡（11a-walk 的 escapeFirst 调它）：卡在 ⇒ 关掉并返回 true（这一下 Esc 被吃掉）。 */
+  function dismissIfOpen(){
+    if (!_el || _el.hidden) return false;
+    dismiss();
+    return true;
+  }
+  /* 手机关闭手势：只认 touch；pointerdown 记起点与"是否落在卡上"，pointerup 分类。
+     ⚠️ 全程 passive、不 preventDefault、不 stopPropagation —— 同一根手指照常驱动摇杆 / 转头。
+     ⚠️ 落在 #env 面板 / ✕ 按钮上的不算"卡外"（它们各有自己的点击语义）。 */
+  const _downs = new Map();
+  addEventListener('pointerdown', (e) => {
+    if (e.pointerType !== 'touch' || !_el || _el.hidden) return;
+    if (e.target && e.target.closest && e.target.closest('#env, #vista-card button')) return;
+    const r = _el.getBoundingClientRect();
+    const onCard = e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom;
+    _downs.set(e.pointerId, { x:e.clientX, y:e.clientY, t:performance.now(), onCard });
+  }, { capture:true, passive:true });
+  addEventListener('pointerup', (e) => {
+    const d = _downs.get(e.pointerId);
+    if (!d) return;
+    _downs.delete(e.pointerId);
+    if (!_el || _el.hidden) return;
+    if (classifyCardGesture(d, { x:e.clientX, y:e.clientY, t:performance.now() })) dismiss();
+  }, { capture:true, passive:true });
+  addEventListener('pointercancel', (e) => { _downs.delete(e.pointerId); }, { capture:true, passive:true });
 
   let _probeWait = 0;
   /* 每帧由走模式 tick 调（walk.update 之后）—— 未激活或表没建好直接回。 */
@@ -131,7 +172,8 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
     const R2 = RADIUS * RADIUS;
     /* 命中：最近点在半径内且本轮没弹过 ⇒ 弹卡并记 visited（一条点一轮只讲一遍，
        走回头路不刷屏）。卡片在播时只看"是否还站在原点半径+缓冲内"，站远即收。 */
-    if (best >= 0 && bestD <= R2 && !visited.has(best)){
+    if (best >= 0 && bestD <= R2 &&
+        vistaMayShow(spots[best].name, { visited, idx:best, cooldown:_cooldown, now:performance.now() })){
       const s = spots[best];
       const el = ensureEl();
       el.querySelector('b').textContent = s.title;
@@ -157,7 +199,8 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
   function cameraPosX(){ return _cam ? _cam.position.x : 0; }
   function cameraPosZ(){ return _cam ? _cam.position.z : 0; }
 
-  return { update, reset, setCamera, hide };
+  return { update, reset, setCamera, hide, dismiss, dismissIfOpen,
+           cooldownLeft: (name) => Math.max(0, (_cooldown.get(name) || 0) - performance.now()) };
 }
 
 /* 注入 DOM 存在性检查：删掉本文件页面照常跑（走模式只是没卡片），与 16b 同一声明。 */

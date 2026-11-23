@@ -11,6 +11,8 @@
 import { THREE } from '../vendor.js';
 import { AUX_PASS_HIDDEN } from './01-materials.js';
 import { skyMesh, scene, camera, renderer } from './02-scene.js';
+/* 第 4 批：减弱动效下压闪电的整屏泛白（零依赖模块，不新增环） */
+import { MOTION, lightningFlashGain } from './00c-ux.js';
 import { sun, amb, fill, hemiLight } from './09-lights.js';
 import { TAU, HOOKS, mulberry32 } from './00-config.js';
 
@@ -271,7 +273,9 @@ function lnApply(tau){
      把照亮**铆在闪电网格的可见期上** —— 网格不可见的帧一律不许有闪光量。
      这样"只有提亮没有闪电"在构造上就不可能发生（探针实测修前有 3 帧只提亮）。 */
   const boltOn = tau >= 0 && tau < 1.2 && fRaw > 0.02;
-  const f = boltOn ? fRaw : 0;
+  /* 减弱动效（第 4 批）：整屏泛白（天幕 uFlash + 全场光照倍率）乘 0.25；电光网格本身照画 ——
+     "看得见闪电"是天气信息，"整屏一亮一暗地跳"才是光敏 / 前庭不适的来源。?motion=1 强制满幅。 */
+  const f = boltOn ? fRaw * lightningFlashGain(MOTION.reduced) : 0;
   L.flash = f;
   /* ① 闪电网格 */
   L._bolt.visible = boltOn;

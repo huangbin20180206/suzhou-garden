@@ -1,6 +1,11 @@
 // Desktop walking: owns camera only while active; actual visible meshes stop motion.
 import { THREE } from '../vendor.js';
-export function createWalk({ camera, controls, world, canvas, groundHeight, insidePond, stop }) {
+/* 第 4 批（2026-11-24 · 交互体验）：摇杆死区/曲线、减弱动效判据抽到零依赖的 00c-ux（纯 node 可单测）。 */
+import { MOTION, stickResponse, combineMove } from './00c-ux.js';
+/* escapeFirst（第 4 批）：Esc 先问一句"有没有更近的东西要关"（驻足卡）。返回 true ⇒ 这一下 Esc
+   只关卡片、不退出步行 —— 否则桌面上想关卡片就得整个退出步行再走回来。可选参数，
+   walk-guard 里那几个裸 createWalk 不传它，行为与旧版一字不差。 */
+export function createWalk({ camera, controls, world, canvas, groundHeight, insidePond, stop, escapeFirst = null }) {
   const keys = new Set(), ray = new THREE.Raycaster(), normal = new THREE.Vector3();
   const direction = new THREE.Vector3(), origin = new THREE.Vector3();
   const down = new THREE.Vector3(0,-1,0);
@@ -129,9 +134,13 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   let bobPhase = 0;
   function update(dt) {
     if(!state.active)return;
-    const forward=Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'))+touchF;
-    const right=Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'))+touchR;
-    const len=Math.hypot(forward,right)||1, distance=Math.min(dt,0.1)*2.2/len;
+    /* 第 4 批：旧式 distance=dt·2.2/len 会把任何非零输入归一成全速（摇杆没有模拟量，见 00c-ux
+       stickResponse 注释的实据）。改为"合成后夹到模长 ≤1、再乘 2.2"：键盘单键 / 斜向仍是 2.2 m/s
+       （与旧版逐位相同），摇杆半推 ≈ 半速。 */
+    const mv=combineMove(
+      Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'))+touchF,
+      Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'))+touchR);
+    const forward=mv.f, right=mv.r, distance=Math.min(dt,0.1)*2.2;
     const dx=(right*Math.cos(yaw)-forward*Math.sin(yaw))*distance;
     const dz=(-right*Math.sin(yaw)-forward*Math.cos(yaw))*distance;
     const n=Math.max(1,Math.ceil(Math.hypot(dx,dz)/0.08));
@@ -140,13 +149,16 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     /* 只量**水平**位移：上下台阶（y 变化）不该被算成"走了步"，否则爬台阶时狂晃 */
     const moved = Math.hypot(camera.position.x - px, camera.position.z - pz);
     bobPhase += moved / BOB_STEP * Math.PI * 2;   // 走满一个步长 = 一个完整起伏周期
-    camera.position.y = feet + 1.65 + Math.sin(bobPhase) * BOB_Y;
+    /* 减弱动效（第 4 批）：系统开了 prefers-reduced-motion ⇒ 起伏与横滚幅度归零（?motion=1 强制保留）。
+       相位 bobPhase **照常推进** —— 脚步声的节拍与门禁读数（HOOKS.walkBob）都靠它，只是画面不晃。 */
+    const sway = MOTION.reduced ? 0 : 1;
+    camera.position.y = feet + 1.65 + Math.sin(bobPhase) * BOB_Y * sway;
     /* roll 作第三轴（YXZ 的中轴仍是 pitch/yaw，roll 只影响画面倾角） */
-    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, Math.sin(bobPhase * 0.5) * BOB_ROLL, 'YXZ'));
+    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, Math.sin(bobPhase * 0.5) * BOB_ROLL * sway, 'YXZ'));
   }
   addEventListener('keydown',e=>{
     if(!state.active || e.ctrlKey || e.metaKey || e.altKey || e.target?.closest?.('input,textarea,select,[contenteditable="true"]'))return;
-    if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();end();return;}
+    if(e.key==='Escape'){e.preventDefault();e.stopImmediatePropagation();if(escapeFirst&&escapeFirst())return;end();return;}
     if(['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(e.code)){
       keys.add(e.code);e.preventDefault();e.stopImmediatePropagation();
     }
@@ -171,16 +183,20 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
       lookId=e.pointerId;lookX=e.clientX;lookY=e.clientY;
       try{canvas.setPointerCapture(e.pointerId);}catch{}
       e.preventDefault();e.stopImmediatePropagation();
+    } else {
+      /* 第 4 批 · 多指冲突（实据）：旧版只认领前两根手指，第三根、或"右半屏已在转头时再落一指"
+         （捏合的本能动作）没被拦 ⇒ 落到 11-loop 冒泡阶段的水面 pointerdown/up ⇒ 轻点一下就是
+         投石+撒饵、拖一下就是划水涟漪，而用户此刻在走路。步行态下触屏一律归走模式，多余的手指吞掉。 */
+      e.preventDefault();e.stopImmediatePropagation();
     }
   },true);
   canvas.addEventListener('pointermove',e=>{
     if(!state.active || e.pointerType!=='touch')return;
     if(e.pointerId===moveId){
-      let dx=(e.clientX-moveAX)/48, dy=(e.clientY-moveAY)/48;
-      const l=Math.hypot(dx,dy);
-      if(l>1){dx/=l;dy/=l;}
-      touchR=dx;touchF=-dy;   // 上推=前进
-      joyKnob.style.transform=`translate(${dx*30}px,${dy*30}px)`;
+      /* 第 4 批：死区 + 加速曲线（00c-ux stickResponse）。旋钮显示仍跟手指（kx/ky），速度走曲线。 */
+      const s=stickResponse(e.clientX-moveAX,e.clientY-moveAY);
+      touchR=s.r;touchF=s.f;   // 上推=前进
+      joyKnob.style.transform=`translate(${s.kx*30}px,${s.ky*30}px)`;
       e.preventDefault();e.stopImmediatePropagation();
     } else if(e.pointerId===lookId){
       yaw-=(e.clientX-lookX)*0.0042;lookX=e.clientX;
@@ -192,6 +208,13 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     if(e.pointerId===moveId)joyHide();
     if(e.pointerId===lookId)lookId=null;
   };
+  /* 第 4 批 · 横竖屏切换（实据）：摇杆底座是按下那一刻用 clientX/Y 绝对定位的，moveAX/AY 也是旧坐标系；
+     旋转屏幕时 iOS/Android 并不保证对仍按着的手指发 pointercancel ⇒ 底座停在旧位置（可能已在屏外），
+     touchF/R 冻在最后一个值 ⇒ 人自己一直往前走。没有任何 resize 监听兜它。
+     ⇒ 视口尺寸一变就把两根手指都释放（下一次按下按新坐标重新起摇杆）。 */
+  const touchReset=()=>{ if(moveId!==null||lookId!==null){ joyHide(); lookId=null; } };
+  addEventListener('resize',touchReset);
+  addEventListener('orientationchange',touchReset);
   canvas.addEventListener('pointerup',touchEnd,true);
   canvas.addEventListener('pointercancel',touchEnd,true);
   addEventListener('pointerup',()=>{drag=false;});

@@ -7,6 +7,8 @@ import { world, camera, controls, renderer, CAM_MIN_DIST, CAM_HOME, PROBE_DRIVEN
 import { groundHeight } from './05-water.js';
 import { envEl } from './12-env.js';
 import { artisticNoteFor } from './16b-artistic-note.js';
+/* 第 4 批：减弱动效单例 + 自动运镜时长（零依赖模块，不新增环） */
+import { MOTION, autoFlyDur } from './00c-ux.js';
 /* 景点显示名（机位按钮/字幕）集中在 03a-names，主堂/凉亭改名只改那一处 */
 import { SITE_NAMES as SN, SITE_LABELS, HALL_COUPLET } from './03a-names.js';
 
@@ -234,7 +236,9 @@ export function flyTo(pos, target, dur = 1.4, minDist = null, owner = 'manual'){
   CAM_FLY.via  = wallArcPoint(camera.position, pos);
   CAM_FLY.minDist = minDist;
   CAM_FLY.owner = owner;
-  CAM_FLY.t = 0; CAM_FLY.dur = dur || 1.4; CAM_FLY.on = true;
+  /* 减弱动效（第 4 批）：巡游 / 四季演示这类"非用户发起"的飞行改直切（autoFlyDur 注释）；
+     用户自己点的机位（manual）照飞。?motion=1 强制保留飞行。 */
+  CAM_FLY.t = 0; CAM_FLY.dur = autoFlyDur(dur || 1.4, owner, MOTION.reduced); CAM_FLY.on = true;
   controls.minDistance = 0.2;
 }
 export function cancelCamFly(owner = null){
@@ -330,9 +334,9 @@ const INTRO_OFF   = (()=>{ try { return /[?&]intro=0/.test(location.search); } c
 export function introMaybeAuto(){
   if (INTRO_OFF) return false;
   if (PROBE_DRIVEN && !INTRO_FORCE) return false;
-  let reduce = false;
-  try { reduce = matchMedia('(prefers-reduced-motion: reduce)').matches; } catch { /* 老浏览器 */ }
-  if (reduce && !INTRO_FORCE) return false;
+  /* 第 4 批：减弱动效统一读 MOTION（系统设置 + ?motion=0/1 覆盖），不再各自 matchMedia ——
+     否则 ?motion=1 强开时只有这里还按系统设置跳过开场。 */
+  if (MOTION.reduced && !INTRO_FORCE) return false;
   return introStart();
 }
 /* 任意交互即让位。pointerdown 用捕获阶段，保证与"点击水面涟漪"同时收到
