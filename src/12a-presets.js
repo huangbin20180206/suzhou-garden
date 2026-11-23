@@ -843,3 +843,73 @@ function applyFestivalTo(p){
   p.grade.warm.lerp(_FEST_WARM, 0.55);                  // 高光更暖（灯笼红光弥漫）
   p.fogColor.lerp(_FEST_FOG, 0.45);                     // 夜雾里带一点灯会的暖
 }
+
+/* ══ 叠加特效的统一门控（2026-11-23 · 视觉打磨批次 1）════════════════════════════════
+   为什么集中到这里：近期十来个特效各自在 12-env / 11-loop / 着色器里拿 ENV.cur 的几个键现算门控，
+   互相不知道对方 —— 扫"时段 × 天气 × 季节"全组合（probe/env-blend-unit.mjs，纯 node）查出四处穿帮：
+     ① 银河直接吃 uStarAmount = 星量 × (1 − 云量×0.85)：薄雾夜云量 0.30 ⇒ 银河 0.745 满挂在雾里，
+        暴雨夜 0.15、雪夜 0.20 也还在（02-scene 的注释写的是"阴/雨/雪=0"，与实际不符）；
+     ② 方位余辉 / 云受光只乘 (1−diskFade)、不看太阳在不在地平线上：真实太阳模式的晴夜，太阳在
+        地平线下 −50°，余辉仍按它的方位把夜空抬 0.22×lum(夜 sunDisk 0xDCE6F8)≈0.17（夜天地平线
+        本身线性亮度才 0.02~0.07），太阳方位那半边夜空被烘亮一大截；
+     ③ 池底焦散借用水面波光的 uSunVis —— 9d67ccc 给 uSunVis 加了晨暮低档 0.35 后，焦散在
+        仰角 3°~31° 也开着（0.30×0.35=0.105），与焦散自己"晨/暮自动归零"的设计相悖；
+     ④ 云影：暴雨 diskFade 0.85 ⇒ 门 0.15 > 0.03 仍开（0.027），薄雾/雪也开着（这几种天气 shadowK=0，
+        连硬影都没有，哪来云影）；日落后太阳在 −2°~−4° 时云影还在扫；门槛 0.03 处一步跳 0→0.0137；
+     ⑤ 堂内暖光透窗吃 lamp：真实太阳模式下午取"暮"预设（lamp 0.25）按正午度混，春 14:50 仰角 44°
+        就 >0.05，16:45 仰角 20° 已到 0.1375 —— 大太阳下窗纸在发光。
+   全部只依赖**参数集里本来就随过渡缓动的连续量**（starAmount / cloudAmount / diskFade / shadowK /
+   dayK / sunPos / lamp），所以门控本身也连续，切天气、拖时辰不会出现新的硬切。
+   ⚠️ 纯函数：不读 ENV、不碰 THREE（p 里的 Color 只读不写），node 单测直接 import。 */
+const _clamp01 = v => Math.max(0, Math.min(1, v));
+const _sstep = (a, b, x) => { const t = _clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+/* 太阳仰角（度）：p.sunPos 在真实太阳模式下是真实方向（可在地平线下）；旧模式是预设主光位置。 */
+export function sunAltDeg(p){
+  const s = p.sunPos, l = Math.hypot(s[0], s[1], s[2]) || 1;
+  return Math.asin(Math.max(-1, Math.min(1, s[1] / l))) * 180 / Math.PI;
+}
+/* 水面：波光（uSunVis，口径与 9d67ccc 一字不变）与池底焦散（只取正午段，即 9d67ccc 之前的旧口径）。
+   sdY = 水面所用太阳方向的 y（真实太阳模式取真实太阳，旧模式取主光，见 applyEnv）。 */
+export function waterSunGates(sdY, p){
+  const nightness = _clamp01(p.starAmount || 0);
+  const dayW  = 1.0 - _clamp01((nightness - 0.05) / 0.25);            // 昼 1 → 夜 0
+  const noonC = _clamp01((sdY - 0.52) / 0.20);                        // 正午段：0.72≧ 全亮
+  const lowC  = _clamp01((sdY - 0.05) / 0.15) * 0.35;                 // 低仰角段：封顶 0.35
+  const clear = _clamp01((0.82 - (p.cloudAmount || 0)) / 0.34);       // 云 ≤0.48 全亮，≥0.82 关
+  /* 焦散另乘 shadowK：焦散与硬影同一个物理前提（直射光），薄雾 / 雪 / 细雨 shadowK=0 时
+     （薄雾云量只有 0.30，clear 门照开）正午焦散原本满档 —— 雾里没有影子、池底却晃光斑。
+     波光不乘（雾里日轮留 30%，水面一点亮闪是旧观感，不在本批范围）。 */
+  const sk = p.shadowK === undefined ? 1 : p.shadowK;
+  return { sunVis: dayW * Math.max(noonC, lowC) * clear, caustic: dayW * noonC * clear * sk };
+}
+export function fxGates(p){
+  const dayK = _clamp01(p.dayK ?? (1 - (p.starAmount || 0)));
+  const alt = sunAltDeg(p);
+  const df = p.diskFade || 0;
+  /* ① 银河：在星量（已含云遮）之上再按 diskFade 收 —— diskFade 是"天上的光点被遮掉多少"的现成量：
+     晴 0 / 雨后 0.02 / 雪霁 0 照常；薄雾 0.70、暴雨 0.85、雪 0.90、细雨 1.0 ⇒ 0。线性收、随天气缓动。
+     ⚠️ 只收银河、不动星点：星点在薄雾夜里留七成是 2026-09 起的旧观感，夜空门的星闪判据也压在它上面。 */
+  const starVis = (p.starAmount || 0) * Math.max(0, 1 - (p.cloudAmount || 0) * 0.85);
+  const milkyWay = starVis * _clamp01(1 - df / 0.4);
+  /* ② 余辉 / 云受光：直接取白天度 dayK（真实太阳 = smoothstep(−9°, 4°, 仰角)；旧模式 = 1−星量）。
+     日落时（0°）0.78、民用晨昏（≈ −5°）0.22、−9° 归零；仰角 ≥4° 恒 1 ⇒ 白天观感一字不变。
+     不再套 smoothstep 收窄：那样过渡压到 ~25 分钟，3 分钟一步跳 0.19（单测实测）。 */
+  const sunGlow = dayK;
+  /* ④ 云影：原门 云量×(1−diskFade)×(1−星量×1.4) 之上补三条：
+     · × shadowK —— 薄雾/雪/细雨/阴霾/雷雨 shadowK=0（漫射光，无硬影），云影同理归零；
+     · × (1 − smoothstep(0.60, 0.85, diskFade)) —— 暴雨 shadowK 仍 1（见表头），按"日轮被遮 85%"收掉；
+     · × smoothstep(0°, 10°, 仰角) × 白天度 —— 日落后太阳在地平线下不再投云影（旧模式夜里主光是月亮替身，
+       仰角高，但那时星量项已把门收为 0）。坡宽 10°（≈45 分钟）：4° 时 3 分钟一步跳 0.028；
+       真实太阳"晨"锚点正是 10° ⇒ 锚点值不变。
+     原 `gate > 0.03 ? 0.18×gate : 0` 在 0.03 处一步跳 0.0054（暮色里实测 0.0137→0 一帧切），
+     改成 smoothstep 软起：零点仍严格为 0（10-post 的 uCloudShadeAmt>0 分支照旧整段跳过）。 */
+  const cs = (p.cloudAmount || 0) * (1 - df) * (1 - Math.min(1, (p.starAmount || 0) * 1.4))
+           * (p.shadowK === undefined ? 1 : p.shadowK) * (1 - _sstep(0.60, 0.85, df))
+           * _sstep(0, 10, alt) * dayK;
+  const cloudShade = 0.18 * cs * _sstep(0.0, 0.08, cs);
+  /* ⑤ 堂内暖光：lamp × 0.55 之上乘"太阳够低"—— 仰角 12°→22° 之间收掉（白天度为 0 的夜里不收）。
+     真实太阳"暮"锚点 = 太阳 7°（12h ANCHOR_ALT）⇒ 暮锚点值不变（0.1375）；旧模式暮锚点 13.3° 保留 95%；
+     旧模式夜里主光是月亮替身（仰角 49°），但 dayK=0 ⇒ 不收。 */
+  const hallWarm = (p.lamp || 0) * 0.55 * (1 - dayK * _sstep(12, 22, alt));
+  return { milkyWay, sunGlow, cloudShade, hallWarm };
+}

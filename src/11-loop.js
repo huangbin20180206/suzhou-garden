@@ -8,7 +8,7 @@ import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PR
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT, fxGates } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 /* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
 import { worldLights } from './12d-lantern.js';
@@ -1585,12 +1585,14 @@ function frameWork(){
      Amt = 0.18 x 门控（cloudAmount x (1-diskFade) x 白天度；流转时冻结为 0，
      见下注释）。 */
   {
-    const cl = ENV.cur;
-    const gate = (cl.cloudAmount || 0) * (1 - (cl.diskFade || 0)) * (1 - Math.min(1, (cl.starAmount || 0) * 1.4));
+    /* 门控搬进 12a fxGates ④（2026-11-23）：补 shadowK / diskFade / 太阳高度三条，并把 0.03 硬门槛
+       换成软起 —— 原式暴雨（diskFade 0.85）仍开 0.027、薄雾/雪也开，日落后 −2°~−4° 还在扫，
+       暮色里 0.0137→0 一帧切。 */
+    const gate = fxGates(ENV.cur).cloudShade;
     /* 时光流转时冻结（reel-guard 复盘保留结论）：流转 3s 走 1.2h，
        云影缓变在 24x 时间里是 strobe；冻结后流转帧的云影恒零，
        与闲置噪声底采样的静态前提一致。 */
-    const amt = (!REEL.on && gate > 0.03) ? 0.18 * gate : 0;
+    const amt = REEL.on ? 0 : gate;
     gradePass.uniforms.uCloudShadeT.value = windClock;
     gradePass.uniforms.uCloudShadeAmt.value = amt;
   }

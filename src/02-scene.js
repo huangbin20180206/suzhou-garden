@@ -201,6 +201,11 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
       uCloudTint:{value:new THREE.Color(0xFFFBF3)},   // 云的颜色（黄昏会转暖）
       uCloudAmount:{value:0.88},                       // 云量（阴天→1，晴→低值）
       uStarAmount:{value:0.0},                         // 星（仅夜间）
+      /* 2026-11-23（视觉打磨批次 1，门控算法见 12a fxGates）：
+         uMilkyWay = 银河专用量（星量之上再按 diskFade 收：雾/雨/雪夜归零，星点不动）；
+         uSunGlow  = 方位余辉 / 云受光的"太阳还在地平线附近"门（白天 1，入夜 0）。 */
+      uMilkyWay:{value:0.0},
+      uSunGlow:{value:1.0},
       /* 长曝光星轨（2026-09-21）：平时 0 = 星野静止；长曝合成时逐帧累加方位角，
          星点随帧走成圆弧（见 11-loop 的 queueLongExposurePostcard）。 */
       uStarRot:{value:0.0},
@@ -233,7 +238,7 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
       uniform vec3 uTop, uMid, uHorizon, uSunColor, uSunDir;
       uniform float uTime;
       uniform vec3  uCloudTint;
-      uniform float uCloudAmount, uStarAmount, uDiskFade, uStarRot;
+      uniform float uCloudAmount, uStarAmount, uDiskFade, uStarRot, uMilkyWay, uSunGlow;
       uniform vec3  uMoonDir, uMoonColor;
       uniform float uMoonAmount, uMoonPhase;
       uniform float uFlash;
@@ -284,7 +289,11 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
            ⚠️ 同吃 (1.0-uDiskFade)：阴/雨/雪天上没有太阳，此项一并熄灭。 */
         vec2 sunAz = normalize(uSunDir.xz + vec2(1e-5, 0.0));
         float az = max(dot(normalize(d.xz + vec2(1e-5, 0.0)), sunAz), 0.0);
-        col += uSunColor * (pow(az, 2.6) * 0.22 * smoothstep(0.0, 0.35, hh)) * (1.0 - uDiskFade);
+        /* × uSunGlow（2026-11-23 · 视觉打磨批次 1）：本项只看方位，太阳落到地平线下照样亮 ——
+           晴夜（真实太阳 −50°）实测峰值 0.22×lum(夜 sunDisk)≈0.17，夜天地平线线性亮度才 0.02~0.07，
+           太阳方位那半边夜空被烘亮。门控 = 白天度 dayK：仰角 ≥4° 恒 1（白天一字不变）、
+           日落 0.78、民用晨昏（−5°）0.22、−9° 归零。见 12a fxGates ②。 */
+        col += uSunColor * (pow(az, 2.6) * 0.22 * smoothstep(0.0, 0.35, hh)) * (1.0 - uDiskFade) * uSunGlow;
 
         // 云：把视线方向投影到天空平面做 FBM，两层叠出絮状结构。
         float cloudCover = 0.0;
@@ -307,7 +316,9 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
              暮云会越过 bloom 阈值糊成光团（月轮亮度的历史教训）。
              ⚠️ 同吃 (1.0-uDiskFade)：阴雨天云由 uFlash 另行照亮，此路熄灭。 */
           float azg = max(dot(normalize(d.xz + vec2(1e-5, 0.0)), sunAz), 0.0);
-          vec3 litTint = uCloudTint + uSunColor * (pow(azg, 2.0) * 0.34 * (1.0 - f2) * (1.0 - uDiskFade));
+          /* × uSunGlow（2026-11-23）：只按方位点乘、不看太阳高度 ⇒ 真实太阳模式的晴夜，地平线下 −50° 的
+             太阳仍按方位把云缘染成夜 sunDisk 的冷白。入夜归零，白天 uSunGlow=1 一字不变。 */
+          vec3 litTint = uCloudTint + uSunColor * (pow(azg, 2.0) * 0.34 * (1.0 - f2) * (1.0 - uDiskFade) * uSunGlow);
           col = mix(col, litTint, cloudCover);
         }
 
@@ -372,15 +383,18 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
            带内 fbm 打碎成云絮明暗（与天空云同源函数，零新噪声代码）。
            亮度 0.06：夜空门"星闪摆幅"判据以星点邻域均值为分母，银河常量项
            会抬高 mean 压低比值 —— 0.10 时判据贴边（0.70 vs >0.7），0.06 留余量。
-           同吃 uStarAmount（阴/雨/雪/白天=0）与地平线淡出。 */
-        if (uStarAmount > 0.001 && d.y > 0.0){
+           同吃 uStarAmount（阴/雨/雪/白天=0）与地平线淡出。
+           ⚠️ 2026-11-23 更正：上一句不成立 —— uStarAmount 只按云量×0.85 打折，薄雾夜（云 0.30）
+           还剩 0.745、暴雨夜 0.15、雪夜 0.20，银河挂在雾里。改吃独立的 uMilkyWay（12a fxGates ①，
+           再按 diskFade 收：雾/雨/雪 = 0）。星点仍吃 uStarAmount，旧观感与夜空门不动。 */
+        if (uMilkyWay > 0.001 && d.y > 0.0){
           vec3 mn = normalize(vec3(0.55, 0.42, 0.72));
           float band = exp(-pow(dot(d, mn) / 0.075, 2.0));
           float cl2 = fbm(d.xz / max(d.y, 0.08) * 0.35 + 11.0);
           vec3 mwCol = mix(vec3(0.75, 0.82, 1.0), vec3(1.0, 0.92, 0.80), cl2);
           /* 云絮对比 0.25+0.75x → 0.45+0.55x：带内明暗差更大，"絮状"才读得出，
              也让带缘与带芯有层次（平涂的带在暗夜里就是一条灰线）。 */
-          col += mwCol * band * (0.45 + 0.55 * cl2) * 0.06 * uStarAmount
+          col += mwCol * band * (0.45 + 0.55 * cl2) * 0.06 * uMilkyWay
                * smoothstep(0.0, 0.25, d.y);
         }
 

@@ -35,6 +35,9 @@ export const WATER_REFLECT_SHADER = {
        （晨昏/阴雨雪/夜=0），见 applyEnv。常亮则白天水面总是白刺一片。 */
     uSunDir:       { value: new THREE.Vector3(0, 1, 0) },
     uSunVis:       { value: 0.0 },
+    /* 池底焦散门（2026-11-23 拆出）：9d67ccc 给 uSunVis 加了晨暮低档 0.35 后，焦散跟着在晨暮开 ——
+       焦散单独吃"只取正午段"的门（12a waterSunGates().caustic），波光仍吃 uSunVis。 */
+    uCausticVis:   { value: 0.0 },
     uSunColor:     { value: new THREE.Color(0xFFF6E2) },
     /* 水面真折射（P2-5）：水面下另是一张「俯视的池底」贴图 —— 由一架只看水下层的
        正交相机单独渲出来（见 05-water 的折射段），水面再按波纹把采样 UV 掰弯后取它。
@@ -67,7 +70,7 @@ export const WATER_REFLECT_SHADER = {
     uniform vec3  uMoonDir, uMoonColor;
     uniform float uMoonVis;
     uniform vec3  uSunDir, uSunColor;
-    uniform float uSunVis;
+    uniform float uSunVis, uCausticVis;
     uniform sampler2D uRefract;
     uniform float uRefractOn;
     uniform vec2  uPondMin, uPondSize;
@@ -164,14 +167,15 @@ export const WATER_REFLECT_SHADER = {
            做法：同一张 waterNormalTex 在折射坐标系上再采两次（不同尺度/速度），
            把两次的亮度相乘 —— 法线纹理的波峰相遇处亮、波谷暗，天然就是焦散网的形状；
            再被 nrm.xz 偏移跟池底一起晃。**零新资源零新 uniform**：
-             · 强度门 = uSunVis（白天 × 接近正午 × 晴天，12-env 已算好）—— 焦散本来
+             · 强度门 = uCausticVis（白天 × 接近正午 × 晴天，12-env 已算好；2026-11-23 起与
+               波光的 uSunVis 分开 —— 后者有晨暮低档）—— 焦散本来
                就是"太阳几乎在头顶 + 无云"时的现象，晨/暮/阴/雨/夜自动归零；
              · 空间衰减 = body（水体不透明的深水区看不见池底，焦散一并没入）。
            幅度 0.30 上限：高于此浅水区会越过 bloom 阈值打花（月轮 0.90 的老教训）。 */
         float c1 = texture2D(tNormal, ruv * 9.0  + vec2(uTime * 0.021,  uTime * 0.017)).g;
         float c2 = texture2D(tNormal, ruv * 13.0 - vec2(uTime * 0.013,  uTime * 0.024)).g;
         float caustic = (c1 * c2 * 4.0 - 1.0);
-        under += vec3(0.96, 0.94, 0.86) * max(caustic, 0.0) * 0.30 * uSunVis * body;
+        under += vec3(0.96, 0.94, 0.86) * max(caustic, 0.0) * 0.30 * uCausticVis * body;
       }
       vec3 base = mix(color, under, uRefractOn * body);
 

@@ -47,8 +47,8 @@ export { AMBIENT, updateAmbient };
 /* 2026-10-05 拆分：环境三轴预设 + 合成规则已搬进 12a-presets.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindPresetsEnv, ENV_WEATHER, ENV_TIME, cloneParams, composeEnv, resolveEnv, mixInto,
          baseParamsAt, timeKeyNow, syncTimeAnchors, fmtHour, MOON_FADE_HI, TIME_ANCHORS, ENV_SEASON,
-         weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow } from './12a-presets.js';
-export { mixInto, TIME_ANCHORS, ENV_SEASON, weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow };
+         weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow, fxGates, waterSunGates } from './12a-presets.js';
+export { mixInto, TIME_ANCHORS, ENV_SEASON, weatherTag, effectiveWeather, weatherMutexReason, timeLabelNow, fxGates };
 /* 2026-10-30：太阳 / 月相（12h）与花历 / 节令（12g）两个纯模块。 */
 import { SOLAR, wrapDoy, timeAnchorsFor, mainLightDir } from './12h-solar.js';
 import { SEASON_DOY, PLUM_VIEW_DOY, seasonOfDoy, festivalFor } from './12g-phenology.js';
@@ -145,12 +145,11 @@ export function applyEnv(p){
       if (wu.uSunDir){
         const sd = solarMode ? _sunTrue : _tmpV.set(lightDir[0], lightDir[1], lightDir[2]);
         wu.uSunDir.value.copy(sd);
-        const nightness = Math.max(0, Math.min(1, p.starAmount || 0));
-        const dayW  = 1.0 - Math.max(0, Math.min(1, (nightness - 0.05) / 0.25));     // 昼 1 → 夜 0
-        const noonC = Math.max(0, Math.min(1, (sd.y - 0.52) / 0.20));                // 正午段：0.72≧ 全亮，0.52 以下交给低仰角段
-        const lowC  = Math.max(0, Math.min(1, (sd.y - 0.05) / 0.15)) * 0.35;         // 低仰角段：0.05~0.20 起坡，封顶 0.35
-        const clear = Math.max(0, Math.min(1, (0.82 - (p.cloudAmount || 0)) / 0.34));// 云 ≤0.48 全亮，≥0.82 关
-        wu.uSunVis.value = dayW * Math.max(noonC, lowC) * clear;
+        /* 公式搬进 12a waterSunGates（2026-11-23，纯函数可单测）：uSunVis 口径一字不变；
+           焦散另取 caustic（只正午段）—— 低仰角档是给波光的，焦散在晨暮该归零。 */
+        const g = waterSunGates(sd.y, p);
+        wu.uSunVis.value = g.sunVis;
+        if (wu.uCausticVis) wu.uCausticVis.value = g.caustic;
       }
     }
     /* 主光交给月亮的前提是**真的入夜了**：starAmount 是现成的"夜色深度"通道。
@@ -298,6 +297,11 @@ export function applyEnv(p){
   su.uDiskFade.value = p.diskFade !== undefined ? p.diskFade : 0;
   // 星空也要被云遮掉：云量越大，星越少
   su.uStarAmount.value = p.starAmount * Math.max(0, 1 - (p.cloudAmount || 0) * 0.85);
+  /* 银河 / 余辉门（2026-11-23 · 视觉打磨批次 1，见 12a fxGates 头注释 ①②）。
+     走 applyEnv ⇒ 烟花 / 闪电收尾重跑 applyEnv 时一并复位，切天气随 mixInto 缓动。 */
+  const fx = fxGates(p);
+  if (su.uMilkyWay) su.uMilkyWay.value = fx.milkyWay;
+  if (su.uSunGlow) su.uSunGlow.value = fx.sunGlow;
   /* 七色彩虹（2026-09-30 雨后初晴 · 二轮）：虹心方向。
      ⚠️ **方位严格取太阳的反方向**（真实成因：背对太阳才看得到彩虹），但**仰角被抬起**
         到虹弧能落在天上 —— 因为物理上：正午（太阳仰角约 48°）反日点在地平线下同样角度，
@@ -352,7 +356,9 @@ export function applyEnv(p){
   /* 堂内暖光透窗（2026-11-22 · 美术批次 #10）：窗纸衬板随同一盏"夜灯"通道点亮。
      夜 1 ⇒ 0.55、暮 0.25 ⇒ 0.14、昼 0。与灯笼同步过渡（同吃 p.lamp，mixInto 缓动），
      灯会档一并亮。强度低于 bloom 阈值 ⇒ '透暖'不是'光晕'。 */
-  MAT.latticeBack.emissiveIntensity = (p.lamp || 0) * 0.55;
+  /* 2026-11-23：再乘"太阳够低"（12a fxGates ⑤）—— 真实太阳模式下午按正午度混"暮"预设，lamp 从
+     14:50（春，仰角 44°）就 >0.05，16:45 仰角 20° 已到 0.1375，大太阳下窗纸在发光。暮锚点（7°）值不变。 */
+  MAT.latticeBack.emissiveIntensity = fx.hallWarm;
   /* ⚠️ 自发光 3.4 → 1.15（2026-09-21 方案 n2 二轮·特写实测）：3.4 在 ACES+bloom
      下把灯身整体打成纯白，"宫灯"退化成光球，腰鼓轮廓/纸纹/顶珠全部淹没。
      1.15 仍在 bloom 阈值 0.90 之上 → 光晕照旧挂得住，但灯面保留纸纹明暗，
