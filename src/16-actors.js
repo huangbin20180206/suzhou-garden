@@ -1961,6 +1961,35 @@ function det(i){
 }
 const approach = (v, t, d)=> (v < t ? Math.min(t, v + d) : Math.max(t, v - d));
 
+/* ── 给第一人称玩家让行（2026-11-24 · 批次 3）──────────────────────────────────
+   步行模式（11a-walk）下相机就是玩家的眼睛，但人物不知道玩家在哪：玩家只要站在到访路线上，
+   主人 / 客人就**从相机里穿过去**（人物挂在 scene 而不在 world，走模式的碰撞射线也打不到人）。
+   仿真 outputs/_diag/walk-block-20261124.mjs：玩家站 (0,21.2) ⇒ 主人出迎时离相机 0.006m；
+   站 (5,19.8) ⇒ 游园时主人 0.07m、客人 0.09m；步行版站开机点旁 (0.6,25.6) ⇒ 客人 0.04m。
+   规则：走模式开着、玩家脚下与人物同一层（高差 < YIELD.dy）、人物**下一步**会走进玩家
+   YIELD.r 之内且比这一步更近 ⇒ 这一步不走（站住等，moveW 回落）；远离玩家的步子照走
+   （玩家从背后追上不挡他）。
+   上限 YIELD.max 秒：玩家一直站着不让，人物仍会继续走（演出不能因玩家不动而永远停住；
+   8s 足够玩家看清"他在等我"并让开）。走出 YIELD.r 后计时清零，下次再遇到重新让。
+   只看 HOOKS.walkState —— 仿真 / 门禁没登记它 ⇒ 恒不让行，基线逐帧不变。 */
+const YIELD = { r: 0.75, dy: 1.0, max: 8 };
+function walkerPos(){
+  const ws = HOOKS.walkState && HOOKS.walkState();
+  return ws && ws.active ? camera.position : null;     // 走模式下 camera 就是玩家的眼睛（11a-walk 独占它）
+}
+/* (x,z)→(nx,nz) 这一步是否撞进玩家；P = walkerPos()，y = 人物脚下高度 */
+function stepBlocked(P, y, x, z, nx, nz){
+  if (!P || Math.abs(P.y - 1.65 - y) > YIELD.dy) return false;
+  const dn = Math.hypot(nx - P.x, nz - P.z);
+  return dn < YIELD.r && dn < Math.hypot(x - P.x, z - P.z);
+}
+/* 本步要不要让：blocked 时累计 holder.yieldT，满 max 后放行；不 blocked 时清零 */
+function yieldNow(o, blocked, dt){
+  if (!blocked){ o.yieldT = 0; return false; }
+  o.yieldT = (o.yieldT || 0) + dt;
+  return o.yieldT <= YIELD.max;
+}
+
 /* 走路：多航点 + 两种收尾（2026-10-23 为"客人到访"扩的）。
    - mode 缺省 = 'pingpong'：到端点停 dwell 后掉头（十几位原有角色都是这个行为，逐字不变）
    - mode = 'once'：沿航点一路走到底，到终点置 `a.arrived = true` 并停下（给导演层判断用）
@@ -2029,6 +2058,11 @@ function tickRoute(a, dt){
   a.yaw += Math.max(-dTurn, Math.min(dTurn, dy));
   const v = r.speed * (1 - 0.5 * (Math.abs(dy) / TURN_GATE));
   const k = Math.min(1, (v * dt) / dist);
+  const WP = walkerPos();
+  if (WP && yieldNow(a, stepBlocked(WP, a.y, a.pos.x, a.pos.z, a.pos.x + dx * k, a.pos.z + dz * k), dt)){
+    a.moveW = approach(a.moveW, 0, dt / 0.45);      // 给玩家让行：站住等（见 YIELD）
+    return;
+  }
   if (a.def.id === 'groom' && a.def.chores){
     /* 路线计算后车马还会动；每步再验当前位置，前方被占用就停下并重新规划。 */
     const caps = allHorseCapsules(null), cars = groomCars(), target = groomHorse();
@@ -2195,6 +2229,18 @@ function drivePair(v, host, guest, P, latH, latG, dt, onDone){
       a.moved = 0;
     }
     return;
+  }
+  /* 让行（见 YIELD）：两人任一下一步撞进玩家 ⇒ 弧长不推进，两人一起站住（队形不散） */
+  const WP = walkerPos();
+  if (WP){
+    const s1 = Math.min(P.total, v.s + PAIR.speed * dt), q1 = pairPointAt(P, s1);
+    let hit = false;
+    for (const [a, lat] of [[host, latH], [guest, latG]])
+      hit = hit || stepBlocked(WP, a.y, a.pos.x, a.pos.z, q1.x + q1.nx * lat, q1.z + q1.nz * lat);
+    if (yieldNow(v, hit, dt)){
+      for (const a of [host, guest]){ a.moved = 0; a.moveW = approach(a.moveW, 0, dt / 0.45); }
+      return;
+    }
   }
   v.s = Math.min(P.total, v.s + PAIR.speed * dt);
   const q = pairPointAt(P, v.s);
@@ -2963,6 +3009,18 @@ function driveTour(dt){
   const host = actorRef(v.hostId), guest = actorRef(v.guestId);
   if (!host || !guest) return;
   const P = v.tourPath;
+  /* 让行（见 YIELD）：主人或随行的客人下一步撞进玩家 ⇒ 整列停（单列间距 TOUR.gap 不变） */
+  const WP = walkerPos();
+  if (WP){
+    const s1 = Math.min(P.total, v.tourS + TOUR.speed * dt);
+    const h1 = pathAt(P, s1), g1 = pathAt(P, Math.max(0, s1 - TOUR.gap));
+    const hit = stepBlocked(WP, host.y, host.pos.x, host.pos.z, h1.x, h1.z)
+             || stepBlocked(WP, guest.y, guest.pos.x, guest.pos.z, g1.x, g1.z);
+    if (yieldNow(v, hit, dt)){
+      for (const a of [host, guest]){ a.moved = 0; a.moveW = approach(a.moveW, 0, dt / 0.45); }
+      return;
+    }
+  }
   v.tourS = Math.min(P.total, v.tourS + TOUR.speed * dt);
   const qh = pathAt(P, v.tourS);
   const qg = pathAt(P, Math.max(0, v.tourS - TOUR.gap));
