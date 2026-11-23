@@ -54,3 +54,30 @@ test('旬坐标：2 月上旬起点 = 3、12 月 31 日 < 36', () => {
   const x = xunOfDoy(doyOf(12, 31));
   assert.ok(x > 35 && x < 36, String(x));
 });
+
+/* ══ 桂花（2026-11-23 · 批次 #19）═════════════════════════════════════════
+   桂花树是本批新栽的（08-assemble 的 '桂@23.5,17'），它的花显隐完全由
+   osmanthusShow 驱动（12f 的 SEASON_PRESENCE）。这条通道此前**空转**：
+   曲线一直在算，园里没有树消费它（12g 原注释"园中暂无桂树：数据先行"）。
+   现在树有了 ⇒ 曲线必须被锁住，否则哪天有人调曲线会把桂花调没、或让它冬天开。 */
+test('桂花：秋季盛开、冬春无花（金桂 9 下旬~10 月中）', () => {
+  assert.ok(phenoChannels(doyOf(10, 1)).osmanthusShow > 0.95, '10/1 应满开');
+  assert.ok(phenoChannels(doyOf(12, 1)).osmanthusShow < NONE, '12/1 应谢尽');
+  assert.ok(phenoChannels(doyOf(4, 1)).osmanthusShow < NONE, '4/1 应无花');
+});
+
+test('桂花与腊梅花期不重叠（两株黄树不能同时开成一片）', () => {
+  /* 腊梅 = 深冬（plumYellowShow 峰在 1 月），桂花 = 秋。两者若重叠，
+     东南角与西南角会同时出现一株黄树，读作"同一品种种了两棵"。 */
+  const winter = phenoChannels(doyOf(1, 20));
+  const autumn = phenoChannels(doyOf(10, 1));
+  assert.ok(winter.osmanthusShow < NONE && winter.plumYellowShow > 0.5,
+    `冬：桂=${winter.osmanthusShow} 腊梅=${winter.plumYellowShow}`);
+  assert.ok(autumn.plumYellowShow < NONE && autumn.osmanthusShow > 0.95,
+    `秋：桂=${autumn.osmanthusShow} 腊梅=${autumn.plumYellowShow}`);
+});
+
+test('桂花峰值点：10/1 满开且盛夏无花', () => {
+  assert.ok(phenoChannels(doyOf(10, 1)).osmanthusShow > 0.95);
+  assert.ok(phenoChannels(doyOf(7, 15)).osmanthusShow < NONE, '盛夏不该有桂');
+});

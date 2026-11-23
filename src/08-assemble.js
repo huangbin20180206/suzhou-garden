@@ -15,7 +15,7 @@ import { loadAssetOnce } from './06e-assets.js';
 import { rippleInst } from './06f-ripple.js';
 import { baitPoints } from './06g-koi.js';
 import { makeRockery, makeRockChain, makeTaihuHeroGeo } from './06h-rock.js';
-import { makeLotusPod, makeWillow, makePeachTree, makePlumTree, makeOrchidPot } from './06i-trees.js';
+import { makeLotusPod, makeWillow, makePeachTree, makePlumTree, makeOsmanthusTree, makeOrchidPot } from './06i-trees.js';
 import { makeReedBladeGeo } from './06c-organs.js';
 import { makeMistField, makeWisteria, makeBamboo } from './06j-herbs.js';
 /* 2026-10-05 拆分：雾团 + 香炉白烟已搬进 06b-atmos.js（两者是"billboard 氛围片"，与植被建模无关）。 */
@@ -373,6 +373,15 @@ buildAquatic();
 [[22.5, -16.5, 1.12, -0.717, 'red'], [-23.5, 17, 1.06, -0.375, 'yellow']]
   .forEach(([x, z, s, by, kind]) => deferBoot('梅二@' + x + ',' + z,
     () => deferRoot.add(makePlumTree(x, z, s, by, kind))));
+
+// 桂花（2026-11-23 · 批次 #19）：补上物候层的空转（osmanthus 花期 9 下~10 中早就在算，
+// 但"园中暂无桂树"）。放**东南墙角**：东北是红梅、西南是腊梅，东南空着；
+// 秋天开桂时正对西北方向的池面，赏桂动线成立。
+/* baseY 按实测地表给（梅那条注释的教训：baseY 与地表没对齐 ⇒ 主干悬空）。
+   (23.5, 17) 与腊梅 (-23.5,17) 南北镜像，都在墙角 6~7m 内。 */
+[[23.5, 17, 1.10, -0.38]]
+  .forEach(([x, z, s, by]) => deferBoot('桂@' + x + ',' + z,
+    () => deferRoot.add(makeOsmanthusTree(x, z, s, by))));
 
 // 廊下盆栽兰（2026-10-06 · 老黄："在廊下补一小丛兰草（或盆栽兰）"）—— 凑齐"梅兰竹菊"。
 /* 落点用 outputs/_diag/spots2.mjs 实测：廊内 (14.2, 9.0) 地表 **0.62**、±0.7m 四角高差 **0**

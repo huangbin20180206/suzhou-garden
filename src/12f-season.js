@@ -95,6 +95,9 @@ const SEASON_PRESENCE = [
      季节通道按**材质同一性**认领，漏一个就静默不显隐（夏天花谢了、苞与凋花还挂在枝上）。 */
   ['plumRedShow',[MAT.plumBlossomRed]], ['plumYellowShow',[MAT.plumBlossomYellow]],
   ['plumBlossomShow',[MAT.plumBud, MAT.plumWithered]],
+  /* 桂花（2026-11-23 · 批次 #19）：独立的 osmanthusShow 通道（9 下~10 中）。
+     ⚠️ 叶与干**不进表**：桂花是常绿树，进表就会随花期整株收掉（梅那种落叶树才该露骨相）。 */
+  ['osmanthusShow',[MAT.osmanthusFlower]],
   /* 灯会内容也走同一套存在性通道：festivalShow>0.03 才提交。 */
   ['festivalShow',[riverLampMat, riverFlameMat, stringBulbMat]],
   /* ── 2026-10-04 · 陈设（物）的季节通道 ──

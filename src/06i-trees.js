@@ -6,7 +6,7 @@
 // ⚠️ export 块**末尾不要留逗号**：审计的 /^export\s*\{([^}]*)\}/ 会把尾逗号后的空串当成一个
 //    名叫 "" 的导出，于是每个文件都被判成「用到本文件导出的（空名）但没 import」——实测一次炸 61 条假红。
 import { makeWillow, tubeRadiusRamp } from './06k-willow.js';
-import { treeLanternInsts, TREE_LANTERN_MAT, makePeachTree, makePlumTree, makeOrchidPot } from './06l-orchard.js';
+import { treeLanternInsts, TREE_LANTERN_MAT, makePeachTree, makePlumTree, makeOsmanthusTree, makeOrchidPot } from './06l-orchard.js';
 import { makeBananaLeafCrown, makeBananaPlant, makeLotusPod, makeWaterGrass } from './06m-banana.js';
 
 export {
@@ -15,6 +15,7 @@ export {
   TREE_LANTERN_MAT,
   makePeachTree,
   makePlumTree,
+  makeOsmanthusTree,
   makeOrchidPot,
   makeBananaLeafCrown,
   makeBananaPlant,

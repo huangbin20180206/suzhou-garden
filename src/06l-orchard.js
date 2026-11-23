@@ -836,6 +836,36 @@ export function makePlumTree(x, z, scale = 1, baseY = 0, kind = 'red'){
   });
 }
 
+/* ══ 桂花（2026-11-23 · 批次 #19）═══════════════════════════════════════════
+   补上物候层的空转：12g 的 osmanthus 花期早就算好了（9 月下~10 月中），
+   注释写着"园中暂无桂树：数据先行" —— 现在让数据有树可驱动。
+   复用 makePeachTree 的整套骨架（主干/主枝/梢枝/叶/花簇都在里面参数化好了），
+   只换这一组参数：桂花是**常绿**小乔木、冠密、花小米黄簇生叶腋。
+   ⚠️ 与梅的区别（与梅"反着调"同理，别让三种树远看一样）：
+      · 梅 = 高挑疏朗（heightMul 1.35 / canopyMul 0.85 / leafMul 0.65）—— 露骨架；
+      · 桂 = 中高**密冠**（heightMul 1.05 / canopyMul 1.02 / leafMul 1.25）—— 藏骨架，
+        这正是"常绿树远看是一团"的样子，也把桂花的小花衬托出来；
+      · 花量 900（梅 1600）：桂花是"叶腋碎金"，不是"满树繁花"；
+      · 无花苞/凋谢两态（桂花一开就是小簇，没有梅那种"含苞→盛开→凋谢"的观赏节奏）。
+   ⚠️ 花色：金桂 0xF2B33C → 0xD98E15（米黄到金），比腊梅（0xFFE566/0xE0A800）更深更橙
+      —— 两者花期不重叠（腊梅冬、桂花秋），但仍拉开色相避免"两株黄树"。 */
+export function makeOsmanthusTree(x, z, scale = 1, baseY = 0){
+  return makePeachTree(x, z, scale, baseY, {
+    noFruit: true,
+    blossomMat: MAT.osmanthusFlower,        // 独立材质（不能复用 plomYellowBlossom：那是腊梅的通道）
+    flowerGeo: makePlumFlowerGeo(),         // 复用梅的五瓣几何（3m 外同量级可读）
+    flowerN: 900,                           // 叶腋碎金，不是满树繁花（梅 1600）
+    /* 树形：中高、密冠、叶足 —— 常绿树"远看一团"的轮廓 */
+    heightMul: 1.05, canopyMul: 1.02, branchMul: 1.0, leafMul: 1.25,
+    twigMul: 1.4, subTwig: true, blossomCluster: true,
+    budFrac: 0, witherFrac: 0,              // 无苞/无凋谢态（见上注释）
+    trunkMat: MAT.osmanthusTrunk, leafMat: MAT.osmanthusLeaf,
+    /* 花色：金桂（深秋开时是暖金，不是淡黄） */
+    blossomA: new THREE.Color(0xF2B33C),
+    blossomB: new THREE.Color(0xD98E15),
+  });
+}
+
 /* ══ 廊下兰草（2026-10-06 · 老黄："在廊下补一小丛兰草（或盆栽兰）"）═════════════════════
    凑"梅兰竹菊"的最后一笔。取"**盆栽兰**"（廊下本来就有缸/盆一类陈设，最省事也最不出错）：
      · 花盆：两级陶盆 + 口沿圈（深陶色）；

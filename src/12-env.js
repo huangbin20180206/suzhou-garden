@@ -1402,7 +1402,8 @@ const SNOW_BOOST = new Map([[MAT.bambooA, 0.85], [MAT.bambooB, 0.85], [MAT.banan
                             [MAT.leaf, 0.70], [MAT.leafDeep, 0.55],
                             [MAT.willowLeaf, 0.55],
                             [MAT.reed, 0.45], [MAT.lily, 0.35], [MAT.lotus, 0.35],
-                            [MAT.bark, 0.25], [MAT.trunk, 0.25]]);
+                            [MAT.bark, 0.25], [MAT.trunk, 0.25],
+                            [MAT.osmanthusLeaf, 0.30]]);   // 桂叶革质：挂雪比梅叶稍多（批次 #19）
 for (const [mat, boost] of SNOW_BOOST){
   mat.userData.snowBoost = { value: boost };
 }

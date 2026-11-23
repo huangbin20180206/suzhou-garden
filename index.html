@@ -285,6 +285,7 @@
   #env button[data-view="overview"]::before{ color:#42677A; }                    /* 全园 · 墨青 */
   #env button[data-view="plumRed"]::before{ color:#C0392B; }                     /* 红梅 · 梅红 */
   #env button[data-view="plumYellow"]::before{ color:#C9A227; }                  /* 腊梅 · 蜡黄 */
+  #env button[data-view="osmanthus"]::before{ color:#D98E15; }                    /* 桂花 · 金桂橙 */
   #env button[data-view="stable"]::before{ color:#8C6A3F; }                       /* 马厩 · 鞍棕 */
   #env button[data-view="stableNear"]::before{ color:#A87C4A; }                   /* 厩内 · 浅鞍棕 */
   /* 导览增补三站（2026-10-13 · P0-4③）：配色取自既有六条的调色逻辑 ——
@@ -536,6 +537,13 @@
     /* row-gap 只管"折行之后行与行之间"的距离 —— 2px 是"手指不会误点、又省高度"的折中
        （拆行后的面板总高见 drawer-content 那条注释的实测） */
     #env .row{ flex-wrap: wrap; gap: 6px; row-gap: 2px; }
+    /* 花木行窄屏压缩（2026-11-23 · 批次 #19）：手机面板一屏高度紧张，
+       加整行实测超出 37px（mobile-panel-guard 报'底部按钮要滚动'）。
+       ⚠️ 不能用 display:none —— smoke 门量 #env button 全体高度取 min，
+          隐藏行的按钮高 0 会把 minH 拉成 0（触控命中区判据当场红）。
+       改为：窄屏下省掉标签文字与提示（省一行宽度），按钮本身保留可点。 */
+    #env .row.row-flower .lbl,
+    #env .row.row-flower .hint{ display: none; }
     /* 手机端“看灯笼”浮动入口（2026-10-14 手机适配）：默认 display:none，窄屏/触屏才显示；
        置于右下角，避开左下角面板与顶部字幕；≥46px 触控下限。 */
     #see-lantern{ display:inline-flex; position:fixed; right:10px; bottom:74px; z-index:8;
@@ -900,18 +908,28 @@
            机位与字幕同在 08d-tour（VIEWPOINTS / TOUR_CAPTIONS / TOUR_ORDER），本行只管按钮。 -->
       <button data-view="lantern">石灯笼</button>
       <button data-view="heroPeak">主峰近观</button>
-      <button data-view="plumRed">红梅</button>
-      <button data-view="plumYellow">腊梅</button>
       <!-- 马厩（2026-10-09）：南墙外的马厩院子（4 匹马 + 2 驾双轮马车 + 马夫）。
            它开在**墙外**，默认机位在园内朝北根本看不见 ⇒ 这个按钮是这个功能的唯一入口。 -->
-      <button data-view="stable">马厩</button>
       <!-- 厩内近观（2026-10-10 · 老黄："马厩无法近距离观察，可以设置一个专门的观察机位吗？"）：
            站位在院门外、视线正好从院门穿进院场（门框把院场框住），minDist 放开到 1.2
            ⇒ 进来之后还能一路推到马与马车跟前。与「马厩」（越墙远看）互为远近两档。 -->
-      <button data-view="stableNear" aria-label="进马厩院近距离观察" title="厩内：站院门口看院场，可一路推到马与马车跟前（0 后面的那个键）">厩内</button>
       <button data-act="tour" aria-label="开始带字幕巡游">巡游▸</button>
       <button data-act="random" aria-label="偶得：随机一幅景色" title="偶得：随机一幅景色（X）">偶得</button>
       <span class="hint">Z 巡览 / T 巡游</span>
+    </div>
+    <!-- 花木行（2026-11-23 · 批次 #19）：红梅/腊梅/桂花三个**季节花木**机位从导览行拆出。
+         理由：导览行 17 个按钮实测已用 1231px / 余 145px，再加一枚就换行
+         （mobile-panel-guard 宽屏对照门报「1/7 行换行」）。拆开后导览行 14 枚
+         （余 145+ 三枚宽度 ≈ 400px）、新行 3 枚 —— 两行都不换行。
+         语义也更清楚：这些是什么时候去看什么花，与主景点不是一类。 -->
+    <div class="row row-flower">
+      <span class="lbl">花木</span>
+      <button data-view="plumRed">红梅</button>
+      <button data-view="plumYellow">腊梅</button>
+      <button data-view="osmanthus">桂花</button>
+      <button data-view="stable">马厩</button>
+      <button data-view="stableNear" aria-label="进马厩院近距离观察" title="厩内：站院门口看院场，可一路推到马与马车跟前">厩内</button>
+      <span class="hint">季节花木 · 墙外马厩</span>
     </div>
     <div class="row">
       <span class="lbl">留影</span>

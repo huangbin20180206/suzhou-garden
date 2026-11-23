@@ -400,6 +400,13 @@ export function buildViewpoints(heroPos){
       pos: new THREE.Vector3(18.63, 2.9, -13.66), target: new THREE.Vector3(22.5, 2.6, -16.5), minDist: 1.2 },
     { id:'plumYellow', label:'腊梅',
       pos: new THREE.Vector3(-19.61, 2.9, 14.19), target: new THREE.Vector3(-23.5, 2.6, 17.0), minDist: 1.2 },
+    /* 「桂花」机位（2026-11-23 · 批次 #19）：桂花在**东南墙角** (23.5, 17)，
+       与腊梅 (-23.5,17) 南北镜像。站位在园内一侧、离树 4.8m、平视花冠（y≈2.8），
+       minDist 1.2 ⇒ 到了还能推到单簇花上。
+       ⚠️ 坐标必须与 08-assemble 的种植表 `[[23.5, 17, 1.10, -0.38]]` 同步 —— 改栽点要同步改这里，
+          否则机位对着一块空地（梅那两条的同一教训）。 */
+    { id:'osmanthus', label:'桂花',
+      pos: new THREE.Vector3(19.63, 2.9, 14.19), target: new THREE.Vector3(23.5, 2.8, 17.0), minDist: 1.2 },
     /* 「马厩」机位（2026-10-09 建 · 2026-10-10 随马厩搬家与转向两次改）：马厩在**东墙外**
        (40, −2)，默认机位在园内朝北 ⇒ 完全看不到，所以必须给入口。
        ⚠️ 2026-10-10 转向后（yaw π ⇒ 院门朝南）改从**西南高处**看：pos(26, 9, 16) →

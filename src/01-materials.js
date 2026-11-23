@@ -549,6 +549,11 @@ export const MAT = {
   /* ⚠️ 腊梅自发光要跟着"调黄"：0x96700A 是**琥珀金**（R 比 G 高约 0.15），暗处会把花往金色拉 ⇒
      换成 0x8F8200（R≈G 的正黄）。红梅那份不动。 */
   plumBlossomYellow: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x8F8200, emissiveIntensity:0.75, vertexColors:true }),
+  /* 桂花专用的花材质（2026-11-23 · 批次 #19）：**不能复用 plumBlossomYellow** ——
+     那份已被腊梅占用（SEASON_PRESENCE 的 plumYellowShow 通道冬 1.0），
+     共用会让"秋天开桂"与"冬天开腊梅"绑死成同一棵树同生同灭。
+     贴图/几何沿用梅的花（3m 外同量级可读），只换自发光：金桂是暖金 0x9A6A0C。 */
+  osmanthusFlower: new THREE.MeshStandardMaterial({ map:makePlumPetalTex(), color:0xFFFFFF, roughness:0.86, metalness:0.0, envMapIntensity:0.25, side:THREE.DoubleSide, alphaTest:0.10, emissive:0x9A6A0C, emissiveIntensity:0.70, vertexColors:true }),
   /* ── 梅花**花苞**材质（2026-10-08 · 老黄："30% 左右的苞（嫩黄色）"）────────────────────
      ⚠️ **不能复用花瓣材质**：它带花瓣形 alpha 贴图（套在球面上会被 alpha 裁破）+ alphaTest 0.10。
      这里不要贴图、不要 alphaTest：颜色交给**实例色**（每株的嫩色），萼片的深色靠顶点色。
@@ -582,6 +587,17 @@ export const MAT = {
   /* 梅的叶：比 MAT.peachLeaf（0x6BA340）更墨绿更冷 —— 夏季远看也不与桃同色。
      ⚠️ 要跟 peachShow 一起登记进 12f 的 SEASON_PRESENCE（冬落尽裸枝）。 */
   plumLeaf: new THREE.MeshStandardMaterial({ color:0x3F6B2E, roughness:0.88, metalness:0.0, envMapIntensity:0.3, side:THREE.DoubleSide }),
+  /* ── 桂花（2026-11-23 · 批次 #19）──────────────────────────────────────
+     撞上了物候层的空转：12g 的 osmanthus 花期（9 下~10 中）早就在算，
+     注释写着"园中暂无桂树：数据先行" —— 数据算出来没人消费。
+     桂花是**常绿**小乔木（不像梅那样冬天落光）：叶革质厚、深绿微亮；
+     干比梅灰、裂浅。花小、簇生叶腋、米黄到金 —— 复用梅的花几何（五瓣平展
+     与桂花的四裂小花在 3m 外同量级可读），只换色与密度。
+     ⚠️ osmanthusLeaf 刻意**不进 SEASON_PRESENCE**：常绿树冬天不落叶。 */
+  osmanthusTrunk: new THREE.MeshStandardMaterial({ color:0x6A6259, roughness:0.94, metalness:0.0, envMapIntensity:0.15,
+    map: makePlumBarkTex(), bumpMap: makePlumBarkTex(), bumpScale: 0.014 }),
+  osmanthusLeaf: new THREE.MeshStandardMaterial({ color:0x2E5C2A, roughness:0.62, metalness:0.0, envMapIntensity:0.45,
+    side:THREE.DoubleSide }),      // 革质叶：比梅叶更低的 roughness（有油亮感）
   /* ⚠️ 果基色必须是**白**：实例色（frA→frB 的蜜桃黄→粉晕）会与材质 color 相乘，
      而 multiply 走的是线性空间 —— 基色 0xE08050 再乘一个橙红实例色 = 把颜色**平方**，
      出来的是一颗高饱和深红（用户截图里读作"圣女果"）。
@@ -768,6 +784,7 @@ export const SNOW_COVER_MATS = [
   MAT.rockSmooth, MAT.rockSmoothDark, MAT.taihu, MAT.taihuDark, MAT.taihuHero,
   MAT.taihuLobe, MAT.taihuLobeDark,
   MAT.riverStone, MAT.bark, MAT.trunk,
+  MAT.osmanthusLeaf,        // 桂（批次 #19）：常绿叶上积雪，冬景最上镜
 ];
 export const WET_MATS = [MAT.grass, MAT.wall, MAT.wallCap, MAT.roof, MAT.ridge,
                   MAT.stone, MAT.stoneDark, MAT.marble, MAT.riverStone,
@@ -1004,6 +1021,13 @@ addWind(MAT.peachLeaf, 0.05, 1.0, 'crown');            // 桃叶冠轻摆（同�
    摆幅对齐桃叶档（0.05/0.045）：梅树形比桃小一号，过大就成"摇呼啦圈"。 */
 addWind(MAT.plumLeaf, 0.045, 1.05, 'crown');            // 梅叶：枝梢轻摆
 addWind(MAT.plumTrunk, 0.02, 0.55, 'base');            // 梅干：根部锚定，整体微晃
+/* 桂（2026-11-23 · 批次 #19）：常绿密冠、革质厚叶 —— 摆幅比梅**小**（叶重、冠密、
+   不像梅那样疏枝细梢），但比梅干活跃：叶冠是主体，风过时整团微动。
+   ⚠️ osmanthusFlower **不接**：它和梅的花族一样会被 installBlossomDistanceScale
+   占用 onBeforeCompile（addWind 会覆盖 ⇒ 远处花缩回 1.0）。花贴在叶腋上，
+   叶动花随（同一棵树，视觉上足够）。 */
+addWind(MAT.osmanthusLeaf,   0.038, 1.10, 'crown');   // 桂叶冠：比梅叶(0.045)略轻
+addWind(MAT.osmanthusTrunk,  0.018, 0.50, 'base');    // 桂干：比梅干(0.02)更稳
 addWind(MAT.reed,   0.15, 1.10, 'base');    // 水草
 /* ⚠️ 荷叶 / 荷花 / 芭蕉 此前不在风场表里 —— 狂风暴雨里柳枝疯摆而池面/芭蕉纹丝不动，
    同框对比出戏（用户反馈）。
