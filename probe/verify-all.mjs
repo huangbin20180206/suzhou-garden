@@ -147,6 +147,9 @@ const SUITES = [
   /* 到访边界单测（2026-11-24 · 批次 3）：probe/_actor-sim/edge.mjs 子进程并行跑看门狗中途复位（四种模式）、
      步行模式玩家挡路让行、听琴时入夜、走回去途中入夜。纯 node，2 核约 45s。 */
   ['到访边界单测 visit-edge-unit', 'probe/visit-edge-unit.mjs'],
+  /* 交互体验单测（2026-11-24 · 第 4 批）：src/00c-ux 的纯函数内核 —— 分享链接编解码、省电降档判据、
+     减弱动效开关、音量持久化、驻足卡冷却与关闭手势、触屏摇杆死区与曲线。纯 node，<0.2s。 */
+  ['交互体验单测 ux-pure-unit', 'probe/ux-pure-unit.mjs'],
   /* vendor 新鲜度 vendor-fresh（2026-10-15）：vendor.js 入库但为构建产物，
      build-entry.js/依赖版本变而 vendor 未重打时红。修：build + --record。 */
   ['构建物新鲜度 vendor-fresh', 'probe/vendor-fresh.mjs'],
@@ -699,6 +702,7 @@ const QUICK = new Set([
   'probe/fixed-step-unit.mjs',         // 纯 node 单测 <0.1s
   'probe/actor-replay-unit.mjs',       // 纯 node 重播回归网，三进程并行 ~13~50s（仍在 quick 的 ≤1 分钟线内）
   'probe/visit-edge-unit.mjs',         // 纯 node 到访边界（中途复位 / 让行 / 入夜），子进程并行 ~45s
+  'probe/ux-pure-unit.mjs',            // 纯 node 交互体验单测 <0.2s（2026-11-24 第 4 批）
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
   'probe/figure-foot-guard.mjs',       // 纯射线 ~17s + 零覆盖的缺陷类（人物陷进台基/走在水上）
