@@ -141,11 +141,14 @@ export function stickResponse(dxPx, dyPx, radius = STICK_RADIUS, dead = STICK_DE
   const mag = Math.pow((Math.min(1, m) - dead) / (1 - dead), expo);
   return { r: nx / m * mag, f: -ny / m * mag, mag, kx, ky };
 }
-export function combineMove(f, r){
+/* out（可选，2026-11-24 · 第 5 批）：走模式每帧调一次，给复用对象就零分配；不给仍返回新对象（单测口径不变）。 */
+export function combineMove(f, r, out){
+  const o = out || {};
   const l = Math.hypot(f, r);
-  if (!(l > 1e-9)) return { f:0, r:0, mag:0 };
-  if (l <= 1) return { f, r, mag:l };
-  return { f: f / l, r: r / l, mag:1 };
+  if (!(l > 1e-9)){ o.f = 0; o.r = 0; o.mag = 0; return o; }
+  if (l <= 1){ o.f = f; o.r = r; o.mag = l; return o; }
+  o.f = f / l; o.r = r / l; o.mag = 1;
+  return o;
 }
 
 /* ══ 7. 分享当前景色：URL hash 编解码 ══════════════════════════════════════

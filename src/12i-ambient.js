@@ -69,6 +69,7 @@ const PETALS = (()=>{
 })();
 scene.add(PETALS.points);
 let _prevCamX = null, _prevCamZ = null;
+const _ngOut = {};
 
 /* 门禁/诊断读的句柄（与 PRECIP/POSTRAIN 同款：只读状态，不暴露推进） */
 export const AMBIENT = {
@@ -84,7 +85,7 @@ export function updateAmbient(dt, t){
   const petal = p.peachPetalShow || 0;
   const autumn = ENV.season === 'autumn' ? 0.8 : 0;
   /* 雨把花瓣 / 落叶打下来：空中的少（暴雨 ×0.25）、落得直（下坠 ×3.2）、摆得小（×0.3）。见 12a natureGates ②。 */
-  const ng = natureGates(p, ENV.season, effectiveWeather());
+  const ng = natureGates(p, ENV.season, effectiveWeather(), _ngOut);   // 复用（第 5 批：每帧零分配）
   const amt = Math.max(petal, autumn) * ng.petalWx;
   PETALS.points.visible = amt > 0.02;
   if (!PETALS.points.visible) return;

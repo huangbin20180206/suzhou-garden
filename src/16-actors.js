@@ -46,6 +46,29 @@ let _envRefWarned = false;      // ENV_REF.env 缺失只喊一次（否则每帧
    不碰那些已经反解过手位的动作。 */
 const _palmFixR = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI);
 
+/* ── 帧内零分配（2026-11-24 · 第 5 批 · 执行效率）──────────────────────────────
+   advance() 每帧对**每个演员**都走一遍姿态层。原写法每个演员每帧新建 set / armBaseX / handBase
+   等闭包、`['Left','Right']` 数组字面量、`sd + 'IndexProximal'` 这种拼接字符串（每次拼都是新串）、
+   handBase 返回的新数组 —— 纯 node 取证（outputs/_diag/alloc-scan-2026-11-24.mjs，产品默认一场）
+   advance 自身约 60KB/帧，触发频繁的新生代 GC（真机上就是帧时间里的毛刺）。
+   这里把它们换成模块级只读表 + 复用的临时量；数学与写入顺序一字不改（重播基线逐帧一致为证）。
+   ⚠️ 重入：这些临时量只在 advance() 的单个演员迭代里用，迭代内不会再进 advance()；
+      _setA / _arm* 每轮迭代开头重设，不能在迭代之外读。 */
+const SIDES = ['Left', 'Right'];
+const _BN = (() => {          // _BN.Left.IndexProximal === 'LeftIndexProximal'（与原拼接逐字相同）
+  const parts = ['UpperArm', 'LowerArm', 'Hand', 'IndexProximal', 'IndexIntermediate', 'MiddleProximal',
+                 'MiddleIntermediate', 'ThumbProximal', 'ThumbIntermediate', 'ThumbDistal'];
+  const o = {};
+  for (const sd of SIDES){ o[sd] = {}; for (const n of parts) o[sd][n] = sd + n; }
+  return o;
+})();
+const LEG_SCALE_BONES = ['LeftLowerLeg', 'RightLowerLeg', 'LeftFoot', 'RightFoot', 'LeftToes', 'RightToes'];
+/* 挥手时手掌摊开的七个指节：[骨名（已带 Right 前缀）, 起, 止] */
+const WAVE_FINGERS = [['IndexProximal', 0.45, 0.10], ['MiddleProximal', 0.45, 0.10],
+                      ['IndexIntermediate', 0.32, 0.05], ['MiddleIntermediate', 0.32, 0.05],
+                      ['ThumbProximal', -0.32, -0.10], ['ThumbIntermediate', -0.26, -0.08],
+                      ['ThumbDistal', -0.14, -0.05]].map(([n, from, to]) => ['Right' + n, from, to]);
+
 /* ── 步态常数（口径对齐 08d 的 WALK_STRIDE=0.42 / WALK_BOB=0.028）────────────
    相位的推进按**走过的距离**算，不按时间：站下/转身/上坡都不会出现"脚在原地划"。
    步长 0.42m 时，一条腿一个完整周期 = 两步 = 0.84m ⇒ p = 距离/0.42 × π。 */
@@ -1500,10 +1523,16 @@ function settleActor(def, ok, err){
 const _rc = new THREE.Raycaster();
 const _down = new THREE.Vector3(0, -1, 0);
 const _hitP = new THREE.Vector3();
+/* 命中数组复用（2026-11-24 · 第 5 批）：intersectObject 的第三参数给了就往里 push、排序后原样返回，
+   结果与默认新数组相同；命中点本身仍是 three 内部 clone 的（不改 three）。两个采样函数互不嵌套。 */
+const _rcHits = [];
+function rcFloorHits(){ _rcHits.length = 0; return _rc.intersectObject(scene, true, _rcHits); }
+/* 半透明 / 不写深度的材质不算踏面（原 `[mat]` 包数组 + some 闭包的无分配版，判据逐字相同） */
+function floorMatSkip(m){ return !!(m && (m.transparent || m.opacity < 0.9 || m.depthWrite === false)); }
 function sampleFloor(x, z){
   _rc.set(_hitP.set(x, 3.0, z), _down);
   _rc.far = 6.0;
-  for (const h of _rc.intersectObject(scene, true)){
+  for (const h of rcFloorHits()){
     if (!h.object.isMesh) continue;
     /* 跳过：人物 GLB（actor_*）、程序化替身（userData.poseName）、马（horseXxx） */
     let p = h.object, skip = false;
@@ -1540,7 +1569,7 @@ function sampleFloorNear(x, z, nearY, stepUp){
   _rc.far = 7.0;
   let hi = null, near = null, nd = Infinity;
   const upLim = nearY + (stepUp || 0.42), loLim = nearY - 0.60;
-  for (const h of _rc.intersectObject(scene, true)){
+  for (const h of rcFloorHits()){
     if (!h.object.isMesh) continue;
     if (h.object.isInstancedMesh && h.object.count > 100) continue;   // 植被场，见上
     /* 排除人物 GLB（actor_*）、程序化替身（userData.poseName）、真马（horseXxx） */
@@ -1552,8 +1581,8 @@ function sampleFloorNear(x, z, nearY, stepUp){
     }
     if (skip) continue;
     /* 水面 / 任何半透明层不算踏面 —— 否则在桥边会"选中最接近的水面"、人踩在水上走 */
-    const mats = Array.isArray(h.object.material) ? h.object.material : [h.object.material];
-    if (mats.some(m => m && (m.transparent || m.opacity < 0.9 || m.depthWrite === false))) continue;
+    const hm = h.object.material;
+    if (Array.isArray(hm) ? hm.some(floorMatSkip) : floorMatSkip(hm)) continue;
     const y = h.point.y;
     if (y >= loLim && y <= upLim && (hi === null || y > hi)) hi = y;
     const d = Math.abs(y - nearY);
@@ -1699,7 +1728,7 @@ function loadActor(def){
          ⚠️ 基准改在这里而不是各姿势里：身份手（马夫/书童）与所有反解手位共用同一圈，
              否则每加一个动作就要再补一次。 */
       const HAND_ROLL = { Left: -Math.PI / 2, Right: Math.PI / 2 };
-      for (const sd of ['Left', 'Right']){
+      for (const sd of SIDES){
         const n = sd + 'Hand';
         if (!base[n]) continue;
         base[n].premultiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), HAND_ROLL[sd]));
@@ -2393,19 +2422,27 @@ function inStableBlock(x, z, pad){
   return false;
 }
 /* 场上所有马的胶囊（skip = 要排掉的那一匹，通常传目标马） */
+/* 2026-11-24 · 第 5 批：马夫每帧都要（tickRoute 逐步验占用 + groomGoals 三个站位各推一次），
+   原来每次新建数组 + 每匹马一个对象。改为**复用池**：返回的数组与记录只在下一次调用前有效 ——
+   全部调用方（tickRoute / pushOutOfHorses / groomPath）都是"取来即用、用完即弃"，其间不会再调本函数。 */
+const _capsOut = [], _capsPool = [];
 export function allHorseCapsules(skip){
-  const out = [];
+  const out = _capsOut;
+  out.length = 0;
   try {
     for (const h of (horseLifeDebug() || [])){
       if (!h || !h.group || h === skip || !h.group.visible) continue;
       const P = horsePose(h);
-      out.push({ x: P.x, z: P.z, fx: P.fx, fz: P.fz, role: h.role });
+      const c = _capsPool[out.length] || (_capsPool[out.length] = { x: 0, z: 0, fx: 0, fz: 1, role: null });
+      c.x = P.x; c.z = P.z; c.fx = P.fx; c.fz = P.fz; c.role = h.role;
+      out.push(c);
     }
   } catch (e){ /* 马还没装好：空表 = 不避让（退回原来的直走） */ }
   return out;
 }
 /* 站位若落在"别的马"身上，就沿马身法线推到净空之外（最多四轮，两匹马并排也够） */
-function pushOutOfHorses(x, z, skip, clear){
+/* out：写回的 [x, z]（2026-11-24 起由调用方给，原来每次 return 新数组） */
+function pushOutOfHorses(x, z, skip, clear, out){
   const caps = allHorseCapsules(skip);
   let px = x, pz = z;
   for (let pass = 0; pass < 4; pass++){
@@ -2425,19 +2462,31 @@ function pushOutOfHorses(x, z, skip, clear){
     }
     if (!moved) break;
   }
-  return [px, pz];
+  out[0] = px; out[1] = pz;
+  return out;
 }
 /* 活动马车与卸马车都进入障碍表；车体范围与 15d 的厢体一致（前沿不变、尾部向后延长）。 */
-export function groomCars(){
-  const V = stableTravel();
-  if (!V || !V.ready) return [];
-  const cars = [V.car, ...(V.parkedCars || [])].filter(o => o && o.visible && o.parent);
-  return cars.map(car => {
-    car.updateWorldMatrix(true, false);
-    const center = car.getWorldPosition(new THREE.Vector3());
-    return { inverse: new THREE.Matrix4().copy(car.matrixWorld).invert(), y: center.y };
-  });
+/* 2026-11-24 · 第 5 批：马夫走路时每帧调（tickRoute），原来每次 new Vector3 + Matrix4 + 数组。
+   改为复用池（同 allHorseCapsules：结果只在下一次调用前有效，调用方都是即取即用）。 */
+const _carsOut = [], _carsPool = [], _carsCenter = new THREE.Vector3();
+function pushCarRec(car){
+  if (!(car && car.visible && car.parent)) return;
+  car.updateWorldMatrix(true, false);
+  car.getWorldPosition(_carsCenter);
+  const r = _carsPool[_carsOut.length] || (_carsPool[_carsOut.length] = { inverse: new THREE.Matrix4(), y: 0 });
+  r.inverse.copy(car.matrixWorld).invert(); r.y = _carsCenter.y;
+  _carsOut.push(r);
 }
+export function groomCars(){
+  _carsOut.length = 0;
+  const V = stableTravel();
+  if (!V || !V.ready) return _carsOut;
+  pushCarRec(V.car);
+  const parked = V.parkedCars;
+  if (parked) for (let i = 0; i < parked.length; i++) pushCarRec(parked[i]);
+  return _carsOut;
+}
+const _gocV = new THREE.Vector3();       // groomOccupied 专用（一次寻路要调上千次，原每次 new）
 export function groomOccupied(x, z, caps, cars, target){
   if (inStableBlock(x, z, 0.06)) return true;
   /* 不从围栏两端或厩舍背后绕出园外；允许在院门外沿围栏移动到门洞。 */
@@ -2446,7 +2495,7 @@ export function groomOccupied(x, z, caps, cars, target){
   if (z > -6.7 && z < 2.7 && (Math.abs(x - 34.4) < 0.20 || Math.abs(x - 45.6) < 0.20)) return true;
   if (Math.abs(z - 2.7) < 0.20 && x > 34.4 && x < 45.6 && (x < 38.4 || x > 41.6)) return true;
   for (const c of cars){
-    const p = new THREE.Vector3(x, c.y, z).applyMatrix4(c.inverse);
+    const p = _gocV.set(x, c.y, z).applyMatrix4(c.inverse);
     if (Math.abs(p.x) < 1.02 && p.z > -2.01 && p.z < 1.08) return true;
   }
   for (const c of caps){
@@ -2554,10 +2603,6 @@ const _gGoal = { feed: [0, 0], brush: [0, 0], idle: [0, 0], muzzle: [0, 0] };
 function groomGoals(C){
   const H = groomHorse();
   if (!H) return null;
-  const fix = (pt) => {                     // 站位若压在别的马身上，先推出来
-    const q = pushOutOfHorses(pt[0], pt[1], H, HORSE_AVOID);
-    pt[0] = q[0]; pt[1] = q[1];
-  };
   const p = horseOffset(H, C.feedFwd, C.feedLat, _gA);
   _gGoal.feed[0] = p.x; _gGoal.feed[1] = p.z;
   const b = horseOffset(H, C.brushFwd, C.brushLat, _gA);
@@ -2566,7 +2611,12 @@ function groomGoals(C){
   _gGoal.idle[0] = i.x; _gGoal.idle[1] = i.z;
   const m = horseOffset(H, C.muzzleFwd, 0, _gA);
   _gGoal.muzzle[0] = m.x; _gGoal.muzzle[1] = m.z;
-  fix(_gGoal.feed); fix(_gGoal.brush); fix(_gGoal.idle);
+  /* 站位若压在别的马身上，先推出来。原为每帧一个 fix 闭包 + pushOutOfHorses 每次新数组；
+     现在 pushOutOfHorses 直接写回 pt（先读完两个分量再写，与原"取回再赋值"等价）。 */
+  const gf = _gGoal.feed, gb = _gGoal.brush, gi = _gGoal.idle;
+  pushOutOfHorses(gf[0], gf[1], H, HORSE_AVOID, gf);
+  pushOutOfHorses(gb[0], gb[1], H, HORSE_AVOID, gb);
+  pushOutOfHorses(gi[0], gi[1], H, HORSE_AVOID, gi);
   _gGoal.H = H;
   return _gGoal;
 }
@@ -4019,6 +4069,33 @@ function tickVisit(dt){
    挪到模块级复用 —— 单线程、advance 同步体里用完即弃，共享安全）。 */
 const _poseQ = new THREE.Quaternion();
 const _poseE = new THREE.Euler();
+/* advance() 的 set / armBaseX / armBaseZ / handBase 由每帧闭包改成模块函数（见文件头"帧内零分配"）。
+   当前演员与垂手参数放在下面几个模块变量里，每轮演员迭代开头写入。
+   set 与原闭包一样写 _poseE / _poseQ（原闭包里的 e / q 就是这两个对象），语义不变。 */
+let _setA = null, _armRelaxed = null, _armADK = 0, _armAd = 0;
+const _HB_L = [0, 0, 0], _HB_R = [0, 0, 0];
+function setBone(name, x, y, z){
+  const a = _setA;
+  const bone = a.bones[name], rest = a.base[name];
+  if (!bone || !rest) return;
+  _poseE.set(x, y, z, 'XYZ');
+  _poseQ.setFromEuler(_poseE);
+  bone.quaternion.copy(rest).multiply(_poseQ);
+}
+function armBaseXOf(){ return _armRelaxed ? _armRelaxed.x : -_armADK * _armAd; }
+function armBaseZOf(side){ const r = _armRelaxed; return r ? (side === 'Left' ? r.z : -r.z) : 0; }
+/* 返回模块级三元组（左右各一份）：调用方只读、当帧用完即弃 —— 与原来"每次新数组"的读法等价。 */
+function handBaseOf(side){
+  const r = _armRelaxed, L = side === 'Left', o = L ? _HB_L : _HB_R;
+  if (r){ o[0] = r.hx; o[1] = L ? r.hy : -r.hy; o[2] = L ? r.hz : -r.hz; }
+  else { o[0] = 0; o[1] = 0; o[2] = 0; }
+  return o;
+}
+/* _avoidReveal.some(r => r.o === holder) 的无闭包版 */
+function pendingRevealOf(holder){
+  for (let i = 0; i < _avoidReveal.length; i++) if (_avoidReveal[i].o === holder) return true;
+  return false;
+}
 
 /* ── 人物可见性（2026-11-07）─────────────────────────────────────────────────
    返回该角色此刻**应该**是 visible 还是隐藏；null = 本函数不管（交给别人）。
@@ -4075,6 +4152,43 @@ function actorVisibleNow(a){
   return true;
 }
 
+/* 马夫杂役的三个小工具（2026-11-24 · 第 5 批）：原是 advance() 里每帧新建的闭包（捕获 a / dt / H3），
+   改成模块函数，参数经 _grA / _grDt / _grH 传入 —— 只在马夫那一轮演员迭代里设、用，无嵌套。 */
+let _grA = null, _grDt = 0, _grH = null;
+function groomDistTo(g){ const a = _grA; return g ? Math.hypot(a.pos.x - g[0], a.pos.z - g[1]) : 0; }
+function groomFaceTo(g){ const a = _grA; if (g) turnToward(a, Math.atan2(g[0] - a.pos.x, g[1] - a.pos.z), _grDt); }
+/* 走向一个"会动的目标"（原注释见 advance() 马夫段）。 */
+function groomGoTo(g, spd, tol){
+  const a = _grA, dt = _grDt, H3 = _grH;
+  if (!g) return false;
+  a._goalT = (a._goalT || 0) + dt;
+  a._replanT = (a._replanT || 0) + dt;
+  const d0 = groomDistTo(g);
+  if (d0 <= tol){ a._goalKey = null; a._goalT = 0; a.walkOff = true; return true; }
+  /* 目标键：原来每帧拼一次 toFixed 串。键只是 g 两个坐标的函数 ⇒ 坐标没变就沿用上次的串（逐字相同）。 */
+  if (g[0] !== a._goalG0 || g[1] !== a._goalG1 || a._goalKeyStr === undefined){
+    a._goalG0 = g[0]; a._goalG1 = g[1]; a._goalKeyStr = g[0].toFixed(2) + ',' + g[1].toFixed(2);
+  }
+  const key = a._goalKeyStr;
+  if (a._goalKey !== key || a._replanT > 1.2){
+    const isNew = a._goalKey !== key;
+    a._goalKey = key; a._replanT = 0;
+    if (isNew){ a._goalT = 0; a._goalD = d0; }
+    routeToHorse(a, g, H3, spd);
+  }
+  const budget = Math.max(6, (a._goalD || d0) / Math.max(0.15, spd) * 1.8 + 3);
+  if (a._goalT > budget){
+    a._goalKey = null; a._goalT = 0; a.walkOff = true;
+    if (window.__groomRouteTrace) console.warn('[groom] 目标暂时不可达，等待重试：' + JSON.stringify(g));
+    return false;
+  }
+  return false;
+}
+
+function skirtIdent(v){ return v; }
+/* 刷马的下一次间歇（原 advance() 里的 nextWait 闭包）：读 _nwA / _nwEv，刷马段开头写入。 */
+let _nwA = null, _nwEv = null;
+function brushNextWait(){ const a = _nwA, ev = _nwEv; return ev[0] + (ev[1] - ev[0]) * det(a.brushN++ + a.phase * 11.3); }
 function advance(dt){
   /* 记下"推进前的位置"：踏面采样的节流要判这一帧到底走没走。
      ⚠️ 不能只看 a.moved —— 各写入方语义不一（tickRoute 在"没有路线/已到站"时会把它清零，
@@ -4082,7 +4196,7 @@ function advance(dt){
      2026-10-27 的"游园穿模"就是这么来的）。这里直接用真实位移兜底。 */
   for (const a of ACTORS){ a._px = a.pos.x; a._pz = a.pos.z; }
   tickVisit(dt);
-  const q = _poseQ, e = _poseE;
+  const q = _poseQ;            // 裙骨段直接用；_poseE 由 setBone 写
   for (const a of ACTORS){
     /* ── 人物可见性门控（2026-11-07 老黄："夜间人物应该都休息了，不出现；只有灯会和烟花
        的场景夜间才出现人物"）────────────────────────────────────────────────
@@ -4101,7 +4215,7 @@ function advance(dt){
        近景里仍旧闪现（actor-tick-unit「主人近镜头复位时先隐藏，再按延时恢复」长期红）。
        复亮的所有权归计时器：进了名单的对象，这一路不写它。 */
     const vis = actorVisibleNow(a);
-    const pendingReveal = _avoidReveal.some(r => r.o === a.holder);
+    const pendingReveal = pendingRevealOf(a.holder);
     if (vis !== null && !pendingReveal && a.holder.visible !== vis){
       a.holder.visible = vis;
       markCasterBoxDirty();
@@ -4242,13 +4356,8 @@ function advance(dt){
 
     const b = Math.sin(_t * 1.05 + a.phase);
     const h = Math.sin(_t * 0.31 + a.phase * 1.7);
-    const set = (name, x, y, z) => {
-      const bone = a.bones[name], rest = a.base[name];
-      if (!bone || !rest) return;
-      e.set(x, y, z, 'XYZ');
-      q.setFromEuler(e);
-      bone.quaternion.copy(rest).multiply(q);
-    };
+    _setA = a;
+    const set = setBone;          // 原为每帧闭包（见文件头"帧内零分配"）
 
     /* ── 步态（w→0 时全部回零，站姿与 P1 逐字一致）────────────────────────
        屈膝相位：腿往前送的半程（cos>0）才弯；支撑期直着撑住重量。
@@ -4279,11 +4388,8 @@ function advance(dt){
        ⚠️ 必须定义在 `if (ad > 0.001)` **外面**：下面的捧卷/端茶/作揖都要从这个基准过渡，
           写在块里就会变成"块内可见"，那三段拿不到、手会在切换时弹回旧姿势。 */
     const relaxed = RELAXED_ARM[a.def.id] || null;
-    const armBaseX = () => (relaxed ? relaxed.x : -ADK * ad);
-    const armBaseZ = (side) => (relaxed ? (side === 'Left' ? relaxed.z : -relaxed.z) : 0);
-    const handBase = (side) => (relaxed
-      ? [relaxed.hx, side === 'Left' ? relaxed.hy : -relaxed.hy, side === 'Left' ? relaxed.hz : -relaxed.hz]
-      : [0, 0, 0]);
+    _armRelaxed = relaxed; _armADK = ADK; _armAd = ad;
+    const armBaseX = armBaseXOf, armBaseZ = armBaseZOf, handBase = handBaseOf;   // 原为每帧闭包
     if (ad > 0.001){
       /* 绕 X；⚠️ **两只手都是负号**，不是镜像反号 —— 这一条实测过两遍：
          第一次按"镜像"给右臂写 +ad，结果右胳膊被抬到脸旁（左臂正常）；
@@ -4319,14 +4425,14 @@ function advance(dt){
         set('RightLowerArm', relaxed.ex + 0.05 * Math.max(0, -Math.sin(p)) * w + SIT_ARM.ex * sl, 0, 0);
         set('LeftHand',  relaxed.hx + SIT_ARM.hx * sl,  relaxed.hy,  relaxed.hz);
         set('RightHand', relaxed.hx + SIT_ARM.hx * sl, -relaxed.hy, -relaxed.hz);
-        for (const sd of ['Left','Right']){
-          set(sd + 'IndexProximal', 0.45, 0, 0);
-          set(sd + 'MiddleProximal', 0.45, 0, 0);
-          set(sd + 'IndexIntermediate', 0.32, 0, 0);
-          set(sd + 'MiddleIntermediate', 0.32, 0, 0);
-          set(sd + 'ThumbProximal', -0.32, 0, 0);
-          set(sd + 'ThumbIntermediate', -0.26, 0, 0);
-          set(sd + 'ThumbDistal', -0.14, 0, 0);
+        for (const sd of SIDES){
+          set(_BN[sd].IndexProximal, 0.45, 0, 0);
+          set(_BN[sd].MiddleProximal, 0.45, 0, 0);
+          set(_BN[sd].IndexIntermediate, 0.32, 0, 0);
+          set(_BN[sd].MiddleIntermediate, 0.32, 0, 0);
+          set(_BN[sd].ThumbProximal, -0.32, 0, 0);
+          set(_BN[sd].ThumbIntermediate, -0.26, 0, 0);
+          set(_BN[sd].ThumbDistal, -0.14, 0, 0);
         }
       } else {
         const swing = Math.sin(p) * 0.40 * w;
@@ -4383,14 +4489,14 @@ function advance(dt){
         set('LeftHand',  SCROLL.hx * w2 + hbL[0] * (1 - w2), hbL[1] * (1 - w2), hbL[2] * (1 - w2));
         set('RightHand', SCROLL.hx * w2 + hbR[0] * (1 - w2), hbR[1] * (1 - w2), hbR[2] * (1 - w2));
         /* 握木轴：食指/中指扣住、拇指内收（比端盏更实 —— 卷轴是有重量的） */
-        for (const sd of ['Left', 'Right']){
-          set(sd + 'IndexProximal', 0.85 * w2, 0, 0);
-          set(sd + 'MiddleProximal', 0.85 * w2, 0, 0);
-          set(sd + 'IndexIntermediate', 0.62 * w2, 0, 0);
-          set(sd + 'MiddleIntermediate', 0.62 * w2, 0, 0);
-          set(sd + 'ThumbProximal', -0.55 * w2, 0, 0);
-          set(sd + 'ThumbIntermediate', -0.48 * w2, 0, 0);
-          set(sd + 'ThumbDistal', -0.30 * w2, 0, 0);
+        for (const sd of SIDES){
+          set(_BN[sd].IndexProximal, 0.85 * w2, 0, 0);
+          set(_BN[sd].MiddleProximal, 0.85 * w2, 0, 0);
+          set(_BN[sd].IndexIntermediate, 0.62 * w2, 0, 0);
+          set(_BN[sd].MiddleIntermediate, 0.62 * w2, 0, 0);
+          set(_BN[sd].ThumbProximal, -0.55 * w2, 0, 0);
+          set(_BN[sd].ThumbIntermediate, -0.48 * w2, 0, 0);
+          set(_BN[sd].ThumbDistal, -0.30 * w2, 0, 0);
         }
       }
     } else if (o.scroll){
@@ -4433,14 +4539,14 @@ function advance(dt){
       set('RightLowerArm', -0.72 * cw, 0, 0);
       set('LeftHand', 0.34 * cw, 0, 0);
       set('RightHand', 0.34 * cw, 0, 0);
-      for (const sd of ['Left', 'Right']){
-        set(sd + 'IndexProximal', 0.95 * cw, 0, 0);
-        set(sd + 'MiddleProximal', 0.95 * cw, 0, 0);
-        set(sd + 'IndexIntermediate', 0.70 * cw, 0, 0);
-        set(sd + 'MiddleIntermediate', 0.70 * cw, 0, 0);
-        set(sd + 'ThumbProximal', -0.60 * cw, 0, 0);
-        set(sd + 'ThumbIntermediate', -0.52 * cw, 0, 0);
-        set(sd + 'ThumbDistal', -0.34 * cw, 0, 0);
+      for (const sd of SIDES){
+        set(_BN[sd].IndexProximal, 0.95 * cw, 0, 0);
+        set(_BN[sd].MiddleProximal, 0.95 * cw, 0, 0);
+        set(_BN[sd].IndexIntermediate, 0.70 * cw, 0, 0);
+        set(_BN[sd].MiddleIntermediate, 0.70 * cw, 0, 0);
+        set(_BN[sd].ThumbProximal, -0.60 * cw, 0, 0);
+        set(_BN[sd].ThumbIntermediate, -0.52 * cw, 0, 0);
+        set(_BN[sd].ThumbDistal, -0.34 * cw, 0, 0);
       }
     }
 
@@ -4538,8 +4644,8 @@ function advance(dt){
                      a.chore !== 'toHay' && a.chore !== 'grab';
         if (near !== GROOM_H.held){ GROOM_H.held = near; holdHorse(H3, near); }
       }
-      const distTo = (g) => (g ? Math.hypot(a.pos.x - g[0], a.pos.z - g[1]) : 0);
-      const faceTo = (g) => { if (g) turnToward(a, Math.atan2(g[0] - a.pos.x, g[1] - a.pos.z), dt); };
+      _grA = a; _grDt = dt; _grH = H3;                 // 原为三条每帧闭包（见 groomDistTo 注释）
+      const distTo = groomDistTo, faceTo = groomFaceTo, goTo = groomGoTo;
       /* 走向一个"会动的目标"：目标漂开 >0.12m 才重新给一次路线（每帧重给会把路径
          反复从当前位置重建、把绕行点抖掉）。
          ⚠️ 2026-10-29 两个真 bug 都在这段：
@@ -4548,27 +4654,6 @@ function advance(dt){
          ② **只在目标点变化时才重算路线** —— 而辕马是"车开进来之后才停到院场里"的，
             算路线那一刻它们还在路上（实测 z≈10），等他走回来时马已经停在 z≈2.2，
             旧路线正好从马身中间穿过去。现在走动期间每 1.2s 按当前马位重算一次。 */
-      const goTo = (g, spd, tol) => {
-        if (!g) return false;
-        a._goalT = (a._goalT || 0) + dt;
-        a._replanT = (a._replanT || 0) + dt;
-        const d0 = distTo(g);
-        if (d0 <= tol){ a._goalKey = null; a._goalT = 0; a.walkOff = true; return true; }
-        const key = g[0].toFixed(2) + ',' + g[1].toFixed(2);
-        if (a._goalKey !== key || a._replanT > 1.2){
-          const isNew = a._goalKey !== key;
-          a._goalKey = key; a._replanT = 0;
-          if (isNew){ a._goalT = 0; a._goalD = d0; }
-          routeToHorse(a, g, H3, spd);
-        }
-        const budget = Math.max(6, (a._goalD || d0) / Math.max(0.15, spd) * 1.8 + 3);
-        if (a._goalT > budget){
-          a._goalKey = null; a._goalT = 0; a.walkOff = true;
-          if (window.__groomRouteTrace) console.warn('[groom] 目标暂时不可达，等待重试：' + JSON.stringify(g));
-          return false;
-        }
-        return false;
-      };
       if (a.chore === 'idle'){
         faceTo(G3 ? G3.muzzle : null);
         if (G3 && distTo(G3.idle) > 0.55 && a.brushW < 0.05 && a.moveW < 0.1) goTo(G3.idle, C.speed, 0.45);
@@ -4643,7 +4728,8 @@ function advance(dt){
        · 刷子每帧按"腕 + 前臂方向 10cm"重摆，朝向 = 前臂方向（刷面正对马身）。 */
     if (o.brush){
       const ev = o.brushEvery || BRUSH.every;
-      const nextWait = () => ev[0] + (ev[1] - ev[0]) * det(a.brushN++ + a.phase * 11.3);
+      _nwA = a; _nwEv = ev;
+      const nextWait = brushNextWait;               // 原为每帧闭包
       if (a.brushT <= 0){
         a.brushWait -= dt;
         /* 被马车载着 / 在驾车 / 系马 / 拿草喂草的行程中不开新一轮刷马。
@@ -4687,19 +4773,19 @@ function advance(dt){
        · 左右手节奏不同（左手按弦慢、右手拨弦快），两个手不会像机器一样同步。 */
     if (o.qin && k > 0.2){
       const tt = _t + a.phase;
-      for (const side of ['Left', 'Right']){
+      for (const side of SIDES){
         const P = QIN_ARM[side], H = QIN_HAND[side];
-        set(side + 'UpperArm', P.sx, P.sy, P.sz);
-        set(side + 'LowerArm', P.ex, P.ey || 0, P.ez || 0);
-        set(side + 'Hand', H.hx, H.hy, H.hz);
+        set(_BN[side].UpperArm, P.sx, P.sy, P.sz);
+        set(_BN[side].LowerArm, P.ex, P.ey || 0, P.ez || 0);
+        set(_BN[side].Hand, H.hx, H.hy, H.hz);
         const osc = Math.sin(tt * P.rate * 6.2832);
-        set(side + 'IndexProximal',  H.curl + P.pluck * Math.max(0, osc), 0, 0);
-        set(side + 'MiddleProximal', H.curl + P.pluck * Math.max(0, -osc), 0, 0);
-        set(side + 'IndexIntermediate',  H.mid, 0, 0);
-        set(side + 'MiddleIntermediate', H.mid, 0, 0);
-        set(side + 'ThumbProximal', H.thumb, 0, 0);
-        set(side + 'ThumbIntermediate', H.thumb * 0.9, 0, 0);
-        set(side + 'ThumbDistal', H.thumb * 0.6, 0, 0);
+        set(_BN[side].IndexProximal,  H.curl + P.pluck * Math.max(0, osc), 0, 0);
+        set(_BN[side].MiddleProximal, H.curl + P.pluck * Math.max(0, -osc), 0, 0);
+        set(_BN[side].IndexIntermediate,  H.mid, 0, 0);
+        set(_BN[side].MiddleIntermediate, H.mid, 0, 0);
+        set(_BN[side].ThumbProximal, H.thumb, 0, 0);
+        set(_BN[side].ThumbIntermediate, H.thumb * 0.9, 0, 0);
+        set(_BN[side].ThumbDistal, H.thumb * 0.6, 0, 0);
       }
     }
     /* ── 对弈：一只手落到盘面、每 4.5~9s 落一次子 ─────────────────────────────
@@ -4720,20 +4806,20 @@ function advance(dt){
         place = Math.sin(u * Math.PI);          // 0→1→0
         if (u >= 1) a.placeT = 0;
       }
-      for (const side of ['Left', 'Right']){
+      for (const side of SIDES){
         const P = A[side];
         if (!P) continue;
         const d = P.place ? place : 0;
-        set(side + 'UpperArm', P.sx - 0.05 * d, P.sy, P.sz);
-        set(side + 'LowerArm', P.ex + 0.10 * d, 0, 0);
-        set(side + 'Hand', P.hx - 0.20 * d, P.hy, P.hz);
-        set(side + 'IndexProximal', P.curl - 0.18 * d, 0, 0);
-        set(side + 'MiddleProximal', P.curl - 0.18 * d, 0, 0);
-        set(side + 'IndexIntermediate', P.mid, 0, 0);
-        set(side + 'MiddleIntermediate', P.mid, 0, 0);
-        set(side + 'ThumbProximal', P.thumb, 0, 0);
-        set(side + 'ThumbIntermediate', P.thumb * 0.9, 0, 0);
-        set(side + 'ThumbDistal', P.thumb * 0.6, 0, 0);
+        set(_BN[side].UpperArm, P.sx - 0.05 * d, P.sy, P.sz);
+        set(_BN[side].LowerArm, P.ex + 0.10 * d, 0, 0);
+        set(_BN[side].Hand, P.hx - 0.20 * d, P.hy, P.hz);
+        set(_BN[side].IndexProximal, P.curl - 0.18 * d, 0, 0);
+        set(_BN[side].MiddleProximal, P.curl - 0.18 * d, 0, 0);
+        set(_BN[side].IndexIntermediate, P.mid, 0, 0);
+        set(_BN[side].MiddleIntermediate, P.mid, 0, 0);
+        set(_BN[side].ThumbProximal, P.thumb, 0, 0);
+        set(_BN[side].ThumbIntermediate, P.thumb * 0.9, 0, 0);
+        set(_BN[side].ThumbDistal, P.thumb * 0.6, 0, 0);
       }
     }
     /* ── 作揖（S2）：两手在胸前合拢 + 躯干前俯 ─────────────────────────────────
@@ -4754,14 +4840,14 @@ function advance(dt){
       set('LeftHand',  BOW.hand * wb + hbL[0] * (1 - wb), hbL[1] * (1 - wb), hbL[2] * (1 - wb));
       set('RightHand', BOW.hand * wb + hbR[0] * (1 - wb), hbR[1] * (1 - wb), hbR[2] * (1 - wb));
       /* 手指并拢虚握：拱手读的是"两只袖子并在一起"，指节只做"收"不张开 */
-      for (const sd of ['Left', 'Right']){
-        set(sd + 'IndexProximal', BOW.curl * wb, 0, 0);
-        set(sd + 'MiddleProximal', BOW.curl * wb, 0, 0);
-        set(sd + 'IndexIntermediate', BOW.mid * wb, 0, 0);
-        set(sd + 'MiddleIntermediate', BOW.mid * wb, 0, 0);
-        set(sd + 'ThumbProximal', BOW.thumb * wb, 0, 0);
-        set(sd + 'ThumbIntermediate', BOW.thumb * 0.9 * wb, 0, 0);
-        set(sd + 'ThumbDistal', BOW.thumb * 0.6 * wb, 0, 0);
+      for (const sd of SIDES){
+        set(_BN[sd].IndexProximal, BOW.curl * wb, 0, 0);
+        set(_BN[sd].MiddleProximal, BOW.curl * wb, 0, 0);
+        set(_BN[sd].IndexIntermediate, BOW.mid * wb, 0, 0);
+        set(_BN[sd].MiddleIntermediate, BOW.mid * wb, 0, 0);
+        set(_BN[sd].ThumbProximal, BOW.thumb * wb, 0, 0);
+        set(_BN[sd].ThumbIntermediate, BOW.thumb * 0.9 * wb, 0, 0);
+        set(_BN[sd].ThumbDistal, BOW.thumb * 0.6 * wb, 0, 0);
       }
     }
     /* ── 挥手送别：右手举过头顶、左右摆 ───────────────────────────────────────
@@ -4776,11 +4862,10 @@ function advance(dt){
       set('RightLowerArm', exB * (1 - ww) + (WAVE.ex + WAVE.ampY * sw2) * ww, 0, 0);
       set('RightHand', hbR[0] * (1 - ww) + WAVE.hz * ww, hbR[1] * (1 - ww), hbR[2] * (1 - ww));
       /* 手掌摊开（垂手基准是半握）：挥手要能看出是一只张开的手 */
-      const F = [['IndexProximal', 0.45, 0.10], ['MiddleProximal', 0.45, 0.10],
-                 ['IndexIntermediate', 0.32, 0.05], ['MiddleIntermediate', 0.32, 0.05],
-                 ['ThumbProximal', -0.32, -0.10], ['ThumbIntermediate', -0.26, -0.08],
-                 ['ThumbDistal', -0.14, -0.05]];
-      for (const [n, from, to] of F) set('Right' + n, from + (to - from) * ww, 0, 0);
+      for (let i = 0; i < WAVE_FINGERS.length; i++){      // 表已提到模块级（原每帧新建 7 个数组 + 拼串）
+        const f = WAVE_FINGERS[i];
+        set(f[0], f[1] + (f[2] - f[1]) * ww, 0, 0);
+      }
     }
     /* 自然垂放的右手：掌心转回身体一侧。只在右手**没有在做事**时覆盖；
        这些动作的手位都是按原基准反解的，不能一起翻（抚琴会变成手背压弦）。 */
@@ -4815,7 +4900,7 @@ function advance(dt){
       hb.position.copy(a.hipsRest).addScaledVector(a.hipsDown, KNEEL.drop * k + cs.drop * st2);
     }
     const legS = 1 - (1 - KNEEL.footScale) * k;
-    for (const n of ['LeftLowerLeg', 'RightLowerLeg', 'LeftFoot', 'RightFoot', 'LeftToes', 'RightToes']){
+    for (const n of LEG_SCALE_BONES){
       const bb = a.bones[n];
       if (bb) bb.scale.setScalar(legS);
     }
@@ -4823,7 +4908,7 @@ function advance(dt){
       const twoSeg = !!a.skirt[0].b;
       /* 两种坐姿各自压缩裙长、径向撑开；互斥 ⇒ 两段的系数相乘就等于取其一。
          跪坐髋到地 0.46（裙长要压到 0.55）、坐凳 0.54（压到 0.60）。 */
-      const sq = (v) => (twoSeg ? Math.sqrt(v) : v);
+      const sq = twoSeg ? Math.sqrt : skirtIdent;   // 原为每帧闭包；Math.sqrt 与恒等两选一，结果逐位相同
       /* 2026-10-27：走路时裙摆**跟着腿走**。
          原先 6 片共用同一个角度（整条裙子像钟摆前后晃），摆出去的那条腿会从裙下钻出来
          —— 实测客人走路时右小腿/鞋从袍摆缺口露出约 0.2m（outputs/_diag/pose-qa/guest-feet.png，

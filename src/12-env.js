@@ -82,6 +82,12 @@ let uiLastDark = null;                 // 主题只跟时段轴有关：记住�
 const MOON_LIGHT = new THREE.Color(0xC9D8F2);
 const _moonV = new THREE.Vector3();
 const _sunTrue = new THREE.Vector3(), _tmpV = new THREE.Vector3();
+/* 过渡 / 流转期间 applyEnv 每帧都走：太阳 / 月亮方向的入参数组与阴影拟合位置改成复用（第 5 批：帧内零分配） */
+const _sunArr = [0, 1, 0], _moonArr = [0, 1, 0];
+function setLastFitPos(){
+  const lp = sun.userData.lastFitPos || (sun.userData.lastFitPos = [0, 0, 0]);
+  lp[0] = sun.position.x; lp[1] = sun.position.y; lp[2] = sun.position.z;
+}
 const SUN_LIGHT_D = 68;                                      // 主光离原点的距离（旧月光分支同值）
 let _shadowDefer = false;              // 仅 advanceReel 调 applyEnv 期间为 true（见 M7 注释）
 /* ══ 地表与空气的统一写口（2026-11-24 · 视觉打磨批次 2 · B / C）══════════════════════════════════
@@ -145,7 +151,7 @@ export function applyEnv(p){
   if (_sunTrue.lengthSq() < 1e-9) _sunTrue.set(0, 1, 0);
   _sunTrue.normalize();
   const solarMode = (p.solar || 0) > 0.5;
-  const sunArr = [_sunTrue.x, _sunTrue.y, _sunTrue.z];
+  const sunArr = _sunArr; sunArr[0] = _sunTrue.x; sunArr[1] = _sunTrue.y; sunArr[2] = _sunTrue.z;   // 复用（mainLightDir 只读入参）
   let lightDir = mainLightDir(sunArr, p.dayK ?? 1, null, 0, solarMode);   // 先不算月亮（月光接管度在下面）
   sun.target.position.set(0, 0, 0); sun.target.updateMatrixWorld();
   /* ── 月亮 → 天空 / 池水 / 主光（2026-09-19 老黄需求）──
@@ -207,7 +213,8 @@ export function applyEnv(p){
     const ss = Math.max(0, Math.min(1, (nightness - 0.45) / 0.40));
     mw = vis * ss * ss * (3 - 2 * ss);
     if (mw > 0){
-      lightDir = mainLightDir(sunArr, p.dayK ?? 1, [_moonV.x, _moonV.y, _moonV.z], mw, solarMode);
+      _moonArr[0] = _moonV.x; _moonArr[1] = _moonV.y; _moonArr[2] = _moonV.z;
+      lightDir = mainLightDir(sunArr, p.dayK ?? 1, _moonArr, mw, solarMode);
       sun.color.lerp(MOON_LIGHT, 0.75 * mw);
       sun.intensity = p.sunIntensity * (1 + 0.95 * mw * (0.4 + 0.6 * illum));
     }
@@ -239,7 +246,7 @@ export function applyEnv(p){
        按 4Hz 做（不拟合就不重渲：shadow.matrix 只在阴影 pass 里更新，图与矩阵始终配套）。 */
     if (_shadowDefer){ sun.userData.fitDirty = true; }
     else {
-      sun.userData.lastFitPos = [sun.position.x, sun.position.y, sun.position.z];
+      setLastFitPos();
       fitShadowCamera();
       renderer.shadowMap.needsUpdate = true;
       sun.userData.fitDirty = false;
@@ -1260,7 +1267,7 @@ let reelUiAcc = 0, reelShadowAcc = 0, _reelMapKey = '';
 /* 把流转期间攒下的阴影拟合做掉（M7）：4Hz 节拍里调，停流转时也调一次，免得停在最后 0.25s 的旧影上 */
 function flushShadowFit(){
   if (!sun.userData.fitDirty) return false;
-  sun.userData.lastFitPos = [sun.position.x, sun.position.y, sun.position.z];
+  setLastFitPos();
   fitShadowCamera();
   sun.userData.fitDirty = false;
   return true;

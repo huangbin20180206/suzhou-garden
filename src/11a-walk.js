@@ -42,10 +42,31 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   hint.textContent = 'WASD / 方向键行走 · 按住鼠标右键转头 · Esc 返回';
   hint.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 18px;background:#fffbeee8;color:#302c25;border-radius:6px;z-index:12;pointer-events:none';
   document.body.appendChild(hint);
+  /* ── 帧内零分配（2026-11-24 · 第 5 批）：走模式每帧 move() 最多 n 次 × 9 条射线。原写法每次
+     新建 [o.material] 包装数组 + some 闭包、steppable 闭包、两个偏移数组字面量、find 闭包、
+     intersectObject 的结果数组，update 里还有 new Euler 与 combineMove 的新对象。改成作用域内复用；
+     判据、射线顺序、结果完全相同。三份命中数组各归各（floor / 肩宽射线 / 台阶短射线），
+     因为 steppable 在肩宽射线的命中还被引用时就要再打一条射线。 */
+  const solidMat = m => !!(m && !m.transparent && m.depthWrite !== false);
+  const hitsFloor = [], hitsMove = [], hitsStep = [];
+  const SIDE_OFFS = [-0.23, 0, 0.23], RAY_HEIGHTS = [0.43, 0.95, 1.55];
+  const bobEuler = new THREE.Euler(), mvOut = { f: 0, r: 0, mag: 0 };
   function solid(o) {
     for (let p=o;p;p=p.parent) if (!p.visible) return false;
-    const materials = Array.isArray(o.material) ? o.material : [o.material];
-    return materials.some(m => m && !m.transparent && m.depthWrite !== false);
+    const m = o.material;
+    return Array.isArray(m) ? m.some(solidMat) : solidMat(m);
+  }
+  function castInto(arr){ arr.length = 0; return ray.intersectObject(world, true, arr); }
+  /* 脚踝那条射线会先撞上台阶的**立面**——那是能踩上去的矮台，不是墙（原 move() 里的闭包，注释见那里）。 */
+  function steppable(hit, top){
+    origin.copy(hit.point).addScaledVector(direction,0.12); origin.y=top+0.05;
+    ray.set(origin,down); ray.far=CLIMB+DROP+0.2;
+    for(const h of castInto(hitsStep)){
+      if(!solid(h.object)||!h.face) continue;
+      normal.copy(h.face.normal).transformDirection(h.object.matrixWorld);
+      if(normal.y>0.55) return h.point.y<=top+0.01;
+    }
+    return false;
   }
   /* 台阶上限 CLIMB=0.60：月洞门门槛石是按绝对坐标 y=0..0.22 建的（07-ground.js），
      而门前铺装 -0.33、门内园地 -0.42 ⇒ 实际台阶 0.55~0.64m。原来的 0.34 是正常人的
@@ -56,7 +77,7 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   function floor(x,z,base) {
     origin.set(x,base+CLIMB+0.05,z); direction.set(0,-1,0);
     ray.set(origin,direction); ray.far=CLIMB+DROP+0.2;
-    for (const h of ray.intersectObject(world,true)) {
+    for (const h of castInto(hitsFloor)) {
       if (!solid(h.object) || !h.face) continue;
       normal.copy(h.face.normal).transformDirection(h.object.matrixWorld);
       if (normal.y > 0.55) return h.point.y;
@@ -75,23 +96,16 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     /* 脚踝那条射线会先撞上台阶的**立面**——那是能踩上去的矮台，不是墙。
        判据：在命中点后 0.12m 往下打一条短射线，若顶面高度 ≤ 抬腿上限且是水平面，
        就当台阶放行；栏杆（顶面在 0.73m 以上）、假山、墙则顶面够不着 ⇒ 照旧拦人。 */
-    const steppable=(hit)=>{
-      origin.copy(hit.point).addScaledVector(direction,0.12); origin.y=top+0.05;
-      ray.set(origin,down); ray.far=CLIMB+DROP+0.2;
-      for(const h of ray.intersectObject(world,true)){
-        if(!solid(h.object)||!h.face) continue;
-        normal.copy(h.face.normal).transformDirection(h.object.matrixWorld);
-        if(normal.y>0.55) return h.point.y<=top+0.01;
-      }
-      return false;
-    };
+    /* steppable 已提到 move 外（见上），判据不变 */
     // Three shoulder-width rays at ankle-above-step, waist and eye height.
-    for(const side of [-0.23,0,0.23]) for(const height of [0.43,0.95,1.55]) {
+    for(const side of SIDE_OFFS) for(const height of RAY_HEIGHTS) {
       origin.set(camera.position.x-direction.z*side,base+height,camera.position.z+direction.x*side);
       ray.set(origin,direction);ray.far=dist+0.25;
-      const hit=ray.intersectObject(world,true).find(h=>solid(h.object));
+      const hs=castInto(hitsMove);
+      let hit=null;
+      for(let i=0;i<hs.length;i++) if(solid(hs[i].object)){ hit=hs[i]; break; }   // 原 .find(h=>solid(h.object))
       if(!hit) continue;
-      if(height===0.43 && steppable(hit)) continue;
+      if(height===0.43 && steppable(hit, top)) continue;
       state.blocked++;return;
     }
     camera.position.x=x;camera.position.z=z;feet=y;state.steps++;
@@ -139,7 +153,7 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
        （与旧版逐位相同），摇杆半推 ≈ 半速。 */
     const mv=combineMove(
       Number(keys.has('KeyW')||keys.has('ArrowUp'))-Number(keys.has('KeyS')||keys.has('ArrowDown'))+touchF,
-      Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'))+touchR);
+      Number(keys.has('KeyD')||keys.has('ArrowRight'))-Number(keys.has('KeyA')||keys.has('ArrowLeft'))+touchR, mvOut);
     const forward=mv.f, right=mv.r, distance=Math.min(dt,0.1)*2.2;
     const dx=(right*Math.cos(yaw)-forward*Math.sin(yaw))*distance;
     const dz=(-right*Math.sin(yaw)-forward*Math.cos(yaw))*distance;
@@ -154,7 +168,7 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     const sway = MOTION.reduced ? 0 : 1;
     camera.position.y = feet + 1.65 + Math.sin(bobPhase) * BOB_Y * sway;
     /* roll 作第三轴（YXZ 的中轴仍是 pitch/yaw，roll 只影响画面倾角） */
-    camera.quaternion.setFromEuler(new THREE.Euler(pitch, yaw, Math.sin(bobPhase * 0.5) * BOB_ROLL * sway, 'YXZ'));
+    camera.quaternion.setFromEuler(bobEuler.set(pitch, yaw, Math.sin(bobPhase * 0.5) * BOB_ROLL * sway, 'YXZ'));   // 复用（原每帧 new Euler）
   }
   addEventListener('keydown',e=>{
     if(!state.active || e.ctrlKey || e.metaKey || e.altKey || e.target?.closest?.('input,textarea,select,[contenteditable="true"]'))return;

@@ -319,6 +319,27 @@ export function tinkerBone(bones, rest, name, x, y, z){
    ⚠️ 骨名按上面的**真值表**取（ORG 链带动头/下颌/耳/鼻，DEF 链带动脖皮/上臂），
    方向也按实测：ORG-neck X 正 = 低头、ORG-head X 正 = 低头 Z 正 = 摇、jaw X 正 = 张嘴。 */
 export const TINKER_JAW_CLOSE = 0.46;   // 静息合嘴：模型出厂是"微张"，露上下齿 → 读作龇牙僵尸脸
+/* ── 帧内零分配（2026-11-24 · 第 5 批）：6 匹马每帧各走一遍下面的姿态函数，原写法每次拼
+   'DEF-forearm' + s、'tail' + padStart(…) 之类的骨名（约百个新串 / 马 / 帧），外加 nw / tw 数组、
+   legVal 闭包与它返回的新数组。骨名预先用**同样的表达式**拼好存表，数值与写入顺序不变。 */
+const TK_NECK_W = [0.20, 0.24, 0.28, 0.28];
+const TK_TAIL_W = [0.45, 0.25, 0.15, 0.10, 0.05];
+const TK_NECK = [1, 2, 3, 4].map(n => ['ORG-neck00' + n, 'DEF-neck00' + n]);
+const TK_TAIL = [1, 2, 3, 4, 5].map(i => { const p = String(i).padStart(3, '0'); return ['tail' + p, 'DEF-tail' + p]; });
+const TK_MANE = [1, 2, 3, 4, 5, 6].map(i => { const p = String(i).padStart(2, '0');
+  return ['mane_base' + p, 'mane_top' + p, 'DEF-mane_base' + p, 'DEF-mane_top' + p]; });
+const TK_LEG = {};
+for (const s of ['L', 'R']) TK_LEG[s] = {
+  uArm: 'DEF-upper_arm' + s, uArm1: 'DEF-upper_arm' + s + '001', fArm: 'DEF-forearm' + s, fArm1: 'DEF-forearm' + s + '001',
+  fFoot: 'DEF-forefoot' + s, fFoot1: 'DEF-forefoot' + s + '001', fToe: 'DEF-f_toe' + s,
+  oUArm: 'ORG-upper_arm' + s, oFArm: 'ORG-forearm' + s, oFFoot: 'ORG-forefoot' + s, oFToe: 'ORG-f_toe' + s, fHoof: 'f_hoof' + s,
+  thigh: 'DEF-thigh' + s, thigh1: 'DEF-thigh' + s + '001', lLeg: 'DEF-lower_leg' + s, lLeg1: 'DEF-lower_leg' + s + '001',
+  hFoot: 'DEF-hind_foot' + s, hFoot1: 'DEF-hind_foot' + s + '001', rHoofD: 'DEF-r_hoof' + s,
+  oThigh: 'ORG-thigh' + s, oLLeg: 'ORG-lower_leg' + s, oHFoot: 'ORG-hind_foot' + s, rHoof: 'r_hoof' + s,
+  gF: 'F' + s, gH: 'H' + s,
+};
+const TK_SIDES = ['L', 'R'];
+const TK_ZERO3 = [0, 0, 0];
 export function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
   const B = h.anim.bones, R = h.anim.rest;
   /* ① 颈：低头量（rad）。ORG 链带头，DEF 链带脖皮 —— 两条同号同权重。
@@ -328,11 +349,11 @@ export function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
   let hp = headPitch * 1.9;
   if (h.role === 'graze') hp += 0.95 * gw; else if (h.role === 'fed') hp += 0.66 * gw;
   /* 颈的分配：越靠上（靠头）弯得越多 ⇒ 脖子是"弧"不是"折"（下段权重小、末两节大）。 */
-  const nw = [0.20, 0.24, 0.28, 0.28];
+  const nw = TK_NECK_W;
   for (let i = 0; i < 4; i++){
     const a = hp * nw[i];
-    tinkerBone(B, R, 'ORG-neck00' + (i + 1), a, 0, 0);
-    tinkerBone(B, R, 'DEF-neck00' + (i + 1), a, 0, 0);
+    tinkerBone(B, R, TK_NECK[i][0], a, 0, 0);
+    tinkerBone(B, R, TK_NECK[i][1], a, 0, 0);
   }
   /* ② 头：点/摇（ORG-head：X 正 = 低头、Z = 摇） */
   tinkerBone(B, R, 'ORG-head', headPitch * 0.55, 0, headYaw * 1.15);
@@ -346,11 +367,11 @@ export function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
   tinkerBone(B, R, 'jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
   tinkerBone(B, R, 'DEF-jaw', -TINKER_JAW_CLOSE + chew, 0, 0);
   /* ④ 尾：尾网格主骨是纯名 tail001..005，体上尾根是 DEF-tail001..005 —— 两条都转。 */
-  const tw = [0.45, 0.25, 0.15, 0.10, 0.05];
+  const tw = TK_TAIL_W;
   for (let i = 1; i <= 5; i++){
-    const a = tailYaw * tw[i - 1], p = String(i).padStart(3, '0');
-    tinkerBone(B, R, 'tail' + p, 0, 0, a);
-    tinkerBone(B, R, 'DEF-tail' + p, 0, 0, a);
+    const a = tailYaw * tw[i - 1], nm = TK_TAIL[i - 1];
+    tinkerBone(B, R, nm[0], 0, 0, a);
+    tinkerBone(B, R, nm[1], 0, 0, a);
   }
   /* ⑤ 四肢。两套通道：
      · 旧：leg[0..3] 是"抬蹄量"（原地点一下），前腿只用 0/1；
@@ -359,63 +380,61 @@ export function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
      两套都走同一组 DEF/ORG 骨；**DEF 与 ORG 同号同权重**，否则皮肤和骨头会撕开。 */
   const gait = (h.gaitW > 0.001 && h.gaitLegs) ? h.gaitLegs : null;
   const gW = gait ? h.gaitW : 0;
-  const legVal = (k) => {
-    if (gait) {
-      const a = gait[k] || [0, 0, 0];
-      return [a[0] * gW, a[1] * gW, a[2] * gW];
-    }
-    return null;
-  };
+  /* 原 legVal(k) 闭包返回新数组 [a0·gW, a1·gW, a2·gW]；现在就地读 gait[k]（缺省 TK_ZERO3）再乘 gW，乘法与顺序相同。 */
   if (!gait) {
     const lift = Math.max(leg[0], leg[1]);
-    for (const s of ['L', 'R']){
+    for (const s of TK_SIDES){
+      const N = TK_LEG[s];
       const on = (s === 'L') ? (leg[0] >= leg[1] && leg[0] > 0.01) : (leg[1] > 0.01);
       const aU = on ? lift * 1.35 : 0, aF = on ? -lift * 1.05 : 0, aT = on ? lift * 0.55 : 0;
-      tinkerBone(B, R, 'DEF-upper_arm' + s, aU, 0, 0);
-      tinkerBone(B, R, 'DEF-upper_arm' + s + '001', aU * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-forearm' + s, aF, 0, 0);
-      tinkerBone(B, R, 'DEF-forearm' + s + '001', aF * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-forefoot' + s, aT, 0, 0);
-      tinkerBone(B, R, 'DEF-forefoot' + s + '001', aT * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-f_toe' + s, aT, 0, 0);
-      tinkerBone(B, R, 'ORG-upper_arm' + s, aU, 0, 0);
-      tinkerBone(B, R, 'ORG-forearm' + s, aF, 0, 0);
-      tinkerBone(B, R, 'ORG-forefoot' + s, aT, 0, 0);
-      tinkerBone(B, R, 'ORG-f_toe' + s, aT, 0, 0);
-      tinkerBone(B, R, 'f_hoof' + s, aT, 0, 0);
+      tinkerBone(B, R, N.uArm, aU, 0, 0);
+      tinkerBone(B, R, N.uArm1, aU * 0.5, 0, 0);
+      tinkerBone(B, R, N.fArm, aF, 0, 0);
+      tinkerBone(B, R, N.fArm1, aF * 0.5, 0, 0);
+      tinkerBone(B, R, N.fFoot, aT, 0, 0);
+      tinkerBone(B, R, N.fFoot1, aT * 0.5, 0, 0);
+      tinkerBone(B, R, N.fToe, aT, 0, 0);
+      tinkerBone(B, R, N.oUArm, aU, 0, 0);
+      tinkerBone(B, R, N.oFArm, aF, 0, 0);
+      tinkerBone(B, R, N.oFFoot, aT, 0, 0);
+      tinkerBone(B, R, N.oFToe, aT, 0, 0);
+      tinkerBone(B, R, N.fHoof, aT, 0, 0);
     }
   } else {
-    for (const s of ['L', 'R']){
+    for (const s of TK_SIDES){
+      const N = TK_LEG[s];
       /* 前腿：+X = 向前/抬起（2026-10-19 实测）。 */
-      const [u, l, f] = legVal('F' + s);
+      const gf = gait[N.gF] || TK_ZERO3;
+      const u = gf[0] * gW, l = gf[1] * gW, f = gf[2] * gW;
       const aU = u * 1.20, aF = -l * 1.00, aT = f * 0.55;
-      tinkerBone(B, R, 'DEF-upper_arm' + s, aU, 0, 0);
-      tinkerBone(B, R, 'DEF-upper_arm' + s + '001', aU * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-forearm' + s, aF, 0, 0);
-      tinkerBone(B, R, 'DEF-forearm' + s + '001', aF * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-forefoot' + s, aT, 0, 0);
-      tinkerBone(B, R, 'DEF-forefoot' + s + '001', aT * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-f_toe' + s, aT, 0, 0);
-      tinkerBone(B, R, 'ORG-upper_arm' + s, aU, 0, 0);
-      tinkerBone(B, R, 'ORG-forearm' + s, aF, 0, 0);
-      tinkerBone(B, R, 'ORG-forefoot' + s, aT, 0, 0);
-      tinkerBone(B, R, 'ORG-f_toe' + s, aT, 0, 0);
-      tinkerBone(B, R, 'f_hoof' + s, aT, 0, 0);
+      tinkerBone(B, R, N.uArm, aU, 0, 0);
+      tinkerBone(B, R, N.uArm1, aU * 0.5, 0, 0);
+      tinkerBone(B, R, N.fArm, aF, 0, 0);
+      tinkerBone(B, R, N.fArm1, aF * 0.5, 0, 0);
+      tinkerBone(B, R, N.fFoot, aT, 0, 0);
+      tinkerBone(B, R, N.fFoot1, aT * 0.5, 0, 0);
+      tinkerBone(B, R, N.fToe, aT, 0, 0);
+      tinkerBone(B, R, N.oUArm, aU, 0, 0);
+      tinkerBone(B, R, N.oFArm, aF, 0, 0);
+      tinkerBone(B, R, N.oFFoot, aT, 0, 0);
+      tinkerBone(B, R, N.oFToe, aT, 0, 0);
+      tinkerBone(B, R, N.fHoof, aT, 0, 0);
       /* 后腿：+X = 向后/抬起（2026-10-21 Blender 实测）⇒ 向前要用 -X；
          折腿/抬蹄用 +X（与"向后"同向，但叠加在负的前摆上仍是抬腿）。 */
-      const [hu, hl, hf] = legVal('H' + s);
+      const gh = gait[N.gH] || TK_ZERO3;
+      const hu = gh[0] * gW, hl = gh[1] * gW, hf = gh[2] * gW;
       const bU = -hu * 1.10, bF = hl * 0.90, bT = hf * 0.50;
-      tinkerBone(B, R, 'DEF-thigh' + s, bU, 0, 0);
-      tinkerBone(B, R, 'DEF-thigh' + s + '001', bU * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-lower_leg' + s, bF, 0, 0);
-      tinkerBone(B, R, 'DEF-lower_leg' + s + '001', bF * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-hind_foot' + s, bT, 0, 0);
-      tinkerBone(B, R, 'DEF-hind_foot' + s + '001', bT * 0.5, 0, 0);
-      tinkerBone(B, R, 'DEF-r_hoof' + s, bT, 0, 0);
-      tinkerBone(B, R, 'ORG-thigh' + s, bU, 0, 0);
-      tinkerBone(B, R, 'ORG-lower_leg' + s, bF, 0, 0);
-      tinkerBone(B, R, 'ORG-hind_foot' + s, bT, 0, 0);
-      tinkerBone(B, R, 'r_hoof' + s, bT, 0, 0);
+      tinkerBone(B, R, N.thigh, bU, 0, 0);
+      tinkerBone(B, R, N.thigh1, bU * 0.5, 0, 0);
+      tinkerBone(B, R, N.lLeg, bF, 0, 0);
+      tinkerBone(B, R, N.lLeg1, bF * 0.5, 0, 0);
+      tinkerBone(B, R, N.hFoot, bT, 0, 0);
+      tinkerBone(B, R, N.hFoot1, bT * 0.5, 0, 0);
+      tinkerBone(B, R, N.rHoofD, bT, 0, 0);
+      tinkerBone(B, R, N.oThigh, bU, 0, 0);
+      tinkerBone(B, R, N.oLLeg, bF, 0, 0);
+      tinkerBone(B, R, N.oHFoot, bT, 0, 0);
+      tinkerBone(B, R, N.rHoof, bT, 0, 0);
     }
   }
   /* ⑥ 耳朵：耳皮挂纯名 earL/earR（耳尖是它的子骨 earL001）⇒ 转父骨即可。 */
@@ -435,14 +454,17 @@ export function applyTinkerPose(h, headPitch, headYaw, tailYaw, leg, dt){
      只有 9 个顶点挂纯名 mane_base02..06 ⇒ 靠它做"次级摆动"能动的肉很少。
      ⇒ 幅度给到 0.05rad（原来 0.022 几乎看不出），相位逐节错开，读作"鬃毛一颤一颤"。 */
   for (let i = 1; i <= 6; i++){
-    const p = String(i).padStart(2, '0');
+    const nm = TK_MANE[i - 1];
     const sway = 0.05 * Math.sin(_stT * 1.6 + h.phase + i * 0.7);
-    tinkerBone(B, R, 'mane_base' + p, 0, 0, sway);
-    tinkerBone(B, R, 'mane_top' + p, 0, 0, sway * 1.2);
-    tinkerBone(B, R, 'DEF-mane_base' + p, 0, 0, sway);
-    tinkerBone(B, R, 'DEF-mane_top' + p, 0, 0, sway * 1.2);
+    tinkerBone(B, R, nm[0], 0, 0, sway);
+    tinkerBone(B, R, nm[1], 0, 0, sway * 1.2);
+    tinkerBone(B, R, nm[2], 0, 0, sway);
+    tinkerBone(B, R, nm[3], 0, 0, sway * 1.2);
   }
-  h.lastHP = headPitch; h.lastHY = headYaw; h.lastTY = tailYaw; h.lastLeg = leg.slice();
+  h.lastHP = headPitch; h.lastHY = headYaw; h.lastTY = tailYaw;
+  /* 诊断快照：原 leg.slice() 每帧新数组；改成拷进这匹马自己的一份（leg 长度恒 4，读法不变） */
+  const ll = h.lastLeg || (h.lastLeg = [0, 0, 0, 0]);
+  for (let i = 0; i < leg.length; i++) ll[i] = leg[i];
 }
 /* ── 低头（吃草/就食）：把"颈+头"绕颈根的 X 轴向下转 ────────────────────────
    ⚠️ 真模型是**静态单网格**（无骨骼），所以只能在**几何**上做。参数是

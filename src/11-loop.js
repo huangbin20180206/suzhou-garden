@@ -1374,6 +1374,7 @@ if (document.hidden) pageHidden = true;      // 启动即在后台（如后台�
 const FIXED_DT = FIXED_STEP.dt;
 const MAX_STEPS = maxStepsFor(FIXED_STEP);   // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
 let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
+const _fxOut = {}, _ngOut = {};          // fxGates / natureGates 的复用输出（帧内零分配，第 5 批）
 /** 推进仿真时钟；返回本帧实际推进的秒数（供风钟等读数同源）。
     ⚠️ 风钟也在这里推进：仿真与风**必须共用同一条时间线** —— 拆成两条时，
        任何一处漏调都会让"风在吹但相位不走"这类现象出现，且不报错。 */
@@ -1599,7 +1600,7 @@ function frameWork(){
     /* 门控搬进 12a fxGates ④（2026-11-23）：补 shadowK / diskFade / 太阳高度三条，并把 0.03 硬门槛
        换成软起 —— 原式暴雨（diskFade 0.85）仍开 0.027、薄雾/雪也开，日落后 −2°~−4° 还在扫，
        暮色里 0.0137→0 一帧切。 */
-    const gate = fxGates(ENV.cur).cloudShade;
+    const gate = fxGates(ENV.cur, _fxOut).cloudShade;   // 复用对象（第 5 批：每帧零分配）
     /* 时光流转时冻结（reel-guard 复盘保留结论）：流转 3s 走 1.2h，
        云影缓变在 24x 时间里是 strobe；冻结后流转帧的云影恒零，
        与闲置噪声底采样的静态前提一致。 */
@@ -1890,7 +1891,7 @@ function frameWork(){
   {
     /* 2026-11-24（批次 2 · A）：判据收进 12a natureGates —— 加上夏细雨（= 梅雨，萤火盛期，×0.55）与雨后初晴；
        夜判据由 time==='night' 改为 starAmount 连续量（夜锚点 =1 ⇒ 门禁的"夏夜晴 0.9"不变）。 */
-    const fireWant = natureGates(ENV.cur, ENV.season, effW).fireflies;
+    const fireWant = natureGates(ENV.cur, ENV.season, effW, _ngOut).fireflies;   // 复用对象（第 5 批）
     const fu = fireflies.material.uniforms.uOpacity;
     fu.value += (fireWant - fu.value) * Math.min(1, dt * 1.6);
     fireflies.visible = fu.value > 0.01;

@@ -146,11 +146,16 @@ export const GAIT_OFFSET = {
   walk: { HL: 0.00, FL: 0.25, HR: 0.50, FR: 0.75 },
   trot: { FL: 0.00, HR: 0.00, FR: 0.50, HL: 0.50 },
 };
-export function gaitPose(mode, phase){
+/* out（可选，2026-11-24 · 第 5 批）：复用的 {FL,FR,HL,HR → [u,lift,toe]}。走动的马每帧都调，
+   原来每次新建 1 个对象 + 4 个数组 + 键名数组；调用方给自己那匹马的一份（h._gaitOut）即零分配。
+   ⚠️ 不能全局共用一份：h.gaitLegs 要留到 15b 写姿态时读，几匹马同帧走会互相覆盖。 */
+const GAIT_KEYS = ['FL', 'FR', 'HL', 'HR'];
+export function gaitPose(mode, phase, out){
   const D = HORSE_GAIT[mode] || HORSE_GAIT.walk;
   const off = GAIT_OFFSET[mode] || GAIT_OFFSET.walk;
-  const out = {};
-  for (const k of ['FL', 'FR', 'HL', 'HR']){
+  if (!out) out = {};
+  for (let ki = 0; ki < 4; ki++){
+    const k = GAIT_KEYS[ki];
     let p = (phase + (off[k] || 0)) % 1;
     if (p < 0) p += 1;
     let u, lift, toe;
@@ -168,7 +173,8 @@ export function gaitPose(mode, phase){
       lift = D.lift * Math.sin(Math.PI * q);
       toe = lift * 0.55;
     }
-    out[k] = [u, lift, toe];
+    const o = out[k] || (out[k] = [0, 0, 0]);
+    o[0] = u; o[1] = lift; o[2] = toe;
   }
   return out;
 }
@@ -222,7 +228,7 @@ export function updateHorseGait(h, dt){
        读作"碎步打滑"（2026-10-27 修）。trot 用模式常量，与 15d 马车处的 1.24 同口径。 */
     const stride = (G.mode === 'walk' && h.strideWalk) ? h.strideWalk : D.stride;
     G.phase = (G.phase + delta / stride) % 1;
-    h.gaitLegs = gaitPose(G.mode, G.phase);
+    h.gaitLegs = gaitPose(G.mode, G.phase, h._gaitOut || (h._gaitOut = {}));   // 每匹马一份复用（见 gaitPose）
     h.gaitBob = Math.sin(G.phase * Math.PI * 4) * D.bob;
   } else {
     h.gaitLegs = null;
@@ -237,6 +243,16 @@ export function updateHorseGait(h, dt){
 }
 
 /* 每帧：① 推每匹马的姿态角；② 冬天喷白雾。dt 用主循环的仿真步长（与固定步长累加器同一根时钟）。 */
+/* 每马每帧的抬蹄量（2026-11-24 · 第 5 批：原每帧 new [0,0,0,0]）。只在 tickStableLife 单匹马的循环体里写、
+   当场交给 applyTinkerPose / applyRodinPose（二者只读 / 拷值，不留引用）。 */
+const _leg4 = [0, 0, 0, 0];
+function anyBreathAlive(){
+  for (const h of HORSE_LIFE){
+    if (!h.breath) continue;
+    for (const b of h.breath) if (b.life > 0) return true;
+  }
+  return false;
+}
 export function tickStableLife(dt){
   if (!HORSE_LIFE.length) return;
   /* 仿真时钟由 15b 持有（原来就是本文件里的一个 let）——本模块只读，推进走这个函数 */
@@ -268,7 +284,7 @@ export function tickStableLife(dt){
     let headPitch = 0.030 * Math.sin(t * 0.90 + ph);
     let headYaw   = 0.050 * Math.sin(t * 0.37 + ph * 1.7);
     let tailYaw   = 0.22 * Math.sin(t * 0.95 + ph) + 0.05 * Math.sin(t * 2.30 + ph * 2.1);
-    const leg = [0, 0, 0, 0];
+    const leg = _leg4; leg[0] = 0; leg[1] = 0; leg[2] = 0; leg[3] = 0;   // 复用（原每马每帧新数组）；15b 只读 / 拷值
     /* 甩尾 + 抬蹄：**所有角色共用** ——"休息的马匹也会不规则动"是明确要求，
        上一版只有吃草那两匹有甩尾、只有辕里那两匹有抬蹄 ⇒ 厩内和马厩旁边那两匹
        是完全静止的（正是老黄说"看不到"的那几匹）。 */
@@ -358,7 +374,7 @@ export function tickStableLife(dt){
   /* ⑥ 把白雾写进实例矩阵（相机朝向的 billboard；只算"活着"的那些）*/
   const im = horseBreathMesh;
   if (im){
-    const anyLife = HORSE_LIFE.some(h => h.breath && h.breath.some(b => b.life > 0));
+    const anyLife = anyBreathAlive();                   // 原为每帧两层 some 闭包
     if (!anyLife){ if (im.count !== 0) im.count = 0; }
     else {
       for (const h of HORSE_LIFE){

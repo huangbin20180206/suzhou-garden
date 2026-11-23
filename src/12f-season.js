@@ -121,6 +121,19 @@ export const seasonMeshCache = new Map();
    GTAO 就把 winter 的"花不存在"恢复成了 visible=true。实测就是这样：
      set true  | at gtao.render() <- renderer.render() <- animate()
    同一个根因之前也吃掉过"狂风底值风"。 */
+/* applyPresence 的单行：按材质找实例网格、按通道值截 count（逐字取自原循环体） */
+function presenceCount(m, key, frac, p){
+  const list = seasonMeshCache.get(m);
+  if (!list) return;
+  for (const o of list){
+    if (!o.isInstancedMesh) continue;
+    if (o.userData.fullCount === undefined) o.userData.fullCount = o.count;
+    const full = o.userData.fullCount;
+    const n = frac ? Math.round(full * Math.min(1, Math.max(0, p[key] || 0)))
+                   : (p[key] > 0.03 ? full : 0);
+    if (o.count !== n) o.count = n;
+  }
+}
 export function applyPresence(p){
   for (const [key, mats] of SEASON_PRESENCE){
     const on = p[key] > 0.03;
@@ -138,27 +151,18 @@ export function applyPresence(p){
      3800 片叶，秋天本该落掉三成果却一个不少。
      按 count 截前缀是唯一不会被 GTAO 冲掉的做法。桃树的实例写入顺序已在 makePeachTree 里
      按乘性散列打散，所以"截前缀"在空间上就是均匀变稀，而不是只掉半边。 */
-  for (const [m, key, frac] of [[MAT.wisteria, 'wisteriaBloom', false],
-                                [MAT.peachLeaf, 'peachShow', true],
-                                [MAT.plumLeaf, 'peachShow', true],      // 梅叶跟桃叶同一季节通道（冬落尽）
-                                [MAT.peachFruit, 'peachFruitShow', true],
-                                [MAT.peachPetal, 'peachPetalShow', true],
-                                /* 河灯/灯串是 InstancedMesh：count=0 ⇒ three 不提交、GTAO 也改不动
-                                   （同紫藤那条路的理由）。非灯会态零 draw call。 */
-                                [riverLampMat, 'festivalShow', false],
-                                [riverFlameMat, 'festivalShow', false],
-                                [stringBulbMat, 'festivalShow', false]]){
-    const list = seasonMeshCache.get(m);
-    if (!list) continue;
-    for (const o of list){
-      if (!o.isInstancedMesh) continue;
-      if (o.userData.fullCount === undefined) o.userData.fullCount = o.count;
-      const full = o.userData.fullCount;
-      const n = frac ? Math.round(full * Math.min(1, Math.max(0, p[key] || 0)))
-                     : (p[key] > 0.03 ? full : 0);
-      if (o.count !== n) o.count = n;
-    }
-  }
+  /* 2026-11-24 · 第 5 批：本函数每帧都走（见 11-loop "每帧重申存在性"），原来每帧在这里新建
+     一张 8 行的数组字面量表（9 个数组）。改成逐行调 presenceCount，行序与参数逐字照旧。 */
+  presenceCount(MAT.wisteria, 'wisteriaBloom', false, p);
+  presenceCount(MAT.peachLeaf, 'peachShow', true, p);
+  presenceCount(MAT.plumLeaf, 'peachShow', true, p);      // 梅叶跟桃叶同一季节通道（冬落尽）
+  presenceCount(MAT.peachFruit, 'peachFruitShow', true, p);
+  presenceCount(MAT.peachPetal, 'peachPetalShow', true, p);
+  /* 河灯/灯串是 InstancedMesh：count=0 ⇒ three 不提交、GTAO 也改不动
+     （同紫藤那条路的理由）。非灯会态零 draw call。 */
+  presenceCount(riverLampMat, 'festivalShow', false, p);
+  presenceCount(riverFlameMat, 'festivalShow', false, p);
+  presenceCount(stringBulbMat, 'festivalShow', false, p);
   /* ── 枯枝挂灯：走**直接清单**而不是上面的材质缓存表 ──
      ⚠️ 原因：挂灯网格是 `makePeachTree` 在 **deferBoot 延迟批**里建的，而
         `collectSeasonCaches()` 在装配收尾时跑 —— 时序上它能收得到，但**更关键**是

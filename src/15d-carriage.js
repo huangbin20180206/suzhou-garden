@@ -143,7 +143,7 @@ export function travelCarriagePlace(x, z, yaw, dist){
         // 旧版用 walk（四拍 0/0.25/0.5/0.75，摆幅 0.28）读作"散步拉车"，步频也对不上车速。
         const stride = 1.24; // HORSE_GAIT.trot.stride（走 trot 时的真实步幅）
         const ph = ((dist / stride) + (s.travelPh || 0)) % 1;
-        L.gaitLegs = gaitPose('trot', ph < 0 ? ph + 1 : ph);
+        L.gaitLegs = gaitPose('trot', ph < 0 ? ph + 1 : ph, L._gaitOut || (L._gaitOut = {}));   // 每匹一份复用（第 5 批）
         L.gaitBob = Math.sin(ph * Math.PI * 4) * 0.024;
       } else {
         L.gaitLegs = null; L.gaitBob = 0;    // 站姿

@@ -895,7 +895,8 @@ export function waterSunGates(sdY, p){
   const sk = p.shadowK === undefined ? 1 : p.shadowK;
   return { sunVis: dayW * Math.max(noonC, lowC) * clear, caustic: dayW * noonC * clear * sk };
 }
-export function fxGates(p){
+/* out（可选，2026-11-24 · 第 5 批）：11-loop 每帧读一次云影门，给复用对象就零分配；不给仍返回新对象。 */
+export function fxGates(p, out){
   const dayK = _clamp01(p.dayK ?? (1 - (p.starAmount || 0)));
   const alt = sunAltDeg(p);
   const df = p.diskFade || 0;
@@ -924,7 +925,9 @@ export function fxGates(p){
      真实太阳"暮"锚点 = 太阳 7°（12h ANCHOR_ALT）⇒ 暮锚点值不变（0.1375）；旧模式暮锚点 13.3° 保留 95%；
      旧模式夜里主光是月亮替身（仰角 49°），但 dayK=0 ⇒ 不收。 */
   const hallWarm = (p.lamp || 0) * 0.55 * (1 - dayK * _sstep(12, 22, alt));
-  return { milkyWay, sunGlow, cloudShade, hallWarm };
+  const o = out || {};
+  o.milkyWay = milkyWay; o.sunGlow = sunGlow; o.cloudShade = cloudShade; o.hallWarm = hallWarm;
+  return o;
 }
 
 /* ══ 自然真实 · 物候 × 天气 × 时段的生灵 / 声景门控（2026-11-24 · 视觉打磨批次 2 · A）══════════════════
@@ -945,7 +948,8 @@ export function fxGates(p){
    纯函数、不读 ENV、不碰 THREE，node 单测直接 import。 */
 /* 萤火的天气适宜度：雨后湿夜是萤火最盛的时候；细雨（梅雨）里照飞但少；暴雨 / 雷雨 / 阴雪 = 0。 */
 export const FIREFLY_WX = { clear: 1, afterrain: 1, mist: 1, drizzle: 0.55 };
-export function natureGates(p, season, eff){
+/* out（可选，2026-11-24 · 第 5 批）：11-loop（萤火）与 12i（花瓣）每帧各调一次，给复用对象就零分配。 */
+export function natureGates(p, season, eff, out){
   const rain = p.rainAmount || 0, snow = p.snowAmount || 0, wind = p.windMul || 1;
   const star = p.starAmount || 0;
   const dayK = _clamp01(p.dayK ?? (1 - star));
@@ -965,7 +969,10 @@ export function natureGates(p, season, eff){
      夜判据用白天度 0.35（日落后约 −3°；真实蜻蜓黄昏还在捕食，天黑才栖）。 */
   const dragonfly = (p.dragonflyShow || 0) > 0.03 && rain <= 0.12 && snow <= 0.05 && wind <= 2.5
                   && eff !== 'storm' && eff !== 'winterrain' && eff !== 'thunder' && dayK > 0.35;
-  return { fireflies, petalWx, petalFall, petalSway, petalLight, dragonfly };
+  const o = out || {};
+  o.fireflies = fireflies; o.petalWx = petalWx; o.petalFall = petalFall; o.petalSway = petalSway;
+  o.petalLight = petalLight; o.dragonfly = dragonfly;
+  return o;
 }
 /* ④ 荷叶水珠强度（12e tickLotusDrops）：有水（wet 0.25 起显、0.70 满）× 雨已停 × 叶盘在（lilyShow）× 未结冰。
    wet 传**有效湿度**（含雨后余韵，见 lingerStep）—— 雨停后水珠随地面一起慢慢干掉。 */
