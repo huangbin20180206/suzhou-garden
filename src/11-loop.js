@@ -15,7 +15,7 @@ import { windClock, advanceWindClock, updateWind, WIND_DIR, WIND_FORCE, FORCE_TI
 import { MIST, MIST_WHITE } from './06j-herbs.js';
 import { perchingAnchors } from './06d-corridor.js';
 import { assetFailures } from './06e-assets.js';
-import { spawnRipple, updateRipples, ripplesActive, lastRippleAge, rippleCapacity } from './06f-ripple.js';
+import { spawnRipple, updateRipples, ripplesActive, lastRippleAge, rippleCapacity, bindRippleSound } from './06f-ripple.js';
 import { KOI_ORBITS, dropBait, updateBaits, nearestBait, baitsActive, BAITS, koiBehaviorOffset, koiStartleEnergy, KOI_BEHAVIOR } from './06g-koi.js';
 /* 2026-10-05 拆分：氛围特效（雾团 / 香炉白烟 / 萤火虫 / 镜头天气层）已统一搬进 06b-atmos.js。 */
 import { FOG_BANKS, CENSER_SMOKE, makeFireflies, makeLensWeather } from './06b-atmos.js';
@@ -373,6 +373,58 @@ const Snd = (()=>{
     o.connect(g); g.connect(master);
     o.start(t0); o.stop(t0 + 0.2);
   }
+  /* 涟漪声（2026-11-23 · 批次 #22）：点水有涟漪却没声音 —— 主动交互零反馈，最直观的感官缺口。
+     合成：短噪声爆过低通 = "噗通"，叠一记 180→90Hz 下滑正弦 = 入水的"咚"。
+     三种力度（06f 已按既有参数分好类，这里只管音色与计数）：
+       click（strength>1.2）：峰值 0.085、带通 900Hz、有低频尾 —— 投石的反馈要清楚
+       drag（kind==='drag'）：峰值 0.018、带通 1.8kHz、无低频尾 —— 划水连发，不能吵
+       breach（鱼跃/泳龟）：峰值 0.045、带通 1.2kHz、低频尾减半 —— 生灵破水比投石轻
+     雨滴不进这里（音景已有持续的雨声层，再叠每滴一次会把雨夜糊成爆米花）。 */
+  let plopCount = 0;
+  const plopByKind = { click: 0, drag: 0, breach: 0 };
+  let _lastDragPlop = -1e9;
+  function plop(kind){
+    if (!on || !ctx || ctx.state !== 'running') return;
+    /* 拖拽限频（每帧都在水面上划 ⇒ 不限频就是 100 个噪声爆叠成白噪）。
+       实测噪声：按住拖动 60fps 每帧都可能 spawnRipple，9s 拖动 ≈ 500 次。
+       120ms 最小间隔 = 上限 8.3Hz，听感上是"连续划水"而不是"电钻"。
+       ⚠️ 只限 drag：点击/鱼跃是离散事件，人为限频会把真实反馈吞掉。 */
+    if (kind === 'drag'){
+      const now = performance.now();
+      if (now - _lastDragPlop < 120) return;
+      _lastDragPlop = now;
+    }
+    const t0 = ctx.currentTime + 0.008;
+    const heavy = kind === 'click', light = kind === 'drag';
+    const peak = light ? 0.018 : heavy ? 0.085 : 0.045;
+    const src = ctx.createBufferSource();
+    src.buffer = _stepNoiseBuf;
+    src.playbackRate.value = light ? 1.5 : 0.85;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = light ? 1800 : heavy ? 900 : 1200;
+    bp.Q.value = 0.8;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0, t0);
+    g.gain.linearRampToValueAtTime(peak, t0 + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0006, t0 + (light ? 0.10 : 0.24));
+    src.connect(bp); bp.connect(g); g.connect(master);
+    src.start(t0); src.stop(t0 + 0.28);
+    if (!light){
+      const o = ctx.createOscillator(), og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(180, t0);
+      o.frequency.exponentialRampToValueAtTime(90, t0 + 0.18);
+      og.gain.setValueAtTime(0, t0);
+      og.gain.linearRampToValueAtTime(peak * 0.55, t0 + 0.015);
+      og.gain.exponentialRampToValueAtTime(0.0006, t0 + 0.22);
+      o.connect(og); og.connect(master);
+      o.start(t0); o.stop(t0 + 0.24);
+    }
+    plopCount++;
+    if (kind in plopByKind) plopByKind[kind]++;
+  }
+  bindRippleSound((x, z, kind, strength) => plop(kind === 'drag' ? 'drag' : strength > 1.2 ? 'click' : 'breach'));
   /* 廊下风铃：五声音阶高频 ping + 非谐泛音（金属味）+ 1.1s 长衰减。
      基频 C7~A7 随机挑（2112/2349/2637/3136/3520），泛音 ×2.76（铜管非谐列）音量约 1/4、
      ×5.40 音量约 1/10 —— 三个正弦叠出"叮"而不是"哔"。峰值 0.022（比鸟叫还轻一档，
@@ -560,6 +612,8 @@ const Snd = (()=>{
     ctxState: () => (ctx ? ctx.state : 'none'),
     footsteps: () => footstepCount,
     chimes: () => chimeCount,   // 门禁读：风铃实际触发次数（与 footsteps 同款事件计数）
+    plops: () => plopCount,     // 门禁读：涟漪声实际触发次数（批次 #22）
+    plopsByKind: () => ({ ...plopByKind }),   // 按类分别计数：全局计数会被园里的鱼跃/泳龟污染
     pondProximity,
     species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
   };
@@ -2425,6 +2479,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   sndPondProximity: () => Snd.pondProximity(),
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),
                   sndChimes: () => Snd.chimes(),
+                  sndPlops: () => Snd.plops(), sndPlopsByKind: () => Snd.plopsByKind(),
                   sndVolume: () => Snd.volume, sndSetVolume: (v) => Snd.setVolume(v),
                   /* 首次引导（2026-09-19）：门禁要能读步序、翻页、收起，并验"非模态 + 首次交互即消失" */
                   guideState: () => ({ on: GUIDE.on, i: GUIDE.i, steps: GUIDE_STEPS.length }),
@@ -2457,6 +2512,10 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   fireflyOpacity: () => fireflies.material.uniforms.uOpacity.value,
                   lensLevel: () => lensWeather.level(),
                   clickRippleLast: () => lastClickRipple,
+                  /* 涟漪声（批次 #22）：门禁要能按 kind/strength 三类分别触发一次，
+                     验「点击有投石声、拖拽轻、鱼跃中、雨滴不叠声」。走**同一个** spawnRipple 入口，
+                     不另开后门 —— 这样测的就是玩家真实经过的那条链路。 */
+                  spawnRipple,
                   /* 拖拽划水（2026-11-10）：门禁断言"按住拖过水面会留下水痕" */
                   dragRippleLast: () => lastDragRipple,
                   /* 荷叶水珠（2026-11-10）：门禁断言"雨后叶盘上有水珠、会滚到盘沿落下" */

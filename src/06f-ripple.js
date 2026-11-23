@@ -11,6 +11,10 @@ import { TAU, CFG } from './00-config.js';
 import { POND_RADII, insidePond } from './05-water.js';
 import { KOI_BEHAVIOR, koiStartleAt } from './06g-koi.js';
 
+/* ↓ 涟漪声回调（11-loop 注入，见 spawnRipple 内注释）；未注入时静默 */
+let _rippleSound = null;
+export function bindRippleSound(fn){ _rippleSound = typeof fn === 'function' ? fn : null; }
+
 /* 鱼跃涟漪：鱼口触水处激起的一圈圈同心涟漪。
    P1-9 并批：20 个独立 Mesh（激活几个就几个 draw call）→ 单个 InstancedMesh +
    自定义 instanceAlpha（onBeforeCompile 注入 per-instance 透明度）。
@@ -105,6 +109,17 @@ export function spawnRipple(x, z, t, rings = 3, strength = 1, kind = ''){
      `KOI_BEHAVIOR.startleFromRipple=false`（见 KOI_BEHAVIOR 注释）。 */
   if (KOI_BEHAVIOR.startleFromRipple && kind !== 'rain' && strength > 1.2)
     koiStartleAt(x, z - 3.0, t, Math.min(2.0, strength));
+  /* ── 涟漪声回调（2026-11-23 · 批次 #22）─────────────────────────────────
+     为什么挂这里而不是各调用点：spawnRipple 是**唯一入口**（雨滴/点击/鱼跃/泳龟全覆盖），
+     且此处**已经过池域夹紧**（x,z 是最终落点）—— 挂在调用点上就得复制那段几何，迟早跑偏。
+     三层语义完全由既有参数区分，不需要新真值来源：
+       kind==='rain'                 → 雨滴（密集，音景侧按 rainAmount 已有一层，这里**不再响**）
+       kind==='drag'                 → 拖拽划水（轻、连发，音量与频率都压到最低）
+       strength>1.2 且非 rain        → 玩家点击（5 环 / 1.6，主交互反馈）
+       其它（鱼跃 / 泳龟 / strength≈1）→ 生灵破水（低频"咕咚"）
+     回调**由 11-loop 注入**（本模块不 import 11-loop，会成环）。未注入即静默 —— 与
+     bindDropRipple 同款：音景没开时不该有任何节点被建。 */
+  if (kind !== 'rain' && _rippleSound) _rippleSound(x, z, kind, strength);
   for (let k = 0; k < rings; k++){
     const i = RIPPLE_STATE.findIndex(r => !r.active);
     if (i < 0) return;
