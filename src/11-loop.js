@@ -375,8 +375,14 @@ const Snd = (()=>{
      雨滴不进这里（音景已有持续的雨声层，再叠每滴一次会把雨夜糊成爆米花）。 */
   let plopCount = 0;
   const plopByKind = { click: 0, drag: 0, breach: 0 };
-  let _lastDragPlop = -1e9;
-  function plop(kind){
+  let _lastDragPlop = -1e9, _lastPlopPan = 0, _lisX = 0, _lisZ = 26;
+  /* 点水声的左右（2026-11-24 · 批次 #25）：#24 只给了持续的水声（lap 层）方位，
+     点水/划水/鱼跃这三记**离散**水声还是全园同响 —— 点左边的水、右边也一样响。
+     做法与 lap 同源（00c-spatial.spatialPan，同一口径）：spawnRipple 的落点 (x,z)
+     相对听者（相机）算 pan，离散事件**不平滑**（左右连点时平滑会把第二记糊掉），
+     直接写 panner.pan.value。每个 plop 自建一个 StereoPanner 跟节点同生共死
+     （播完 GC，与 chirp 同款；NSURL 老内核没有 createStereoPanner 就直连 master）。 */
+  function plop(x, z, kind){
     if (!on || !ctx || ctx.state !== 'running') return;
     /* 拖拽限频（每帧都在水面上划 ⇒ 不限频就是 100 个噪声爆叠成白噪）。
        实测噪声：按住拖动 60fps 每帧都可能 spawnRipple，9s 拖动 ≈ 500 次。
@@ -390,6 +396,12 @@ const Snd = (()=>{
     const t0 = ctx.currentTime + 0.008;
     const heavy = kind === 'click', light = kind === 'drag';
     const peak = light ? 0.018 : heavy ? 0.085 : 0.045;
+    /* 落点相对听者的方位（_lis* 由 tickPondProximity 每帧记的相机位置，viewYaw 同帧刷新） */
+    const pan = spatialPan(x - _lisX, z - _lisZ, viewYaw);
+    _lastPlopPan = pan;
+    let pp = null;
+    try { pp = ctx.createStereoPanner(); pp.pan.value = pan; pp.connect(master); } catch { pp = null; }
+    const out = pp || master;
     const src = ctx.createBufferSource();
     src.buffer = _stepNoiseBuf;
     src.playbackRate.value = light ? 1.5 : 0.85;
@@ -401,7 +413,7 @@ const Snd = (()=>{
     g.gain.setValueAtTime(0, t0);
     g.gain.linearRampToValueAtTime(peak, t0 + 0.012);
     g.gain.exponentialRampToValueAtTime(0.0006, t0 + (light ? 0.10 : 0.24));
-    src.connect(bp); bp.connect(g); g.connect(master);
+    src.connect(bp); bp.connect(g); g.connect(out);
     src.start(t0); src.stop(t0 + 0.28);
     if (!light){
       const o = ctx.createOscillator(), og = ctx.createGain();
@@ -411,13 +423,14 @@ const Snd = (()=>{
       og.gain.setValueAtTime(0, t0);
       og.gain.linearRampToValueAtTime(peak * 0.55, t0 + 0.015);
       og.gain.exponentialRampToValueAtTime(0.0006, t0 + 0.22);
-      o.connect(og); og.connect(master);
+      o.connect(og); og.connect(out);
       o.start(t0); o.stop(t0 + 0.24);
     }
     plopCount++;
     if (kind in plopByKind) plopByKind[kind]++;
   }
-  bindRippleSound((x, z, kind, strength) => plop(kind === 'drag' ? 'drag' : strength > 1.2 ? 'click' : 'breach'));
+  function lastPlopPan(){ return +_lastPlopPan.toFixed(3); }
+  bindRippleSound((x, z, kind, strength) => plop(x, z, kind === 'drag' ? 'drag' : strength > 1.2 ? 'click' : 'breach'));
   /* 廊下风铃：五声音阶高频 ping + 非谐泛音（金属味）+ 1.1s 长衰减。
      基频 C7~A7 随机挑（2112/2349/2637/3136/3520），泛音 ×2.76（铜管非谐列）音量约 1/4、
      ×5.40 音量约 1/10 —— 三个正弦叠出"叮"而不是"哔"。峰值 0.022（比鸟叫还轻一档，
@@ -511,6 +524,9 @@ const Snd = (()=>{
      ⚠️ 只调 lap 一层：雨/风/虫是"环境"，不随位置变（它们本就弥漫全园）。 */
   let _lapDistGain = 1, _lapPan = 0;
   function tickPondProximity(x, z, active, dt){
+    /* 听者位置每帧记（plop 的离散方位用）：放在 ctx 守卫之前 —— 音景没开时也有相机位置，
+       开音景第一记点水声就有正确的左右，不必等一帧 tick 跑过。 */
+    _lisX = x; _lisZ = z;
     if (!ctx) return;
     let target = 1, panT = 0;
     if (active){
@@ -633,6 +649,7 @@ const Snd = (()=>{
     chimes: () => chimeCount,   // 门禁读：风铃实际触发次数（与 footsteps 同款事件计数）
     plops: () => plopCount,     // 门禁读：涟漪声实际触发次数（批次 #22）
     plopsByKind: () => ({ ...plopByKind }),   // 按类分别计数：全局计数会被园里的鱼跃/泳龟污染
+    plopPan: () => lastPlopPan(),   // 门禁读：最近一记点水声的左右，批次 #25
     pondProximity,
     pondPan,   // 门禁读：水声当前左右（-1 全左 / +1 全右），批次 #24
     species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
@@ -2539,6 +2556,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),
                   sndChimes: () => Snd.chimes(),
                   sndPlops: () => Snd.plops(), sndPlopsByKind: () => Snd.plopsByKind(),
+                  sndPlopPan: () => Snd.plopPan(),   // 批次 #25：最近一记点水声的左右
                   sndVolume: () => Snd.volume, sndSetVolume: (v) => Snd.setVolume(v),
                   /* 首次引导（2026-09-19）：门禁要能读步序、翻页、收起，并验"非模态 + 首次交互即消失" */
                   guideState: () => ({ on: GUIDE.on, i: GUIDE.i, steps: GUIDE_STEPS.length }),

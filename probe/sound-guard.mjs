@@ -218,6 +218,26 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('右转看池：水声偏左（pan < −0.25）', panL < -0.25, `pan=${panL}`);
   check('面向池站立：水声居中（|pan| < 0.2）', Math.abs(panF) < 0.2, `pan=${panF}`);
 
+  /* 点水声的左右（批次 #25）：离散水声（点/划/跃）也要跟着落点分左右。
+     相机摆到池南 (0,3,26) 朝北看池（yaw=0），东边 (8,3) 点一下 ⇒ 右耳（pan>+0.25），
+     西边 (−8,3) ⇒ 左耳。读的是**计算值**（_lastPlopPan），不是音频 param ——
+     断言的是"方位算对了"，电平链 #24 已验过。kind 用 click（离散，无 120ms 限频）。 */
+  await page.evaluate(() => {
+    const G = window.__garden;
+    G.camera.position.set(0, 3, 26);
+    G.controls.target.set(0, 2, 3);
+    G.controls.update();
+  });
+  await sleep(600);   // 等一帧 viewYaw 跟上（refreshViewYaw 在 composer.render() 之前跑）
+  await page.evaluate(() => window.__garden.spawnRipple(8, 3, window.__garden.ENV.t, 5, 1.6, 'click'));
+  await sleep(300);
+  const plopR = await page.evaluate(() => window.__garden.sndPlopPan());
+  await page.evaluate(() => window.__garden.spawnRipple(-8, 3, window.__garden.ENV.t, 5, 1.6, 'click'));
+  await sleep(300);
+  const plopL = await page.evaluate(() => window.__garden.sndPlopPan());
+  check('东边点水：声偏右（pan > +0.25）', plopR > 0.25, `pan=${plopR}`);
+  check('西边点水：声偏左（pan < −0.25）', plopL < -0.25, `pan=${plopL}`);
+
   /* 关掉：总线必须归零 */
   await page.click('button[data-act="sound"]');
   await sleep(1200);
