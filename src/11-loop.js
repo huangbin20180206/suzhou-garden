@@ -210,7 +210,7 @@ const Snd = (()=>{
   let _stepNoiseBuf = null;          // 脚步声专用噪声（批次 #17，ensure() 里建）
   let footstepCount = 0;             // 门禁可读：实际触发过多少次
   let cricketCarrier = null, cricketMod = null, cricketG = null;
-  let cicadaG = null, frogG = null;
+  let cicadaG = null, frogG = null, frogPan = null, _frogPan = 0;
   let on = false, birdNext = 0, frogNext = 0, drumNext = 0, chimeNext = 0, vol = 1;
   function ensure(){
     if (ctx) return true;
@@ -296,9 +296,13 @@ const Snd = (()=>{
     cicadaLfo.connect(lfoDepth); lfoDepth.connect(amGain.gain);
     cicadaSrc.start(); cicadaLfo.start();
     /* 蛙声：不做连续振荡器，而是按拍调度一串短脉冲（croak()）。
-       蛙是"叫一阵、停一阵"的，连续音会立刻听出是合成器。 */
+       蛙是"叫一阵、停一阵"的，连续音会立刻听出是合成器。
+       蛙住池里：方位跟水声走（批次 #27，_frogPan 贴 _lapPan，不另算）。 */
     frogG = ctx.createGain(); frogG.gain.value = 0;
-    frogG.connect(master);
+    try {
+      frogPan = ctx.createStereoPanner();
+      frogG.connect(frogPan); frogPan.connect(master);
+    } catch { frogPan = null; frogG.connect(master); }
     return true;
   }
   /* 纯函数：环境参数 → 各层目标音量。门禁靠它断言"哪一层该响"。 */
@@ -549,6 +553,9 @@ const Snd = (()=>{
     _lapPan += (panT - _lapPan) * Math.min(1, dt * 3.2);   // 转头比走动快：τ≈0.31s
     if (lapG) lapG.gain.setTargetAtTime((plan(ENV.cur).lap) * _lapDistGain, ctx.currentTime, 0.25);
     if (lapPan) lapPan.pan.setTargetAtTime(+_lapPan.toFixed(3), ctx.currentTime, 0.12);
+    /* 蛙声贴池（批次 #27）：同一份 pan，不另算 —— 蛙就在水里，方位与水声一致是物理 */
+    _frogPan = _lapPan;
+    if (frogPan) frogPan.pan.setTargetAtTime(+_frogPan.toFixed(3), ctx.currentTime, 0.12);
   }
   function pondProximity(){ return +_lapDistGain.toFixed(3); }
   function pondPan(){ return +_lapPan.toFixed(3); }
@@ -601,7 +608,7 @@ const Snd = (()=>{
      一次闪电按"距离"给延迟（0.9~3.6s，闪电在前、雷声在后）、音量随距离衰减、
      低通把远雷压闷、1~3 层错峰叠放 = "紧接着的密集雷鸣"。
      ⚠️ 素材未解码完成时本次直接跳过（不排空枪），下次闪电再试。 */
-  let thunderBuf = null, thunderLoading = false, thunderPlays = 0;
+  let thunderBuf = null, thunderLoading = false, thunderPlays = 0, _lastThunderPan = 0;
   function loadThunder(){
     if (thunderBuf || thunderLoading || !ctx) return;
     thunderLoading = true;
@@ -623,6 +630,16 @@ const Snd = (()=>{
     if (!on || !ctx) return 0;
     loadThunder();
     if (!thunderBuf) return 0;
+    /* 雷声方位（批次 #27）：ev.sx/sz 是闪电主干中点的世界坐标（12b 落点），
+       播放时刻按当前听者位置换算 pan —— 延迟 0.9~3.6s 里玩家可能走动，
+       落点时算不如响时算准。三层叠放共享一个 Panner（同一声雷）。 */
+    let thunderPan = null;
+    if (ev && ev.sx !== undefined && ev.sz !== undefined){
+      _lastThunderPan = spatialPan(ev.sx - _lisX, ev.sz - _lisZ, viewYaw);
+      try { thunderPan = ctx.createStereoPanner(); thunderPan.pan.value = _lastThunderPan;
+            thunderPan.connect(master); } catch { thunderPan = null; }
+    }
+    const tOut = thunderPan || master;
     const t0 = ctx.currentTime + Math.max(0, (ev && ev.delay != null) ? ev.delay : 1.2);
     const n = Math.max(1, Math.min(3, (ev && ev.layers) || 1));
     for (let i = 0; i < n; i++){
@@ -633,13 +650,17 @@ const Snd = (()=>{
       lp.frequency.value = ((ev && ev.lp) || 1800) * (i === 0 ? 1 : 0.62);
       const g = ctx.createGain();
       g.gain.value = Math.min(0.9, ((ev && ev.gain) || 0.4) * (i === 0 ? 1 : 0.5));
-      src.connect(lp); lp.connect(g); g.connect(master);
+      src.connect(lp); lp.connect(g); g.connect(tOut);
       src.start(t0 + i * (0.3 + Math.random() * 0.55));
       try { src.stop(t0 + 12); } catch (e) { /* 忽略 */ }
     }
     thunderPlays++;
     return n;
   }
+  function lastThunderPan(){ return +_lastThunderPan.toFixed(3); }
+  /* 门禁 trigger（chimeNow 同款）：按给定落点立刻打一声雷（delay 0.05s），
+     不经过闪电调度 —— 自然雷的落点是随机的，门禁要确定性方位就走这里。 */
+  function thunderNow(sx, sz){ return playThunder({ delay: 0.05, layers: 1, gain: 0.4, lp: 1800, rate: 1, at: 0, sx, sz }); }
   return {
     toggle, tick, plan, setVolume, thunder, playThunder, tickFootsteps, tickPondProximity,
     get on(){ return on; },
@@ -663,6 +684,9 @@ const Snd = (()=>{
     plops: () => plopCount,     // 门禁读：涟漪声实际触发次数（批次 #22）
     plopsByKind: () => ({ ...plopByKind }),   // 按类分别计数：全局计数会被园里的鱼跃/泳龟污染
     plopPan: () => lastPlopPan(),   // 门禁读：最近一记点水声的左右，批次 #25
+    frogPan: () => +_frogPan.toFixed(3),   // 门禁读：蛙声当前左右（贴池岸，与 pondPan 同源），批次 #27
+    thunderPan: () => lastThunderPan(),   // 门禁读：最近一声雷的左右，批次 #27
+    thunderNow,   // 门禁 trigger：按给定落点立刻打一声（自然雷落点随机，门禁要确定性方位走这里）
     pondProximity,
     pondPan,   // 门禁读：水声当前左右（-1 全左 / +1 全右），批次 #24
     species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
@@ -2490,6 +2514,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   setLightningHold: (t) => { LIGHTNING.hold = (t === null || t === undefined) ? null : +t; },
                   lightningStrikeNow,
                   thunderState: () => Snd.thunder(),
+                  sndThunderNow: (sx, sz) => Snd.thunderNow(sx, sz),   // 批次 #27：按给定落点立刻打一声
                   perchingDragonflies, perchingAnchors, updatePerchingDragonflies,
                   /* 游弋蜻蜓（2026-10-02）：legibility-guard 要"整组一句柄可整体隐藏"地量
                      它在默认机位的像素贡献 —— 停栖的那组早已暴露，游弋的这组漏了
@@ -2572,6 +2597,8 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   sndChimePan: () => Snd.chimePan(),   // 批次 #26：最近一声风铃的左右
                   sndPlops: () => Snd.plops(), sndPlopsByKind: () => Snd.plopsByKind(),
                   sndPlopPan: () => Snd.plopPan(),   // 批次 #25：最近一记点水声的左右
+                  sndFrogPan: () => Snd.frogPan(),   // 批次 #27：蛙声当前左右（贴池岸）
+                  sndThunderPan: () => Snd.thunderPan(),   // 批次 #27：最近一声雷的左右
                   sndVolume: () => Snd.volume, sndSetVolume: (v) => Snd.setVolume(v),
                   /* 首次引导（2026-09-19）：门禁要能读步序、翻页、收起，并验"非模态 + 首次交互即消失" */
                   guideState: () => ({ on: GUIDE.on, i: GUIDE.i, steps: GUIDE_STEPS.length }),

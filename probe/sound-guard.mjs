@@ -265,6 +265,74 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('池南听铃：铃在东边偏右（pan > +0.25）', chimeE > 0.25, `pan=${chimeE}`);
   check('铃东听铃：铃在西边偏左（pan < −0.25）', chimeW < -0.25, `pan=${chimeW}`);
 
+  /* 雷声的左右（批次 #27）分两臂：
+     ① 确定性臂：sndThunderNow 按给定落点打一声 —— 相机 (0,3,26) 朝北，
+        落点 (60,3) ⇒ 纯右（pan≈+0.93），(-60,3) ⇒ 纯左。算子与接线一次验透。
+     ② 自然臂：真打一条闪电，读 ev 落点算期望 pan，断言实际 pan 与期望一致
+        （±0.1 内）—— 验的是"12b 落点 → ev → 播放换算"整条穿线。自然雷落点
+        靠近屏中时 pan 本来就小，不设死区、不判符号，只判一致（断的是线，
+        不是运气）。tickLightning 只在雷雨天气跑，先切 thunder 天气。 */
+  await page.evaluate(() => {
+    const G = window.__garden;
+    G.camera.position.set(0, 3, 26);
+    G.controls.target.set(0, 2, 3);
+    G.controls.update();
+  });
+  await sleep(600);
+  const thSynR = await page.evaluate(() => { window.__garden.sndThunderNow(60, 3); return window.__garden.sndThunderPan(); });
+  const thSynL = await page.evaluate(() => { window.__garden.sndThunderNow(-60, 3); return window.__garden.sndThunderPan(); });
+  check('合成落点东边：雷偏右（pan > +0.8）', thSynR > 0.8, `pan=${thSynR}`);
+  check('合成落点西边：雷偏左（pan < −0.8）', thSynL < -0.8, `pan=${thSynL}`);
+  await page.evaluate(async () => { await window.__garden.setEnv('weather', 'thunder'); });
+  await page.waitForFunction(() => window.__garden.ENV.t >= 1, null, { timeout: 60000 });
+  await sleep(1200);
+  let thunderOK = false, thunderDetail = '';
+  for (let i = 0; i < 3 && !thunderOK; i++){
+    const r = await page.evaluate(async () => {
+      const G = window.__garden;
+      const { spatialPan } = await import('/src/00c-spatial.js');
+      const before = G.thunderState().plays;
+      G.lightningStrikeNow();
+      let played = false;
+      for (let k = 0; k < 20 && !played; k++){
+        await new Promise(r => setTimeout(r, 150));
+        played = G.thunderState().plays > before;
+      }
+      if (!played) return { played: false, why: '3s 内无调度（缓冲未就绪或被节流）' };
+      const ev = G.lightning().lastThunder;
+      if (!ev || ev.sx === undefined) return { played: false, why: '抓不到落点' };
+      const dir = new G.THREE.Vector3();
+      G.camera.getWorldDirection(dir);
+      const yaw = Math.atan2(-dir.x, -dir.z);
+      const exp = spatialPan(ev.sx - G.camera.position.x, ev.sz - G.camera.position.z, yaw);
+      return { played: true, exp: +exp.toFixed(3), act: G.sndThunderPan() };
+    });
+    await sleep(200);
+    if (!r.played){ thunderDetail = r.why + '，重试'; continue; }
+    thunderOK = Math.abs(r.act - r.exp) < 0.1;
+    thunderDetail = `exp=${r.exp} act=${r.act}`;
+  }
+  check('自然雷：实际 pan 与落点期望一致（±0.1）', thunderOK, thunderDetail);
+
+  /* 蛙声贴池（批次 #27）：夏夜晴，蛙只在池里叫 —— pan 应当贴着池岸 pan 走。
+     走模式 + 朝侧面看，等首拍蛙叫（frogNext=0，首个 tick 即叫），比较两者。 */
+  await page.evaluate(async () => {
+    await window.__garden.setEnv('season', 'summer');
+    await window.__garden.setEnv('time', 'night');
+    await window.__garden.setEnv('weather', 'clear');
+  });
+  await sleep(3000);   // 三次过渡走完，ENV.cur 落位夏夜晴
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walk(); });
+  await sleep(500);
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walkYaw(Math.PI / 2); });
+  await sleep(2500);    // pan 收敛（τ≈0.31s）+ 首拍蛙叫
+  const frogP = await page.evaluate(() => window.__garden.sndFrogPan());
+  const pondP = await page.evaluate(() => window.__garden.sndPondPan());
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walkExit(); });
+  await sleep(300);
+  check('蛙声贴着池岸（与水声同向）', Math.abs(frogP - pondP) < 0.15 && Math.abs(pondP) > 0.25,
+    `frog=${frogP} pond=${pondP}`);
+
   /* 关掉：总线必须归零 */
   await page.click('button[data-act="sound"]');
   await sleep(1200);

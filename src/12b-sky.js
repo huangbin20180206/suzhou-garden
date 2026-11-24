@@ -224,7 +224,13 @@ function lnStrike(tNow){
                layers: 1 + ((LN_RNG() * 2) | 0) + (delay > 2.2 ? 1 : 0),
                gain: +Math.max(0.18, 0.62 * (1 - delay / 6)).toFixed(3),
                lp: Math.round(Math.max(420, 2200 - delay * 420)),
-               rate: +lnR(0.92, 1.05).toFixed(3), at: tNow };
+               rate: +lnR(0.92, 1.05).toFixed(3), at: tNow,
+               /* 雷声方位（2026-11-25 · 批次 #27）：trunk[10] 是闪电主干**落地端**
+                  的世界坐标（skyAt 把画面坐标钉在世界天球上，见本函数头注释）。
+                  取落地端不取中点：中点 NDC x 恒挤在 ±0.5 里（门禁 8 连劈全正中），
+                  落地端摆到 ±0.7，雷声才分得出左右。只取水平分量 —— pan 要的是
+                  "东还是西"，仰角不参与。播放时刻才换算（听者可能走动），这里只存落点。 */
+               sx: +trunk[10].x.toFixed(1), sz: +trunk[10].z.toFixed(1) };
   L.lastThunder = ev;
   HOOKS.thunder?.(ev);
 }
