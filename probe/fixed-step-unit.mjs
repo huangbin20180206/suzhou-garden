@@ -74,19 +74,20 @@ test('吸附余量有界：负余量不超过 0.25 步，非法输入按 0', () 
   assert.deepEqual(planFixedSteps(0, -1), { steps: 0, accum: 0, dropped: 0 });
 });
 
-/* 第 5 批：人物更新的步进策略（00b tickBySteps，11-loop 用它调 tickActors） */
-test('步进策略：默认关 = 每帧一次 tick(步数×dt)；开 = 每步一次 tick(dt)；上限仍是每帧 6 步', () => {
-  assert.equal(FIXED_STEP_POLICY.perStep, false, '默认必须关（保持现状，Kyle 决定是否打开）');
+/* 第 5 批：人物更新的步进策略（00b tickBySteps，11-loop 用它调 tickActors）。
+   2026-11-25 起默认开（Kyle 拍板；?perstep=1 门已绿）：默认 = 每步一调。 */
+test('步进策略：默认开 = 每步一次 tick(dt)；显式关 = 每帧一次 tick(步数×dt)；上限仍是每帧 6 步', () => {
+  assert.equal(FIXED_STEP_POLICY.perStep, true, '默认必须开（2026-11-25 Kyle 拍板）');
   const calls = [];
   const tick = d => calls.push(d);
   tickBySteps(3, tick);
-  assert.deepEqual(calls, [3 * DT], '关：一次，参数与原 tickActors(dt) 的 dt（steps×FIXED_DT）逐位相同');
-  calls.length = 0; tickBySteps(0, tick);
-  assert.deepEqual(calls, [0], '关：0 步也照旧调一次 tick(0)');
-  calls.length = 0; tickBySteps(3, tick, { perStep: true });
   assert.deepEqual(calls, [DT, DT, DT], '开：每步一调');
-  calls.length = 0; tickBySteps(0, tick, { perStep: true });
+  calls.length = 0; tickBySteps(0, tick);
   assert.deepEqual(calls, [], '开：0 步不调');
+  calls.length = 0; tickBySteps(3, tick, { perStep: false });
+  assert.deepEqual(calls, [3 * DT], '显式关：一次，参数与原 tickActors(dt) 的 dt（steps×FIXED_DT）逐位相同');
+  calls.length = 0; tickBySteps(0, tick, { perStep: false });
+  assert.deepEqual(calls, [0], '显式关：0 步也照旧调一次 tick(0)');
   /* 长帧（切回标签页）：步数先被 planFixedSteps 截到 6 ⇒ 开启口径最多 6 次 */
   const p = planFixedSteps(0, 5.0);
   calls.length = 0; tickBySteps(p.steps, tick, { perStep: true });

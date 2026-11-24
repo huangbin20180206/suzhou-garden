@@ -1426,7 +1426,9 @@ if (document.hidden) pageHidden = true;      // 启动即在后台（如后台�
    · 上限按"每帧最多 100ms 仿真"表述（= 6 步，与旧 MAX_STEPS 同值），超出部分丢弃并记账（simState().dropped）。
    接口不变：stepSim(rawDt) 仍返回本帧推进秒数（整步 × FIXED_DT），simClock / simState 字段只增不减。 */
 const FIXED_DT = FIXED_STEP.dt;
-try { if (/[?&]perstep=1(&|$)/.test(location.search)) FIXED_STEP_POLICY.perStep = true; } catch { /* 非浏览器 */ }
+try {
+  if (/[?&]perstep=0(&|$)/.test(location.search)) FIXED_STEP_POLICY.perStep = false;   // 排查用逃生口（默认已开，见 00b）
+} catch { /* 非浏览器 */ }
 const MAX_STEPS = maxStepsFor(FIXED_STEP);   // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
 let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
 const _fxOut = {}, _ngOut = {};          // fxGates / natureGates 的复用输出（帧内零分配，第 5 批）
