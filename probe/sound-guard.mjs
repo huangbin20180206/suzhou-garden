@@ -229,14 +229,41 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
     G.controls.update();
   });
   await sleep(600);   // 等一帧 viewYaw 跟上（refreshViewYaw 在 composer.render() 之前跑）
-  await page.evaluate(() => window.__garden.spawnRipple(8, 3, window.__garden.ENV.t, 5, 1.6, 'click'));
-  await sleep(300);
-  const plopR = await page.evaluate(() => window.__garden.sndPlopPan());
-  await page.evaluate(() => window.__garden.spawnRipple(-8, 3, window.__garden.ENV.t, 5, 1.6, 'click'));
-  await sleep(300);
-  const plopL = await page.evaluate(() => window.__garden.sndPlopPan());
+  /* ⚠️ 同任务内连读：spawnRipple 里点水声是**同步**触发的（plop 跑完才返回），
+     但池子里 11 条锦鲤轮流跃水 —— 睡 300ms 再读，读到的可能是鱼跃破水的位置
+     （实测一跑 -0.329、一跑 0.017，差的就是这条鱼）。spawn 和读必须在同一个
+     evaluate 里，rAF 才插不进来。 */
+  const plopR = await page.evaluate(() => {
+    window.__garden.spawnRipple(8, 3, window.__garden.ENV.t, 5, 1.6, 'click');
+    return window.__garden.sndPlopPan();
+  });
+  const plopL = await page.evaluate(() => {
+    window.__garden.spawnRipple(-8, 3, window.__garden.ENV.t, 5, 1.6, 'click');
+    return window.__garden.sndPlopPan();
+  });
   check('东边点水：声偏右（pan > +0.25）', plopR > 0.25, `pan=${plopR}`);
   check('西边点水：声偏左（pan < −0.25）', plopL < -0.25, `pan=${plopL}`);
+
+  /* 风铃的左右（批次 #26）：铃挂在东廊中点 (24,6.6)。
+     池南 (0,3,26) 朝北听 ⇒ 铃在东边 ⇒ 右耳；站到铃东边 (28,3,6.6) 朝北听 ⇒ 铃在西边 ⇒ 左耳。
+     chimeNow 直接敲（不等风调度器），读计算值。 */
+  await page.evaluate(() => window.__garden.sndChimeNow());
+  await sleep(300);
+  const chimeE = await page.evaluate(() => window.__garden.sndChimePan());
+  await page.evaluate(() => {
+    const G = window.__garden;
+    G.camera.position.set(28, 3, 6.6);
+    G.controls.target.set(28, 2, -10);
+    G.controls.update();
+  });
+  await sleep(600);
+  /* 同上原子读：风调度器虽然在本门天气下不会响，但同任务读不花钱 */
+  const chimeW = await page.evaluate(() => {
+    window.__garden.sndChimeNow();
+    return window.__garden.sndChimePan();
+  });
+  check('池南听铃：铃在东边偏右（pan > +0.25）', chimeE > 0.25, `pan=${chimeE}`);
+  check('铃东听铃：铃在西边偏左（pan < −0.25）', chimeW < -0.25, `pan=${chimeW}`);
 
   /* 关掉：总线必须归零 */
   await page.click('button[data-act="sound"]');

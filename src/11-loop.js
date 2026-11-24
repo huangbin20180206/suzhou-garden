@@ -434,11 +434,21 @@ const Snd = (()=>{
   /* 廊下风铃：五声音阶高频 ping + 非谐泛音（金属味）+ 1.1s 长衰减。
      基频 C7~A7 随机挑（2112/2349/2637/3136/3520），泛音 ×2.76（铜管非谐列）音量约 1/4、
      ×5.40 音量约 1/10 —— 三个正弦叠出"叮"而不是"哔"。峰值 0.022（比鸟叫还轻一档，
-     风铃是远处廊下传来的）。触发瞬时建节点，播完 GC（与 chirp/croak/drum 同款）。 */
+     风铃是远处廊下传来的）。触发瞬时建节点，播完 GC（与 chirp/croak/drum 同款）。
+     方位（批次 #26）：铃挂在游廊最长的那段东廊中点 (24, 6.6)（08-assemble 游廊路径里
+     (24,-1.8)→(24,15) 一段的中点；廊子 38m 长，单点只能代表"东边"，但"东还是西"
+     恰恰是 pan 唯一要回答的问题）。三个泛音共享一个 Panner，同生共死。 */
   const CHIME_SCALE = [2112, 2349, 2637, 3136, 3520];
-  let chimeCount = 0;
+  const CHIME_POS = { x: 24, z: 6.6 };
+  let chimeCount = 0, _lastChimePan = 0;
   function chime(){
+    if (!on || !ctx || ctx.state !== 'running') return;
     const t0 = ctx.currentTime + 0.02;
+    const pan = spatialPan(CHIME_POS.x - _lisX, CHIME_POS.z - _lisZ, viewYaw);
+    _lastChimePan = pan;
+    let pp = null;
+    try { pp = ctx.createStereoPanner(); pp.pan.value = pan; pp.connect(master); } catch { pp = null; }
+    const out = pp || master;
     const f0 = CHIME_SCALE[(Math.random() * CHIME_SCALE.length) | 0] * (0.99 + Math.random() * 0.02);
     const parts = [[1, 0.022], [2.76, 0.006], [5.40, 0.0022]];
     for (const [mult, vol] of parts){
@@ -448,11 +458,12 @@ const Snd = (()=>{
       g.gain.setValueAtTime(0, t0);
       g.gain.linearRampToValueAtTime(vol, t0 + 0.008);
       g.gain.exponentialRampToValueAtTime(0.0006, t0 + 1.1);
-      o.connect(g); g.connect(master);
+      o.connect(g); g.connect(out);
       o.start(t0); o.stop(t0 + 1.15);
     }
     chimeCount++;
   }
+  function lastChimePan(){ return +_lastChimePan.toFixed(3); }
   /* ── 脚步声（2026-11-22 · 美术批次 #17）───────────────────────────────
      走模式是第一人称、却是**无声**的：画面在走、耳朵告诉你在飘。
      合成方案：短噪声爆（40~70ms）+ 带通滤波按地面材质换音色 ——
@@ -647,6 +658,8 @@ const Snd = (()=>{
     footsteps: () => footstepCount,
     footSplashes: () => footSplashCount,   // 批次 2：积水地脚步的"带水声"层实际触发次数
     chimes: () => chimeCount,   // 门禁读：风铃实际触发次数（与 footsteps 同款事件计数）
+    chimeNow: () => chime(),   // 门禁 trigger：立刻敲一声（lightningStrikeNow 同款，不等调度器）
+    chimePan: () => lastChimePan(),   // 门禁读：最近一声风铃的左右，批次 #26
     plops: () => plopCount,     // 门禁读：涟漪声实际触发次数（批次 #22）
     plopsByKind: () => ({ ...plopByKind }),   // 按类分别计数：全局计数会被园里的鱼跃/泳龟污染
     plopPan: () => lastPlopPan(),   // 门禁读：最近一记点水声的左右，批次 #25
@@ -2555,6 +2568,8 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   sndPondPan: () => Snd.pondPan(),   // 批次 #24：水声当前左右（-1 全左 / +1 全右）
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),
                   sndChimes: () => Snd.chimes(),
+                  sndChimeNow: () => Snd.chimeNow(),   // 批次 #26：门禁立刻敲一声
+                  sndChimePan: () => Snd.chimePan(),   // 批次 #26：最近一声风铃的左右
                   sndPlops: () => Snd.plops(), sndPlopsByKind: () => Snd.plopsByKind(),
                   sndPlopPan: () => Snd.plopPan(),   // 批次 #25：最近一记点水声的左右
                   sndVolume: () => Snd.volume, sndSetVolume: (v) => Snd.setVolume(v),
