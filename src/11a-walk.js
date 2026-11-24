@@ -198,5 +198,9 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   canvas.addEventListener('contextmenu',e=>{if(state.active)e.preventDefault();});
   /* setTouch：测试钩子（无头门禁用，无需真触屏即可验证行走数学）+ 预留外部摇杆。 */
   function setTouch(f,r){touchF=f;touchR=r;}
-  return { state,start,end,update,move, floor, setTouch, bobPhase: () => bobPhase };
+  /* setYaw：测试钩子（批次 #24 · 水声方位门禁）—— 把视线**瞬间**转到指北，不靠拖拽。
+     走模式里 yaw 是闭包私有变量，门禁没有别的入口能不靠手势改朝向。
+     只在 state.active 时生效：走模式外没有"走模式的 yaw"这回事。 */
+  function setYaw(y){ if(!state.active)return; yaw=y; update(0); }
+  return { state,start,end,update,move, floor, setTouch, setYaw, bobPhase: () => bobPhase };
 }

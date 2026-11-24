@@ -3,6 +3,7 @@ import { THREE } from '../vendor.js';
 import { createWalk } from './11a-walk.js';
 import { createVista } from './11b-vista.js';
 import { groundHeight as walkGroundHeight, insidePond as walkInsidePond } from './05-water.js';
+import { nearestOnEllipse, spatialPan } from './00c-spatial.js';
 import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
@@ -57,7 +58,15 @@ import { insidePond, POND_RADII, POND_PTS, renderRefraction, refractInfo, getRef
 const timer = new THREE.Timer();
 timer.connect(document);
 const statsEl = document.getElementById('stats');
-let acc = 0, frames = 0, fps = 0, sndAcc = 0;
+let acc = 0, frames = 0, fps = 0, sndAcc = 0, viewYaw = 0;
+const _v1 = new THREE.Vector3();
+/* 每帧把相机朝向折算成 YXZ 的 yaw（水平）供 00c-spatial 用。
+   camera.matrixWorld 在渲染帧里才是新鲜的；非走模式下 camera.lookAt(target) 之后
+   再取一次，保证声音方位贴着视线而非上一帧。 */
+function refreshViewYaw(){
+  camera.getWorldDirection(_v1);
+  viewYaw = Math.atan2(-_v1.x, -_v1.z);
+}
 
 
 /* 锦鲤"两遍走"的暂存（2026-10-27 复核 C1）：数组本体模块级复用，
@@ -195,7 +204,7 @@ const BIRD_SPECIES = [
   { name:'白头鹎', f0:[2000, 2450], n:[2, 4], slope:1.10, dur:0.11, gap:0.13, vol:0.045, w:{ spring:1.5, summer:1.2, autumn:1.0, winter:0.3 } },
 ];
 const Snd = (()=>{
-  let ctx = null, master = null, rainG = null, windG = null, lapG = null;
+  let ctx = null, master = null, rainG = null, windG = null, lapG = null, lapPan = null;
   let _stepNoiseBuf = null;          // 脚步声专用噪声（批次 #17，ensure() 里建）
   let footstepCount = 0;             // 门禁可读：实际触发过多少次
   let cricketCarrier = null, cricketMod = null, cricketG = null;
@@ -246,7 +255,16 @@ const Snd = (()=>{
       const depth = ctx.createGain(); depth.gain.value = 0.42;
       lfo.connect(depth); depth.connect(am.gain);
       lapG = ctx.createGain(); lapG.gain.value = 0;
-      src.connect(lp); lp.connect(am); am.connect(lapG); lapG.connect(master);
+      /* 水声的左右（批次 #24）：StereoPanner 挂在 lap 自己的干路尾端，
+         风/雨/虫仍是全园同响（它们本就弥漫）。createStereoPanner 在 Safari 14+
+         / 所有现代内核都在；缺席时退回直连 master，音景物无声 —— 不报错、不静默失效。 */
+      try {
+        lapPan = ctx.createStereoPanner();
+        src.connect(lp); lp.connect(am); am.connect(lapG); lapG.connect(lapPan); lapPan.connect(master);
+      } catch {
+        lapPan = null;
+        src.connect(lp); lp.connect(am); am.connect(lapG); lapG.connect(master);
+      }
       src.start(); lfo.start();
     }
     /* 虫鸣：载波 × 幅度调制。调制振荡器接到 gain 口上（不是 setInterval），
@@ -486,27 +504,33 @@ const Snd = (()=>{
     const onStone = Math.abs(x) < 10 && Math.abs(z + 7.9) < 1.3;
     footstep(onStone);
   }
-  /* ── 池距声场（2026-11-22 · 美术批次 #18）──────────────────────────────
+  /* ── 池距声场（2026-11-22 · 美术批次 #18 → 2026-11-23 批次 #24 升级为**有左右**）──
      音景此前是"全园同响"：站在南墙根和站在池边，水声一模一样 —— 第一人称里
      这是最出戏的一处。真实园林里水声是**跟着人走**的：近池则水声起，离开就退。
-     做法：不走 PannerNode（那要给每个声源建 3D 节点、还要 HRTF，成本高），
-     而是给 lap 层一个**距离增益**（走模式里按到池心距离调制，非走模式恒 1）：
-       池心 (0, 3.0)、池半轴 15.7×9.4 ⇒ 归一化池距 u = hypot(x/15.7, (z-3)/9.4)
-       u<1 池内：1.9（水就在脚边）→ u=2.2 池外衰减到 0.55（园深处仍有底噪）
-     平滑跟（τ=0.6s），避免走动时音量阶梯感。
+     #18 先做的是"距离增益"（只调音量）；#24 补上**方位**：
+       · 声源点 = 池岸椭圆上离听者**最近的那一点**（不是池心 —— 拿池心当声源时，
+         站在南岸会听到水从北边飘来，一转头左右还是反的）
+       · 方位 → StereoPanner（纯数学在 00c-spatial，node 单测把守）
+       · 增益沿用 #18 的曲线口径（贴岸 1.9 → 24m 外 0.55）
+     ⚠️ 仍然**不走 PannerNode**：那要给每个声源建 3D 节点 + HRTF，成本高且核显机上
+        每帧的 HRTF 卷积是白烧。StereoPanner 只有左右电平差，对"水在左还是右"够用。
      ⚠️ 只调 lap 一层：雨/风/虫是"环境"，不随位置变（它们本就弥漫全园）。 */
-  let _lapDistGain = 1;
+  let _lapDistGain = 1, _lapPan = 0;
   function tickPondProximity(x, z, active, dt){
     if (!ctx) return;
-    let target = 1;
+    let target = 1, panT = 0;
     if (active){
-      const u = Math.hypot(x / 15.7, (z - 3.0) / 9.4);
-      target = u < 1 ? 1.9 : Math.max(0.55, 1.9 - (u - 1) * 1.13);
+      const s = nearestOnEllipse(x, z, 0, 3.0, 15.7, 9.4);
+      target = Math.max(0.55, 1.9 - s.dist * 0.0562);   // 24m 处落到 0.55（#18 同一落点）
+      panT = spatialPan(s.dx, s.dz, viewYaw);
     }
     _lapDistGain += (target - _lapDistGain) * Math.min(1, dt * 1.7);
+    _lapPan += (panT - _lapPan) * Math.min(1, dt * 3.2);   // 转头比走动快：τ≈0.31s
     if (lapG) lapG.gain.setTargetAtTime((plan(ENV.cur).lap) * _lapDistGain, ctx.currentTime, 0.25);
+    if (lapPan) lapPan.pan.setTargetAtTime(+_lapPan.toFixed(3), ctx.currentTime, 0.12);
   }
   function pondProximity(){ return +_lapDistGain.toFixed(3); }
+  function pondPan(){ return +_lapPan.toFixed(3); }
   function tick(p){
     if (!on || !ctx || ctx.state !== 'running') return;
     const now = ctx.currentTime;
@@ -615,6 +639,7 @@ const Snd = (()=>{
     plops: () => plopCount,     // 门禁读：涟漪声实际触发次数（批次 #22）
     plopsByKind: () => ({ ...plopByKind }),   // 按类分别计数：全局计数会被园里的鱼跃/泳龟污染
     pondProximity,
+    pondPan,   // 门禁读：水声当前左右（-1 全左 / +1 全右），批次 #24
     species: () => BIRD_SPECIES.map(b => ({ name:b.name, f0:b.f0, n:b.n, slope:b.slope })),
   };
 })();
@@ -655,6 +680,7 @@ HOOKS.walkMove = (dx, dz) => WALK.move(dx, dz);
 HOOKS.walkFloor = (x, z, base) => WALK.floor(x, z, base);
 HOOKS.walkTouch = (f, r) => WALK.setTouch(f, r);   // 触屏摇杆测试钩子（门禁无真触屏时验证行走数学）
 HOOKS.walkBob = () => WALK.bobPhase();              // 批次 #23：门禁验"走动有起伏、站立不抖"
+HOOKS.walkYaw = (yaw = 0) => WALK.setYaw(yaw);       // 批次 #24：测试钩子，强制走模式朝向
 HOOKS.postcard = queuePostcard;
 HOOKS.longExposure = queueLongExposurePostcard;
 HOOKS.postcardSeasons = takeSeasonsPostcard;
@@ -1972,6 +1998,8 @@ function frameWork(){
      0.25s 的音景节流里，否则步频被量化成 4Hz 的上限，快步时会丢步）。
      Snd 内部自带 on/ctx 守卫，音景没开就是空转一行判据。 */
   Snd.tickFootsteps(WALK.state.steps, camera.position.x, camera.position.z, WALK.state.active);
+  /* 声音方位要贴**本帧**视线：composer.render() 之前已把相机摆好，这里取一次即可。 */
+  refreshViewYaw();
   Snd.tickPondProximity(camera.position.x, camera.position.z, WALK.state.active, dt);
 
   /* 统计（每 0.5 秒刷新一次，避免频繁写 DOM）
@@ -2478,6 +2506,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                   sndPlan: (p) => Snd.plan(p || ENV.cur), sndLevels: () => Snd.levels(),
                   sndFootsteps: () => Snd.footsteps(),
                   sndPondProximity: () => Snd.pondProximity(),
+                  sndPondPan: () => Snd.pondPan(),   // 批次 #24：水声当前左右（-1 全左 / +1 全右）
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),
                   sndChimes: () => Snd.chimes(),
                   sndPlops: () => Snd.plops(), sndPlopsByKind: () => Snd.plopsByKind(),

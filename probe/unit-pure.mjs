@@ -6,6 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mulberry32 } from '../src/00-config.js';
+import { spatialPan, spatialGain, nearestOnEllipse, spatialMix } from '../src/00c-spatial.js';
 import { pickTier, isMobileUA, isDebugSurface } from '../src/00a-quality.js';
 import {
   mixInto, paramsAtHour, nearestTimeKey, fmtHour, weatherMutexReason,
@@ -178,4 +179,56 @@ test('estimateRefreshHz：第 10 百分位，暖机长帧不污染；样本不�
   assert.equal(estimateRefreshHz(Array(200).fill(1 / 144)), 144);
   assert.equal(estimateRefreshHz([1 / 60, 1 / 60]), 0);
   assert.equal(estimateRefreshHz(undefined), 0);
+});
+
+/* ── 声音空间化（2026-11-23 · 批次 #24）────────────────────────────────────
+   左右搞反是最容易发生、且只有戴耳机才发现的 bug —— 平时人眼看不出来，
+   所以必须在这里断言符号，而不是靠"听着像那么回事"。
+   坐标口径与 11a-walk 一致：yaw=0 朝 -z，右手 +x。 */
+test('spatialPan：yaw=0 时右侧源 → 正 pan、左侧源 → 负 pan（正前/正后居中）', () => {
+  assert.ok(Math.abs(spatialPan(0, -5, 0)) < 1e-6, '正前');      // 正前方（朝 -z）
+  assert.ok(Math.abs(spatialPan(0, 5, 0)) < 1e-6, '正后');
+  assert.ok(spatialPan(5, 0, 0) > 0.99, '右手 +x');
+  assert.ok(spatialPan(-5, 0, 0) < -0.99, '左手 −x');
+});
+
+test('spatialPan：贴脸声源不给方向（距离 <0.35m 时返回 0，防止贴脸时一转身满程甩）', () => {
+  assert.equal(spatialPan(0.1, 0.1, 0), 0);
+  assert.equal(spatialPan(-0.2, 0.2, 1.2), 0);
+});
+
+test('spatialPan：转头会翻转左右 —— yaw 与 yaw+π 对称', () => {
+  const yaw = 0.6;
+  assert.ok(Math.abs(spatialPan(4, -3, yaw) + spatialPan(4, -3, yaw + Math.PI)) < 0.02);
+});
+
+test('spatialGain：近处 1、远处到 floor、中间单调下降', () => {
+  assert.equal(spatialGain(0, 24, 0.4), 1);
+  assert.equal(spatialGain(12, 24, 0.4), 0.7);
+  assert.ok(spatialGain(24, 24, 0.4) < 0.41);
+  assert.ok(spatialGain(30, 24, 0.4) <= 0.4);       // 超出 maxDist 也夹在 floor
+  assert.ok(spatialGain(2, 24, 0.4) > spatialGain(10, 24, 0.4), '单调');
+});
+
+test('nearestOnEllipse：点在椭圆正中心 / 外 / 内，取最近岸线且方向背离池心', () => {
+  /* (0,0) 在池内（相对池心 (0,3) 的归一化距离 3/9.4 ≈ 0.32），
+     最近岸线在正南（−z 侧）9.4 半轴处 ⇒ 世界 z = 3 − 9.4 = −6.4、距 (0,0) 为 6.4。 */
+  const m = nearestOnEllipse(0, 0, 0, 3, 15.7, 9.4);
+  assert.ok(Math.abs(m.dist - 6.4) < 1e-6, `池内 (0,0) 到南岸 6.4，得 ${m.dist}`);
+  assert.ok(Math.abs(m.z - (-6.4)) < 1e-6 && Math.abs(m.x) < 1e-6, `岸点应为 (0, −6.4)，得 (${m.x}, ${m.z})`);
+  const r = nearestOnEllipse(30, 3, 0, 3, 15.7, 9.4);
+  assert.ok(Math.abs(r.x - 15.7) < 1e-6 && Math.abs(r.z - 3) < 1e-6, '正右岸点 (15.7,3)');
+  assert.ok(r.dx < 0, 'dx 指向岸上（负方向 = 左耳方向，见空间耳）');
+  const inP = nearestOnEllipse(0, 3, 0, 3, 15.7, 9.4);
+  assert.ok(inP.dist > 0 && Number.isFinite(inP.dist), '正中心兜底也不返回 NaN');
+});
+
+test('spatialMix：把 pan 与 gain 合成一份（同一口径供音景与门禁）', () => {
+  /* 听者在 (0,20) 朝 −z，声源 (8,6)：dx=8（右）、dz=−14（前）⇒
+     pan = 8/√(8²+14²) = 8/16.12 ≈ 0.496（右耳偏强但没满）；距离 √260 ≈ 16.12。 */
+  const r = spatialMix({ x: 0, z: 20, yaw: 0 }, { x: 8, z: 6 }, { maxDist: 24, floor: 0.4 });
+  assert.ok(r.pan > 0.4, `右侧池岸 → 右耳，得 ${r.pan}`);
+  assert.ok(r.dist > 15.5 && r.dist < 16.5, `距离 ≈16.12，得 ${r.dist}`);
+  const far = spatialMix({ x: 0, z: 20, yaw: 0 }, { x: 0, z: 3 }, {});
+  assert.ok(far.dist > 16, '远处岸线距离');
 });

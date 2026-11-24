@@ -192,6 +192,32 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
   check('面板上有音量滑杆（#sndVol，0~100）',
     volSlider.exists && volSlider.min === '0' && volSlider.max === '100', JSON.stringify(volSlider));
 
+  /* 水声方位（批次 #24）：走模式贴池边，水声应当落到与池岸一致的左右耳。
+     走模式出生点 (0, z=26) 朝 −z（yaw=0），池心 (0,3) 在正前方 ⇒ pan≈0。
+     yaw+ 是左转（mouse-right 为 yaw−，见 11a）：左转 π/2 后脸朝 −x，原来正前方的
+     池子转到**右手** ⇒ pan > +0.25；右转则相反 ⇒ pan < −0.25。
+     （初版注释把左右写反了，单测 spatialPan 的符号是对的 —— 以单测为准。）
+     三态各稳 2.4s（pan 时间常数 ≈0.31s，足够收敛）。断言的是**符号与量级**，
+     不是精确值 —— 左右彻底反了仍会红，"几乎居中"也放得过。 */
+  /* 走模式入口走模块 HOOKS（walk-bob 同款）：__garden 没暴露 HOOKS，
+     页内 import 00-config 拿真钩子。 */
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walk(); });
+  await sleep(500);
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walkYaw(Math.PI / 2); });
+  await sleep(2400);
+  const panR = await page.evaluate(() => window.__garden.sndPondPan());
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walkYaw(-Math.PI / 2); });
+  await sleep(2400);
+  const panL = await page.evaluate(() => window.__garden.sndPondPan());
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walkYaw(0); });
+  await sleep(2400);
+  const panF = await page.evaluate(() => window.__garden.sndPondPan());
+  await page.evaluate(async () => { const { HOOKS } = await import('/src/00-config.js'); HOOKS.walkExit(); });
+  await sleep(300);
+  check('左转看池：水声偏右（pan > +0.25）', panR > 0.25, `pan=${panR}`);
+  check('右转看池：水声偏左（pan < −0.25）', panL < -0.25, `pan=${panL}`);
+  check('面向池站立：水声居中（|pan| < 0.2）', Math.abs(panF) < 0.2, `pan=${panF}`);
+
   /* 关掉：总线必须归零 */
   await page.click('button[data-act="sound"]');
   await sleep(1200);
