@@ -268,14 +268,18 @@ const check = (name, ok, detail = '') => {
     if (!stele) return { err: '没找到 stele' };
     const mat = Array.isArray(stele.material) ? stele.material[0] : stele.material;
     if (!snowSet.has(mat)) return { err: '石刻主材质不在雪表里' };
-    let u = null;
+    let u = null, uf = null;
     const prev = mat.onBeforeCompile;
     mat.onBeforeCompile = function (sh, r){ prev.call(this, sh, r);
-      if (sh.uniforms && sh.uniforms.uSnowCover) u = sh.uniforms.uSnowCover; };
+      if (sh.uniforms && sh.uniforms.uSnowCover) u = sh.uniforms.uSnowCover;
+      /* 余韵（批次 2 · C）：石材走 uSnowFast（snowFastK=1 ⇒ shader 里 snowCov=uSnowFast），
+         只抓 uSnowCover 就抓了个"对这块石头没用的开关" —— G6 的 0% 就是这么来的。 */
+      if (sh.uniforms && sh.uniforms.uSnowFast) uf = sh.uniforms.uSnowFast; };
     mat.needsUpdate = true;                                // 触发重编译，钩子这时才被调用
     await new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)));
     if (!u) return { err: '重编译后仍未拿到 uSnowCover' };
     window.__snowU = () => u;
+    window.__snowU2 = () => uf;
     /* 诊断：这块石头的面到底朝哪。雪是按"朝上程度"混白的（vSnowN.y 过
        smoothstep(0.30,0.78)），若可见面几乎全是竖直的，严格判据下积雪量恒为 0 ——
        那样"把它加进雪表"就只是名单上的正确，画面上什么都没发生。 */
@@ -317,8 +321,12 @@ const check = (name, ok, detail = '') => {
     const grabCover = (v) => page.evaluate(async (args) => {
       const G = window.__garden, T = G.THREE;
       const u = window.__snowU && window.__snowU();
+      const u2 = window.__snowU2 && window.__snowU2();
       if (!u) return { err: '未捕获' };
+      /* 两个开关一起切：石材（snowFastK=1）听 uSnowFast，其余听 uSnowCover。
+         只切一个，另一半材质的雪原样不动 —— 石刻 ROI 就会像之前那样 0%。 */
       u.value = args.v;
+      if (u2) u2.value = args.v;
       const canvas = G.renderer.domElement, W = canvas.width, H = canvas.height;
       /* ⚠️ 用**离屏渲染目标**取像素（2026-10-31 第三版）：
          第一版 `page.screenshot()` → 空画布（675 字节）；
@@ -373,7 +381,7 @@ const check = (name, ok, detail = '') => {
       const cc = document.createElement('canvas');
       cc.width = Math.max(1, wd.width); cc.height = Math.max(1, wd.height);
       cc.getContext('2d').drawImage(ff, wd.x, wd.y, wd.width, wd.height, 0, 0, wd.width, wd.height);
-      return { read: u.value, roi: stat(roiLum), frame: stat(lumAt(0, 0, W, H)),
+      return { read: u.value, read2: u2 ? u2.value : 'n/a', roi: stat(roiLum), frame: stat(lumAt(0, 0, W, H)),
                roiLum: roiLum.map(v2 => +v2.toFixed(1)),
                url: cc.toDataURL('image/png'), full: ff.toDataURL('image/png') };
     }, { v, roi: roiBox, wide: wide(roiBox) });
@@ -394,7 +402,8 @@ const check = (name, ok, detail = '') => {
       !on.err && !off.err && !!imgOn.n && !!frameOn.n,
       on.err || off.err || `ROI ${imgOn.n}px / 整幅 ${frameOn.n}px`);
     check('覆盖量可稳定控制（没被每帧覆盖）',
-          on.read === 1 && off.read === 0, `read ${on.read} / ${off.read}`);
+          on.read === 1 && off.read === 0 && (on.read2 === 'n/a' || (on.read2 === 1 && off.read2 === 0)),
+          `read ${on.read} / ${off.read}（fast ${on.read2} / ${off.read2}）`);
     const dMed = +(imgOn.med - imgOff.med).toFixed(1);
     const dFrame = +(frameOn.med - frameOff.med).toFixed(1);
     console.log(`   石刻·有雪 ${JSON.stringify(imgOn)}`);

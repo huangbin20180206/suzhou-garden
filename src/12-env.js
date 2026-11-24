@@ -141,10 +141,14 @@ function surfaceSinkCount(){
   return n;
 }
 export function tickLinger(dt, dHours = 0){
-  if (ENV.lingerHold){
-    lingerReset(ENV.linger, ENV.cur);
-    if (ENV.t >= 1) ENV.lingerHold = false;
-  } else lingerStep(ENV.linger, ENV.cur, dt, dHours);
+  /* 冻结（门禁自检）：跳过推进，水位定格。⚠️ 与 lingerHold 不同 —— Hold 是"贴着预设走"
+     （会 reset 改写水位），Freeze 是"什么都不做"（水位保持自检开始那一刻的值）。 */
+  if (!ENV.lingerFreeze){
+    if (ENV.lingerHold){
+      lingerReset(ENV.linger, ENV.cur);
+      if (ENV.t >= 1) ENV.lingerHold = false;
+    } else lingerStep(ENV.linger, ENV.cur, dt, dHours);
+  }
   if (_surfLast && !_surfGate.dirty(ENV.linger, ENV.cur, surfaceSinkCount())) return _surfLast;
   return applySurfaces(ENV.cur);
 }
@@ -669,6 +673,10 @@ ENV.to   = cloneParams(ENV.cur);
 ENV.linger = lingerInit(ENV.cur);
 ENV.lingerApi = false;             // api 路径默认不带余韵（门禁要稳态），__garden.aftermath(true) 打开
 ENV.lingerHold = false;            // true = 本次过渡期间水位贴着预设走（换季 / 偶得 / 演示：时间跳了，不带余韵）
+ENV.lingerFreeze = false;          // true = tickLinger 跳过推进（门禁自检冻结用，产品路径恒 false）
+/* 余韵冻结（门禁自检用，见 setLingerFreeze）：tickLinger 跳过 lingerStep ⇒ 水位定格，
+   "同状态连渲两次"才真的是同状态。产品路径永远 false —— 余韵本来就是要随时间化的，
+   冻住它拍照和冻住钟表一个性质：只许门禁在自检的那几帧里用。 */
 /* 发布给 2b-wind（它只在函数体里读 windMul，但若直接 import 本模块会成环 → 见 00-config
    的 ENV_REF 注释）。放在 ENV.cur 就位之后、applyEnv 之前：后续任何风力计算都拿得到。
    ⚠️ 发布的是**参数集 ENV.cur**，不是状态机 ENV —— windMul 挂在参数集上，发布错了对象会

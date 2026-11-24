@@ -2531,6 +2531,9 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                      aftermath(true) 让 setEnv（api 路径）也带余韵 —— 默认关，门禁要的是各天气的稳态。 */
                   surface: () => surfaceState(), aftermath: (on) => setAftermathApi(on),
                   linger: () => ({ ...ENV.linger, hold: ENV.lingerHold, api: ENV.lingerApi }),
+                  /* 余韵冻结（门禁自检开关，setLightningHold 同款）：true = tickLinger 跳过推进。
+                     只给 afterrain-guard 的"连渲两次"自检用 —— 余韵活着时前后两帧本来就该不一样。 */
+                  setLingerFreeze: (v) => { ENV.lingerFreeze = !!v; },
                   sndPondProximity: () => Snd.pondProximity(),
                   sndPondPan: () => Snd.pondPan(),   // 批次 #24：水声当前左右（-1 全左 / +1 全右）
                   sndCtxState: () => Snd.ctxState(), sndBirds: () => Snd.species(),

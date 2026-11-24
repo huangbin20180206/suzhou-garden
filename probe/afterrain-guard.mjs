@@ -217,10 +217,20 @@ const check = (name, ok, detail = '') => {
     const ctx = cv.getContext('2d');
     const shot = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0); return cv.toDataURL('image/png'); };
     const keep = u.uRainbow.value;
-    u.uRainbow.value = keep; const on1 = shot();
-    u.uRainbow.value = 0;    const off = shot();
-    u.uRainbow.value = keep; const on2 = shot();
-    u.uRainbow.value = keep; const on3 = shot();      // 负例自检：同状态连渲两次
+    /* 余韵冻结（2026-11-24 · 批次 2 余韵系统引入后必需）：linger 水位每帧按真实 dt 推进，
+       四连拍之间隔着 evaluate 往返 + PNG 编码（秒级），水位/积水/檐滴都在变 —— 不冻的话
+       "同状态连渲两次"量的其实是"两秒钟的余韵流逝"（实测差 0.0249）。冻住再拍，
+       拍完立刻放行：主断言（虹可见性）要的是活的余韵场景，不受影响。 */
+    G.setLingerFreeze(true);
+    let on1, off, on2, on3;
+    try {
+      u.uRainbow.value = keep; on1 = shot();
+      u.uRainbow.value = 0;    off = shot();
+      u.uRainbow.value = keep; on2 = shot();
+      u.uRainbow.value = keep; on3 = shot();      // 负例自检：同状态连渲两次
+    } finally {
+      G.setLingerFreeze(false);   // 中途抛错也不把冻结态留给后面的检查
+    }
     return { on1, off, on2, on3 };
   });
   const D = u => decodePNG(Buffer.from(u.split(',')[1], 'base64'));
