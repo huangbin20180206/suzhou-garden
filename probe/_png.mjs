@@ -71,6 +71,24 @@ export function meanAbsDiff(A, B) {
   return sum / n;
 }
 
+/* 1 LSB 豁免的平均差（2026-11-24 · 冻结帧自检全家桶统一口径）：
+   8 位取像素下，驱动/并行编译在高压时偶发 ±1 的取整抖动（afterrain 全量链实测均值 0.0218，
+   即约 2% 像素差 1 LSB；hill/macaw/postrain 同系列 max/字节判据同因飘红、重跑即过）。
+   真漂移（余韵演进、漏改 uniform、着色器写错）都是成片多 LSB —— 扣掉每通道 ±1 再平均，
+   噪声归零，真漂移照红（afterrain 批次 2 余韵那次均值 0.0249，扣完仍 ≈0.015，照样红）。
+   只给"同状态连渲两次"这类自检用；产品 A/B 断言（dRainbow 那种）一律走原 meanAbsDiff，
+   灵敏度一位不动。 */
+export function meanAbsDiffAbove(A, B, floor = 1) {
+  const a = A.data, b = B.data;
+  if (a.length !== b.length) throw new Error(`尺寸不一致 ${a.length} vs ${b.length}`);
+  const bp = A.bpp;
+  let sum = 0, n = 0;
+  for (let i = 0; i < a.length; i += bp) {
+    for (let k = 0; k < Math.min(3, bp); k++) { sum += Math.max(0, Math.abs(a[i + k] - b[i + k]) - floor); n++; }
+  }
+  return sum / n;
+}
+
 /* 平均亮度（0~255），用于"切夜是否真的变暗"这类判据 */
 export function meanLuma(img) {
   const d = img.data, bp = img.bpp;

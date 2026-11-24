@@ -20,7 +20,7 @@ import { execSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { launchChromium, listenEphemeral } from './_harness.mjs';
-import { decodePNG, meanAbsDiff } from './_png.mjs';
+import { decodePNG, meanAbsDiff, meanAbsDiffAbove } from './_png.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const OUT = path.join(ROOT, 'outputs', '_diag', 'afterrain-guard');
@@ -237,7 +237,8 @@ const check = (name, ok, detail = '') => {
     return { on1, off, on2, on3 };
   });
   const D = u => decodePNG(Buffer.from(u.split(',')[1], 'base64'));
-  const dSelf = meanAbsDiff(D(ab.on1), D(ab.on2));
+  /* 自检走 1LSB 豁免口径（见 _png.mjs）：产品 A/B（dRainbow）保持原灵敏度 */
+  const dSelf = meanAbsDiffAbove(D(ab.on1), D(ab.on2));
   const dRainbow = meanAbsDiff(D(ab.on1), D(ab.off));
   fs.writeFileSync(path.join(OUT, 'rainbow-on.png'), Buffer.from(ab.on1.split(',')[1], 'base64'));
   fs.writeFileSync(path.join(OUT, 'rainbow-off.png'), Buffer.from(ab.off.split(',')[1], 'base64'));
@@ -263,7 +264,7 @@ const check = (name, ok, detail = '') => {
     }, { data: Array.from(merged), w2: w * 2 + GAP, h2: h });
     fs.writeFileSync(path.join(OUT, 'pair-rainbow-on-vs-off.png'), Buffer.from(png.split(',')[1], 'base64'));
   }
-  check('自检：同状态连渲两次画面不变（不是量的场景漂移）', dSelf < 0.01, `同状态差 ${dSelf.toFixed(4)}`);
+  check('自检：同状态连渲两次画面不变（1LSB 豁免口径，见 _png.mjs）', dSelf < 0.01, `同状态差 ${dSelf.toFixed(4)}`);
   /* ⚠️⚠️ 2026-10-30：加**上下文健康前置**。全量链跑到第 66 道时这道门偶发失败，
      读数是「开虹 ↔ 关虹 全幅平均差 **0.000**」—— 两次 `composer.render()` 输出完全一样。
      那不是虹没画，而是 **WebGL 上下文已经丢了**（引擎 2026-10-30 才补上丢失处理，
