@@ -93,7 +93,13 @@ try {
     const h = g.horseLifeDebug().find(x => x.role === 'graze'), P = h.group.getWorldPosition(new T.Vector3());
     const feed = [P.x + 1.45, P.z + 0.52], hay = [35.50, 0.20];
     const outward = nav.groomPath(feed, hay, h), back = nav.groomPath(hay, feed, h);
-    const caps = nav.allHorseCapsules(null), carObstacles = nav.groomCars();
+    /* ⚠️ 必须深拷：allHorseCapsules / groomCars 返回的是**模块共享的复用缓冲**
+       （2026-11-24 第 5 批零分配），"只在下一次调用前有效"。blockedOn 在函数尾求值，
+       中间隔着 offsetChecks 的 8 次 groomPath、blockedGoal 与 500 拍仿真循环里的逐拍快照 ——
+       直接拿引用，判的就不是"停车位时的位姿"，而是最后一次改写时的残留（实测 blocked 23/25，
+       路线本身是对的）。拷贝一次，判的才是本检查注释里写的"实时位姿"。 */
+    const caps = nav.allHorseCapsules(null).map(c => ({ ...c }));
+    const carObstacles = nav.groomCars().map(c => ({ inverse: c.inverse.clone(), y: c.y }));
     const blockedOn = (route, target) => {
       if (!route) return -1; let n = 0;
       for (let i = 1; i < route.length; i++){

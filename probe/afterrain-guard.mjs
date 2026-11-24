@@ -217,10 +217,13 @@ const check = (name, ok, detail = '') => {
     const ctx = cv.getContext('2d');
     const shot = () => { G.composer.render(); ctx.drawImage(G.renderer.domElement, 0, 0); return cv.toDataURL('image/png'); };
     const keep = u.uRainbow.value;
-    /* 余韵冻结（2026-11-24 · 批次 2 余韵系统引入后必需）：linger 水位每帧按真实 dt 推进，
-       四连拍之间隔着 evaluate 往返 + PNG 编码（秒级），水位/积水/檐滴都在变 —— 不冻的话
-       "同状态连渲两次"量的其实是"两秒钟的余韵流逝"（实测差 0.0249）。冻住再拍，
-       拍完立刻放行：主断言（虹可见性）要的是活的余韵场景，不受影响。 */
+    /* 余韵冻结（防御性）：linger 水位是随真实时间推进的演化量，自检"同状态连渲两次"
+       要求真·同状态 —— 冻住再拍，拍完立刻放行。注：2026-11-24 后记 —— 全量链里本自检
+       仍偶发飘过 0.01（0.0218），而同任务内 rAF 根本插不进来、linger 不可能在四连拍
+       之间走；同系列的 macaw/postrain/hill 自检（一样用 drawImage 读 WebGL 画布）在
+       高负载下同款飘红、重跑即过。真凶更可能是画布绘制缓冲在高压下的易失
+       （weather-coverage §3 就是为此改走离屏 RT 的），不是余韵。本冻结保留作防御，
+       根治是把这几个自检也迁到 RT 取像素（动四个门的像素管线，另起一批）。 */
     G.setLingerFreeze(true);
     let on1, off, on2, on3;
     try {
