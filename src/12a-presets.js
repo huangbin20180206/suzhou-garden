@@ -667,6 +667,16 @@ export function mixInto(out, a, b, t){
    时段提供「基准」，季节以乘性修正 + 专属通道叠上去；
    天气（2-3 已接入）以同样方式叠第三层：乘性修正 + 专属通道 + 天空/雾去色。
    composeEnv 单独成函数：连续时辰滑杆要用自己的「时段基准」进来叠同一套规则。 */
+/* ── 纯函数小件（2026-11-25 上移至此）：composeEnv（模块求值期就跑 resolveEnv）
+   要用它们算灯笼点亮时机，而原来它们定义在 fxGates 那一节 ⇒ 不上移就是启动期 TDZ。
+   本来就是无依赖的三行，挪位置不改语义。 */
+const _clamp01 = v => Math.max(0, Math.min(1, v));
+const _sstep = (a, b, x) => { const t = _clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
+/* 太阳仰角（度）：p.sunPos 在真实太阳模式下是真实方向（可在地平线下）；旧模式是预设主光位置。 */
+export function sunAltDeg(p){
+  const s = p.sunPos, l = Math.hypot(s[0], s[1], s[2]) || 1;
+  return Math.asin(Math.max(-1, Math.min(1, s[1] / l))) * 180 / Math.PI;
+}
 export function composeEnv(p){
   const s = ENV_SEASON[ENV.season] || ENV_SEASON.summer;       // 季节修正
   // 乘性修正（光强 / 雾 / 饱和）
@@ -694,6 +704,20 @@ export function composeEnv(p){
   // —— mixInto 只遍历 from 的键，缺键就插不出 0↔1 的缓动。
   p.festivalShow = ENV.festival ? 1 : 0;
   if (ENV.festival) applyFestivalTo(p);
+  /* 灯笼点亮时机（2026-11-25）：lamp 通道（廊灯/路灯/檐下体积光）白天必须为 0。
+     时段锚点本身是对的（午 0 / 暮 0.25 / 夜 1），但小时插值（滑杆/流转/关键帧）
+     把 12:00→17:30 拉成直线 ⇒ 春 13:00 灯 0.025、14:30 到 0.1 —— 大太阳下灯笼亮了
+     （HANDOFF-2026-11-24-polish 已知未做③；hallWarm ⑤的注释里记过窗纸版同款）。
+     修正只压"太阳还高"的部分：仰角>22° 全压（×0），<12° 不动 —— 与 hallWarm ⑤
+     同口径（12°/22°）；再乘云量门（waterSunGates 同款 clear）：阴暴天气天本就黑，
+     灯照旧亮，不压。锚点无损：午（0 本来就是 0）、暮（仰角≈7°<12° 系数 1）、
+     夜（dayK=0 系数 1）。放 composeEnv 末尾 = 滑杆/流转/关键帧/命名时段全走同一口径。 */
+  {
+    const _la = sunAltDeg(p);
+    const _lk = _clamp01(p.dayK ?? (1 - (p.starAmount || 0)));
+    const _lc = _clamp01((0.82 - (p.cloudAmount || 0)) / 0.34);
+    p.lamp = (p.lamp || 0) * (1 - _lk * _sstep(12, 22, _la) * _lc);
+  }
   return p;
 }
 export function resolveEnv(){
@@ -945,13 +969,7 @@ function applyFestivalTo(p){
    全部只依赖**参数集里本来就随过渡缓动的连续量**（starAmount / cloudAmount / diskFade / shadowK /
    dayK / sunPos / lamp），所以门控本身也连续，切天气、拖时辰不会出现新的硬切。
    ⚠️ 纯函数：不读 ENV、不碰 THREE（p 里的 Color 只读不写），node 单测直接 import。 */
-const _clamp01 = v => Math.max(0, Math.min(1, v));
-const _sstep = (a, b, x) => { const t = _clamp01((x - a) / (b - a)); return t * t * (3 - 2 * t); };
-/* 太阳仰角（度）：p.sunPos 在真实太阳模式下是真实方向（可在地平线下）；旧模式是预设主光位置。 */
-export function sunAltDeg(p){
-  const s = p.sunPos, l = Math.hypot(s[0], s[1], s[2]) || 1;
-  return Math.asin(Math.max(-1, Math.min(1, s[1] / l))) * 180 / Math.PI;
-}
+/* _clamp01 / _sstep / sunAltDeg 已上移 composeEnv 之前（见该处注释），原处只留指针。 */
 /* 水面：波光（uSunVis，口径与 9d67ccc 一字不变）与池底焦散（只取正午段，即 9d67ccc 之前的旧口径）。
    sdY = 水面所用太阳方向的 y（真实太阳模式取真实太阳，旧模式取主光，见 applyEnv）。 */
 export function waterSunGates(sdY, p){
