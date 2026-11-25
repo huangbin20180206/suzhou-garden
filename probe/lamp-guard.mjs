@@ -162,6 +162,10 @@ function lumaBox(img, cx, cy, r = 14) {
     check('路灯摇曳：10 盏都在动（极差 > 0.01）',
       flickFlat.every(v => v > 0.01), flickFlat.map(v => v.toFixed(3)).join(' '));
     check('路灯摇曳：相位分散（极差不是同一个值）',
+      /* ⚠️ 这条红了先重跑：慢凹项（0.63rad/s）在 1.4s 窗口里只采 50° 相位，
+         两盏灯同时没吃到凹、快抖采样又对齐时天然碰撞 —— 蒙特卡洛 3000 窗口起点
+         P(互异<8)≈0.03%（2026-11-25 实测）。真坏（相位派生断）是 10 个全同值，
+         与 7/8 一眼可分。 */
       new Set(flickFlat.map(v => v.toFixed(4))).size >= 8, `极差 ${flickFlat.map(v => v.toFixed(3)).join(' ')}`);
   }
 
