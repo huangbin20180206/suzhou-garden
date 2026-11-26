@@ -1087,6 +1087,27 @@ export function natureGates(p, season, eff, out){
   o.petalLight = petalLight; o.dragonfly = dragonfly;
   return o;
 }
+/* ⑧ 风与水 / 落叶的联动（2026-11-26 · 场景打造批 · 生动性）。
+   现状（改前实测）：枝叶 / 柳条 / 灯笼都吃 2b-wind 的 uWindGlobal（档位 × 天气增益 + 阵风尾巴），
+   而 ① 池面法线扰动与滚动只吃雨量 —— 风档在中风与台风之间切换时柳条摆幅差五倍，池面却纹丝不变；
+   ② 飘落花瓣 / 秋叶只按天气常数 windMul 往 +x 漂（不看风向、不看阵风）—— 竹柳顺风倒，叶子却一律往正东飘。
+   改法（全是 uniform / 标量，零新增绘制）：
+     · chop：池面风皱 = 0.30 × smoothstep(0.22, 0.85, uWindGlobal)。晴 / 薄雾天增益 0.08，档位满 + 阵风尾巴
+       峰值 ≈0.20 < 0.22 ⇒ 恒 0（默认画面逐位不变）；阴霾 / 雪只在阵风峰值微皱（≤0.01）；
+       暴雨 / 雷雨（增益 ≈1）中风档 ≈0.075、台风档 0.30 —— 风越大池面越碎，与柳条同一个量。
+       水面 shader 把它与雨量合进同一条高频扰动（uRain = min(1, 雨 + 风皱)），法线滚动另加 0.10×chop。
+     · leafDrift：落叶顺风漂的速率 = 旧值 windMul×0.55 ×(1 + 1.2×阵风度)，方向改跟风向 uWindVec。
+     · leafLoose：秋季阵风把更多叶子吹离枝头 —— 空中叶量 + 0.35×阵风度（只秋季；春花瓣不加量）。
+   门控：on=false（低档 QUALITY natureFx=false）⇒ chop 0、阵风项 0，只保留"漂向跟风向"这一条订正
+   （那是方向错，不是特效）。阵风度 = smoothstep(0.22, 0.85, uWindGlobal)，与 chop 同一把尺。 */
+export function windNature(windGlobal, windMul, season, on = true, out){
+  const g = on ? _sstep(0.22, 0.85, windGlobal || 0) : 0;
+  const o = out || {};
+  o.chop = 0.30 * g;
+  o.leafDrift = (windMul || 1) * 0.55 * (1 + 1.2 * g);
+  o.leafLoose = season === 'autumn' ? 0.35 * g : 0;
+  return o;
+}
 /* ④ 荷叶水珠强度（12e tickLotusDrops）：有水（wet 0.25 起显、0.70 满）× 雨已停 × 叶盘在（lilyShow）× 未结冰。
    wet 传**有效湿度**（含雨后余韵，见 lingerStep）—— 雨停后水珠随地面一起慢慢干掉。 */
 export function lotusDropK(p, wet){

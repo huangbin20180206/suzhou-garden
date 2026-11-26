@@ -9,7 +9,7 @@ import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PR
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
-import { natureGates, soundPlan, footstepVoice, koiBreachRate } from './12a-presets.js';
+import { natureGates, soundPlan, footstepVoice, koiBreachRate, windNature } from './12a-presets.js';
 import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT, fxGates, tickLinger, surfaceState, setAftermathApi, presenceRev } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 /* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
@@ -1435,7 +1435,7 @@ try {
 } catch { /* 非浏览器 */ }
 const MAX_STEPS = maxStepsFor(FIXED_STEP);   // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
 let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
-const _fxOut = {}, _ngOut = {};          // fxGates / natureGates 的复用输出（帧内零分配，第 5 批）
+const _fxOut = {}, _ngOut = {}, _wnOut = {};          // fxGates / natureGates 的复用输出（帧内零分配，第 5 批）
 /* 执行效率开关（2026-11-26，见 00a perfFlags）。探针/页面都从 location.search 读，与 ?perstep= 同一处取。 */
 const PERF = perfFlags((() => { try { return location.search; } catch { return ''; } })());
 let _transShadowN = 0, _transPresRev = -1;   // 环境过渡期阴影图节流的帧计数 / 上次见到的存在性版本号
@@ -1604,14 +1604,17 @@ function frameWork(){
   updateWatchers(dt, simTime);
   const rainNow = ENV.cur.rainAmount || 0;
   WIND.uRain.value = rainNow;                 // 雨打枝叶：与风无关的那部分抖动
-  waterNormalTex.offset.x += dt * (0.014 + 0.22 * rainNow);
-  waterNormalTex.offset.y += dt * (0.009 + 0.17 * rainNow);
+  /* 风皱池面（2026-11-26 · 12a windNature ⑧）：风档大时池面跟柳条一起碎；晴 / 薄雾恒 0，低档关。 */
+  const _wn = windNature(WIND.uWindGlobal.value, ENV.cur.windMul, ENV.season, ACTIVE_QUALITY.natureFx, _wnOut);
+  const chopNow = _wn.chop;
+  waterNormalTex.offset.x += dt * (0.014 + 0.22 * rainNow + 0.10 * chopNow);
+  waterNormalTex.offset.y += dt * (0.009 + 0.17 * rainNow + 0.07 * chopNow);
   if (waterSurface){
     /* ⚠️ 这行与 WIND.uTime 是**同一个 uniform 对象**（水面 shader 直接引用了它，见
        makeWater 段 `shader.uniforms.uTime = WIND.uTime`）—— 写墙钟 t 会把上面刚写进去的
        windClock 覆盖掉，风的相位又回到"每帧跳 8.4 秒"。必须同源。 */
     waterSurface.material.uniforms.uTime.value = windClock;
-    waterSurface.material.uniforms.uRain.value = rainNow;
+    waterSurface.material.uniforms.uRain.value = Math.min(1, rainNow + chopNow);   // 雨点 + 风皱同一条高频扰动
   }
   /* 低空云雾：色随雾色、浓度随雾密度 —— 所以调环境那一处就够了，不用再来一遍。
      ⚠️ 相位吃 windClock（累加 dt），与枝叶/水面同源：吃墙钟会在低帧率下每帧跳

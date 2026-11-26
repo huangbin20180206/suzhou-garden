@@ -17,7 +17,7 @@ import { bindPresetsEnv, composeEnv, baseParamsAt, cloneParams, mixInto, timeKey
          ENV_WEATHER, ENV_SEASON, weatherMutexReason,
          natureGates, soundPlan, lotusDropK, koiBreachRate, footstepVoice, FIREFLY_WX,
          airHumidity, aerialFromHumidity, HUMID_DEFAULT,
-         LINGER, lingerInit, lingerReset, lingerStep, lingerEff } from '../src/12a-presets.js';
+         LINGER, lingerInit, lingerReset, lingerStep, lingerEff, windNature } from '../src/12a-presets.js';
 import { SEASON_DOY, phenoChannels, seasonOfDoy } from '../src/12g-phenology.js';
 
 const ENV = { season: 'summer', weather: 'clear', doy: SEASON_DOY.summer, festival: false, moonPhase: null };
@@ -287,4 +287,36 @@ test('C 与 3 秒过渡叠加：有效湿度单调不增、恒 ≥ 预设插值�
   const a0 = aerialOf(to, 1), a1 = aerialOf(to, lingerEff(L, cur).wetExcess);
   assert.ok(a0.fogK > 1.2, `雨刚停雾 ×${a0.fogK.toFixed(3)}`);
   assert.deepEqual(a1, { fogK: 1, horizonMix: 0, satK: 1, hillHazeK: 1, reflHaze: 0 });
+});
+
+/* ═════════════════════════ ⑧ 风与水 / 落叶（2026-11-26 · 场景打造批）═════════════════════════ */
+/* 2b-wind 的底值风 = 档位 v × windGain(windMul) + 阵风 ×0.15（阵风峰值 ≤ 1.1）。2b-wind import 了 DOM 依赖的 01，
+   node 里拿不到，这里按其公式与常量重算上界（windGain 与 FORCE_TIERS 改了要同步本处）。 */
+const windGainRef = wf => Math.pow(Math.max(0, Math.min(1, (wf - 0.90) / 3.10)), 0.75);
+const bandHi = wf => (wf >= 2.5 ? 1.00 : wf >= 1.10 ? 0.70 : 0.42);
+const globalMax = wf => bandHi(wf) * windGainRef(wf) + 1.1 * 0.15;
+
+test('⑧ 风皱池面：晴 / 薄雾 / 雨后 / 雪霁的底值风上界内恒 0（默认画面不变）；暴雨台风档满 0.30；低档关', () => {
+  for (const w of ['clear', 'mist', 'afterrain', 'snowclear']){
+    const wm = ENV_WEATHER[w].windMul;
+    const g = globalMax(wm);
+    assert.ok(g < 0.22, `${w} windMul=${wm} 底值风上界 ${g}`);
+    assert.equal(windNature(g, wm, 'summer').chop, 0);
+  }
+  assert.ok(Math.abs(windNature(1.0, 4, 'summer').chop - 0.30) < 1e-12);
+  assert.ok(windNature(0.5, 4, 'summer').chop > 0.05);
+  assert.equal(windNature(1.0, 4, 'summer', false).chop, 0);
+  /* 单调：风越大越皱 */
+  let prev = -1;
+  for (let x = 0; x <= 1.2; x += 0.01){ const c = windNature(x, 4, 'summer').chop; assert.ok(c >= prev - 1e-12); prev = c; }
+});
+
+test('⑧ 落叶：无阵风时漂速 = 旧值 windMul×0.55；阵风加速；只秋季多吹落叶；低档阵风项归零', () => {
+  for (const wm of [0.55, 1, 1.35, 4]) assert.ok(Math.abs(windNature(0, wm, 'spring').leafDrift - wm * 0.55) < 1e-12);
+  assert.ok(windNature(1, 1, 'autumn').leafDrift > 1.1 * 0.55 * 2 - 1e-9);
+  assert.equal(windNature(1, 1, 'spring').leafLoose, 0);
+  assert.ok(Math.abs(windNature(1, 1, 'autumn').leafLoose - 0.35) < 1e-12);
+  assert.equal(windNature(1, 1, 'autumn', false).leafLoose, 0);
+  assert.equal(windNature(1, 1, 'autumn', false).leafDrift, 0.55);
+  const o = {}; assert.equal(windNature(0.5, 1, 'autumn', true, o), o, '给复用对象就零分配');
 });

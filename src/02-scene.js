@@ -54,13 +54,15 @@ export const GPU_TIER = GPU_TIER_FORCED || autoTier;
 export const QUALITY_PRESETS = Object.freeze({
   low: Object.freeze({ key:'low', label:'性能', pixelBudget:1920*1080*1.10, supersample:1.00,
                        shadow:2048, ao:false, reflection:0, refraction:384,
-                       rain:5000, snow:1200, lensWeather:60, fireflies:34, volume:false }),
+                       rain:5000, snow:1200, lensWeather:60, fireflies:34, volume:false, natureFx:false }),
   mid: Object.freeze({ key:'mid', label:'均衡', pixelBudget:2560*1440*1.05, supersample:1.10,
                        shadow:4096, ao:true, reflection:768, refraction:768,
-                       rain:10000, snow:1800, lensWeather:85, fireflies:48, volume:true }),
+                       rain:10000, snow:1800, lensWeather:85, fireflies:48, volume:true, natureFx:true }),
   high: Object.freeze({ key:'high', label:'高', pixelBudget:3840*2160*1.05, supersample:1.25,
                        shadow:6144, ao:true, reflection:1024, refraction:768,
-                       rain:14000, snow:2400, lensWeather:110, fireflies:62, volume:true }),
+                       rain:14000, snow:2400, lensWeather:110, fireflies:62, volume:true, natureFx:true }),
+  /* natureFx（2026-11-26 · 场景打造批）：风皱池面 / 阵风落叶这类“生动性”细节（12a windNature）。
+     本身零新增绘制，但低档（性能）按约定一律关，保持最朴素的画面。 */
 });
 export const ACTIVE_QUALITY = QUALITY_PRESETS[GPU_TIER];
 export function pixelRatioForTier(tier = GPU_TIER, width = innerWidth, height = innerHeight){

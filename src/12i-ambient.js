@@ -7,11 +7,12 @@
    环境状态机由 12-env 在 body 里调 bindAmbientEnv(ENV) 注入；读的是 .cur（setEnv 会换引用，别缓存 cur）。
    ⚠️ 随机数用独立 mulberry32 种子流 —— 不许碰 06a 全局共享流（铁律 1：布局可复现）。 */
 import { THREE } from '../vendor.js';
-import { scene, camera } from './02-scene.js';
+import { scene, camera, ACTIVE_QUALITY } from './02-scene.js';
 import { mulberry32 } from './00-config.js';
 import { PRECIP_INDOOR } from './12e-precip.js';
 /* 2026-11-24（批次 2 · A）：花瓣的天气 / 光照门控在 12a natureGates（纯函数，12a 不依赖本文件）。 */
-import { natureGates, effectiveWeather } from './12a-presets.js';
+import { natureGates, effectiveWeather, windNature } from './12a-presets.js';
+import { WIND } from './01-materials.js';   // 风向/风力 uniform（main.js 早已求值过 01，追加 import 不改模块求值次序）
 
 /* ↓ 由 12-env.js 注入（见文件头） */
 let ENV = null;
@@ -69,7 +70,7 @@ const PETALS = (()=>{
 })();
 scene.add(PETALS.points);
 let _prevCamX = null, _prevCamZ = null;
-const _ngOut = {};
+const _ngOut = {}, _wnOut = {};
 
 /* 门禁/诊断读的句柄（与 PRECIP/POSTRAIN 同款：只读状态，不暴露推进） */
 export const AMBIENT = {
@@ -86,7 +87,9 @@ export function updateAmbient(dt, t){
   const autumn = ENV.season === 'autumn' ? 0.8 : 0;
   /* 雨把花瓣 / 落叶打下来：空中的少（暴雨 ×0.25）、落得直（下坠 ×3.2）、摆得小（×0.3）。见 12a natureGates ②。 */
   const ng = natureGates(p, ENV.season, effectiveWeather(), _ngOut);   // 复用（第 5 批：每帧零分配）
-  const amt = Math.max(petal, autumn) * ng.petalWx;
+  /* 风联动（2026-11-26 · 12a windNature ⑧）：秋季阵风多吹下一些叶子；漂向跟风向、阵风时漂得快。 */
+  const wn = windNature(WIND.uWindGlobal.value, p.windMul, ENV.season, ACTIVE_QUALITY.natureFx, _wnOut);
+  const amt = (Math.max(petal, autumn) + (autumn > 0 ? wn.leafLoose : 0)) * ng.petalWx;
   PETALS.points.visible = amt > 0.02;
   if (!PETALS.points.visible) return;
   const uu = PETALS.points.material.uniforms;
@@ -106,15 +109,17 @@ export function updateAmbient(dt, t){
       a[i*3+2] = cam.z + (Math.random() * 2 - 1) * X;
     }
   }
-  const wind = p.windMul || 1;
+  /* 顺风漂：速率 wn.leafDrift（无阵风时 = 旧值 windMul×0.55），方向取风向 uWindVec（x, y=世界 z）。
+     旧版恒往 +x 漂、不看风向 —— 竹柳往一边倒、叶子往另一边飘。 */
+  const wv = WIND.uWindVec.value, dvx = wv.x * wn.leafDrift, dvz = wv.y * wn.leafDrift;
   const spArr = PETALS.points.geometry.attributes.aSpeed.array;
   const active = Math.max(32, Math.round(n * Math.min(1, amt)));
   for (let i = 0; i < active; i++){
     const j = i * 3;
     /* 花瓣比雪落得慢、摆得开：慢速下坠 + 大幅摇摆 + 顺风漂 */
-    a[j]   += dcx + (Math.sin(t * 0.9 + i * 0.53) * 1.1 * ng.petalSway + wind * 0.55) * dt;
+    a[j]   += dcx + (Math.sin(t * 0.9 + i * 0.53) * 1.1 * ng.petalSway + dvx) * dt;
     a[j+1] += -(0.55 + amt * 0.5) * spArr[i] * ng.petalFall * dt;
-    a[j+2] += dcz + Math.cos(t * 0.7 + i * 0.41) * 1.1 * ng.petalSway * dt;
+    a[j+2] += dcz + (Math.cos(t * 0.7 + i * 0.41) * 1.1 * ng.petalSway + dvz) * dt;
     if (a[j+1] < YB){ a[j+1] = YT; a[j] = cam.x + (Math.random() * 2 - 1) * X; a[j+2] = cam.z + (Math.random() * 2 - 1) * X; }
     else if (a[j] - cam.x >  X) a[j] -= 2 * X;
     else if (cam.x - a[j] >  X) a[j] += 2 * X;
