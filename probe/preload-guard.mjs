@@ -253,7 +253,7 @@ async function run(chromium, port, { strip, chunky, slowM, mbps }){
   const LOW_RE = /Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|llvmpipe|SwiftShader/i;
   const HIGH_RE = /Apple M[1-9]|Intel Arc|GTX\s*\d{3,4}|RTX\s*\d{3,4}|Radeon RX\s*\d+/i;
   const tierOf = (gpuName) => LOW_RE.test(String(gpuName || '')) ? 'low' : (HIGH_RE.test(String(gpuName || '')) ? 'high' : 'mid');
-  const fbBudget = tierOf(A.gpuName) === 'low' ? 2400 : 800;
+  const fbBudget = tierOf(A.gpuName) === 'low' ? 2400 : 1000;   // 2026-11-25 800→1000（老黄拍板）：RTX4060 本机 6 样本 622~969，白天正常用机 770+；11-06 的 1053~1342 尖峰若重现再议
   check('前提：取得到「首帧」刻度（否则 ⑥c 是永真，不许静默通过 —— 铁律 4）',
     A.first !== null && Number.isFinite(A.first),
     A.first === null ? '启动分段里没有「首帧」刻度' : `首帧段 ${A.first.toFixed(1)}ms`);
