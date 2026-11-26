@@ -10,6 +10,8 @@ export const SITE_NAMES = Object.freeze({
   hall:      '远香堂',     // 主堂（04 匾额、08d 机位 hall / 字幕 hall·plaque·spring）
   pavilion:  '荷风四面',   // 池东临水凉亭/水榭（04 匾额、08d 机位 pavilion / 字幕 pavilion）
   heroStone: '云根',       // 池南特置立峰 + 题名石（08d 机位 hero/stele 名与字幕标题）
+  bridge:    '石拱桥',     // 池东南单孔半圆石拱桥（05 makeArchBridge；08d 机位/字幕、11b 驻足卡、11-loop 悬停）。
+                          // 2026-11-26 统一：巡游原叫「曲桥」，曲桥是折线平桥，名不副实
 });
 
 /* 自拟的堂前题联，上下联分开存放，匾联与导览共用。 */
@@ -26,8 +28,8 @@ export const SITE_LABELS = Object.freeze({
 });
 
 /* ── 仍写死在别处、不归本目录维护的地方（改名时要一并改；2026-10-30 盘点）──
-   · index.html：<title>「苏州园林 · 拙政园远香堂对景」；机位按钮文字 data-view="hall"/"pavilion"
-     （「远香堂」「荷风四面」）；CSS 注释。
+   · index.html：<title>「苏州园林 · 拙政园远香堂对景」；机位按钮文字 data-view="hall"/"pavilion"/"bridge"
+     （「远香堂」「荷风四面」「石拱桥」）；CSS 注释。
    · src/11-loop.js：截图水印竖排「拙政园远香堂」；截图/长曝下载文件名前缀「远香堂」「远香堂长曝」；
      控制台「[远香堂] 场景就绪」；悬停标签「匾额「远香堂」」「匾额「荷风四面」」「远香堂」（台基）
      —— 可直接改用上面的 SITE_NAMES / SITE_LABELS.hoverHallPlaque / hoverPavilionPlaque。

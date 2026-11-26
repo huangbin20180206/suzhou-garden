@@ -111,6 +111,31 @@ export function vistaMayShow(name, { visited, idx, cooldown, now }){
   const until = cooldown && cooldown.get(name);
   return !(Number.isFinite(until) && now < until);
 }
+/* 驻足点选择（2026-11-26 · 场景打造批 · 复核②）。
+   旧规则："全表最近的一条"在半径内且可弹才弹。匾联 (0,−8.9) 与远香堂 (0,−12) 只隔 3.1m、半径都是 3.5m
+   ⇒ 匾联弹过（visited）后仍是"最近"，把远香堂挡到 z<−10.45（进门 1.6m）才轮得到。
+   新规则：
+     ① 只在"可弹"（未弹过、不在冷却）且各自半径内的点里挑，按 距离/半径 最小；同分取下标小的（确定性，
+        SPOT_DEFS 的书写顺序即优先级 —— 立峰/题名石在回填前同一个 target 时也不会随浮点抖动换人）；
+     ② 正在显示的卡，在 holdMs 内不被别的点替换（相邻两站不会一闪而过，给读完一句话的时间）；
+        走出它自己的 半径+缓冲 由调用方照旧收卡。
+   spots: [{x, z, r, name}]；返回要新弹的下标，-1 = 不动。 */
+export const VISTA_HOLD_MS = 4000;
+export function pickVistaSpot(spots, x, z, { visited, cooldown, now = 0, current = -1, shownAt = -Infinity, holdMs = VISTA_HOLD_MS } = {}){
+  if (!spots || !spots.length) return -1;
+  if (current >= 0 && now - shownAt < holdMs) return -1;
+  let best = -1, bestS = Infinity;
+  for (let i = 0; i < spots.length; i++){
+    if (i === current) continue;
+    const sp = spots[i];
+    const dx = x - sp.x, dz = z - sp.z, d = Math.sqrt(dx * dx + dz * dz);
+    if (!(d <= sp.r)) continue;
+    if (!vistaMayShow(sp.name, { visited, idx:i, cooldown, now })) continue;
+    const sc = d / sp.r;
+    if (sc < bestS){ bestS = sc; best = i; }
+  }
+  return best;
+}
 /* 手势分类（只对触屏调用）：down/up = {x,y,t}，down.onCard = 按下点是否落在卡片矩形内。
    · 下滑：起点在卡上、竖直位移 ≥ 40px 且以竖直为主 ⇒ 'swipe'
    · 点卡外：起点不在卡上、位移 ≤ 10px、时长 ≤ 350ms ⇒ 'tap'

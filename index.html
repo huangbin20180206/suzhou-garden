@@ -290,10 +290,10 @@
   #env button[data-view="stableNear"]::before{ color:#A87C4A; }                   /* 厩内 · 浅鞍棕 */
   /* 导览增补三站（2026-10-13 · P0-4③）：配色取自既有六条的调色逻辑 ——
      观鱼 = 锦鲤的红白斑（锦红）；匾联 = 远香堂朱红（同一栋，与 hall 同色但用不同前缀区分
-     不合适 ⇒ 用碑褐之外的"墨褐"）；曲桥 = 石拱桥汉白玉的灰白。 */
+     不合适 ⇒ 用碑褐之外的"墨褐"）；石拱桥 = 汉白玉的灰白。 */
   #env button[data-view="koi"]::before{ color:#B44A3A; }                          /* 观鱼 · 锦红 */
   #env button[data-view="plaque"]::before{ color:#6E5B47; }                       /* 匾联 · 墨褐 */
-  #env button[data-view="bridge"]::before{ color:#7E8C93; }                       /* 曲桥 · 汉白玉灰 */
+  #env button[data-view="bridge"]::before{ color:#7E8C93; }                       /* 石拱桥 · 汉白玉灰 */
 #env button[data-view="lantern"]::before{ color:#B8935A; }                      /* 石灯笼 · 灯暖（呼应火袋 emissive [1,0.74,0.34]） */
 #env button[data-view="heroPeak"]::before{ color:#7C8B95; }                     /* 主峰近观 · 灰岩（呼应 boulder 浅灰重导） */
   #env button[data-act="season-demo"]::before{ color:#DB5E92; }                  /* 四季 · 桃红 */
@@ -897,12 +897,12 @@
       <button data-view="hall">远香堂</button>
       <button data-view="pavilion">荷风四面</button>
       <button data-view="overview">全园</button>
-      <!-- 导览增补三站（2026-10-13 · P0-4③）：观鱼 / 匾联 / 曲桥 —— 与上方五站同一条路，
+      <!-- 导览增补三站（2026-10-13 · P0-4③）：观鱼 / 匾联 / 石拱桥 —— 与上方五站同一条路，
            机位在 VIEWPOINTS（08-assemble）、字幕在 TOUR_CAPTIONS、巡游在 TOUR_ORDER；
            锚点取项目里已存在的落点（锦鲤轨道中点 / 远香堂匾联 / 石拱桥），坐标见 08-assemble。 -->
       <button data-view="koi">观鱼</button>
       <button data-view="plaque">匾联</button>
-      <button data-view="bridge">曲桥</button>
+      <button data-view="bridge">石拱桥</button>
       <!-- 导览再补两站（2026-10-17 · 方案 research/tour-lantern-hero-plan.md）：
            石灯笼是新落地的实体、主峰换了 GLB（3639b6f），补上入口让它们在巡游与被看到；
            机位与字幕同在 08d-tour（VIEWPOINTS / TOUR_CAPTIONS / TOUR_ORDER），本行只管按钮。 -->

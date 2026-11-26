@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   parseMotionParam, resolveReducedMotion, MOTION, autoFlyDur, REDUCED_FLY_DUR, lightningFlashGain,
   batteryShouldDowngrade, parseSoundPrefs, serializeSoundPrefs, parseSeen, serializeSeen, SEEN_ENTRIES,
-  VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture,
+  VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture, pickVistaSpot, VISTA_HOLD_MS,
   stickResponse, combineMove, STICK_RADIUS, STICK_DEAD,
   encodeView, decodeView,
 } from '../src/00c-ux.js';
@@ -157,4 +157,54 @@ test('合成移动：键盘单键 / 斜向模长 = 1（与旧手感一致），�
   assert.equal(kbPlusStick.mag, 1, '键盘 + 摇杆叠加不超速');
   assert.deepEqual(combineMove(0.4, 0), { f:0.4, r:0, mag:0.4 });
   assert.deepEqual(combineMove(0, 0), { f:0, r:0, mag:0 });
+});
+
+/* ── 驻足点选择（2026-11-26 · 复核②）──────────────────────────────────────── */
+/* 沿 x=0 从院中往北走进远香堂，1.2m/s、60fps；返回每张卡第一次弹出时的 z。 */
+function walkNorth(spots, { z0 = 0, z1 = -11, v = 1.2 } = {}){
+  const visited = new Set(), first = {};
+  let current = -1, shownAt = -Infinity;
+  for (let t = 0, z = z0; z >= z1; t += 1000 / 60, z -= v / 60){
+    const i = pickVistaSpot(spots, 0, z, { visited, cooldown: new Map(), now: t, current, shownAt });
+    if (i >= 0){ visited.add(i); current = i; shownAt = t; if (!(spots[i].name in first)) first[spots[i].name] = z; }
+  }
+  return first;
+}
+test('驻足点：旧几何（匾 −8.9 / 堂 −12 同 3.5m）——远香堂卡要进门 1.6m 才弹（复现）', () => {
+  /* 旧规则 = "全表最近一条"在半径内且可弹；用 hold=0、只在最近点上判来复现 */
+  const spots = [{ x:0, z:-8.9, r:3.5, name:'堂匾' }, { x:0, z:-12, r:3.5, name:'远香堂' }];
+  const visited = new Set(); let hallZ = null;
+  for (let z = 0; z >= -11; z -= 0.02){
+    const d = spots.map(s => Math.abs(z - s.z)); const i = d[0] <= d[1] ? 0 : 1;
+    if (d[i] <= 3.5 && !visited.has(i)){ visited.add(i); if (i === 1) hallZ = z; }
+  }
+  assert.ok(hallZ < -10.4, `旧规则远香堂卡在 z=${hallZ}`);
+});
+test('驻足点：新几何 + 新规则 —— 上台阶先读匾、到门槛讲堂，两卡都在进门前弹出', () => {
+  const spots = [{ x:0, z:-6.9, r:3.0, name:'堂匾' }, { x:0, z:-12, r:3.5, name:'远香堂' }];
+  const f = walkNorth(spots);
+  assert.ok(f['堂匾'] <= -3.8 && f['堂匾'] > -4.0, `匾 z=${f['堂匾']}`);
+  assert.ok(f['远香堂'] !== undefined && f['远香堂'] > -9.6, `远香堂 z=${f['远香堂']}（前檐 −8.8）`);
+  assert.ok(f['远香堂'] < f['堂匾']);
+});
+test('驻足点：正在显示的卡 hold 内不被相邻点顶掉；hold 过后才换', () => {
+  const spots = [{ x:0, z:0, r:3, name:'a' }, { x:1, z:0, r:3, name:'b' }];
+  const visited = new Set([0]);
+  assert.equal(pickVistaSpot(spots, 0.9, 0, { visited, current:0, shownAt:0, now:VISTA_HOLD_MS - 1 }), -1);
+  assert.equal(pickVistaSpot(spots, 0.9, 0, { visited, current:0, shownAt:0, now:VISTA_HOLD_MS }), 1);
+});
+test('驻足点：只在可弹点里挑（弹过的近点不挡远点）；同分取下标小（回填前立峰/题名石重合）', () => {
+  const spots = [{ x:0, z:0, r:3.5, name:'题名石' }, { x:0, z:0, r:3.5, name:'立峰' }, { x:2.5, z:0, r:3.5, name:'c' }];
+  assert.equal(pickVistaSpot(spots, 0.5, 0, {}), 0);
+  assert.equal(pickVistaSpot(spots, 0.5, 0, { visited: new Set([0]) }), 1);
+  assert.equal(pickVistaSpot(spots, 0.5, 0, { visited: new Set([0, 1]) }), 2);
+  const cd = new Map([['立峰', 10]]);
+  assert.equal(pickVistaSpot(spots, 0.5, 0, { visited: new Set([0]), cooldown: cd, now: 5 }), 2);   // 冷却中跳过
+  assert.equal(pickVistaSpot(spots, 9, 9, {}), -1);
+  assert.equal(pickVistaSpot([], 0, 0, {}), -1);
+});
+test('驻足点：按 距离/半径 归一化 —— 小半径的点要更靠近才赢', () => {
+  const spots = [{ x:0, z:0, r:2, name:'small' }, { x:3, z:0, r:4, name:'big' }];
+  assert.equal(pickVistaSpot(spots, 1.2, 0, {}), 1);      // 1.2/2=0.6 vs 1.8/4=0.45
+  assert.equal(pickVistaSpot(spots, 0.5, 0, {}), 0);      // 0.25 vs 0.625
 });

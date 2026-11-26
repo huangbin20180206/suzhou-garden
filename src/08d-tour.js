@@ -518,11 +518,11 @@ export function buildViewpoints(heroPos){
       pos: new THREE.Vector3(0.0, 5.4, -3.0),
       target: new THREE.Vector3(0.0, 5.0, -8.9),
       minDist: 3.0 },
-    /* 「曲桥」：石拱桥本文件 :183-187（04-buildings makeArchBridge）落位 (8.4,0,4.6)、
+    /* 「石拱桥」（2026-11-26 前叫「曲桥」，名不副实，统一取 SITE_NAMES.bridge）：石拱桥本文件 :183-187（04-buildings makeArchBridge）落位 (8.4,0,4.6)、
        rotation.y=pi/2。机位在东北下游侧、不上桥（与 :267-272 的步行约定一致），
        连汀步入画；桥面倾角经 controls.minPolarAngle=0.055rad 折算后取 (1.8, 1.35, 12.6)。
        minDist 2.0。 */
-    { id:'bridge', label:'曲桥',
+    { id:'bridge', label:SN.bridge,
       pos: new THREE.Vector3(1.8, 1.35, 12.6),
       target: new THREE.Vector3(8.4, 0.65, 4.6),
       minDist: 2.0 },
@@ -582,11 +582,11 @@ const TOUR_CAPTIONS = {
   koi:      { title: '观鱼', text: '池中锦鲤沿路线巡游，暖季还可见泳龟。按「鱼趣」向池中撒食，邻近的鱼会游来。' },
   /* 「匾联」站：前檐金柱的自拟题联与建模共用 HALL_COUPLET。 */
   plaque:   { title: '匾联', text: '檐下「' + SN.hall + '」匾额，前檐自拟题联：' + HALL_COUPLET.upper + '，' + HALL_COUPLET.lower + '。' },
-  /* 「曲桥」站：石拱桥在池东南跨水（04-buildings makeArchBridge，08-assemble 落位 (8.4,·,4.6)、
+  /* 「石拱桥」站：石拱桥在池东南跨水（04-buildings makeArchBridge，08-assemble 落位 (8.4,·,4.6)、
      rotation.y=π/2），桥心即拱顶。机位从**桥的东北上下游侧**取景，连同汀步（z≈5.6 线）一起入画。
      ⚠️ 这个站位刻意**不上桥**：巡游观鱼者的步行路径（实走到 z≥9.7 的南端引桥，见 :267-272 注释）
      用的就是"不上桥"这条约定，机位口径一致。minDist 2.0（桥心近水）。 */
-  bridge:   { title: '曲桥', text: '池东南石拱桥跨水，桥南接着一排汀步。拱顶起在水线上，绕桥走一圈，两侧水面各有一番景。' },
+  bridge:   { title: SN.bridge, text: '池东南石拱桥跨水，桥南接着一排汀步。拱顶起在水线上，绕桥走一圈，两侧水面各有一番景。' },
   /* 「石灯笼」站（2026-10-17 建、2026-10-18 改锚点）：anchor = 院外石板路第 2/3 对之间
      (35.6,·,18.6)（15-stable makeStableRoad ④ 的 10 盏布点）。旧文案里的池北岸
      (4.0,·,−3.8) 是搬迁前的锚点，已作废。
@@ -615,7 +615,7 @@ const SEASON_CAPTIONS = {
 };
 /* 巡游清单（2026-10-13 · P0-4③ 增补）：
    原五站的顺序、机位、停留时长与字幕语义**一字不动**；新三站插在「题名石近观」与「远香堂」之间，
-   让巡游从「题名石」接「观鱼 → 匾联 → 曲桥」再收「远香堂 → 荷风四面 → 全园」，是一条顺水的带看线。
+   让巡游从「题名石」接「观鱼 → 匾联 → 石拱桥」再收「远香堂 → 荷风四面 → 全园」，是一条顺水的带看线。
    不把梅 / 马厩 / 彩虹 / 流星雨 / 烟花这几个**情境机位**加进来：
      梅/马厩是**位置**机位（在园内的隐角，巡查幕上能看懂），但彩虹/流星雨/烟花是**场景**机位
      （要 雨后初晴 / 夜 / 夜 才有东西看）—— noon/summer/clear 的巡游里它们就是空景。 */

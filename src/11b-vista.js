@@ -29,9 +29,9 @@
 //   · 关掉 ≠ 走开：用户主动关掉的那一条进 VISTA_COOLDOWN_MS（2 分钟）冷却，重开步行也不再弹；
 //     冷却表放在模块级（跨 reset() 存活）—— reset 只清"本轮已弹过"。判定在 00c-ux（纯 node 可测）。
 import { HALL_COUPLET, SITE_NAMES } from './03a-names.js';
-import { VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture } from './00c-ux.js';
+import { VISTA_COOLDOWN_MS, pickVistaSpot, classifyCardGesture } from './00c-ux.js';
 
-const RADIUS = 3.5;        // 进入半径（m）
+const RADIUS = 3.5;        // 进入半径（m）；单条可用 SPOT_DEFS 的 r 覆盖
 const REENTER_GAP = 1.5;    // 离开这么多米才允许重弹（防边界抖动反复弹）
 
 /* 驻足点定义：vp 取 VIEWPOINTS 里机位的 id，spot 取 target（景物实际位置）。
@@ -57,9 +57,16 @@ const SPOT_DEFS = [
      bridge-center 初版同样存疑，都是这么筛掉又加回来的）；③ 文案同一气质（短、导游一句话）。
      桥（deck 可走，walk-real-guard B 段实测南端台阶 0.296→1.302→2.099逐级可上）、
      匾（堂前）、灯（石板路）、厩（院场）四处都是脚能到的地方。 */
-  { vp:'bridge',    anchor:'曲桥', title:'石拱桥',
-    text:'一拱跨两岸。桥洞是圆的——站上桥顶低头看，水里还有一座。' },
-  { vp:'plaque',    anchor:'堂匾', title:'堂额「' + SITE_NAMES.hall + '」',
+  /* 桥名取 03a SITE_NAMES.bridge（与悬停标签 / 巡游按钮 / 字幕同一个名字；2026-11-26 前巡游叫「曲桥」——
+     曲桥是折线平桥，这里是单孔半圆石拱桥，名不副实）。桥洞是**半圆**拱（05 makeArchBridge hole.absarc），
+     不是整圆 —— 整圆要靠水里那一半倒影补上。 */
+  { vp:'bridge',    anchor:SITE_NAMES.bridge, title:SITE_NAMES.bridge,
+    text:'一拱跨两岸。半圆桥洞与水中倒影合成一轮满月——站上桥顶低头看，水里还有一座。' },
+  /* 触发区（2026-11-26 · 复核②）：匾在前檐 (0,·,−8.9)，与远香堂 target (0,·,−12) 只隔 3.1m，
+     同为 3.5m 半径时远香堂卡要进门 1.6m 才弹。匾本来就该在台阶上仰头读（5m 高，站在檐下反而看不全），
+     所以把匾的触发圆心往南挪 2m 到上层台基前沿 (0,−6.9)、半径 3.0 ⇒ 踏上台阶（z≈−3.9）先读匾，
+     走到门槛（z≈−8.5，远香堂半径边）再讲堂；两圆心相距 5.1m。坐标仍从机位 target 派生，只加偏移。 */
+  { vp:'plaque',    anchor:'堂匾', title:'堂额「' + SITE_NAMES.hall + '」', off:[0, 2.0], r:3.0,
     /* 堂名从 03a-names 取（文件头约定：展示名唯一出处；04 匾额贴图同源），不另写一份 */
     text:'檐下正中高悬「' + SITE_NAMES.hall + '」三字。匾是园子的脸——先认字，再看景。' },
   { vp:'lantern',   anchor:'石灯笼', title:'路灯笼',
@@ -101,6 +108,7 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
   let building = false;     // buildSpots 动态 import 在飞 ⇒ 防重入
   let current = -1;         // 当前展示的驻足点下标
   let visited = new Set();  // 本轮步行已弹过的点
+  let shownAt = -Infinity;  // 当前卡弹出的时刻（performance.now 毫秒）
   /* 简化策略：一条驻足点每轮步行只弹一次（visited 集合）。
      走回头路不刷屏，比"离开重弹"体验稳，规则也一眼能懂。 */
 
@@ -122,8 +130,13 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
     for (const d of SPOT_DEFS){
       const v = VPS.find(x => x && x.id === d.vp);
       if (v && v.target){
-        spots.push({ x:v.target.x, z:v.target.z, title:d.title, text:d.text,
-                     name:d.anchor });
+        /* t 持有 target 的**引用**而不是拷一份：题名石（stele）机位在立峰延迟批里按实测几何回填
+           （08-assemble vpS.target.set），回填前与立峰（hero）同一个 target。拷值的话，回填前进过一次
+           步行就永远停在立峰身上；持引用则每帧 syncSpots 读到回填后的位置。回填前两点重合时由
+           pickVistaSpot 的"同分取下标小"定次序（stele 在前），不随浮点抖动。 */
+        const off = d.off || [0, 0];
+        spots.push({ t:v.target, ox:off[0], oz:off[1], x:v.target.x + off[0], z:v.target.z + off[1],
+                     r:d.r || RADIUS, title:d.title, text:d.text, name:d.anchor });
       }
     }
   }
@@ -179,17 +192,13 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
     }
     if (!spots.length) return;
     const cx = cameraPosX(), cz = cameraPosZ();
-    let best = -1, bestD = Infinity;
-    for (let i = 0; i < spots.length; i++){
-      const s = spots[i];
-      const dx = cx - s.x, dz = cz - s.z, d = dx*dx + dz*dz;
-      if (d < bestD){ bestD = d; best = i; }
-    }
-    const R2 = RADIUS * RADIUS;
-    /* 命中：最近点在半径内且本轮没弹过 ⇒ 弹卡并记 visited（一条点一轮只讲一遍，
-       走回头路不刷屏）。卡片在播时只看"是否还站在原点半径+缓冲内"，站远即收。 */
-    if (best >= 0 && bestD <= R2 &&
-        vistaMayShow(spots[best].name, { visited, idx:best, cooldown:_cooldown, now:performance.now() })){
+    for (let i = 0; i < spots.length; i++){ const s = spots[i]; s.x = s.t.x + s.ox; s.z = s.t.z + s.oz; }
+    const now = performance.now();
+    /* 命中：可弹点里 距离/半径 最小的一条 ⇒ 弹卡并记 visited（一条点一轮只讲一遍，走回头路不刷屏）。
+       正在显示的卡 VISTA_HOLD_MS 内不被相邻点顶掉（判据见 00c-ux pickVistaSpot）。
+       卡片在播时只看"是否还站在原点半径+缓冲内"，站远即收。 */
+    const best = pickVistaSpot(spots, cx, cz, { visited, cooldown:_cooldown, now, current, shownAt });
+    if (best >= 0){
       const s = spots[best];
       const el = ensureEl();
       el.querySelector('b').textContent = s.title;
@@ -197,11 +206,11 @@ export function createVista({ walkState }){  let spots = null;         // [{x,z,
       el.hidden = false;
       requestAnimationFrame(() => { el.style.opacity = '1'; });
       visited.add(best);
-      current = best;
+      current = best; shownAt = now;
     } else if (current >= 0){
       const s = spots[current];
       const dx = cx - s.x, dz = cz - s.z;
-      if (dx*dx + dz*dz > (RADIUS + REENTER_GAP) ** 2) hide();
+      if (dx*dx + dz*dz > (s.r + REENTER_GAP) ** 2) hide();
     }
   }
 
