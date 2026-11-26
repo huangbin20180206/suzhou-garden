@@ -237,6 +237,28 @@ test('C 雪停：屋顶 / 石面 3 分钟化完时地面还剩六成，8 分钟�
   assert.deepEqual([lingerEff(L2, sc).snowGround, lingerEff(L2, sc).snowFast], [1, 1]);
 });
 
+test('C 雪化湿地：化雪全程地面湿（复用雨余韵通道），化完约 3 分钟干透；雪霁 / decayOnly 不湿', () => {
+  const snow = at('winter', 'snow', 12.5), cl = at('winter', 'clear', 12.5);
+  const L = lingerInit(snow);
+  assert.equal(L.wet, snow.wetness || 0);
+  run(L, cl, 5);
+  assert.ok(Math.abs(lingerEff(L, cl).wet - LINGER.meltWet) < 1e-9, `化雪 5s 湿度 ${L.wet}`);
+  assert.ok(lingerEff(L, cl).wetExcess > 0.5, '空气含水量跟着抬（wetExcess）');
+  run(L, cl, LINGER.snowGroundSec * 0.6);
+  assert.ok(Math.abs(L.wet - LINGER.meltWet) < 1e-9, '化雪中途仍湿');
+  let tDry = 0, prev = Infinity, mono = true;
+  for (; tDry < 900 && lingerEff(L, cl).wet > 0; tDry++){ const w = lingerEff(L, cl).wet; if (w > prev + 1e-12) mono = false; prev = w; run(L, cl, 1); }
+  assert.equal(L.snowG, 0);
+  assert.ok(mono, '收尾单调不增');
+  const total = LINGER.snowGroundSec * 0.6 + 5 + tDry;
+  assert.ok(total > LINGER.snowGroundSec && total < LINGER.snowGroundSec + 220, `雪停到地面干透 ${total}s`);
+  /* 雪霁：积雪还在，不湿 */
+  const sc = at('winter', 'snowclear', 12.5), L2 = lingerInit(snow); run(L2, sc, 60);
+  assert.equal(lingerEff(L2, sc).wet, Math.max(sc.wetness || 0, 0));
+  /* decayOnly 不抬湿 */
+  const L3 = lingerInit(snow); lingerStep(L3, cl, 0, 1, true); assert.equal(L3.wet, snow.wetness || 0);
+});
+
 test('C 时光流转按游戏小时快进；拨时辰 decayOnly 不提前打湿；下雨即时变湿；reset 回预设', () => {
   const L = lingerInit(storm()), p = clear();
   lingerStep(L, p, 0, 1.0); assert.ok(Math.abs(L.wet - 0.5) < 1e-9, `流转 1 小时 ${L.wet}`);

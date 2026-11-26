@@ -1199,7 +1199,8 @@ export function aerialFromHumidity(h, dayK = 1){
        · 降按"游戏秒 + 流转小时"两路累计：静看 5 分钟干透 / 屋顶石面 3 分钟化完 / 地面 8 分钟；
          时光流转（0.4 时/秒）按游戏内小时算：2 / 1.5 / 4 小时 —— 流转快进时余韵也跟着快进；
    applyState 换季 / 偶得 / 四季演示、settleEnv（明信片）⇒ reset：时间跳了几个月，不该带着上一幕的雪。 */
-export const LINGER = { wetSec: 300, snowFastSec: 180, snowGroundSec: 480, wetHr: 2.0, snowFastHr: 1.5, snowGroundHr: 4.0 };
+export const LINGER = { wetSec: 300, snowFastSec: 180, snowGroundSec: 480, wetHr: 2.0, snowFastHr: 1.5, snowGroundHr: 4.0,
+                        meltWet: 0.55 };
 export function lingerInit(p){
   const L = { wet: 0, snowF: 0, snowG: 0 };
   return lingerReset(L, p);
@@ -1219,6 +1220,17 @@ export function lingerStep(L, p, dt, dHours = 0, decayOnly = false){
   L.snowG = _slew(L.snowG, p.snowCover || 0, dts / LINGER.snowGroundSec + dh / LINGER.snowGroundHr, decayOnly);
   /* 屋顶石面化得快：任何时刻不比地面多（升时两者同值，降时 F 先走） */
   if (L.snowF > L.snowG) L.snowF = L.snowG;
+  /* 雪化湿地（2026-11-26 · 场景打造批；HANDOFF-11-24 已知未做"雪化时地面不变湿"）：
+     地面积雪在化（余韵水位 snowG 高于预设）⇒ 雪水把地面打湿，复用雨余韵的湿度通道 L.wet ——
+     湿光 / 积水 / 檐滴 / 空气含水量（wetExcess）全走现成写口，不新增 uniform。
+     湿度 = meltWet × smoothstep(0, 0.15, 待化量)：化雪全程约 0.55（积水约半档，檐下化雪滴水），
+     待化量 <0.15 时随之收；化完后 L.wet 按雨余韵同一速率（5 分钟 1.0→0）约 3 分钟干透。
+     只抬不压（max）：雨夹雪后的更湿状态不被它拉低。decayOnly（拨时辰跳过的小时）不抬 —— 与"只许降"同义。
+     雪 → 雪霁：预设积雪仍满 ⇒ 待化量 0 ⇒ 不湿（雪霁的景是积雪还在）。 */
+  if (!decayOnly){
+    const melt = L.snowG - (p.snowCover || 0);
+    if (melt > 0){ const mw = LINGER.meltWet * _sstep(0, 0.15, melt); if (mw > L.wet) L.wet = mw; }
+  }
   return L;
 }
 /* ══ 地表三项的"变了才算"门（2026-11-24 · 第 5 批 · 慢更新分流）════════════════════════════════
