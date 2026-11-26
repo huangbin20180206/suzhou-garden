@@ -2082,7 +2082,16 @@ function frameWork(){
   AA.tick();
   renderer.info.reset();
   tickLampVol(performance.now() * 0.001);   // 体散射/地面光斑的时间源
-  composer.render();
+  /* 场景矩阵每帧只算一次（2026-11-26，PERF.matrixOnce，逃生口 ?matrix=auto）：
+     composer 一帧里调 renderer.render 约 3 次（主 pass、水面反射、GTAO），加上后面的折射共 4 次，
+     three 每次开头都 scene.updateMatrixWorld() 全场重算 —— 而从这里到折射渲完，没有任何代码再动变换
+     （Reflector/折射相机 parent 为 null，three 仍会单独更新它们；主相机挂在 scene 下，这一次已算到）。
+     所以先手动算一次、渲染期间关自动更新，结果逐像素相同。
+     ⚠️ 必须 try/finally 还原：渲染抛错时若停在 false，之后所有移动都不再进矩阵（画面冻结且不报错）。 */
+  const _mOnce = PERF.matrixOnce;
+  if (_mOnce){ scene.updateMatrixWorld(); scene.matrixWorldAutoUpdate = false; }
+  try { composer.render(); }
+  finally { if (_mOnce) scene.matrixWorldAutoUpdate = true; }
 
   /* 音景每 0.25 秒跟一次环境值（setTargetAtTime 自己会平滑，不需要每帧） */
   sndAcc += dt;
@@ -2136,8 +2145,11 @@ function frameWork(){
      ① 阴影此时已按本帧更新过（折射 pass 关掉自动更新就不会每帧多重渲一张 6144² 阴影图，
         尤其在环境过渡期 needsUpdate 每帧都为 true）；
      ② 水面用的是**上一帧**的池底贴图 —— 鱼游得慢，一帧延迟肉眼无感。
-     ⚠️ 在 composer 之前调会把 stats 的 draw call 记账顺序打乱（reset 在 composer 前）。 */
-  renderRefraction();
+     ⚠️ 在 composer 之前调会把 stats 的 draw call 记账顺序打乱（reset 在 composer 前）。
+     矩阵同上（PERF.matrixOnce）：composer 前已算过，其间只有音景/统计文案，不动变换 ⇒ 不再全场重算。 */
+  if (_mOnce) scene.matrixWorldAutoUpdate = false;
+  try { renderRefraction(); }
+  finally { if (_mOnce) scene.matrixWorldAutoUpdate = true; }
   _tickHover();
 }
 
@@ -2145,9 +2157,11 @@ function frameWork(){
    病灶：启动分段里"首帧"一段独占 ~5s —— 57 个 shader program 的编译+链接全挤在
    第一次 render 里同步完成，主线程整段冻结，加载页只剩合成线程的滑条在动。
 
-   试过的弯路：`compileAsync` 提前编 —— 实测**负优化**（program 63→101、首帧更慢 1.8s）。
-   原因：compileAsync 编的是"调用那一刻渲染状态"对应的 program，与真正首帧的
-   灯组/阴影/雾宏组合对不上，同一批材质被编两遍。
+   试过的弯路：`compileAsync` 提前编 —— 当时实测**负优化**（program 63→101、首帧更慢 1.8s）。
+   根因（2026-11-26 已查明，见下方"并行预编"）：调用时**渲染目标为 null**，three 按 null 目标定
+   outputColorSpace（sRGB）与 toneMapping（ACES）两条宏；而生产帧的 RenderPass 画进 composer 的
+   HalfFloat RT（线性、无色调映射）—— 色彩空间与色调映射开关不一致 ⇒ 几乎每个材质编两份。
+   不是"compileAsync 本身慢"：把目标切到 composer.readBuffer 再编，宏即与生产帧对齐（?precompile=1）。
 
    最终方案（两步）：
    ① 减 program：风材质的 amp/speed/mode/maxDisp 从编译期常量降为 uniform，

@@ -264,10 +264,12 @@ test('pondEar：复用 out 对象（每帧调用零分配），且跨岸线增�
 /* ── 执行效率开关 / 过渡期阴影节流（2026-11-26 · 执行效率批）───────────────────────── */
 import { perfFlags, transitionShadowDue, TRANS_SHADOW_EVERY } from '../src/00a-quality.js';
 
-test('perfFlags：缺省全关、阴影 gated；各开关只认确切写法', () => {
-  assert.deepEqual({ ...perfFlags('') }, { warmPar: false, precompile: false, shadowTrans: 'gated' });
-  assert.deepEqual({ ...perfFlags('?warm=par&precompile=1&shadowtrans=all') },
-                   { warmPar: true, precompile: true, shadowTrans: 'all' });
+test('perfFlags：缺省全关、阴影 gated、矩阵单算开；各开关只认确切写法', () => {
+  assert.deepEqual({ ...perfFlags('') }, { warmPar: false, precompile: false, shadowTrans: 'gated', matrixOnce: true });
+  assert.deepEqual({ ...perfFlags('?warm=par&precompile=1&shadowtrans=all&matrix=auto') },
+                   { warmPar: true, precompile: true, shadowTrans: 'all', matrixOnce: false });
+  assert.equal(perfFlags('?matrix=once').matrixOnce, true);        // 只有 auto 是逃生口
+  assert.equal(perfFlags('?xmatrix=auto').matrixOnce, true);
   assert.equal(perfFlags('?warm=seq').warmPar, false);
   assert.equal(perfFlags('?precompile=0').precompile, false);
   assert.equal(perfFlags('?xwarm=par').warmPar, false);          // 别的参数名里含 warm= 不算

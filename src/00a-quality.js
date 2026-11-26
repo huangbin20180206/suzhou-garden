@@ -103,6 +103,11 @@ export function perfFlags(search = ''){
     warmPar: get('warm') === 'par',
     precompile: get('precompile') === '1',
     shadowTrans: get('shadowtrans') === 'all' ? 'all' : 'gated',
+    /* 每帧场景矩阵只算一次（2026-11-26 · 场景打造批）：一帧里 renderer.render 被调约 4 次
+       （主 pass、水面反射、GTAO 法线/深度、折射），每次开头都 scene.updateMatrixWorld() 全场重算。
+       默认开：animate 在 composer.render() 前手动算一次，渲染期间关 scene.matrixWorldAutoUpdate。
+       逃生口 ?matrix=auto 回到 three 的每次重算（结果逐像素相同，只是多算）。 */
+    matrixOnce: get('matrix') !== 'auto',
   });
 }
 /* 环境过渡（时段/季节/天气 3 秒缓动）期间要不要重渲阴影图。
