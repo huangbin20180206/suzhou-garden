@@ -2334,6 +2334,45 @@ function enterBasic(){
   preloadEnterBasic?.();
 }
 
+/* ── 并行预编（2026-11-26 · 执行效率批 · 启动/场景切换；默认关，见 00a perfFlags）──────────────────
+   为什么上面那条"compileAsync 负优化（program 63→101）"不再成立：当时 compileAsync 是在**渲染目标为 null**
+   时调的。three@0.184 的 WebGLPrograms.getParameters 按"当前渲染目标"定两条宏 ——
+   outputColorSpace（null ⇒ sRGB，RT ⇒ 线性）与 toneMapping（null ⇒ ACES，RT ⇒ 无）—— 而生产帧的
+   RenderPass 画进 composer.readBuffer（HalfFloat RT）。宏不一致 ⇒ 几乎每个材质编两份，正是 63→101。
+   这里先把渲染目标切到 composer.readBuffer 再 compile，宏与生产帧对齐；只交给 three 一个"假场景"
+   （只有 traverse，列表由调用方挑），灯与雾仍取真场景（targetScene = scene），与真实渲染同口径。
+   KHR_parallel_shader_compile 在时，compile 只发起编译不等结果，驱动在后台线程编；随后分桶帧/切换帧
+   拿到的是已编好的 program。扩展不在时 compileAsync 退化成"发起 + 10ms 轮询"，不会更慢。
+   ⚠️ 收益只有真 GPU 能量（无头 SwiftShader 没有并行编译），所以默认关；量法见交接文档。 */
+const PRECOMPILE = { runs: [] };
+function renderableList(wantVisible){
+  const out = [];
+  const visChain = (o) => { for (let p = o; p; p = p.parent) if (p.visible === false) return false; return true; };
+  scene.traverse(o => {
+    if (!(o.isMesh || o.isPoints || o.isLine || o.isSprite) || !o.material) return;
+    if (visChain(o) === wantVisible) out.push(o);
+  });
+  return out;
+}
+async function parallelPrecompile(label, list){
+  const t0 = performance.now(), p0 = (renderer.info.programs || []).length;
+  const fake = { traverse(f){ for (const o of list) f(o); }, traverseVisible(){} };
+  const prevRT = renderer.getRenderTarget();
+  let pending = null;
+  try {
+    renderer.setRenderTarget(composer.readBuffer);
+    pending = renderer.compileAsync(fake, camera, scene);
+  } finally { renderer.setRenderTarget(prevRT); }
+  await pending;
+  const rec = { label, objects: list.length, ms: +(performance.now() - t0).toFixed(1),
+                programsBefore: p0, programsAfter: (renderer.info.programs || []).length,
+                parallelExt: !!renderer.extensions.get('KHR_parallel_shader_compile') };
+  PRECOMPILE.runs.push(rec);
+  console.log(`[并行预编·${label}] ${rec.objects} 个对象 ${rec.ms}ms ｜ program ${p0} → ${rec.programsAfter}` +
+              (rec.parallelExt ? '' : ' ｜ 无 KHR_parallel_shader_compile'));
+  return rec;
+}
+
 async function warmBoot(){
   /* ── 阶段 0：资产预载（2026-09-27 · 高精资产批次）────────────────────────
      4 个 GLB 在**模块求值期**就发起了（08-assemble/06 的 loadAssetOnce），本函数
@@ -2346,6 +2385,12 @@ async function warmBoot(){
         零行为变化。实测这把预载段代价从 +4.0% 压到 ~0（见 outputs/_diag/）。 */
   armQuickEntry();                                 // 静默入口：先武装，等用户第一次主动动手
   await preloadPhase(setPreloadUI).promise;
+  /* ?warm=par：分桶之前先并行预编当前可见的全部对象（与 collectWarmBuckets 同一口径：visible 链上全为真）。
+     分桶帧照旧走真实 composer.render() —— 宏没对上的零星 program 仍在那里补编，最坏退回旧行为。 */
+  if (PERF.warmPar){
+    try { await parallelPrecompile('暖机前', renderableList(true)); }
+    catch (e){ console.warn('[并行预编] 失败，退回分桶暖编译：', e); }
+  }
 
   const buckets = collectWarmBuckets();
   const saved = [];
@@ -2454,6 +2499,14 @@ function startAfterWarm(){
             /* 第 4 批：带分享 hash 打开 ⇒ 先按链接落景（环境走 applyState、机位直接就位），
                用上了就不再放开场运镜 —— 收链接的人要看的是"那一幅画"，不是开场飞行。 */
             if (!applySharedView(location.hash)) introMaybeAuto();
+            /* ?precompile=1：开园后等主线程空下来，把"初始隐藏"的对象（雨/雪/萤火/镜前雨/烟花…）并行预编掉，
+               让第一次切到雨/雪/夜/灯会时不再现场编译着色器（见 parallelPrecompile 注释）。 */
+            if (PERF.precompile){
+              const go = () => parallelPrecompile('隐藏对象', renderableList(false))
+                .catch(e => console.warn('[并行预编] 隐藏对象失败（不影响运行）：', e));
+              if (typeof requestIdleCallback === 'function') requestIdleCallback(go, { timeout: 4000 });
+              else setTimeout(go, 1500);
+            }
             /* 首次引导：首帧之后才弹（早于此时画布还是白的，教人转视角没有意义）。
                ⚠️ 探针每次都是全新的 localStorage → 引导**一定会**出现。它非模态且首次交互即消失，
                  所以不会挡住任何门禁的点击。 */
@@ -2491,7 +2544,8 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                      必须用 getter 函数读 —— 直接写 `bootDone` 会在建这个对象时把 false 定格，
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
                   bootDone: () => bootDone, bootDonePromise,
-                  perfFlags: () => PERF,   // 执行效率批（2026-11-26）：当前开关
+                  /* 执行效率批（2026-11-26）：当前开关 + 并行预编记录（?warm=par / ?precompile=1 时才有条目） */
+                  perfFlags: () => PERF, precompileState: () => PRECOMPILE.runs.slice(),
                   /* 循环内错误账本（2026-10-30）：单帧兜错后 pageerror 不再是可靠信号，
                      门禁断言"零报错"改看这里：`__garden.loopErrors().count === 0`。 */
                   loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),
