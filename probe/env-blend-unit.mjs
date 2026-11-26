@@ -210,6 +210,20 @@ test('星点按空气含水量收：晴类子夜一字不变（黎明晨湿绝�
   }
 });
 
+test('波光按雾 / 湿度收：薄雾正午不再比晴天亮，晴类（含晨湿）几乎不动', () => {
+  for (const season of SEASONS){
+    const at = (w, h) => { const a = sweep.get(season + '/' + w); return a ? a.find(r => Math.abs(r.h - h) < 1e-6).s : null; };
+    const m = at('mist', 12.5), c = at('clear', 12.5);
+    if (m && c) assert.ok(m.w.sunVis < c.w.sunVis && m.w.sunVis > 0.1, `${season} 薄雾正午波光 ${m.w.sunVis} vs 晴 ${c.w.sunVis}`);
+  }
+  for (const [k, r] of all()){
+    if (!CLEARISH.has(k.split('/')[1])) continue;
+    const sdY = r.s.p.sunPos[1] / (Math.hypot(...r.s.p.sunPos) || 1);
+    const raw = waterSunGates(sdY, { ...r.s.p, diskFade: 0, humidW: 0.3, dawnHumid: 0 }).sunVis;
+    assert.ok(raw - r.s.w.sunVis <= 0.01, `${k}@${r.h} 晴类波光被收 ${r.s.w.sunVis} vs ${raw}`);
+  }
+});
+
 test('单调：晴类天气灯 / 窗暖午后只升不降、上午只降不升（复核：夏 16:00 0.022 → 17:00 0.015 → 17:30 0.096）', () => {
   for (const [k, arr] of sweep){
     const w = k.split('/')[1];

@@ -985,9 +985,18 @@ export function waterSunGates(sdY, p){
   const clear = _clamp01((0.82 - (p.cloudAmount || 0)) / 0.34);       // 云 ≤0.48 全亮，≥0.82 关
   /* 焦散另乘 shadowK：焦散与硬影同一个物理前提（直射光），薄雾 / 雪 / 细雨 shadowK=0 时
      （薄雾云量只有 0.30，clear 门照开）正午焦散原本满档 —— 雾里没有影子、池底却晃光斑。
-     波光不乘（雾里日轮留 30%，水面一点亮闪是旧观感，不在本批范围）。 */
+     波光不乘 shadowK（雾里日轮留 30%，水面一点亮闪是旧观感）。
+     雾 / 湿度收波光（2026-11-26 · 场景打造批）：薄雾云量只有 0.30 ⇒ clear 门全开，正午波光 1.0 —— 比夏晴正午
+     （云 0.58，0.706）还亮，雾天水面白闪一片。现按"雾 + 空气含水量"取 hazeK =
+     max(smoothstep(0.10, 0.70, diskFade), smoothstep(0.55, 0.80, H))，波光 × (1 − 0.6·hazeK)：
+       · 薄雾（diskFade 0.70、H 0.70~0.80）⇒ ×0.40（正午 1.0 → 0.40，仍有一点被雾裹住的亮）；
+       · 晴 / 雨后 / 雪霁 diskFade ≤0.02、H ≤0.57（晨湿最高处）⇒ hazeK ≤0.01，观感不变（9d67ccc 的暮金波光保住）；
+       · 阴雨雪 clear 门本就 0。焦散同乘（守"焦散 ≤ 波光"；薄雾 shadowK=0 本就为 0）。 */
   const sk = p.shadowK === undefined ? 1 : p.shadowK;
-  return { sunVis: dayW * Math.max(noonC, lowC) * clear, caustic: dayW * noonC * clear * sk };
+  const _hw = _clamp01(p.humidW ?? HUMID_DEFAULT), _ht = _clamp01(p.dawnHumid || 0);
+  const hazeK = Math.max(_sstep(0.10, 0.70, p.diskFade || 0), _sstep(0.55, 0.80, 1 - (1 - _hw) * (1 - _ht)));
+  const hz = 1 - 0.6 * hazeK;
+  return { sunVis: dayW * Math.max(noonC, lowC) * clear * hz, caustic: dayW * noonC * clear * sk * hz };
 }
 /* out（可选，2026-11-24 · 第 5 批）：11-loop 每帧读一次云影门，给复用对象就零分配；不给仍返回新对象。 */
 export function fxGates(p, out){
