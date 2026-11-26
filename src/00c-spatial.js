@@ -67,3 +67,28 @@ export function spatialMix(listener, source, opts = {}){
     gain: spatialGain(dist, opts.maxDist ?? 24, opts.floor ?? 0.4),
   };
 }
+
+/* ── 池声听感（2026-11-26 复核修正 · 批次 #24 的池内回归）────────────────────────
+   #24 把水声声源改成"椭圆岸线上离听者最近的点"，对站在岸上的人是对的；
+   但石拱桥 (8.4,4.6) 的桥面和桥南汀步都是**能走上去的池内位置**（归一化池距 ≈0.56）：
+   脚下就是水，按"最近岸线"算却成了"水从 6.7m 外的东岸传来"——增益从 #18 的 1.9 掉到 ≈1.52、
+   pan 甩向一侧。#18 的口径是 u<1（椭圆内）一律 1.9（水就在脚边），这里恢复它：
+   椭圆内 ⇒ 增益 1.9、居中；椭圆外 ⇒ 与 #24 逐位相同（最近岸点 + 24m 处落到 0.55）。
+   out 由调用方给（每帧调，零分配）；返回 out = { gain, pan, inside }。 */
+export const POND_EAR = Object.freeze({ cx: 0, cz: 3.0, a: 15.7, b: 9.4, near: 1.9, floor: 0.55, slope: 0.0562 });
+export function pondEar(x, z, yaw, out = { gain: 1, pan: 0, inside: false }){
+  const E = POND_EAR;
+  const lx = x - E.cx, lz = z - E.cz;
+  const nx = lx / E.a, nz = lz / E.b;
+  const m = Math.hypot(nx, nz);
+  if (m < 1){                       // 椭圆内（桥面 / 汀步）：水就在脚下
+    out.gain = E.near; out.pan = 0; out.inside = true;
+    return out;
+  }
+  /* 椭圆外：与 nearestOnEllipse 同式（不建对象） */
+  const dx = E.cx + E.a * (nx / m) - x, dz = E.cz + E.b * (nz / m) - z;
+  out.gain = Math.max(E.floor, E.near - Math.hypot(dx, dz) * E.slope);
+  out.pan = spatialPan(dx, dz, yaw);
+  out.inside = false;
+  return out;
+}

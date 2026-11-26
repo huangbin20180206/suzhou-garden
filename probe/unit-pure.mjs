@@ -6,7 +6,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mulberry32 } from '../src/00-config.js';
-import { spatialPan, spatialGain, nearestOnEllipse, spatialMix } from '../src/00c-spatial.js';
+import { spatialPan, spatialGain, nearestOnEllipse, spatialMix, pondEar, POND_EAR } from '../src/00c-spatial.js';
 import { pickTier, isMobileUA, isDebugSurface } from '../src/00a-quality.js';
 import {
   mixInto, paramsAtHour, nearestTimeKey, fmtHour, weatherMutexReason,
@@ -231,4 +231,32 @@ test('spatialMix：把 pan 与 gain 合成一份（同一口径供音景与门�
   assert.ok(r.dist > 15.5 && r.dist < 16.5, `距离 ≈16.12，得 ${r.dist}`);
   const far = spatialMix({ x: 0, z: 20, yaw: 0 }, { x: 0, z: 3 }, {});
   assert.ok(far.dist > 16, '远处岸线距离');
+});
+
+/* ── 池声听感 pondEar（2026-11-26 复核）：#24 把桥面/汀步这类"池内可走位置"算成
+   "水从最近岸线传来"（增益掉到 ≈1.52、pan 甩到一侧）。锁住：椭圆内恢复 #18 口径，椭圆外与 #24 逐位相同。 */
+test('pondEar：石拱桥桥面 (8.4,4.6) 在池内 ⇒ 增益 1.9、居中，任何朝向都不偏', () => {
+  for (const yaw of [0, 0.7, Math.PI / 2, -2.1, Math.PI]){
+    const r = pondEar(8.4, 4.6, yaw);
+    assert.equal(r.inside, true);
+    assert.equal(r.gain, 1.9);
+    assert.equal(r.pan, 0);
+  }
+});
+test('pondEar：岸上与 #24（nearestOnEllipse + spatialPan + 0.0562 斜率）逐位相同', () => {
+  const E = POND_EAR;
+  for (const [x, z, yaw] of [[0, 26, 0], [0, 26, Math.PI / 2], [-20, 3, 0.3], [30, -10, -1.2], [16, 3, 2.0], [5, 13, 0]]){
+    const s = nearestOnEllipse(x, z, E.cx, E.cz, E.a, E.b);
+    const r = pondEar(x, z, yaw);
+    assert.equal(r.inside, false, `(${x},${z}) 应在椭圆外`);
+    assert.equal(r.gain, Math.max(0.55, 1.9 - s.dist * 0.0562), `(${x},${z}) 增益`);
+    assert.equal(r.pan, spatialPan(s.dx, s.dz, yaw), `(${x},${z}) pan`);
+  }
+});
+test('pondEar：复用 out 对象（每帧调用零分配），且跨岸线增益连续', () => {
+  const out = { gain: 0, pan: 0, inside: false };
+  assert.equal(pondEar(0, 26, 0, out), out);
+  /* 沿 x 轴从池内走到岸外：岸线 x=15.7 两侧增益差 < 0.01（池内 1.9、贴岸外 1.9−ε） */
+  const a = pondEar(15.69, 3, 0, out).gain, b = pondEar(15.71, 3, 0, out).gain;
+  assert.ok(Math.abs(a - b) < 0.01, `岸线处增益跳变 ${a} → ${b}`);
 });

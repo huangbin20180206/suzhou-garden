@@ -4,7 +4,7 @@ import { createWalk } from './11a-walk.js';
 import { createVista } from './11b-vista.js';
 import { initUx, copyShareLink, shareUrl, applySharedView } from './11c-ux.js';
 import { groundHeight as walkGroundHeight, insidePond as walkInsidePond } from './05-water.js';
-import { nearestOnEllipse, spatialPan } from './00c-spatial.js';
+import { pondEar, spatialPan } from './00c-spatial.js';
 import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PRESETS, pixelRatioForTier,
          QOS_IMMUNE, SOFTWARE_GL, PROBE_DRIVEN, scene, skyMesh, rainbowMesh, controls, SUPERSAMPLE, resetCamera, GPU_NAME, world, CAM_MIN_DIST, envBakeState, SHADOW_CAP } from './02-scene.js';
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
@@ -538,6 +538,7 @@ const Snd = (()=>{
         每帧的 HRTF 卷积是白烧。StereoPanner 只有左右电平差，对"水在左还是右"够用。
      ⚠️ 只调 lap 一层：雨/风/虫是"环境"，不随位置变（它们本就弥漫全园）。 */
   let _lapDistGain = 1, _lapPan = 0;
+  const _pondEarOut = { gain: 1, pan: 0, inside: false };   // pondEar 复用输出（每帧调，零分配）
   function tickPondProximity(x, z, active, dt){
     /* 听者位置每帧记（plop 的离散方位用）：放在 ctx 守卫之前 —— 音景没开时也有相机位置，
        开音景第一记点水声就有正确的左右，不必等一帧 tick 跑过。 */
@@ -545,9 +546,11 @@ const Snd = (()=>{
     if (!ctx) return;
     let target = 1, panT = 0;
     if (active){
-      const s = nearestOnEllipse(x, z, 0, 3.0, 15.7, 9.4);
-      target = Math.max(0.55, 1.9 - s.dist * 0.0562);   // 24m 处落到 0.55（#18 同一落点）
-      panT = spatialPan(s.dx, s.dz, viewYaw);
+      /* 岸上：最近岸点定方位、24m 处落到 0.55（#18 同一落点）；池内（桥面/汀步）：1.9 居中。
+         口径与单测见 00c-spatial.pondEar（2026-11-26 复核：#24 曾把桥上算成"水在东岸"）。 */
+      const s = pondEar(x, z, viewYaw, _pondEarOut);
+      target = s.gain;
+      panT = s.pan;
     }
     _lapDistGain += (target - _lapDistGain) * Math.min(1, dt * 1.7);
     _lapPan += (panT - _lapPan) * Math.min(1, dt * 3.2);   // 转头比走动快：τ≈0.31s
