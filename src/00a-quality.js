@@ -88,3 +88,34 @@ export function estimateRefreshHz(intervals){
   const p10 = xs[Math.floor(xs.length * 0.1)];
   return Math.round(1 / p10);
 }
+
+/* ── 执行效率开关（2026-11-26 · 执行效率批）──────────────────────────────────────────
+   本批里**行为可能与旧版不同**的优化都收在这里，一律可用 URL 关回 / 打开，纯函数进 npm run unit。
+     · ?warm=par      启动：分桶暖编译之前先用 KHR_parallel_shader_compile 并行预编全场（默认关，见 11-loop warmBoot）
+     · ?precompile=1  切换：开园后空闲时并行预编"初始隐藏"的对象（雨/雪/萤火/镜前雨…）（默认关，见 11-loop）
+     · ?shadowtrans=all  切换：环境过渡期每帧都重渲阴影图（旧行为）；缺省 = gated，见 transitionShadowDue
+   前两项只改"着色器何时编译"、不改像素，但它们的收益只有真机能量（软渲染探针里没有并行编译），
+   所以先默认关，等 Kyle 本机量过再决定。第三项改的是过渡 3 秒内阴影图的刷新节奏（见下）。 */
+export function perfFlags(search = ''){
+  const q = String(search || '');
+  const get = (k) => { const m = new RegExp('[?&]' + k + '=([^&#]*)').exec(q); return m ? m[1] : null; };
+  return Object.freeze({
+    warmPar: get('warm') === 'par',
+    precompile: get('precompile') === '1',
+    shadowTrans: get('shadowtrans') === 'all' ? 'all' : 'gated',
+  });
+}
+/* 环境过渡（时段/季节/天气 3 秒缓动）期间要不要重渲阴影图。
+   旧版：过渡中**每帧**强制重渲（6144² 的整场景深度 pass，高档位最贵的一笔之一）。
+   但阴影图只取决于"光向 + 投影物集合"：
+     · 光向动了 —— applyEnv 自己会在光向变化 >0.01 时置 needsUpdate（12-env，那条不经这里）；
+     · 投影物集合变了 —— 12f applyPresence 的版本号 presenceRev 会变 ⇒ presenceChanged；
+     · 过渡结束那一帧 —— done，保证终态与旧版逐像素一致；
+     · 其余（风摆植被的影子、12-env 里未进版本号的零星显隐）—— 每 every 帧兜底一次（60fps 下 10Hz）。
+   预期差异：仅过渡进行中的 3 秒里，风摆枝叶的影子从 60Hz 刷新降到 10Hz；终态与稳态不变。 */
+export const TRANS_SHADOW_EVERY = 6;
+export function transitionShadowDue({ mode = 'gated', presenceChanged = false, done = false, frame = 0, every = TRANS_SHADOW_EVERY } = {}){
+  if (mode === 'all') return true;
+  if (presenceChanged || done) return true;
+  return every <= 1 || (frame % every) === 0;
+}

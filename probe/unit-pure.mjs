@@ -260,3 +260,31 @@ test('pondEar：复用 out 对象（每帧调用零分配），且跨岸线增�
   const a = pondEar(15.69, 3, 0, out).gain, b = pondEar(15.71, 3, 0, out).gain;
   assert.ok(Math.abs(a - b) < 0.01, `岸线处增益跳变 ${a} → ${b}`);
 });
+
+/* ── 执行效率开关 / 过渡期阴影节流（2026-11-26 · 执行效率批）───────────────────────── */
+import { perfFlags, transitionShadowDue, TRANS_SHADOW_EVERY } from '../src/00a-quality.js';
+
+test('perfFlags：缺省全关、阴影 gated；各开关只认确切写法', () => {
+  assert.deepEqual({ ...perfFlags('') }, { warmPar: false, precompile: false, shadowTrans: 'gated' });
+  assert.deepEqual({ ...perfFlags('?warm=par&precompile=1&shadowtrans=all') },
+                   { warmPar: true, precompile: true, shadowTrans: 'all' });
+  assert.equal(perfFlags('?warm=seq').warmPar, false);
+  assert.equal(perfFlags('?precompile=0').precompile, false);
+  assert.equal(perfFlags('?xwarm=par').warmPar, false);          // 别的参数名里含 warm= 不算
+  assert.equal(perfFlags('?a=1&shadowtrans=gated').shadowTrans, 'gated');
+  assert.equal(perfFlags(undefined).warmPar, false);
+});
+
+test('transitionShadowDue：all 每帧；gated 只在首帧 / 存在性变 / 末帧 / 每 N 帧兜底', () => {
+  for (let f = 0; f < 20; f++) assert.equal(transitionShadowDue({ mode: 'all', frame: f }), true);
+  const due = [];
+  for (let f = 0; f < 18; f++) if (transitionShadowDue({ frame: f })) due.push(f);
+  assert.deepEqual(due, [0, 6, 12]);                      // 60fps 下 10Hz 兜底，首帧必刷
+  assert.equal(TRANS_SHADOW_EVERY, 6);
+  assert.equal(transitionShadowDue({ frame: 7, presenceChanged: true }), true);
+  assert.equal(transitionShadowDue({ frame: 7, done: true }), true);   // 末帧保证终态与旧版一致
+  assert.equal(transitionShadowDue({ frame: 7, every: 1 }), true);
+  /* 一场 3s（180 帧）过渡、存在性不变：重渲次数 180 → 30（+ 末帧 1） */
+  let n = 0; for (let f = 0; f < 180; f++) if (transitionShadowDue({ frame: f, done: f === 179 })) n++;
+  assert.equal(n, 31);
+});

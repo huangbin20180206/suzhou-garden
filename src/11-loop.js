@@ -10,7 +10,7 @@ import { camera, renderer, GPU_TIER, GPU_TIER_FORCED, ACTIVE_QUALITY, QUALITY_PR
 import { composer, gtaoPass, AO_ENABLED, collectAOSkip, bloom, setHFogEnabled, setGradeSoftenConfig, gradeSoftenState, gradePass } from './10-post.js';
 import { WIND, waterNormalTex, waterSurface, MAT, WET_MATS } from './01-materials.js';
 import { natureGates, soundPlan, footstepVoice, koiBreachRate } from './12a-presets.js';
-import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT, fxGates, tickLinger, surfaceState, setAftermathApi } from './12-env.js';
+import { ENV, timeLabelNow, ENV_SEASON, weatherTag, lanternGroups, hash21Lantern, applyPresence, REEL, advanceReel, mixInto, applyEnv, updateRainRipples, updatePrecip, updatePostRain, effectiveWeather, setEnv, settleEnv, PRECIP, weatherAllowed, weatherMutexReason, wetApplied, toggleReel, randomScene, tickLampVol, TIME_ANCHORS, lampVolState, setLampVol, toggleFestival, festivalState, tickFestival, setFestivalFreeze, SEASON_DEMO, startSeasonDemo, stopSeasonDemo, toggleSeasonDemo, advanceSeasonDemo, seasonDemoState, seasonDemoCaption, bindDropRipple, LOTUS_DROPS, updateAmbient, AMBIENT, fxGates, tickLinger, surfaceState, setAftermathApi, presenceRev } from './12-env.js';
 import { sun, fitShadowCamera, refreshCasterBox, casterBox } from './09-lights.js';
 /* 路灯摇曳要读 worldLights（2026-10-18）。方向单纯：12d-lantern 不 import 本模块 ⇒ 不成环。 */
 import { worldLights } from './12d-lantern.js';
@@ -46,7 +46,7 @@ import { tickGroomFeed } from './08-assemble.js';
    写的是 08b 新加的 pivot（肩/髋/跳），与循环里写 root 的那几行互不重叠。 */
 import { tickFigureAction } from './08b-figures.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
-import { isDebugSurface, qosThresholds, qosVerdict, estimateRefreshHz } from './00a-quality.js';
+import { isDebugSurface, qosThresholds, qosVerdict, estimateRefreshHz, perfFlags, transitionShadowDue } from './00a-quality.js';
 import { FIXED_STEP, planFixedSteps, maxStepsFor, FIXED_STEP_POLICY, tickBySteps } from './00b-fixedstep.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
@@ -1436,6 +1436,9 @@ try {
 const MAX_STEPS = maxStepsFor(FIXED_STEP);   // 一帧最多补 6 步 = 100ms 仿真；更长的间隔直接丢弃
 let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
 const _fxOut = {}, _ngOut = {};          // fxGates / natureGates 的复用输出（帧内零分配，第 5 批）
+/* 执行效率开关（2026-11-26，见 00a perfFlags）。探针/页面都从 location.search 读，与 ?perstep= 同一处取。 */
+const PERF = perfFlags((() => { try { return location.search; } catch { return ''; } })());
+let _transShadowN = 0, _transPresRev = -1;   // 环境过渡期阴影图节流的帧计数 / 上次见到的存在性版本号
 /** 推进仿真时钟；返回本帧实际推进的秒数（供风钟等读数同源）。
     ⚠️ 风钟也在这里推进：仿真与风**必须共用同一条时间线** —— 拆成两条时，
        任何一处漏调都会让"风在吹但相位不走"这类现象出现，且不报错。 */
@@ -1543,8 +1546,16 @@ function frameWork(){
     const e = ENV.t < 0.5 ? 2*ENV.t*ENV.t : 1 - Math.pow(-2*ENV.t + 2, 2) / 2;
     mixInto(ENV.cur, ENV.from, ENV.to, e);
     applyEnv(ENV.cur);
-    renderer.shadowMap.needsUpdate = true;   // 过渡中 sunPos/存在性逐帧在动，阴影跟渲
-  }
+    /* 过渡中阴影图：旧版每帧强制重渲。光向在动时 applyEnv 自己会置 needsUpdate（>0.01 才算动）；
+       这里只补"投影物集合变了 / 过渡末帧 / 每 6 帧兜底"三种（2026-11-26，见 00a transitionShadowDue；
+       ?shadowtrans=all 回到每帧）。 */
+    const pr = presenceRev();
+    if (transitionShadowDue({ mode: PERF.shadowTrans, presenceChanged: pr !== _transPresRev,
+                              done: ENV.t >= 1, frame: _transShadowN++ })){
+      renderer.shadowMap.needsUpdate = true;
+    }
+    _transPresRev = pr;
+  } else _transShadowN = 0;
   /* 天气余韵（2026-11-24 · 批次 2 · C）：必须在过渡块与流转**之后** —— 它们刚把 ENV.cur（预设直出）写好、
      applyEnv 按直出值写过一遍；这里推进余韵水位并经 applySurfaces 统一重写积雪 / 湿地 / 空气含水量。
      流转按本帧走过的游戏小时一起推进（REEL.speed × dt）。稳态（无过渡无流转）也每帧走：余韵就是稳态里在变的东西。 */
@@ -2480,6 +2491,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                      必须用 getter 函数读 —— 直接写 `bootDone` 会在建这个对象时把 false 定格，
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
                   bootDone: () => bootDone, bootDonePromise,
+                  perfFlags: () => PERF,   // 执行效率批（2026-11-26）：当前开关
                   /* 循环内错误账本（2026-10-30）：单帧兜错后 pageerror 不再是可靠信号，
                      门禁断言"零报错"改看这里：`__garden.loopErrors().count === 0`。 */
                   loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),

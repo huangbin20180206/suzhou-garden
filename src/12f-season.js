@@ -131,12 +131,21 @@ function presenceCount(m, key, frac, p){
     const full = o.userData.fullCount;
     const n = frac ? Math.round(full * Math.min(1, Math.max(0, p[key] || 0)))
                    : (p[key] > 0.03 ? full : 0);
-    if (o.count !== n) o.count = n;
+    if (o.count !== n){ o.count = n; _presRev++; }
   }
 }
+/* 存在性版本号（2026-11-26 · 执行效率批 · 场景切换）：本函数**实际改变**了某个通道的开关 / 某个实例网格的
+   count 时 +1。11-loop 的环境过渡据此判断"投影物集合变了没有"，没变就不必每帧整场景重渲阴影图
+   （见 00a transitionShadowDue）。visible 不能拿 o.visible 比（GTAO 每帧会把它改回 true，见上），
+   所以按通道记"上次交给它的 on"。 */
+let _presRev = 0;
+const _presLast = new Int8Array(SEASON_PRESENCE.length).fill(-1);
+export function presenceRev(){ return _presRev; }
 export function applyPresence(p){
-  for (const [key, mats] of SEASON_PRESENCE){
+  for (let i = 0; i < SEASON_PRESENCE.length; i++){
+    const key = SEASON_PRESENCE[i][0], mats = SEASON_PRESENCE[i][1];
     const on = p[key] > 0.03;
+    if (_presLast[i] !== (on ? 1 : 0)){ _presLast[i] = on ? 1 : 0; _presRev++; }
     for (const m of mats){
       const list = seasonMeshCache.get(m);
       if (list) for (const o of list) o.visible = on;
@@ -175,7 +184,7 @@ export function applyPresence(p){
   for (const o of treeLanternInsts){
     if (o.userData.fullCount === undefined) o.userData.fullCount = o.count;
     const n = treeOn ? o.userData.fullCount : 0;
-    if (o.count !== n) o.count = n;
+    if (o.count !== n){ o.count = n; _presRev++; }
   }
   /* 柳/紫藤/围栏三批挂灯：同一条"随灯会"的通道，同样走**直接清单**而不是季节表。
      ⚠️ 容量取 `instanceMatrix.count`（建网格时定的），**不是** `o.count` —— count 是被本函数
@@ -184,7 +193,7 @@ export function applyPresence(p){
     const cap = o.instanceMatrix.count;
     if (o.userData.fullCount === undefined) o.userData.fullCount = cap;
     const n = treeOn ? o.userData.fullCount : 0;
-    if (o.count !== n) o.count = n;
+    if (o.count !== n){ o.count = n; _presRev++; }
   }
 }
 

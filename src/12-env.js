@@ -57,8 +57,8 @@ import { SEASON_DOY, PLUM_VIEW_DOY, seasonOfDoy, festivalFor } from './12g-pheno
 /* 2026-10-05 拆分：植被季节表现 + 存在性 + 积雪/湿地已搬进 12f-season.js（那边不能 import 本模块，故注入 ENV）。 */
 import { bindSeasonEnv, SEASON_TINT_MATS, seasonMixUniform, seasonMeshCache, applyPresence,
          collectSeasonCaches, onAssetAttached, applyGLBSeason, collectSeasonGLB, willowLeafInsts,
-         bambooLeafInsts, snowUniform, snowFastUniform, snowTintUniform, installSnow, applyWetness, wetApplied } from './12f-season.js';
-export { applyPresence, collectSeasonCaches, onAssetAttached, wetApplied };
+         bambooLeafInsts, snowUniform, snowFastUniform, snowTintUniform, installSnow, applyWetness, wetApplied, presenceRev } from './12f-season.js';
+export { applyPresence, collectSeasonCaches, onAssetAttached, wetApplied, presenceRev };
 /* ══════════════════════════════════════════════════════════════
    12 · 环境时序系统（ENV）
    ══════════════════════════════════════════════════════════════
