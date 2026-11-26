@@ -172,17 +172,36 @@ test('互斥：池底焦散只在白天正午段 + 少云，晨暮 / 阴雨 / �
   assert.ok(dusk.w.sunVis > 0.15 && dusk.w.caustic === 0, `秋晴暮 sunVis=${dusk.w.sunVis} caustic=${dusk.w.caustic}`);
 });
 
-test('互斥：堂内暖光白天（太阳 >22°）熄，夜里亮、暮锚点保持', () => {
+test('互斥：堂内暖光白天（太阳 >22°，晴类）熄，夜里亮、暮锚点保持；与灯同一道门（不再平方）', () => {
   for (const [k, r] of all()){
-    if (r.s.alt > 22) assert.ok(r.s.fx.hallWarm < 1e-9, `${k}@${r.h} 仰角 ${r.s.alt.toFixed(1)}° 窗暖=${r.s.fx.hallWarm}`);
-    if (r.s.alt < 0) assert.ok(Math.abs(r.s.fx.hallWarm - r.s.p.lamp * 0.55) < 1e-9, `${k}@${r.h} 夜窗暖=${r.s.fx.hallWarm}`);
+    const w = k.split('/')[1];
+    if (r.s.alt > 22 && !NO_SUN.has(w)) assert.ok(r.s.fx.hallWarm < 1e-9 && r.s.p.lamp < 1e-9,
+      `${k}@${r.h} 仰角 ${r.s.alt.toFixed(1)}° 窗暖=${r.s.fx.hallWarm} 灯=${r.s.p.lamp}`);
+    assert.ok(Math.abs(r.s.fx.hallWarm - r.s.p.lamp * 0.55) < 1e-9, `${k}@${r.h} 窗暖=${r.s.fx.hallWarm} ≠ 灯×0.55`);
   }
+  /* 真实太阳锚点：暮（7°）0.25×0.55、夜 0.55 */
+  setAxes('summer', 'clear');
+  const sun = sweep.get('summer/clear');
+  const dusk7 = sun.find(r => r.h > 12 && r.s.alt < 8 && r.s.alt > 5).s;
+  assert.ok(Math.abs(dusk7.fx.hallWarm - 0.1375) < 1e-6, `暮窗暖=${dusk7.fx.hallWarm}`);
   /* 旧模式（?solar=0）：暮锚点主光 13.3° 保留 ≥90%，夜锚点主光是月亮替身（仰角高）不得被收 */
   setAxes('summer', 'clear');
   const lDusk = fxGates(composeEnv(paramsAtHour(17.5))).hallWarm;
   const lNight = fxGates(composeEnv(paramsAtHour(23))).hallWarm;
   assert.ok(lDusk >= 0.9 * 0.25 * 0.55, `旧模式暮窗暖=${lDusk}`);
   assert.ok(Math.abs(lNight - 0.55) < 1e-9, `旧模式夜窗暖=${lNight}`);
+});
+
+test('单调：晴类天气灯 / 窗暖午后只升不降、上午只降不升（复核：夏 16:00 0.022 → 17:00 0.015 → 17:30 0.096）', () => {
+  for (const [k, arr] of sweep){
+    const w = k.split('/')[1];
+    if (NO_SUN.has(w)) continue;
+    for (let i = 1; i < arr.length; i++){
+      const a = arr[i - 1], b = arr[i];
+      if (a.h >= 12.5 && b.h <= 23.5) assert.ok(b.s.p.lamp >= a.s.p.lamp - 1e-9, `${k} ${a.h}→${b.h} 灯 ${a.s.p.lamp}→${b.s.p.lamp}`);
+      if (a.h >= 4 && b.h <= 11.5) assert.ok(b.s.p.lamp <= a.s.p.lamp + 1e-9, `${k} ${a.h}→${b.h} 灯 ${a.s.p.lamp}→${b.s.p.lamp}`);
+    }
+  }
 });
 
 test('互斥：池面晨雾不与雨雾叠满（雨天 ≤ 晴天，雾天才是满档）', () => {

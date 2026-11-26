@@ -711,11 +711,16 @@ export function composeEnv(p){
      修正只压"太阳还高"的部分：仰角>22° 全压（×0），<12° 不动 —— 与 hallWarm ⑤
      同口径（12°/22°）；再乘云量门（waterSunGates 同款 clear）：阴暴天气天本就黑，
      灯照旧亮，不压。锚点无损：午（0 本来就是 0）、暮（仰角≈7°<12° 系数 1）、
-     夜（dayK=0 系数 1）。放 composeEnv 末尾 = 滑杆/流转/关键帧/命名时段全走同一口径。 */
+     夜（dayK=0 系数 1）。放 composeEnv 末尾 = 滑杆/流转/关键帧/命名时段全走同一口径。
+     云量门改为 smoothstep(0.75, 0.92)（2026-11-26 · 复核）：原线性门 (0.82−云)/0.34 在晴天（云 0.50~0.62）
+     只给 0.59~0.94，漏一截 ⇒ 夏晴 15:45 灯 0.023、17:00 反降到 0.015、17:30 又升到 0.096（不单调，
+     且大太阳下灯笼微亮）。实测各天气云量：晴类 ≤0.62、雾 0.30、雨后 0.42、雪霁 0.20；阴/雨/雪/雷 ≥0.94
+     ⇒ 新门把两组干净分开：晴类全压、阴暗类不压，切天气时云量连续缓动，门也连续。
+     晴类下 lamp = 时段原值（午后单调升）×(1 − 白天度×仰角门)（仰角降 ⇒ 单调升）⇒ 单调；锚点同上不变。 */
   {
     const _la = sunAltDeg(p);
     const _lk = _clamp01(p.dayK ?? (1 - (p.starAmount || 0)));
-    const _lc = _clamp01((0.82 - (p.cloudAmount || 0)) / 0.34);
+    const _lc = 1 - _sstep(0.75, 0.92, p.cloudAmount || 0);
     p.lamp = (p.lamp || 0) * (1 - _lk * _sstep(12, 22, _la) * _lc);
   }
   return p;
@@ -1010,10 +1015,13 @@ export function fxGates(p, out){
            * (p.shadowK === undefined ? 1 : p.shadowK) * (1 - _sstep(0.60, 0.85, df))
            * _sstep(0, 10, alt) * dayK;
   const cloudShade = 0.18 * cs * _sstep(0.0, 0.08, cs);
-  /* ⑤ 堂内暖光：lamp × 0.55 之上乘"太阳够低"—— 仰角 12°→22° 之间收掉（白天度为 0 的夜里不收）。
-     真实太阳"暮"锚点 = 太阳 7°（12h ANCHOR_ALT）⇒ 暮锚点值不变（0.1375）；旧模式暮锚点 13.3° 保留 95%；
-     旧模式夜里主光是月亮替身（仰角 49°），但 dayK=0 ⇒ 不收。 */
-  const hallWarm = (p.lamp || 0) * 0.55 * (1 - dayK * _sstep(12, 22, alt));
+  /* ⑤ 堂内暖光 = lamp × 0.55。日高门控只做一次 —— 在 composeEnv 末尾的 lamp 上（仰角 12°→22° 收掉，
+     白天度为 0 的夜里不收，阴暗天气不收）。
+     ⚠️ 2026-11-26 复核：这里原先再乘一次 (1 − dayK·smoothstep(12,22,仰角))，而 lamp 已压过同一道门 ⇒
+     平方衰减（夏晴 17:30 窗暖 0.018，单次门应为 0.053）。锚点不变：真实太阳暮锚点 = 7°（<12°，门 1）
+     ⇒ 0.1375；夜 dayK=0 ⇒ 0.55；旧模式暮锚点 13.3° 保留 ~98%（原平方门 ~96%）。
+     阴雨雪天白天 lamp 不压（灯笼照亮），窗暖随之同亮 —— 两者从此同一口径。 */
+  const hallWarm = (p.lamp || 0) * 0.55;
   const o = out || {};
   o.milkyWay = milkyWay; o.sunGlow = sunGlow; o.cloudShade = cloudShade; o.hallWarm = hallWarm;
   return o;
