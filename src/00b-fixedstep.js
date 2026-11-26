@@ -52,9 +52,9 @@ export function planFixedSteps(accum, rawDt, opt = FIXED_STEP){
    大步与小步的轨迹在毫米到厘米级上不同，相位切换时刻也可能差一步。
    perStep = true：每个固定步各调一次 tickActors(1/60) —— 与 probe/_actor-sim 的重播口径（actorStep 内部 1/60 量子）
    一致，人物轨迹与帧率无关。每帧最多补步的上限不变（planFixedSteps 的 100ms）。
-   **默认关**：保持现状，四份重播基线不动；开启后的基线见 probe/_actor-sim/baseline/carriage-walkback-perstep.json.gz，
+   （2026-11-24 初版默认关，见下方 11-25 改默认开）关闭口径 = 现状，四份 legacy 重播基线锁的就是它；开启后的基线见 probe/_actor-sim/baseline/carriage-walkback-perstep.json.gz，
    两种口径的对照断言在 actor-replay-unit（相位链一致、到 done 的时刻与轨迹差在容差内）。
-   浏览器里可用 ?perstep=1 试开（11-loop 读）。默认是否打开由 Kyle 定。
+   初版时浏览器里用 ?perstep=1 试开（现已无此开关，默认即开）。
    2026-11-25 起默认开（Kyle 拍板；前置条件已满足：?perstep=1 下到访门全绿，
    开启口径与理想基线相位链一致、时刻差 ≤0.5s+0.6%、轨迹差 ≤0.35m）。
    ?perstep=0 可强制关（排查用逃生口）。 */

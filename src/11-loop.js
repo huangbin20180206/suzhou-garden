@@ -633,9 +633,10 @@ const Snd = (()=>{
     if (!on || !ctx) return 0;
     loadThunder();
     if (!thunderBuf) return 0;
-    /* 雷声方位（批次 #27）：ev.sx/sz 是闪电主干中点的世界坐标（12b 落点），
-       播放时刻按当前听者位置换算 pan —— 延迟 0.9~3.6s 里玩家可能走动，
-       落点时算不如响时算准。三层叠放共享一个 Panner（同一声雷）。 */
+    /* 雷声方位（批次 #27）：ev.sx/sz 是闪电主干**落地端**的世界坐标（12b trunk[10]）。
+       pan 在本函数被调的那一刻（= 闪电落下、HOOKS.thunder 同帧）按当时听者位置算定，
+       声音在 delay（0.9~3.6s）后才响；其间玩家走动/转头不会再跟（Panner 值是定的）。
+       2026-11-26 复核：原注释写"响时算"，与实现不符，按实现改写。三层叠放共享一个 Panner（同一声雷）。 */
     let thunderPan = null;
     if (ev && ev.sx !== undefined && ev.sz !== undefined){
       _lastThunderPan = spatialPan(ev.sx - _lisX, ev.sz - _lisZ, viewYaw);
@@ -1579,8 +1580,10 @@ function frameWork(){
      visible/position/rotation，也不写任何全局灯光（与闪电/烟花/流星同一条纪律）。 */
   tickStableLife(dt);
   /* P1 半写实人物：只写骨骼（以绑定姿态为基准），不碰 root / 灯光 / 材质。 */
-  /* 2026-11-24 · 第 5 批：经 tickBySteps 按策略调（默认关 = tickActors(simSteps×1/60)，与原 tickActors(dt) 逐字相同；
-     ?perstep=1 ⇒ 每个固定步各调一次，见 00b FIXED_STEP_POLICY）。simSteps 即本帧 stepSim 推进的整步数。 */
+  /* 2026-11-24 · 第 5 批：经 tickBySteps 按策略调。2026-11-25 起默认开 = 每个固定步各调一次 tickActors(1/60)；
+     ?perstep=0 ⇒ 旧口径 tickActors(simSteps×1/60) 一次（与原 tickActors(dt) 逐字相同），见 00b FIXED_STEP_POLICY。
+     simSteps 即本帧 stepSim 推进的整步数；0 步的帧开启口径不调（tickActors(0) 本来也不推进）。
+     ⚠️ 四份 legacy 重播基线锁的是"关"口径；产品默认口径由 carriage-walkback-perstep 基线锁。 */
   tickBySteps(simSteps, tickActors);
   /* 马夫递草料（2026-10-11）：只转他自己的肩枢轴组 —— 不碰 root、不写灯光。 */
   tickGroomFeed(dt);
