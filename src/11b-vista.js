@@ -28,7 +28,7 @@
 //     卡片本身仍是 pointer-events:none ⇒ 落在卡上的手指照样是转头 / 摇杆输入，走路不被打断。
 //   · 关掉 ≠ 走开：用户主动关掉的那一条进 VISTA_COOLDOWN_MS（2 分钟）冷却，重开步行也不再弹；
 //     冷却表放在模块级（跨 reset() 存活）—— reset 只清"本轮已弹过"。判定在 00c-ux（纯 node 可测）。
-import { HALL_COUPLET } from './03a-names.js';
+import { HALL_COUPLET, SITE_NAMES } from './03a-names.js';
 import { VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture } from './00c-ux.js';
 
 const RADIUS = 3.5;        // 进入半径（m）
@@ -59,8 +59,9 @@ const SPOT_DEFS = [
      匾（堂前）、灯（石板路）、厩（院场）四处都是脚能到的地方。 */
   { vp:'bridge',    anchor:'曲桥', title:'石拱桥',
     text:'一拱跨两岸。桥洞是圆的——站上桥顶低头看，水里还有一座。' },
-  { vp:'plaque',    anchor:'堂匾', title:'堂额「远香堂」',
-    text:'檐下正中高悬「远香堂」三字。匾是园子的脸——先认字，再看景。' },
+  { vp:'plaque',    anchor:'堂匾', title:'堂额「' + SITE_NAMES.hall + '」',
+    /* 堂名从 03a-names 取（文件头约定：展示名唯一出处；04 匾额贴图同源），不另写一份 */
+    text:'檐下正中高悬「' + SITE_NAMES.hall + '」三字。匾是园子的脸——先认字，再看景。' },
   { vp:'lantern',   anchor:'石灯笼', title:'路灯笼',
     text:'马厩到院子的石板路，两侧隔一段一对石灯——晚上进出，路是亮的。' },
   { vp:'stable',    anchor:'马厩', title:'马厩院场',
