@@ -422,10 +422,12 @@ export function makeLanterns(){
    lampvol-guard 的 volCount/traverse 口径一位不动，像素臂（alpha 0 vs 不渲染）逐位相同。 */
 let _lampVisOn = null;
 export function tickLampVol(t){
-  if (_lampVol) _lampVol.uniforms.uTime.value = t;
-  if (_groundSplashMat) _groundSplashMat.uniforms.uTime.value = t;
   if (!_lampVol) return;                    // 低档没建光团：三张表全空，不碰
   const on = _lampVol.uniforms.uLamp.value > 0;
+  if (on){                                  // 关着时 uTime 也不推进：alpha 全 0 的帧，湍流相位写了也白写
+    _lampVol.uniforms.uTime.value = t;      // 开灯瞬间用当前 t 续上，相位跳变藏在 alpha=0 里，不可见
+    if (_groundSplashMat) _groundSplashMat.uniforms.uTime.value = t;
+  }
   if (on === _lampVisOn) return;             // 稳态零写入，只在明暗交界翻一次
   _lampVisOn = on;
   for (const m of _volMeshes) m.visible = on;
