@@ -414,10 +414,23 @@ export function makeLanterns(){
   }
 }
 /* 每帧喂时间给体积光/地面光斑（驱动湍流漂移与微闪烁）。渲染循环里 composer.render 前调用。
-   白天 uLamp=0 alpha 全 0，time 跑与否不影响任何像素。 */
+   白天 uLamp=0 alpha 全 0，time 跑与否不影响任何像素。
+   ⚠️ 白天摘 visible（2026-11-26）：uLamp=0 的光团/光斑是**纯空绘制**（AdditiveBlending +
+   depthWrite:false + alpha 0 ⇒ 对颜色/深度一位都不碰），5 盏 ×（光团 + 地面斑 + 墙面斑）
+   白天白占十几个 draw call + 全屏级 overdraw。在这里按 shader 实际用的 uLamp 值摘，
+   不另传参、不另设状态 ⇒ 与渲染结果永不漂移；名字/计数/uniform 全保留，
+   lampvol-guard 的 volCount/traverse 口径一位不动，像素臂（alpha 0 vs 不渲染）逐位相同。 */
+let _lampVisOn = null;
 export function tickLampVol(t){
   if (_lampVol) _lampVol.uniforms.uTime.value = t;
   if (_groundSplashMat) _groundSplashMat.uniforms.uTime.value = t;
+  if (!_lampVol) return;                    // 低档没建光团：三张表全空，不碰
+  const on = _lampVol.uniforms.uLamp.value > 0;
+  if (on === _lampVisOn) return;             // 稳态零写入，只在明暗交界翻一次
+  _lampVisOn = on;
+  for (const m of _volMeshes) m.visible = on;
+  for (const m of _splashMeshes) m.visible = on;
+  for (const m of _wallSplashMeshes) m.visible = on;
 }
 /* 体积光状态（2026-09-22 · 门禁 lampvol-guard）。暴露的是**可判定的量**而不是布尔值：
    · volGeo —— 球形弥散团还是向下聚光锥。旧实现用 ConeGeometry 收成舞台聚光，
