@@ -1,7 +1,7 @@
 // Desktop walking: owns camera only while active; actual visible meshes stop motion.
 import { THREE } from '../vendor.js';
 /* 第 4 批（2026-11-24 · 交互体验）：摇杆死区/曲线、减弱动效判据抽到零依赖的 00c-ux（纯 node 可单测）。 */
-import { MOTION, stickResponse, combineMove, touchLookGain } from './00c-ux.js';
+import { MOTION, stickResponse, combineMove, touchLookGain, WALK_HINT_KEY, walkHintMode, walkHintVerdict } from './00c-ux.js';
 /* escapeFirst（第 4 批）：Esc 先问一句"有没有更近的东西要关"（驻足卡）。返回 true ⇒ 这一下 Esc
    只关卡片、不退出步行 —— 否则桌面上想关卡片就得整个退出步行再走回来。可选参数，
    walk-guard 里那几个裸 createWalk 不传它，行为与旧版一字不差。 */
@@ -42,6 +42,11 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   hint.textContent = 'WASD / 方向键行走 · 按住鼠标右键转头 · Esc 返回';
   hint.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);padding:10px 18px;background:#fffbeee8;color:#302c25;border-radius:6px;z-index:12;pointer-events:none';
   document.body.appendChild(hint);
+  /* 提示只教一次（00c-ux walkHintMode / walkHintVerdict）：首次进入出、真走起来就收并记住。 */
+  const HINT_PROBE = (() => { try { return navigator.webdriver === true; } catch { return false; } })();
+  const hintGet = () => { try { return localStorage.getItem(WALK_HINT_KEY); } catch { return null; } };
+  const hintSet = () => { try { localStorage.setItem(WALK_HINT_KEY, '1'); } catch { /* 隐私模式：下次再教 */ } };
+  let hintMode = 'sticky', hintT0 = 0, hintSteps0 = 0;
   /* ── 帧内零分配（2026-11-24 · 第 5 批）：走模式每帧 move() 最多 n 次 × 9 条射线。原写法每次
      新建 [o.material] 包装数组 + some 闭包、steppable 闭包、两个偏移数组字面量、find 闭包、
      intersectObject 的结果数组，update 里还有 new Euler 与 combineMove 的新对象。改成作用域内复用；
@@ -127,7 +132,8 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     camera.position.set(0,feet+1.65,26);camera.near=0.08;camera.updateProjectionMatrix();yaw=0;pitch=0;bobPhase=0;
     if (TOUCH_UI) hint.textContent = '左半屏拖动行走 · 右半屏拖动转头 · 点"步行"按钮退出';
     else hint.textContent = 'WASD / 方向键行走 · 按住鼠标右键转头 · Esc 返回';
-    state.active=true;hint.hidden=false;button?.setAttribute('aria-pressed','true');
+    hintMode=walkHintMode(hintGet(),HINT_PROBE);hintT0=performance.now();hintSteps0=state.steps;
+    state.active=true;hint.hidden=(hintMode==='none');button?.setAttribute('aria-pressed','true');
     update(0);
   }
   /* 走动的头部晃动（2026-11-23 · 批次 #23）：
@@ -148,6 +154,10 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   let bobPhase = 0;
   function update(dt) {
     if(!state.active)return;
+    if(hintMode==='first'&&!hint.hidden){
+      const v=walkHintVerdict(performance.now()-hintT0,state.steps-hintSteps0);
+      if(v){hint.hidden=true;hintMode='none';if(v==='learned')hintSet();}
+    }
     /* 第 4 批：旧式 distance=dt·2.2/len 会把任何非零输入归一成全速（摇杆没有模拟量，见 00c-ux
        stickResponse 注释的实据）。改为"合成后夹到模长 ≤1、再乘 2.2"：键盘单键 / 斜向仍是 2.2 m/s
        （与旧版逐位相同），摇杆半推 ≈ 半速。 */

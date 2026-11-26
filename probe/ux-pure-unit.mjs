@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   parseMotionParam, resolveReducedMotion, MOTION, autoFlyDur, REDUCED_FLY_DUR, lightningFlashGain,
   batteryShouldDowngrade, parseSoundPrefs, serializeSoundPrefs, parseSeen, serializeSeen, SEEN_ENTRIES,
-  VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture, pickVistaSpot, VISTA_HOLD_MS, touchLookGain, TOUCH_LOOK_BASE,
+  VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture, pickVistaSpot, VISTA_HOLD_MS, touchLookGain, TOUCH_LOOK_BASE, walkHintMode, walkHintVerdict, WALK_HINT,
   stickResponse, combineMove, STICK_RADIUS, STICK_DEAD,
   encodeView, decodeView,
 } from '../src/00c-ux.js';
@@ -220,4 +220,16 @@ test('触屏转头灵敏度：短边 ≥760 不变（桌面/平板），390 手�
   assert.equal(touchLookGain(300, 600), TOUCH_LOOK_BASE * 2.2);
   assert.equal(touchLookGain(0, 0), TOUCH_LOOK_BASE);            // 取不到尺寸 ⇒ 旧值
   assert.equal(touchLookGain(undefined, NaN), TOUCH_LOOK_BASE);
+});
+
+test('步行提示：首次出、记过不出、门禁常驻；真走起来（≥40 步且 ≥4s）才记住，干站 15s 只收不记', () => {
+  assert.equal(walkHintMode(null, false), 'first');
+  assert.equal(walkHintMode('0', false), 'first');
+  assert.equal(walkHintMode('1', false), 'none');
+  assert.equal(walkHintMode('1', true), 'sticky');
+  assert.equal(walkHintVerdict(1000, 400), null, '刚进来走得再快也至少读 4 秒');
+  assert.equal(walkHintVerdict(WALK_HINT.minMs, WALK_HINT.steps), 'learned');
+  assert.equal(walkHintVerdict(10000, 5), null, '只挪了一点：继续显示');
+  assert.equal(walkHintVerdict(WALK_HINT.maxMs, 0), 'timeout');
+  assert.equal(walkHintVerdict(WALK_HINT.maxMs, 99), 'learned', '超时那刻已走够 ⇒ 仍算学会');
 });

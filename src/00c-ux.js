@@ -111,6 +111,27 @@ export function vistaMayShow(name, { visited, idx, cooldown, now }){
   const until = cooldown && cooldown.get(name);
   return !(Number.isFinite(until) && now < until);
 }
+/* 步行操作提示：首次进入才出、学会就收、记住（2026-11-26 · 场景打造批 · 交互可发现性）。
+   旧：每次进步行都在底部常驻一条"WASD / 方向键行走 · 按住鼠标右键转头 · Esc 返回"，走多久挂多久、
+   第十次进来也还在 —— 熟手嫌挡，新手又只在第一次需要它。
+   新：
+     · 'first'（本机没记过）：照旧出提示；**真走起来**（≥ steps 个移动步 ≈ 3m）且已显示 ≥ minMs 才收，
+       收时记 localStorage（学会了）；一直没动则 maxMs 后也收，但**不记** —— 下次进来再教一次。
+     · 'none'（记过）：不出。
+     · 'sticky'（webdriver 门禁）：旧行为（常驻），像素门 / 布局门不因本批改变（它们本就会藏 #walk-help）。
+   键名单独一条（不并进首访小红点 SEEN_ENTRIES：那张表的项目与面板按钮一一对应，见 11c）。 */
+export const WALK_HINT_KEY = 'garden.walkhint.v1';
+export const WALK_HINT = Object.freeze({ minMs: 4000, maxMs: 15000, steps: 40 });
+export function walkHintMode(stored, probe){
+  if (probe) return 'sticky';
+  return stored === '1' ? 'none' : 'first';
+}
+/* 返回 null = 继续显示；'learned' = 收起并记住；'timeout' = 收起但不记 */
+export function walkHintVerdict(ms, steps, cfg = WALK_HINT){
+  if (ms >= cfg.minMs && steps >= cfg.steps) return 'learned';
+  if (ms >= cfg.maxMs) return 'timeout';
+  return null;
+}
 /* 触屏转头灵敏度（2026-11-26 · 场景打造批；HANDOFF-11-24 已知未做"触屏转向 0.0042 rad/px 偏慢"）。
    固定 rad/px 在窄屏上偏慢：390 宽竖屏右半屏（看区 ≈ 55% 宽 ≈ 214px）一整划只转 0.9rad（52°），想回头要连划三四下。
    按屏幕**短边**归一化（横竖屏同一手感）：gain = 0.0042 × clamp(760 / 短边, 1, 2.2)。
