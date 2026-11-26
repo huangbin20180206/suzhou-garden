@@ -67,7 +67,8 @@ export function makeActor(def, P){
   const SL = def.stepLen || 0.42;
   const amp = Math.min(0.34, Math.max(0.14, Math.asin(Math.min(0.6, SL / (2 * hipH)))));
   const rig = fakeRig(def, holder);
-  return {
+  /* 与生产 ACTORS.push 之后的 preshapeActor 同口径（后长的键一次铺齐，值 undefined，见 16a） */
+  return (P.preshapeActor || ((x) => x))({
     def, holder, bones: rig.bones, base: rig.base, phase: def.idle.phase, amp, skirt: rig.skirt,
     pos: { x: def.spot.x, z: def.spot.z }, y: gy0, yaw: def.spot.yaw,
     target: r ? 1 : 0, waitT: r ? 2.0 : 0, walkOff: !!def.awaitGuest,
@@ -84,7 +85,7 @@ export function makeActor(def, P){
     hay: null, hipsDown: new THREE.Vector3(0, -1, 0), hipsRest: rig.hipsRest,
     ride: null, trip: null, coachW: 0, tieW: 0, tieTarget: false,
     blob: null, meshes: [], shadowCast: true,
-  };
+  });
 }
 function addProps(a, P){
   const d = a.def;

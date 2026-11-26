@@ -1,5 +1,6 @@
 // 仿真每帧耗时 / 分配微基准（2026-11-24 · 第 5 批 · 执行效率）。纯 node，不起浏览器；**不进 verify**，只作参考。
 // 运行：node probe/perf-sim-bench.mjs [--json]
+//   ④ actor 稳态（2026-11-26）：空跑两场半后再量，见 --warm 注释。
 //   ③ 另有按真实帧驱动的人物段（FRAME_RAW 抖动序列）：perStep 开 / 关各跑一遍，对比掉帧时每帧人物耗时。
 //
 // 两段：
@@ -48,12 +49,18 @@ if (process.argv[2] === '--actor-child'){
     log(JSON.stringify({ frames: tt.length, med: pct(tt, 0.5), p95: pct(tt, 0.95), stepsPerFrame: steps / tt.length }));
     process.exit(0);
   }
+  /* --warm（2026-11-26 · 执行效率批）：先空跑 50000 帧（≈两场半，V8 对 advance 的反优化/重编在头一两场里
+     收敛），再连续量 20000 帧，不按 done 截断。头一场的数字被"重编期间退回解释执行"的那几千帧主导
+     （node 里一帧 ~0.1ms，一次 170ms 的后台重编就是上千帧装箱），浏览器 60Hz 下同样一次重编只占十来帧
+     —— 稳态这组才接近真机长时间运行的样子。 */
+  const WARM = process.argv.includes('--warm');
+  if (WARM) for (let i = 0; i < 50000; i++) A.tickActors(1 / 60);
   /* 两遍分开跑（同一份确定性仿真）：计时遍不量堆（计时本身会分配），量堆遍不计时。 */
   const HEAP = process.argv.includes('--heap');
   const times = []; let bytes = 0, bFrames = 0, frames = 0;
   ALLOC.ctor = 0; ALLOC.clone = 0; ALLOC.on = true;
   const CH = 30, now = () => performance.now();
-  while (frames < 60 * 60 * 8 && !(A.VISIT.phase === 'done' && frames > 1200)){
+  while (WARM ? frames < 20000 : (frames < 60 * 60 * 8 && !(A.VISIT.phase === 'done' && frames > 1200))){
     const g0 = gcs, h0 = HEAP ? process.memoryUsage().heapUsed : 0;
     for (let i = 0; i < CH; i++){
       if (HEAP){ A.tickActors(1 / 60); continue; }
@@ -132,12 +139,14 @@ const actorRun = (...extra) => JSON.parse(execFileSync(process.execPath,
   ['--max-semi-space-size=64', '--import', './probe/_actor-sim/register-count.mjs', 'probe/perf-sim-bench.mjs', '--actor-child', ...extra],
   { cwd: ROOT, encoding: 'utf8', maxBuffer: 1 << 24 }).trim().split('\n').pop());
 const actor = { ...actorRun(), ...actorRun('--heap') };
+const warm = { ...actorRun('--warm'), ...actorRun('--warm', '--heap') };
 let drivers = null;
 try { await import('../src/00b-fixedstep.js').then(m => { if (!m.tickBySteps) throw 0; });
       drivers = { legacy: actorRun('--driver=legacy'), perstep: actorRun('--driver=perstep') }; } catch { /* 旧版本没有 tickBySteps */ }
 const env = await envBench();
-if (JSON_OUT){ console.log(JSON.stringify({ actor, drivers, env })); process.exit(0); }
+if (JSON_OUT){ console.log(JSON.stringify({ actor, warm, drivers, env })); process.exit(0); }
 console.log(`actor（carriage-walkback 一场 ${actor.frames} 帧）：每帧 中位 ${fmt(actor.med)} · p95 ${fmt(actor.p95)} · THREE new ${actor.ctor.toFixed(3)}/帧 · clone ${actor.clone.toFixed(3)}/帧 · 堆 ≈${actor.bytes == null ? '?' : Math.round(actor.bytes)} B/帧`);
+console.log(`actor 稳态（空跑 50000 帧后连量 ${warm.frames} 帧）：每帧 中位 ${fmt(warm.med)} · p95 ${fmt(warm.p95)} · 堆 ≈${warm.bytes == null ? '?' : Math.round(warm.bytes)} B/帧`);
 if (drivers) for (const [k, d] of Object.entries(drivers))
   console.log(`actor 按帧驱动·${k === 'perstep' ? 'perStep 开' : 'perStep 关（现状）'}（${d.stepsPerFrame.toFixed(2)} 步/帧）：每帧 中位 ${fmt(d.med)} · p95 ${fmt(d.p95)}`);
 for (const e of env) console.log(`env ${e.label}：中位 ${fmt(e.med)} · p95 ${fmt(e.p95)} · 堆 ≈${e.bytes == null ? '?' : Math.round(e.bytes)} B/帧`);

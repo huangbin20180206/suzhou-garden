@@ -20,6 +20,57 @@ export const TEA_ARM = {
   hold: { sx: -2.00, sy: 0.00, sz: -0.20, ex: 1.40, hx: 0.35 },
   lift: { sx: -2.50, sy: 0.00, sz: -0.10, ex: 1.40, hx: 0.35 },
 };
+/* ── 演员对象"同形"（2026-11-26 · 执行效率批 · 多物体运动）──────────────────────────
+   病灶（outputs/_diag/actor-maps-2026-11-26.mjs 实测）：10 个演员对象落在 **7 个不同的 V8 隐藏类**上 ——
+   字面量之后，各人按自己演过的戏陆续长出新键（arrived / faceTo / pairDrive / offerW / 礼仪段的
+   riteBusy… / 马夫寻路的 _goalKey…，生产侧还有 blob / meshes / belt / shadowCast），长出的顺序人人不同。
+   于是 advance() 里每一处 `a.xxx` 都是**超多态**访问（>4 个 map）：走通用 IC，读一个 double 字段就
+   新装一个 HeapNumber —— 这正是上轮交接里"advance() 数值装箱 ~34KB/帧"的主要来源
+   （outputs/_diag/actor-heapprof-2026-11-26.mjs：advance 自身分配占全帧 72%）。
+   修法：把这些"后长的键"在建演员时**按固定顺序一次铺齐**，值一律 `undefined` ——
+   与"键不存在"读出来完全相同（本文件 / 16-actors 无任何 `in` / hasOwnProperty / Object.keys 判演员键，
+   2026-11-26 已 rg 核过；actorState 只数 bones 的键）⇒ 行为逐帧不变，四份重播基线是判据。
+   ⚠️ 以后给演员加新的"后长键"：加进这张表的**末尾**，否则又会分裂出新 map（性能静默退化，不报错）。
+      probe/perf-pure-unit.mjs 有一条"全场一个 map"的断言兜着。 */
+export const ACTOR_LATE_KEYS = Object.freeze([
+  '_px', '_pz', 'blob', 'meshes', 'belt', 'shadowCast',
+  'arrived', 'faceTo', 'pairDrive', 'offerW', 'dir',
+  '_goalKey', '_goalKeyStr', '_goalG0', '_goalG1', '_goalT', '_goalD', '_replanT',
+  'riteBusy', 'riteBucket', 'riteBucketU', 'riteStoopW', 'riteBowW', 'riteCup', 'riteCupOn',
+]);
+/* 通用版：把 keys 里还没有的键按序补成 undefined（VISIT / VISCAR 也用，见 16-actors）。 */
+export function preshape(o, keys){
+  for (let i = 0; i < keys.length; i++){
+    const k = keys[i];
+    if (!(k in o)) o[k] = undefined;
+  }
+  return o;
+}
+export function preshapeActor(a){ return preshape(a, ACTOR_LATE_KEYS); }
+/* 演员 def / def.idle 同形（同上一条的病：DEFS 8 条 + 对弈 2 条字面量各写各的键，def 与 idle 各 8 个 map，
+   advance() 里 a.def.xxx / a.def.idle.xxx 同样超多态）。做法：按"键的并集"**重建**一份同序的浅拷贝，
+   缺的键填 undefined（读出来与缺键相同）。⚠️ 必须在字面量**原地**套（`shapeDefs([...])`），
+   这样任何人拿到的 def 都已是重建后的那份，不存在"新旧两份 def 身份"。嵌套对象（spot/route/dye）不拷，身份照旧。
+   extraKeys：运行期才写进 def 的键（到访导演层改 route / floorMax / followFloor / floorRay / stepUp）
+   与只有对弈两人才有的键，放进并集 ⇒ 运行期写入不再长新键。 */
+export function keyUnion(objs, extra = []){
+  const ks = [];
+  for (const o of objs) for (const k of Object.keys(o)) if (!ks.includes(k)) ks.push(k);
+  for (const k of extra) if (!ks.includes(k)) ks.push(k);
+  return ks;
+}
+export function reshape(o, keys){
+  const n = {};
+  for (const k of keys) n[k] = o[k];
+  for (const k of Object.keys(o)) if (!keys.includes(k)) n[k] = o[k];   // 表外的键照抄（只会多一个 map，不丢值）
+  return n;
+}
+export function makeDefShaper(defs, defExtra, idleExtra){
+  const dk = keyUnion(defs, defExtra);
+  const ik = keyUnion(defs.map(d => d.idle || {}), idleExtra);
+  const one = (d) => { const n = reshape(d, dk); if (d.idle) n.idle = reshape(d.idle, ik); return n; };
+  return { defKeys: dk, idleKeys: ik, one, all: (list) => list.map(one) };
+}
 export const TEA_CUP_FWD = 0.09;    // 盏心在腕**前**多少（袖口之外才看得见）
 export const ease01 = (x) => { const t = Math.max(0, Math.min(1, x)); return t * t * (3 - 2 * t); };
 export const _cupV = new THREE.Vector3();

@@ -35,7 +35,7 @@ import { HOOKS, ENV_REF, LADY_SCHEDULE } from './00-config.js';
 import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 import { markArtLicense } from './art-license.js';
 import { sunTimes } from './12h-solar.js';
-import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ, makeWaterBucket } from './16a-actor-props.js';
+import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ, makeWaterBucket, preshapeActor, makeDefShaper, preshape } from './16a-actor-props.js';
 
 const ACTORS = [];
 let _built = false;
@@ -404,6 +404,12 @@ const VISIT = {
   mode: (typeof location !== 'undefined' && new URLSearchParams(location.search).get('visit') === 'walk')
         ? 'walk' : 'carriage',
 };
+/* 一场戏里 VISIT 会陆续长出 14 个键（各段导演层首次写入），每长一个，VISIT 换一次隐藏类 ⇒
+   advance()/tickVisit 里嵌着旧 map 的优化码整段作废重编（实测 carriage-walkback 一场 advance
+   反优化 14 次、每次后台重编 ~170ms）。这里按"首次写入的先后"一次铺齐（undefined = 缺键读出的值；
+   本文件无 `in VISIT` / 枚举 VISIT 键的用法，actorVisit 逐项取值）。新加 VISIT 键请补进表尾。 */
+preshape(VISIT, ['age', 'ptsH', 'ptsG', 'eptsH', 'eptsG', 'epath', 'riteGreetIn', 'greetT', 'greetWho', 'rt',
+                 'riteGreetOut', 'greetOutT', 'greetOutWho', 'wrapWarned', 'homeLog', 'homeSnaps', 'homeWalk']);
 
 /* ── 马车版到访（2026-10-23）──────────────────────────────────────────────────
    老黄："马车版到访（坐车到马厩→下车进园，与现在步行是反向）… 马和马车的动态，
@@ -481,6 +487,7 @@ const VISCAR = {
   leg: '', legT: 0,
   odo: 0,                    // 累计里程（车轮/辕马腿相位）；跨段连续，见 driveout 注释
   backYaw0: null,            // back 段入口的进站朝向（用于把 yaw 平滑收到 π，不再一帧硬切）
+  outPath: null,             // 出园路线（首次赋值点在 resetVisit / 离场；预先声明只为同一隐藏类，见 VISIT 下的 preshape 注释）
 };
 
 /* 卷轴纸：奶白底 + 八列竖排"墨点" + 一方朱印。
@@ -646,7 +653,7 @@ const RITE_PTS = {
 const RITE = { g: 'off', gt: 0, home: null, tiePt: null, replanAt: 0, bucketPt: null, bucketY: 0, bucket: null,
                b: 'off', bt: 0 };
 
-const DEFS = [
+const DEFS_RAW = [
   {
     id: 'scholar',
     url: 'assets/fig-scholar.glb',
@@ -977,6 +984,13 @@ const DEFS = [
     sitLeanK: 0.40,          // 同文士：坐太师椅不弓背
   },
 ];
+/* def / idle 同形（2026-11-26 · 执行效率批）：见 16a makeDefShaper。defExtra = 运行期才写进 def 的键 +
+   对弈两人（seatedDefs）独有的键；idleExtra = 对弈两人 idle 独有的键。漏了只会多一个 map（不错值），
+   probe/perf-pure-unit.mjs 断言"全员 def / idle 各一个 map"兜底。 */
+const DEF_SHAPE = makeDefShaper(DEFS_RAW,
+  ['route', 'floorRay', 'followFloor', 'floorMax', 'stepUp', 'pose', 'fixedY', 'dye'],
+  ['go', 'headDown', 'placeEvery']);
+const DEFS = DEF_SHAPE.all(DEFS_RAW);
 
 /* 隐藏程序化替身。near 给了就按**最近的那个**挑：
    poseName 不是唯一的（08b 里两个书童都叫 'child'、家里三个孩子都叫 'watchChild'），
@@ -1850,7 +1864,7 @@ function loadActor(def){
         ride: null, trip: null, coachW: 0, tieW: 0, tieTarget: false,
       });
       /* 品茶：盏挂在 holder 上（不挂手骨，理由见 TEA_ARM 注释） */
-      const aNew = ACTORS[ACTORS.length - 1];
+      const aNew = preshapeActor(ACTORS[ACTORS.length - 1]);   // 后长的键一次铺齐 ⇒ 全员同一隐藏类（见 16a ACTOR_LATE_KEYS）
       if (def.idle.tea) aNew.cup = makeTeaCup(holder);
       if (def.idle.brush) aNew.brush = makeBrush(holder);
       if (def.idle.scroll) aNew.scroll = makeScroll(holder);
@@ -1937,7 +1951,7 @@ function seatedDefs(){
     const dx = tb.x - st.x, dz = tb.z - st.z;
     const dl = Math.hypot(dx, dz) || 1;
     const push = 0.24;
-    out.push({
+    out.push(DEF_SHAPE.one({
       id,
       url: 'assets/fig-scholar.glb',
       height: 1.72,
@@ -1958,7 +1972,7 @@ function seatedDefs(){
       /* 坐姿的两只手分别在 GO_ARM 里；这里只留下呼吸、低头看盘与"落子"的节奏 */
       idle: { breath: 0.008, head: 0.022, sway: 0.002, phase: si === 0 ? 1.1 : 3.9,
               go: id, headDown: SIT.headDown, placeEvery: [4.5, 9.0] },
-    });
+    }));
   });
   return out;
 }
@@ -4074,11 +4088,19 @@ const _poseE = new THREE.Euler();
    set 与原闭包一样写 _poseE / _poseQ（原闭包里的 e / q 就是这两个对象），语义不变。 */
 let _setA = null, _armRelaxed = null, _armADK = 0, _armAd = 0;
 const _HB_L = [0, 0, 0], _HB_R = [0, 0, 0];
-function setBone(name, x, y, z){
+/* setS：setBone 的"标量槽"版（2026-11-26 · 执行效率批 · 多物体运动）。
+   advance() 体量太大，V8 的内联预算在它身上早早用完 ⇒ setBone **不被内联**（--trace-turbo-inlining 实测），
+   每次 set(name, x, y, z) 都要把非整数的 x/y/z 各装一个 HeapNumber 才能过调用边界 ——
+   每帧 10 人 × 二三十次 ≈ 上千个装箱，是 advance 自身分配的大头。
+   改成调用方先写进模块级 Float64Array（_SB，写入不装箱）再只传骨名。求值顺序 = 原实参从左到右，
+   数值逐位相同（Float64Array 保 −0 / NaN），四份重播基线是判据。
+   ⚠️ advance() 里新写骨骼姿态照这个样子：`(_SB[0] = x, _SB[1] = y, _SB[2] = z, setS('Bone'))`。 */
+const _SB = new Float64Array(3);
+function setS(name){
   const a = _setA;
   const bone = a.bones[name], rest = a.base[name];
   if (!bone || !rest) return;
-  _poseE.set(x, y, z, 'XYZ');
+  _poseE.set(_SB[0], _SB[1], _SB[2], 'XYZ');
   _poseQ.setFromEuler(_poseE);
   bone.quaternion.copy(rest).multiply(_poseQ);
 }
@@ -4196,7 +4218,7 @@ function advance(dt){
      2026-10-27 的"游园穿模"就是这么来的）。这里直接用真实位移兜底。 */
   for (const a of ACTORS){ a._px = a.pos.x; a._pz = a.pos.z; }
   tickVisit(dt);
-  const q = _poseQ;            // 裙骨段直接用；_poseE 由 setBone 写
+  const q = _poseQ;            // 裙骨段直接用；_poseE 由 setS 写
   for (const a of ACTORS){
     /* ── 人物可见性门控（2026-11-07 老黄："夜间人物应该都休息了，不出现；只有灯会和烟花
        的场景夜间才出现人物"）────────────────────────────────────────────────
@@ -4357,7 +4379,7 @@ function advance(dt){
     const b = Math.sin(_t * 1.05 + a.phase);
     const h = Math.sin(_t * 0.31 + a.phase * 1.7);
     _setA = a;
-    const set = setBone;          // 原为每帧闭包（见文件头"帧内零分配"）
+    /* 骨骼写入走 setS + 标量槽 _SB（2026-11-26，见 setS 注释；原 `const set = setBone` 别名已撤）。 */
 
     /* ── 步态（w→0 时全部回零，站姿与 P1 逐字一致）────────────────────────
        屈膝相位：腿往前送的半程（cos>0）才弯；支撑期直着撑住重量。
@@ -4370,15 +4392,13 @@ function advance(dt){
               甩到身后：坐凳第一版右膝跑到身后 0.42m、右踝比髋还高 0.28m，
               裙下露出一大块深色裤腿，读作"背后挂着一块黑布"（v-east 出图）。 */
     const cs = curSit(a); const legSym = hopCrouch * 0.8 - KNEEL.thigh * k - cs.thigh * st2;   // 两条腿共用的对称分量
-    set('LeftUpperLeg',  a.amp * sw * w + legSym, 0, 0);    // 步态异号（交替）
-    set('RightUpperLeg', -a.amp * sw * w + legSym, 0, 0);   // 对称分量同号（同向前屈）
-    set('LeftLowerLeg',  -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + cs.knee * st2, 0, 0);
-    set('RightLowerLeg', -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + cs.knee * st2, 0, 0);
-    set('LeftFoot',  -GAIT.foot * sw * w + KNEEL.foot * k + cs.foot * st2, 0, 0);
-    set('RightFoot',  GAIT.foot * sw * w + KNEEL.foot * k + cs.foot * st2, 0, 0);
-    set('Hips',  0.010 * w,
-        GAIT.hipYaw * sw * w,
-        GAIT.hipRoll * Math.cos(p) * w);
+    (_SB[0] = a.amp * sw * w + legSym, _SB[1] = 0, _SB[2] = 0, setS('LeftUpperLeg'));    // 步态异号（交替）
+    (_SB[0] = -a.amp * sw * w + legSym, _SB[1] = 0, _SB[2] = 0, setS('RightUpperLeg'));   // 对称分量同号（同向前屈）
+    (_SB[0] = -GAIT.knee * Math.pow(Math.max(0,  Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + cs.knee * st2, _SB[1] = 0, _SB[2] = 0, setS('LeftLowerLeg'));
+    (_SB[0] = -GAIT.knee * Math.pow(Math.max(0, -Math.cos(p)), 1.2) * w - hopCrouch * 1.8 - hopTuck + KNEEL.knee * k + cs.knee * st2, _SB[1] = 0, _SB[2] = 0, setS('RightLowerLeg'));
+    (_SB[0] = -GAIT.foot * sw * w + KNEEL.foot * k + cs.foot * st2, _SB[1] = 0, _SB[2] = 0, setS('LeftFoot'));
+    (_SB[0] = GAIT.foot * sw * w + KNEEL.foot * k + cs.foot * st2, _SB[1] = 0, _SB[2] = 0, setS('RightFoot'));
+    (_SB[0] = 0.010 * w, _SB[1] = GAIT.hipYaw * sw * w, _SB[2] = GAIT.hipRoll * Math.cos(p) * w, setS('Hips'));
 
     /* A 姿势 → 自然垂手（实测左 +Y / 右 -Y）。只对文士生效，仕女本来就是垂手。 */
     const ad = o.armDown || 0;
@@ -4410,7 +4430,7 @@ function advance(dt){
               按 st2 把肘收起来、手放大腿上；stand→sit 是一维加权，不会跳。 */
         const sl = st2;
         const swing = Math.sin(p) * 0.16 * w;
-        set('LeftUpperArm',  relaxed.x - swing + SIT_ARM.x * sl, 0,  relaxed.z + SIT_ARM.z * sl);
+        (_SB[0] = relaxed.x - swing + SIT_ARM.x * sl, _SB[1] = 0, _SB[2] = relaxed.z + SIT_ARM.z * sl, setS('LeftUpperArm'));
         /* ⚠️ 右臂的 x 是**反号**的（见上面"左右反号"那条实测：左 x 更负 = 手往前、
               右 x 更正 = 手往后）。
            ⚠️⚠️ 2026-11-09 这里两侧都取 +x 是**试出来的**，不是推出来的：按 −x 给右边
@@ -4420,29 +4440,29 @@ function advance(dt){
               最终两个符号组合的实测（out/_diag/seat-clip2-20261109）：
                 +x / +x → 268、+x / −x → 268、−x / +x（本条）→ 最低。
               再动这两个符号之前，先把这三种组合重跑一遍，别凭"应该反号"直接改。 */
-        set('RightUpperArm', relaxed.x + swing + SIT_ARM.x * sl, 0, -relaxed.z - SIT_ARM.z * sl);
-        set('LeftLowerArm',  relaxed.ex + 0.05 * Math.max(0,  Math.sin(p)) * w + SIT_ARM.ex * sl, 0, 0);
-        set('RightLowerArm', relaxed.ex + 0.05 * Math.max(0, -Math.sin(p)) * w + SIT_ARM.ex * sl, 0, 0);
-        set('LeftHand',  relaxed.hx + SIT_ARM.hx * sl,  relaxed.hy,  relaxed.hz);
-        set('RightHand', relaxed.hx + SIT_ARM.hx * sl, -relaxed.hy, -relaxed.hz);
+        (_SB[0] = relaxed.x + swing + SIT_ARM.x * sl, _SB[1] = 0, _SB[2] = -relaxed.z - SIT_ARM.z * sl, setS('RightUpperArm'));
+        (_SB[0] = relaxed.ex + 0.05 * Math.max(0,  Math.sin(p)) * w + SIT_ARM.ex * sl, _SB[1] = 0, _SB[2] = 0, setS('LeftLowerArm'));
+        (_SB[0] = relaxed.ex + 0.05 * Math.max(0, -Math.sin(p)) * w + SIT_ARM.ex * sl, _SB[1] = 0, _SB[2] = 0, setS('RightLowerArm'));
+        (_SB[0] = relaxed.hx + SIT_ARM.hx * sl, _SB[1] = relaxed.hy, _SB[2] = relaxed.hz, setS('LeftHand'));
+        (_SB[0] = relaxed.hx + SIT_ARM.hx * sl, _SB[1] = -relaxed.hy, _SB[2] = -relaxed.hz, setS('RightHand'));
         for (const sd of SIDES){
-          set(_BN[sd].IndexProximal, 0.45, 0, 0);
-          set(_BN[sd].MiddleProximal, 0.45, 0, 0);
-          set(_BN[sd].IndexIntermediate, 0.32, 0, 0);
-          set(_BN[sd].MiddleIntermediate, 0.32, 0, 0);
-          set(_BN[sd].ThumbProximal, -0.32, 0, 0);
-          set(_BN[sd].ThumbIntermediate, -0.26, 0, 0);
-          set(_BN[sd].ThumbDistal, -0.14, 0, 0);
+          (_SB[0] = 0.45, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexProximal));
+          (_SB[0] = 0.45, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleProximal));
+          (_SB[0] = 0.32, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexIntermediate));
+          (_SB[0] = 0.32, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleIntermediate));
+          (_SB[0] = -0.32, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbProximal));
+          (_SB[0] = -0.26, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbIntermediate));
+          (_SB[0] = -0.14, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbDistal));
         }
       } else {
         const swing = Math.sin(p) * 0.40 * w;
-        set('LeftUpperArm', -ADK * ad - swing, 0, 0);
-        set('RightUpperArm', -ADK * ad + swing, 0, 0);
+        (_SB[0] = -ADK * ad - swing, _SB[1] = 0, _SB[2] = 0, setS('LeftUpperArm'));
+        (_SB[0] = -ADK * ad + swing, _SB[1] = 0, _SB[2] = 0, setS('RightUpperArm'));
         if (w > 0.02){
           const bendL = 0.10 + 0.16 * Math.max(0, Math.sin(p)) * w;
           const bendR = 0.10 + 0.16 * Math.max(0, -Math.sin(p)) * w;
-          set('LeftLowerArm', bendL, 0.12, 0);
-          set('RightLowerArm', bendR, -0.12, 0);
+          (_SB[0] = bendL, _SB[1] = 0.12, _SB[2] = 0, setS('LeftLowerArm'));
+          (_SB[0] = bendR, _SB[1] = -0.12, _SB[2] = 0, setS('RightLowerArm'));
         }
       }
     }
@@ -4482,21 +4502,21 @@ function advance(dt){
         /* 从"自然垂手"的基准过渡（含手腕角）—— 只过渡上臂会让手在收起/捧起时闪一下。 */
         const hbL = handBase('Left'), hbR = handBase('Right');
         const exB = relaxed ? relaxed.ex : 0;
-        set('LeftUpperArm',  armBaseX() * (1 - w2) + L.sx * w2, L.sy * w2, armBaseZ('Left') * (1 - w2) + L.sz * w2);
-        set('RightUpperArm', armBaseX() * (1 - w2) + Rr.sx * w2, Rr.sy * w2, armBaseZ('Right') * (1 - w2) + Rr.sz * w2);
-        set('LeftLowerArm', L.ex * w2 + exB * (1 - w2), 0, 0);
-        set('RightLowerArm', Rr.ex * w2 + exB * (1 - w2), 0, 0);
-        set('LeftHand',  SCROLL.hx * w2 + hbL[0] * (1 - w2), hbL[1] * (1 - w2), hbL[2] * (1 - w2));
-        set('RightHand', SCROLL.hx * w2 + hbR[0] * (1 - w2), hbR[1] * (1 - w2), hbR[2] * (1 - w2));
+        (_SB[0] = armBaseX() * (1 - w2) + L.sx * w2, _SB[1] = L.sy * w2, _SB[2] = armBaseZ('Left') * (1 - w2) + L.sz * w2, setS('LeftUpperArm'));
+        (_SB[0] = armBaseX() * (1 - w2) + Rr.sx * w2, _SB[1] = Rr.sy * w2, _SB[2] = armBaseZ('Right') * (1 - w2) + Rr.sz * w2, setS('RightUpperArm'));
+        (_SB[0] = L.ex * w2 + exB * (1 - w2), _SB[1] = 0, _SB[2] = 0, setS('LeftLowerArm'));
+        (_SB[0] = Rr.ex * w2 + exB * (1 - w2), _SB[1] = 0, _SB[2] = 0, setS('RightLowerArm'));
+        (_SB[0] = SCROLL.hx * w2 + hbL[0] * (1 - w2), _SB[1] = hbL[1] * (1 - w2), _SB[2] = hbL[2] * (1 - w2), setS('LeftHand'));
+        (_SB[0] = SCROLL.hx * w2 + hbR[0] * (1 - w2), _SB[1] = hbR[1] * (1 - w2), _SB[2] = hbR[2] * (1 - w2), setS('RightHand'));
         /* 握木轴：食指/中指扣住、拇指内收（比端盏更实 —— 卷轴是有重量的） */
         for (const sd of SIDES){
-          set(_BN[sd].IndexProximal, 0.85 * w2, 0, 0);
-          set(_BN[sd].MiddleProximal, 0.85 * w2, 0, 0);
-          set(_BN[sd].IndexIntermediate, 0.62 * w2, 0, 0);
-          set(_BN[sd].MiddleIntermediate, 0.62 * w2, 0, 0);
-          set(_BN[sd].ThumbProximal, -0.55 * w2, 0, 0);
-          set(_BN[sd].ThumbIntermediate, -0.48 * w2, 0, 0);
-          set(_BN[sd].ThumbDistal, -0.30 * w2, 0, 0);
+          (_SB[0] = 0.85 * w2, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexProximal));
+          (_SB[0] = 0.85 * w2, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleProximal));
+          (_SB[0] = 0.62 * w2, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexIntermediate));
+          (_SB[0] = 0.62 * w2, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleIntermediate));
+          (_SB[0] = -0.55 * w2, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbProximal));
+          (_SB[0] = -0.48 * w2, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbIntermediate));
+          (_SB[0] = -0.30 * w2, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbDistal));
         }
       }
     } else if (o.scroll){
@@ -4511,14 +4531,14 @@ function advance(dt){
     if (o.hay && a.hayHeld && a.coachW < 0.05 && a.tieW < 0.05){
       /* 递草的慢摆（2026-10-27 老黄："没有任何动作"）：前臂 ±0.10rad、约 5.7s 一个来回，
          草把跟着手腕上下 ~7cm —— 远看是"把草往马嘴前送一送"，不是端着一动不动。 */
-      set('LeftLowerArm', HAY_ARM.ex + 0.10 * Math.sin(_t * 1.1 + a.phase), 0, 0);
-      set('LeftIndexProximal', 0.70, 0, 0);
-      set('LeftMiddleProximal', 0.70, 0, 0);
-      set('LeftIndexIntermediate', 0.50, 0, 0);
-      set('LeftMiddleIntermediate', 0.50, 0, 0);
-      set('LeftThumbProximal', -0.45, 0, 0);
-      set('LeftThumbIntermediate', -0.38, 0, 0);
-      set('LeftThumbDistal', -0.24, 0, 0);
+      (_SB[0] = HAY_ARM.ex + 0.10 * Math.sin(_t * 1.1 + a.phase), _SB[1] = 0, _SB[2] = 0, setS('LeftLowerArm'));
+      (_SB[0] = 0.70, _SB[1] = 0, _SB[2] = 0, setS('LeftIndexProximal'));
+      (_SB[0] = 0.70, _SB[1] = 0, _SB[2] = 0, setS('LeftMiddleProximal'));
+      (_SB[0] = 0.50, _SB[1] = 0, _SB[2] = 0, setS('LeftIndexIntermediate'));
+      (_SB[0] = 0.50, _SB[1] = 0, _SB[2] = 0, setS('LeftMiddleIntermediate'));
+      (_SB[0] = -0.45, _SB[1] = 0, _SB[2] = 0, setS('LeftThumbProximal'));
+      (_SB[0] = -0.38, _SB[1] = 0, _SB[2] = 0, setS('LeftThumbIntermediate'));
+      (_SB[0] = -0.24, _SB[1] = 0, _SB[2] = 0, setS('LeftThumbDistal'));
     }
     /* ── 车夫握缰 / 系马（2026-10-23）─────────────────────────────────────────
        这只 rig 的**肩不能转**（腰带有一批顶点贴着前臂骨，见 BRUSH 的注释），所以
@@ -4535,18 +4555,18 @@ function advance(dt){
          手臂归位到垂下后完全消失 ⇒ 真因是"抬得太高 + 这个模型的袖子绑得很低"。
          这段只有 15~25m 的观看距离，"两条胳膊往前伸、抓着东西"就够了，
          不需要把前臂抬到胸前 —— 收小 0.35~0.4 rad，手落在膝前。 */
-      if (!a.riteBucket) set('LeftLowerArm', -0.85 * cw, 0, 0);   // 礼仪·接马：左手拎着水桶，只用右手牵缰
-      set('RightLowerArm', -0.72 * cw, 0, 0);
-      set('LeftHand', 0.34 * cw, 0, 0);
-      set('RightHand', 0.34 * cw, 0, 0);
+      if (!a.riteBucket) (_SB[0] = -0.85 * cw, _SB[1] = 0, _SB[2] = 0, setS('LeftLowerArm'));   // 礼仪·接马：左手拎着水桶，只用右手牵缰
+      (_SB[0] = -0.72 * cw, _SB[1] = 0, _SB[2] = 0, setS('RightLowerArm'));
+      (_SB[0] = 0.34 * cw, _SB[1] = 0, _SB[2] = 0, setS('LeftHand'));
+      (_SB[0] = 0.34 * cw, _SB[1] = 0, _SB[2] = 0, setS('RightHand'));
       for (const sd of SIDES){
-        set(_BN[sd].IndexProximal, 0.95 * cw, 0, 0);
-        set(_BN[sd].MiddleProximal, 0.95 * cw, 0, 0);
-        set(_BN[sd].IndexIntermediate, 0.70 * cw, 0, 0);
-        set(_BN[sd].MiddleIntermediate, 0.70 * cw, 0, 0);
-        set(_BN[sd].ThumbProximal, -0.60 * cw, 0, 0);
-        set(_BN[sd].ThumbIntermediate, -0.52 * cw, 0, 0);
-        set(_BN[sd].ThumbDistal, -0.34 * cw, 0, 0);
+        (_SB[0] = 0.95 * cw, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexProximal));
+        (_SB[0] = 0.95 * cw, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleProximal));
+        (_SB[0] = 0.70 * cw, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexIntermediate));
+        (_SB[0] = 0.70 * cw, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleIntermediate));
+        (_SB[0] = -0.60 * cw, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbProximal));
+        (_SB[0] = -0.52 * cw, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbIntermediate));
+        (_SB[0] = -0.34 * cw, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbDistal));
       }
     }
 
@@ -4606,23 +4626,18 @@ function advance(dt){
          · st2=0（站着）⇒ sl=0 ⇒ 与改动前逐位一致，不影响站姿喝茶；
          · st2=1 且 r1=1（坐着举杯）⇒ sl=1 ⇒ 补偿完整生效（本条要修的那一帧）；
          · r1 由 0→1 时补偿渐入，抬手过程连续，不会"啪"地跳。 */
-      set('RightUpperArm',
-          bl * (1 - r1) + (A.sx + (B.sx - A.sx) * r2) * r1 + SIT_ARM.x * sl, 0,
-          bz * (1 - r1) + (A.sz + (B.sz - A.sz) * r2) * r1 - SIT_ARM.z * sl);
-      set('RightLowerArm',
-          exB * (1 - r1) + (A.ex + (B.ex - A.ex) * r2) * r1 + SIT_ARM.ex * sl, 0, 0);
-      set('RightHand',
-          hbR[0] * (1 - r1) + (A.hx + (B.hx - A.hx) * r2) * r1 + SIT_ARM.hx * sl,
-          hbR[1] * (1 - r1), hbR[2] * (1 - r1));
+      (_SB[0] = bl * (1 - r1) + (A.sx + (B.sx - A.sx) * r2) * r1 + SIT_ARM.x * sl, _SB[1] = 0, _SB[2] = bz * (1 - r1) + (A.sz + (B.sz - A.sz) * r2) * r1 - SIT_ARM.z * sl, setS('RightUpperArm'));
+      (_SB[0] = exB * (1 - r1) + (A.ex + (B.ex - A.ex) * r2) * r1 + SIT_ARM.ex * sl, _SB[1] = 0, _SB[2] = 0, setS('RightLowerArm'));
+      (_SB[0] = hbR[0] * (1 - r1) + (A.hx + (B.hx - A.hx) * r2) * r1 + SIT_ARM.hx * sl, _SB[1] = hbR[1] * (1 - r1), _SB[2] = hbR[2] * (1 - r1), setS('RightHand'));
       /* 指节：虚握盏身（食指/中指弯、拇指内收扣住盏沿） */
       const cu = 0.80 + 0.10 * sip;
-      set('RightIndexProximal', cu, 0, 0);
-      set('RightMiddleProximal', cu, 0, 0);
-      set('RightIndexIntermediate', 0.55, 0, 0);
-      set('RightMiddleIntermediate', 0.55, 0, 0);
-      set('RightThumbProximal', -0.55, 0, 0);
-      set('RightThumbIntermediate', -0.50, 0, 0);
-      set('RightThumbDistal', -0.33, 0, 0);
+      (_SB[0] = cu, _SB[1] = 0, _SB[2] = 0, setS('RightIndexProximal'));
+      (_SB[0] = cu, _SB[1] = 0, _SB[2] = 0, setS('RightMiddleProximal'));
+      (_SB[0] = 0.55, _SB[1] = 0, _SB[2] = 0, setS('RightIndexIntermediate'));
+      (_SB[0] = 0.55, _SB[1] = 0, _SB[2] = 0, setS('RightMiddleIntermediate'));
+      (_SB[0] = -0.55, _SB[1] = 0, _SB[2] = 0, setS('RightThumbProximal'));
+      (_SB[0] = -0.50, _SB[1] = 0, _SB[2] = 0, setS('RightThumbIntermediate'));
+      (_SB[0] = -0.33, _SB[1] = 0, _SB[2] = 0, setS('RightThumbDistal'));
     } else if (o.tea){
       a.sipW = 0; a.teaT = 0;      // 双手占着卷轴：不端盏、也不留上一杯的低头角
     }
@@ -4678,8 +4693,8 @@ function advance(dt){
         a.grabT -= dt;                             // ⚠️ 抓草有自己的计时（choreT 是 idle/feed 的）
         turnToward(a, C.hayYaw, dt);               // 面向草堆再抓
         /* 左臂往堆里够 + 小幅扒拉（同喂草的慢摆口径），前俯由 grabW 抬升 lean */
-        set('LeftUpperArm', -0.62, 0, 0.18);
-        set('LeftLowerArm', 0.40 + 0.10 * Math.sin(_t * 2.2), 0, 0);
+        (_SB[0] = -0.62, _SB[1] = 0, _SB[2] = 0.18, setS('LeftUpperArm'));
+        (_SB[0] = 0.40 + 0.10 * Math.sin(_t * 2.2), _SB[1] = 0, _SB[2] = 0, setS('LeftLowerArm'));
         if (a.grabT <= 0){                         // 抓完：草把入手，走回马嘴边
           a.chore = 'back';
           a.hayHeld = true;
@@ -4754,16 +4769,16 @@ function advance(dt){
       a.brushW = bw2;
       if (bw2 > 0.001){
         const st3 = Math.sin(a.brushT * 6.2832 * BRUSH.hz);
-        set('RightLowerArm', BRUSH.elbow * bw2 - BRUSH.amp * st3 * bw2, 0, 0);
-        set('RightHand', BRUSH.wrist * bw2 + BRUSH.wAmp * st3 * bw2, 0, 0);
+        (_SB[0] = BRUSH.elbow * bw2 - BRUSH.amp * st3 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightLowerArm'));
+        (_SB[0] = BRUSH.wrist * bw2 + BRUSH.wAmp * st3 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightHand'));
         /* 握住刷柄：食指/中指弯、拇指内收（比端茶扣得更紧 —— 刷子要受力） */
-        set('RightIndexProximal', 0.95 * bw2, 0, 0);
-        set('RightMiddleProximal', 0.95 * bw2, 0, 0);
-        set('RightIndexIntermediate', 0.70 * bw2, 0, 0);
-        set('RightMiddleIntermediate', 0.70 * bw2, 0, 0);
-        set('RightThumbProximal', -0.62 * bw2, 0, 0);
-        set('RightThumbIntermediate', -0.55 * bw2, 0, 0);
-        set('RightThumbDistal', -0.36 * bw2, 0, 0);
+        (_SB[0] = 0.95 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightIndexProximal'));
+        (_SB[0] = 0.95 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightMiddleProximal'));
+        (_SB[0] = 0.70 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightIndexIntermediate'));
+        (_SB[0] = 0.70 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightMiddleIntermediate'));
+        (_SB[0] = -0.62 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightThumbProximal'));
+        (_SB[0] = -0.55 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightThumbIntermediate'));
+        (_SB[0] = -0.36 * bw2, _SB[1] = 0, _SB[2] = 0, setS('RightThumbDistal'));
       }
     }
     /* ── 抚琴：两臂前伸下探到弦上（参数 QIN_ARM + QIN_HAND，反解口径见文件头）──────
@@ -4775,17 +4790,17 @@ function advance(dt){
       const tt = _t + a.phase;
       for (const side of SIDES){
         const P = QIN_ARM[side], H = QIN_HAND[side];
-        set(_BN[side].UpperArm, P.sx, P.sy, P.sz);
-        set(_BN[side].LowerArm, P.ex, P.ey || 0, P.ez || 0);
-        set(_BN[side].Hand, H.hx, H.hy, H.hz);
+        (_SB[0] = P.sx, _SB[1] = P.sy, _SB[2] = P.sz, setS(_BN[side].UpperArm));
+        (_SB[0] = P.ex, _SB[1] = P.ey || 0, _SB[2] = P.ez || 0, setS(_BN[side].LowerArm));
+        (_SB[0] = H.hx, _SB[1] = H.hy, _SB[2] = H.hz, setS(_BN[side].Hand));
         const osc = Math.sin(tt * P.rate * 6.2832);
-        set(_BN[side].IndexProximal,  H.curl + P.pluck * Math.max(0, osc), 0, 0);
-        set(_BN[side].MiddleProximal, H.curl + P.pluck * Math.max(0, -osc), 0, 0);
-        set(_BN[side].IndexIntermediate,  H.mid, 0, 0);
-        set(_BN[side].MiddleIntermediate, H.mid, 0, 0);
-        set(_BN[side].ThumbProximal, H.thumb, 0, 0);
-        set(_BN[side].ThumbIntermediate, H.thumb * 0.9, 0, 0);
-        set(_BN[side].ThumbDistal, H.thumb * 0.6, 0, 0);
+        (_SB[0] = H.curl + P.pluck * Math.max(0, osc), _SB[1] = 0, _SB[2] = 0, setS(_BN[side].IndexProximal));
+        (_SB[0] = H.curl + P.pluck * Math.max(0, -osc), _SB[1] = 0, _SB[2] = 0, setS(_BN[side].MiddleProximal));
+        (_SB[0] = H.mid, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].IndexIntermediate));
+        (_SB[0] = H.mid, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].MiddleIntermediate));
+        (_SB[0] = H.thumb, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].ThumbProximal));
+        (_SB[0] = H.thumb * 0.9, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].ThumbIntermediate));
+        (_SB[0] = H.thumb * 0.6, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].ThumbDistal));
       }
     }
     /* ── 对弈：一只手落到盘面、每 4.5~9s 落一次子 ─────────────────────────────
@@ -4810,16 +4825,16 @@ function advance(dt){
         const P = A[side];
         if (!P) continue;
         const d = P.place ? place : 0;
-        set(_BN[side].UpperArm, P.sx - 0.05 * d, P.sy, P.sz);
-        set(_BN[side].LowerArm, P.ex + 0.10 * d, 0, 0);
-        set(_BN[side].Hand, P.hx - 0.20 * d, P.hy, P.hz);
-        set(_BN[side].IndexProximal, P.curl - 0.18 * d, 0, 0);
-        set(_BN[side].MiddleProximal, P.curl - 0.18 * d, 0, 0);
-        set(_BN[side].IndexIntermediate, P.mid, 0, 0);
-        set(_BN[side].MiddleIntermediate, P.mid, 0, 0);
-        set(_BN[side].ThumbProximal, P.thumb, 0, 0);
-        set(_BN[side].ThumbIntermediate, P.thumb * 0.9, 0, 0);
-        set(_BN[side].ThumbDistal, P.thumb * 0.6, 0, 0);
+        (_SB[0] = P.sx - 0.05 * d, _SB[1] = P.sy, _SB[2] = P.sz, setS(_BN[side].UpperArm));
+        (_SB[0] = P.ex + 0.10 * d, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].LowerArm));
+        (_SB[0] = P.hx - 0.20 * d, _SB[1] = P.hy, _SB[2] = P.hz, setS(_BN[side].Hand));
+        (_SB[0] = P.curl - 0.18 * d, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].IndexProximal));
+        (_SB[0] = P.curl - 0.18 * d, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].MiddleProximal));
+        (_SB[0] = P.mid, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].IndexIntermediate));
+        (_SB[0] = P.mid, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].MiddleIntermediate));
+        (_SB[0] = P.thumb, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].ThumbProximal));
+        (_SB[0] = P.thumb * 0.9, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].ThumbIntermediate));
+        (_SB[0] = P.thumb * 0.6, _SB[1] = 0, _SB[2] = 0, setS(_BN[side].ThumbDistal));
       }
     }
     /* ── 作揖（S2）：两手在胸前合拢 + 躯干前俯 ─────────────────────────────────
@@ -4833,21 +4848,21 @@ function advance(dt){
       const L = BOW.L, Rr = BOW.R, wb = bw;
       const hbL = handBase('Left'), hbR = handBase('Right');
       const exB = relaxed ? relaxed.ex : 0;
-      set('LeftUpperArm',  armBaseX() * (1 - wb) + L.sx * wb, L.sy * wb, armBaseZ('Left') * (1 - wb) + L.sz * wb);
-      set('RightUpperArm', armBaseX() * (1 - wb) + Rr.sx * wb, Rr.sy * wb, armBaseZ('Right') * (1 - wb) + Rr.sz * wb);
-      set('LeftLowerArm', BOW.ex * wb + exB * (1 - wb), 0, 0);
-      set('RightLowerArm', BOW.ex * wb + exB * (1 - wb), 0, 0);
-      set('LeftHand',  BOW.hand * wb + hbL[0] * (1 - wb), hbL[1] * (1 - wb), hbL[2] * (1 - wb));
-      set('RightHand', BOW.hand * wb + hbR[0] * (1 - wb), hbR[1] * (1 - wb), hbR[2] * (1 - wb));
+      (_SB[0] = armBaseX() * (1 - wb) + L.sx * wb, _SB[1] = L.sy * wb, _SB[2] = armBaseZ('Left') * (1 - wb) + L.sz * wb, setS('LeftUpperArm'));
+      (_SB[0] = armBaseX() * (1 - wb) + Rr.sx * wb, _SB[1] = Rr.sy * wb, _SB[2] = armBaseZ('Right') * (1 - wb) + Rr.sz * wb, setS('RightUpperArm'));
+      (_SB[0] = BOW.ex * wb + exB * (1 - wb), _SB[1] = 0, _SB[2] = 0, setS('LeftLowerArm'));
+      (_SB[0] = BOW.ex * wb + exB * (1 - wb), _SB[1] = 0, _SB[2] = 0, setS('RightLowerArm'));
+      (_SB[0] = BOW.hand * wb + hbL[0] * (1 - wb), _SB[1] = hbL[1] * (1 - wb), _SB[2] = hbL[2] * (1 - wb), setS('LeftHand'));
+      (_SB[0] = BOW.hand * wb + hbR[0] * (1 - wb), _SB[1] = hbR[1] * (1 - wb), _SB[2] = hbR[2] * (1 - wb), setS('RightHand'));
       /* 手指并拢虚握：拱手读的是"两只袖子并在一起"，指节只做"收"不张开 */
       for (const sd of SIDES){
-        set(_BN[sd].IndexProximal, BOW.curl * wb, 0, 0);
-        set(_BN[sd].MiddleProximal, BOW.curl * wb, 0, 0);
-        set(_BN[sd].IndexIntermediate, BOW.mid * wb, 0, 0);
-        set(_BN[sd].MiddleIntermediate, BOW.mid * wb, 0, 0);
-        set(_BN[sd].ThumbProximal, BOW.thumb * wb, 0, 0);
-        set(_BN[sd].ThumbIntermediate, BOW.thumb * 0.9 * wb, 0, 0);
-        set(_BN[sd].ThumbDistal, BOW.thumb * 0.6 * wb, 0, 0);
+        (_SB[0] = BOW.curl * wb, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexProximal));
+        (_SB[0] = BOW.curl * wb, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleProximal));
+        (_SB[0] = BOW.mid * wb, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].IndexIntermediate));
+        (_SB[0] = BOW.mid * wb, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].MiddleIntermediate));
+        (_SB[0] = BOW.thumb * wb, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbProximal));
+        (_SB[0] = BOW.thumb * 0.9 * wb, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbIntermediate));
+        (_SB[0] = BOW.thumb * 0.6 * wb, _SB[1] = 0, _SB[2] = 0, setS(_BN[sd].ThumbDistal));
       }
     }
     /* ── 挥手送别：右手举过头顶、左右摆 ───────────────────────────────────────
@@ -4857,14 +4872,13 @@ function advance(dt){
       const sw2 = Math.sin(_t * WAVE.freq) * ww;
       const hbR = handBase('Right');
       const exB = relaxed ? relaxed.ex : 0;
-      set('RightUpperArm', armBaseX() * (1 - ww) + WAVE.sx * ww, 0,
-          armBaseZ('Right') * (1 - ww) + (WAVE.sz + WAVE.ampZ * sw2) * ww);
-      set('RightLowerArm', exB * (1 - ww) + (WAVE.ex + WAVE.ampY * sw2) * ww, 0, 0);
-      set('RightHand', hbR[0] * (1 - ww) + WAVE.hz * ww, hbR[1] * (1 - ww), hbR[2] * (1 - ww));
+      (_SB[0] = armBaseX() * (1 - ww) + WAVE.sx * ww, _SB[1] = 0, _SB[2] = armBaseZ('Right') * (1 - ww) + (WAVE.sz + WAVE.ampZ * sw2) * ww, setS('RightUpperArm'));
+      (_SB[0] = exB * (1 - ww) + (WAVE.ex + WAVE.ampY * sw2) * ww, _SB[1] = 0, _SB[2] = 0, setS('RightLowerArm'));
+      (_SB[0] = hbR[0] * (1 - ww) + WAVE.hz * ww, _SB[1] = hbR[1] * (1 - ww), _SB[2] = hbR[2] * (1 - ww), setS('RightHand'));
       /* 手掌摊开（垂手基准是半握）：挥手要能看出是一只张开的手 */
       for (let i = 0; i < WAVE_FINGERS.length; i++){      // 表已提到模块级（原每帧新建 7 个数组 + 拼串）
         const f = WAVE_FINGERS[i];
-        set(f[0], f[1] + (f[2] - f[1]) * ww, 0, 0);
+        (_SB[0] = f[1] + (f[2] - f[1]) * ww, _SB[1] = 0, _SB[2] = 0, setS(f[0]));
       }
     }
     /* 自然垂放的右手：掌心转回身体一侧。只在右手**没有在做事**时覆盖；
@@ -4885,10 +4899,10 @@ function advance(dt){
     const hd = (o.headDown || 0) * (1 - a.brushW) * (1 - a.coachW) + (o.tea ? a.sipW * 0.12 : 0) + BRUSH.headDown * a.brushW
              + SCROLL.headDown * a.scrollW + BOW.head * bw + 0.22 * a.grabW
              + BOW.head * (a.riteBowW || 0) + 0.22 * (a.riteStoopW || 0);
-    set('Chest', o.breath * b + 0.02 * w + lean + cs.lean * st2 * (a.def.sitLeanK || 1), -GAIT.chestYaw * sw * w, o.sway * Math.sin(_t * 0.7 + a.phase));
-    set('Spine', o.breath * 0.5 * b + lean * 0.45, -GAIT.chestYaw * 0.5 * sw * w, 0);
-    set('Head', 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, o.head * h, 0);
-    set('Neck', 0.008 * Math.sin(_t * 0.5 + a.phase + 0.7) + hd * 0.45, 0.4 * o.head * h, 0);
+    (_SB[0] = o.breath * b + 0.02 * w + lean + cs.lean * st2 * (a.def.sitLeanK || 1), _SB[1] = -GAIT.chestYaw * sw * w, _SB[2] = o.sway * Math.sin(_t * 0.7 + a.phase), setS('Chest'));
+    (_SB[0] = o.breath * 0.5 * b + lean * 0.45, _SB[1] = -GAIT.chestYaw * 0.5 * sw * w, _SB[2] = 0, setS('Spine'));
+    (_SB[0] = 0.012 * Math.sin(_t * 0.5 + a.phase) + hd, _SB[1] = o.head * h, _SB[2] = 0, setS('Head'));
+    (_SB[0] = 0.008 * Math.sin(_t * 0.5 + a.phase + 0.7) + hd * 0.45, _SB[1] = 0.4 * o.head * h, _SB[2] = 0, setS('Neck'));
 
     /* ── 坐姿/裙骨（k=跪坐权重）────────────────────────────────────────────
        ① 髋骨沿自身"下"轴下沉（不动 holder —— 它原点在地面）；
