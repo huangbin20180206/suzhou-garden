@@ -373,11 +373,11 @@ export function applyEnv(p){
   // 阴天没有可见日轮 —— 阴霾给 diskFade=1 把天光里的日轮彻底抹掉，
   // 否则"阴天"的画面上会挂着一个亮太阳，一眼假
   su.uDiskFade.value = p.diskFade !== undefined ? p.diskFade : 0;
-  // 星空也要被云遮掉：云量越大，星越少
-  su.uStarAmount.value = p.starAmount * Math.max(0, 1 - (p.cloudAmount || 0) * 0.85);
-  /* 银河 / 余辉门（2026-11-23 · 视觉打磨批次 1，见 12a fxGates 头注释 ①②）。
-     走 applyEnv ⇒ 烟花 / 闪电收尾重跑 applyEnv 时一并复位，切天气随 mixInto 缓动。 */
+  /* 银河 / 余辉 / 星点门（2026-11-23 · 视觉打磨批次 1，见 12a fxGates 头注释 ①①b②）。
+     走 applyEnv ⇒ 烟花 / 闪电收尾重跑 applyEnv 时一并复位，切天气随 mixInto 缓动。
+     星点：云量越大越少（原式），2026-11-26 起再按空气含水量收（薄雾夜不再比晴夜星多）。 */
   const fx = fxGates(p);
+  su.uStarAmount.value = fx.starPts;
   if (su.uMilkyWay) su.uMilkyWay.value = fx.milkyWay;
   if (su.uSunGlow) su.uSunGlow.value = fx.sunGlow;
   /* 七色彩虹（2026-09-30 雨后初晴 · 二轮）：虹心方向。

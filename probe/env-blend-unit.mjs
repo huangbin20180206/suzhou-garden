@@ -41,6 +41,7 @@ const SCALARS = {
   sunGlow:   s => s.fx.sunGlow,
   cloudShade:s => s.fx.cloudShade,
   hallWarm:  s => s.fx.hallWarm,
+  starPts:   s => s.fx.starPts,
   caustic:   s => s.w.caustic,
   bankPond:  s => s.p.bankPond,
 };
@@ -48,7 +49,7 @@ const SCALARS = {
    实测（2026-11-23）最大值：曝光 0.0105 / bloom 0.0121 / 暗角 0.0125 / 银河 0.057（日出星退）/
    焦散 0.045（正午段 0.20 宽坡）。 */
 const MAX_STEP = { exposure: 0.03, bloom: 0.03, vignette: 0.03, contrast: 0.03, milkyWay: 0.08,
-                   sunGlow: 0.12, cloudShade: 0.02, hallWarm: 0.06, caustic: 0.08, bankPond: 0.06 };
+                   sunGlow: 0.12, cloudShade: 0.02, hallWarm: 0.06, caustic: 0.08, bankPond: 0.06, starPts: 0.08 };
 
 const combos = [];
 for (const season of SEASONS) for (const weather of WEATHERS){
@@ -190,6 +191,23 @@ test('互斥：堂内暖光白天（太阳 >22°，晴类）熄，夜里亮、�
   const lNight = fxGates(composeEnv(paramsAtHour(23))).hallWarm;
   assert.ok(lDusk >= 0.9 * 0.25 * 0.55, `旧模式暮窗暖=${lDusk}`);
   assert.ok(Math.abs(lNight - 0.55) < 1e-9, `旧模式夜窗暖=${lNight}`);
+});
+
+test('星点按空气含水量收：晴类子夜一字不变（黎明晨湿绝对差≤0.025），薄雾夜低于晴夜（原 0.745 > 0.532 反了）', () => {
+  for (const [k, r] of all()){
+    const w = k.split('/')[1];
+    const vis = (r.s.p.starAmount || 0) * Math.max(0, 1 - (r.s.p.cloudAmount || 0) * 0.85);
+    assert.ok(r.s.fx.starPts <= vis + 1e-12, `${k}@${r.h} 星点不应大于云遮值`);
+    /* 晴类：子夜一字不变；只有黎明晨湿（dawnHumid，星本就在退）能把 H 推过 0.45 ⇒ 绝对差 ≤0.025（实测最大 0.017，秋雨后 6:03） */
+    if (CLEARISH.has(w)) assert.ok(vis - r.s.fx.starPts <= 0.025, `${k}@${r.h} 晴类星点被收太多 ${r.s.fx.starPts} vs ${vis}`);
+    if (CLEARISH.has(w) && (r.h >= 20 || r.h <= 3)) assert.ok(Math.abs(r.s.fx.starPts - vis) < 1e-9, `${k}@${r.h} 晴类子夜星点被改`);
+  }
+  for (const season of SEASONS){
+    const night = w => { const a = sweep.get(season + '/' + w); return a ? a.find(r => Math.abs(r.h - 23) < 1e-6).s.fx.starPts : null; };
+    const m = night('mist'), c = night('clear');
+    if (m === null || c === null) continue;
+    assert.ok(m < c * 0.6 && m > 0.1, `${season} 薄雾夜星点 ${m} vs 晴 ${c}`);
+  }
 });
 
 test('单调：晴类天气灯 / 窗暖午后只升不降、上午只降不升（复核：夏 16:00 0.022 → 17:00 0.015 → 17:30 0.096）', () => {

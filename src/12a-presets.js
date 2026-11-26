@@ -996,8 +996,15 @@ export function fxGates(p, out){
   const df = p.diskFade || 0;
   /* ① 银河：在星量（已含云遮）之上再按 diskFade 收 —— diskFade 是"天上的光点被遮掉多少"的现成量：
      晴 0 / 雨后 0.02 / 雪霁 0 照常；薄雾 0.70、暴雨 0.85、雪 0.90、细雨 1.0 ⇒ 0。线性收、随天气缓动。
-     ⚠️ 只收银河、不动星点：星点在薄雾夜里留七成是 2026-09 起的旧观感，夜空门的星闪判据也压在它上面。 */
+     ①b 星点（2026-11-26 · 场景打造批）：原先只按云量打折 ⇒ 薄雾夜（云 0.30）星点 0.745，比晴夜（云 0.50）的
+     0.532 还亮 —— 雾里星更多，反了。改按空气含水量 H（airHumidity，与远山谷雾 / 倒影蒙化同一个量）收：
+     × (1 − 0.70·smoothstep(0.45, 0.72, H))。实测各天气夜 H：雪霁 0.16 / 晴 0.30 / 雨后 0.34 / 雪 0.45 /
+     细雨 0.56~0.60 / 阴 0.57 / 暴雨 0.65 / 薄雾·雷雨 0.70 ⇒ 晴类三种与雪子夜一字不变（H≤0.45；黎明晨湿让晴类 H 略过 0.45，星点绝对差 ≤0.017，星本就在退），
+     薄雾 0.745 → 0.23（仍有疏星，低于晴夜），阴雨本就 0.15 再收一截。随天气缓动（H 来自 humidW / dawnHumid 连续量）。
+     ⚠️ 夜空门（night-sky-guard）的星闪判据压在晴夜上，晴夜值不变；薄雾夜星点变暗需人眼复核。 */
   const starVis = (p.starAmount || 0) * Math.max(0, 1 - (p.cloudAmount || 0) * 0.85);
+  const _hw = _clamp01(p.humidW ?? HUMID_DEFAULT), _ht = _clamp01(p.dawnHumid || 0);
+  const starPts = starVis * (1 - 0.70 * _sstep(0.45, 0.72, 1 - (1 - _hw) * (1 - _ht)));
   const milkyWay = starVis * _clamp01(1 - df / 0.4);
   /* ② 余辉 / 云受光：直接取白天度 dayK（真实太阳 = smoothstep(−9°, 4°, 仰角)；旧模式 = 1−星量）。
      日落时（0°）0.78、民用晨昏（≈ −5°）0.22、−9° 归零；仰角 ≥4° 恒 1 ⇒ 白天观感一字不变。
@@ -1023,7 +1030,7 @@ export function fxGates(p, out){
      阴雨雪天白天 lamp 不压（灯笼照亮），窗暖随之同亮 —— 两者从此同一口径。 */
   const hallWarm = (p.lamp || 0) * 0.55;
   const o = out || {};
-  o.milkyWay = milkyWay; o.sunGlow = sunGlow; o.cloudShade = cloudShade; o.hallWarm = hallWarm;
+  o.milkyWay = milkyWay; o.sunGlow = sunGlow; o.cloudShade = cloudShade; o.hallWarm = hallWarm; o.starPts = starPts;
   return o;
 }
 

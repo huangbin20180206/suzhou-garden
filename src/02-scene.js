@@ -386,7 +386,8 @@ function makeSkyMat(top, mid, horizon, sunCol, sunDirIn){
            同吃 uStarAmount（阴/雨/雪/白天=0）与地平线淡出。
            ⚠️ 2026-11-23 更正：上一句不成立 —— uStarAmount 只按云量×0.85 打折，薄雾夜（云 0.30）
            还剩 0.745、暴雨夜 0.15、雪夜 0.20，银河挂在雾里。改吃独立的 uMilkyWay（12a fxGates ①，
-           再按 diskFade 收：雾/雨/雪 = 0）。星点仍吃 uStarAmount，旧观感与夜空门不动。 */
+           再按 diskFade 收：雾/雨/雪 = 0）。星点仍吃 uStarAmount（2026-11-26 起 uStarAmount 另按空气含水量收，
+           薄雾夜 0.745→0.224，晴类夜不变，见 12a fxGates ①b）。 */
         if (uMilkyWay > 0.001 && d.y > 0.0){
           vec3 mn = normalize(vec3(0.55, 0.42, 0.72));
           float band = exp(-pow(dot(d, mn) / 0.075, 2.0));
