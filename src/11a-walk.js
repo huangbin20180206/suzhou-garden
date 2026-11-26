@@ -1,7 +1,7 @@
 // Desktop walking: owns camera only while active; actual visible meshes stop motion.
 import { THREE } from '../vendor.js';
 /* 第 4 批（2026-11-24 · 交互体验）：摇杆死区/曲线、减弱动效判据抽到零依赖的 00c-ux（纯 node 可单测）。 */
-import { MOTION, stickResponse, combineMove } from './00c-ux.js';
+import { MOTION, stickResponse, combineMove, touchLookGain } from './00c-ux.js';
 /* escapeFirst（第 4 批）：Esc 先问一句"有没有更近的东西要关"（驻足卡）。返回 true ⇒ 这一下 Esc
    只关卡片、不退出步行 —— 否则桌面上想关卡片就得整个退出步行再走回来。可选参数，
    walk-guard 里那几个裸 createWalk 不传它，行为与旧版一字不差。 */
@@ -213,8 +213,10 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
       joyKnob.style.transform=`translate(${s.kx*30}px,${s.ky*30}px)`;
       e.preventDefault();e.stopImmediatePropagation();
     } else if(e.pointerId===lookId){
-      yaw-=(e.clientX-lookX)*0.0042;lookX=e.clientX;
-      pitch=THREE.MathUtils.clamp(pitch-(e.clientY-lookY)*0.0042,-1.35,1.35);lookY=e.clientY;
+      /* 灵敏度按屏幕短边归一（00c-ux touchLookGain）：短边 ≥760 仍是 0.0042，390 宽手机约 ×1.95 */
+      const g=touchLookGain(innerWidth,innerHeight);
+      yaw-=(e.clientX-lookX)*g;lookX=e.clientX;
+      pitch=THREE.MathUtils.clamp(pitch-(e.clientY-lookY)*g,-1.35,1.35);lookY=e.clientY;
       e.preventDefault();e.stopImmediatePropagation();
     }
   },true);

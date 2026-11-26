@@ -111,6 +111,18 @@ export function vistaMayShow(name, { visited, idx, cooldown, now }){
   const until = cooldown && cooldown.get(name);
   return !(Number.isFinite(until) && now < until);
 }
+/* 触屏转头灵敏度（2026-11-26 · 场景打造批；HANDOFF-11-24 已知未做"触屏转向 0.0042 rad/px 偏慢"）。
+   固定 rad/px 在窄屏上偏慢：390 宽竖屏右半屏（看区 ≈ 55% 宽 ≈ 214px）一整划只转 0.9rad（52°），想回头要连划三四下。
+   按屏幕**短边**归一化（横竖屏同一手感）：gain = 0.0042 × clamp(760 / 短边, 1, 2.2)。
+     · 短边 ≥760（平板、触屏笔记本、桌面）⇒ ×1，与旧值一字不变；
+     · 390 宽手机 ⇒ ×1.95 = 0.0082 rad/px，半屏一划 ≈ 1.75rad（100°）；更窄的封顶 ×2.2。
+   鼠标右键拖转头（0.003）不走这里。 */
+export const TOUCH_LOOK_BASE = 0.0042, TOUCH_LOOK_REF = 760, TOUCH_LOOK_MAX = 2.2;
+export function touchLookGain(w, h){
+  const sh = Math.min(w > 0 ? w : Infinity, h > 0 ? h : Infinity);
+  if (!Number.isFinite(sh)) return TOUCH_LOOK_BASE;
+  return TOUCH_LOOK_BASE * Math.min(TOUCH_LOOK_MAX, Math.max(1, TOUCH_LOOK_REF / sh));
+}
 /* 驻足点选择（2026-11-26 · 场景打造批 · 复核②）。
    旧规则："全表最近的一条"在半径内且可弹才弹。匾联 (0,−8.9) 与远香堂 (0,−12) 只隔 3.1m、半径都是 3.5m
    ⇒ 匾联弹过（visited）后仍是"最近"，把远香堂挡到 z<−10.45（进门 1.6m）才轮得到。

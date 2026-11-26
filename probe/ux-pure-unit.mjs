@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import {
   parseMotionParam, resolveReducedMotion, MOTION, autoFlyDur, REDUCED_FLY_DUR, lightningFlashGain,
   batteryShouldDowngrade, parseSoundPrefs, serializeSoundPrefs, parseSeen, serializeSeen, SEEN_ENTRIES,
-  VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture, pickVistaSpot, VISTA_HOLD_MS,
+  VISTA_COOLDOWN_MS, vistaMayShow, classifyCardGesture, pickVistaSpot, VISTA_HOLD_MS, touchLookGain, TOUCH_LOOK_BASE,
   stickResponse, combineMove, STICK_RADIUS, STICK_DEAD,
   encodeView, decodeView,
 } from '../src/00c-ux.js';
@@ -207,4 +207,17 @@ test('驻足点：按 距离/半径 归一化 —— 小半径的点要更靠近
   const spots = [{ x:0, z:0, r:2, name:'small' }, { x:3, z:0, r:4, name:'big' }];
   assert.equal(pickVistaSpot(spots, 1.2, 0, {}), 1);      // 1.2/2=0.6 vs 1.8/4=0.45
   assert.equal(pickVistaSpot(spots, 0.5, 0, {}), 0);      // 0.25 vs 0.625
+});
+
+test('触屏转头灵敏度：短边 ≥760 不变（桌面/平板），390 手机约 ×1.95，横竖屏同手感，封顶 ×2.2', () => {
+  assert.equal(touchLookGain(1920, 1080), TOUCH_LOOK_BASE);
+  assert.equal(touchLookGain(1024, 768), TOUCH_LOOK_BASE);
+  assert.equal(touchLookGain(760, 1000), TOUCH_LOOK_BASE);
+  const p = touchLookGain(390, 844), l = touchLookGain(844, 390);
+  assert.equal(p, l);
+  assert.ok(Math.abs(p / TOUCH_LOOK_BASE - 760 / 390) < 1e-9);
+  assert.ok(214 * p > 1.6 && 214 * p < 2.0, `半屏一划 ${214 * p} rad`);
+  assert.equal(touchLookGain(300, 600), TOUCH_LOOK_BASE * 2.2);
+  assert.equal(touchLookGain(0, 0), TOUCH_LOOK_BASE);            // 取不到尺寸 ⇒ 旧值
+  assert.equal(touchLookGain(undefined, NaN), TOUCH_LOOK_BASE);
 });
