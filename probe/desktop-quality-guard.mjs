@@ -53,7 +53,20 @@ const check=(name,ok,detail='')=>{results.push({name,ok});console.log(`  ${ok?'�
   const high=await load('high');
   check('high：AO 开、阴影 6144、反射 1024', high.ao&&high.shadow===6144&&high.reflection===1024,JSON.stringify(high));
   check('high 档开放 4K 像素预算', high.pixelBudget>=3840*2160,`budget=${high.pixelBudget}`);
-  check('mid/high 的 GTAO 始终半尺寸', !low.gtao&&mid.gtao&&high.gtao&&mid.gtaoScale===0.5&&high.gtaoScale===0.5,
+  /* ⚠️ 2026-11-27 改口径（原判据 mid.gtaoScale===0.5 硬编码半尺寸）：
+     本批 1c09f1a「后期按画质档分级」（00a postPlan）有意把**中档** GTAO 内部 RT 从 0.5 降到 0.375
+     —— 中档是"均衡"，AO 接触阴影是它的观感下限，分辨率可以降、但没有关掉。
+     所以这条断言的**意图**要拆清：
+       · low 档根本不开 AO（老判据不变）；
+       · mid / high 都必须开着 AO —— 这是"接触阴影不许在某档悄悄消失"的真牙；
+       · high 必须是**全尺寸比例 0.5**（高档观感是基准，不许被降级）；
+       · mid 允许 ≤0.5 的降分辨率，但必须有下界 0.25 —— 再低 AO 就糊成一层脏雾，
+         等于变相关掉（那才是这条断言真正要拦的事故）。`?postfx=full` 各档回高档后期。
+     阈值不是放松而是**按档位立**：原 0.5 是给"中高档同一套后期"定的，分级之后中档的合法区间
+     变成 [0.25, 0.5]，high 一位不动。 */
+  const midAO_OK = mid.gtao && mid.gtaoScale > 0.25 && mid.gtaoScale <= 0.5;
+  check('mid/high 都开 GTAO（high 全尺寸 0.5、mid 降分辨率但不下 0.25）',
+    !low.gtao && midAO_OK && high.gtao && high.gtaoScale === 0.5,
     `low=${low.gtao} mid=${mid.gtaoScale} high=${high.gtaoScale}`);
 
   // 用户锁定：性能模式把 QOS 锁在最低档，连喂低 fps 不再变化；高画质锁 L0。
