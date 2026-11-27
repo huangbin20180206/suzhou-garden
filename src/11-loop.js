@@ -46,7 +46,7 @@ import { tickGroomFeed } from './08-assemble.js';
    写的是 08b 新加的 pivot（肩/髋/跳），与循环里写 root 的那几行互不重叠。 */
 import { tickFigureAction } from './08b-figures.js';
 import { CFG, TAU, bootMark, BOOT, registry, HOOKS } from './00-config.js';
-import { isDebugSurface, qosThresholds, qosVerdict, estimateRefreshHz, perfFlags, transitionShadowDue } from './00a-quality.js';
+import { isDebugSurface, qosThresholds, qosVerdict, estimateRefreshHz, perfFlags, transitionShadowDue, animLodEvery, animLodDue } from './00a-quality.js';
 import { FIXED_STEP, planFixedSteps, maxStepsFor, FIXED_STEP_POLICY, tickBySteps } from './00b-fixedstep.js';
 /* 预载清单（13）只依赖 00-config 的 HOOKS，不 import 06/11/12 ⇒ 不会成环。
    依赖方向：00 → 13 ← 06（经 HOOKS 延迟绑定）。 */
@@ -1438,6 +1438,22 @@ let simAccum = 0, simTime = 0, simSteps = 0, simDropped = 0;
 const _fxOut = {}, _ngOut = {}, _wnOut = {};          // fxGates / natureGates 的复用输出（帧内零分配，第 5 批）
 /* 执行效率开关（2026-11-26，见 00a perfFlags）。探针/页面都从 location.search 读，与 ?perstep= 同一处取。 */
 const PERF = perfFlags((() => { try { return location.search; } catch { return ''; } })());
+/* 纯表演动画降频（2026-11-27，00a animLodEvery；?animlod=0 关）：视锥外 4 帧一更、>60m 2 帧一更。
+   只给闭式/自带 dt 累计的视觉件（蜻蜓、小鸟）；人物、鱼、仿真一律不走这里。 */
+const _lodFr = new THREE.Frustum(), _lodM = new THREE.Matrix4(), _lodSph = new THREE.Sphere();
+let _lodFrame = 0, _lodSkips = 0;
+function animLodBegin(){
+  _lodFrame++;
+  _lodM.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
+  _lodFr.setFromProjectionMatrix(_lodM);
+}
+function animLodCheck(x, y, z, r, phase){
+  if (!PERF.animLod) return true;
+  _lodSph.center.set(x, y, z); _lodSph.radius = r;
+  const due = animLodDue(animLodEvery(true, _lodFr.intersectsSphere(_lodSph), camera.position.distanceTo(_lodSph.center)), _lodFrame, phase);
+  if (!due) _lodSkips++;
+  return due;
+}
 let _transShadowN = 0, _transPresRev = -1;   // 环境过渡期阴影图节流的帧计数 / 上次见到的存在性版本号
 /** 推进仿真时钟；返回本帧实际推进的秒数（供风钟等读数同源）。
     ⚠️ 风钟也在这里推进：仿真与风**必须共用同一条时间线** —— 拆成两条时，
@@ -1884,8 +1900,11 @@ function frameWork(){
 
   /* 蜻蜓：游弋航迹 + 高频振翅。
      ⚠️ 季节/天气把它藏起来时（dragonflyShow=0：冬季、暴雨、风雪）不必再算航迹 —— 原来照算不误。 */
-  for (const d of dragonflies){
+  animLodBegin();
+  for (let di = 0; di < dragonflies.length; di++){
+    const d = dragonflies[di];
     if (!d.visible) continue;
+    if (!animLodCheck(d.position.x, d.position.y, d.position.z, 1.5, di)) continue;   // 航迹是 t 的闭式，跳帧无累积误差
     const fl = d.userData.flight;
     const tt = t * fl.sp + fl.ph;
     d.position.set(
@@ -1908,7 +1927,7 @@ function frameWork(){
      ⚠️ 大雁的可见性由 12-env 的季节通道（gooseShow）写，这里只管飞行动画；
         小鸟全季节都在，不需要季节门控。 */
   updateGooseFlock(dt, t);
-  updateSmallBirds(dt, t);
+  updateSmallBirds(dt, t, animLodCheck);
   /* 金刚鹦鹉：白天栖峰顶（带张望/甩尾/抖翅/理羽/小跳），夜与雨雪天起飞离场 —— 2026-10-05 */
   updateMacaws(dt, t);
   updateBlinds(dt);                      // 竹帘卷起/放下（到位的帧零成本直接 return）
@@ -2562,7 +2581,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
                   bootDone: () => bootDone, bootDonePromise,
                   /* 执行效率批（2026-11-26）：当前开关 + 并行预编记录（?warm=par / ?precompile=1 时才有条目） */
-                  perfFlags: () => PERF, precompileState: () => PRECOMPILE.runs.slice(),
+                  perfFlags: () => PERF, animLodState: () => ({ frame: _lodFrame, skips: _lodSkips }), precompileState: () => PRECOMPILE.runs.slice(),
                   /* 循环内错误账本（2026-10-30）：单帧兜错后 pageerror 不再是可靠信号，
                      门禁断言"零报错"改看这里：`__garden.loopErrors().count === 0`。 */
                   loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),

@@ -453,10 +453,14 @@ export function birdStep(b, dt, t, i){
 const _bUpY = new THREE.Vector3(0, 1, 0);
 const _bAxisX = new THREE.Vector3(1, 0, 0);
 const _bq2 = new THREE.Quaternion();
-export function updateSmallBirds(dt, t){
+export function updateSmallBirds(dt, t, lod = null){
+  let any = false;
   for (let i = 0; i < birdState.length; i++){
     const b = birdState[i];
-    const p = birdStep(b, dt, t, i);
+    /* 降频（2026-11-27）：不轮到的帧只攒 dt，轮到时一次推进（birdStep 本就吃变长 dt）。 */
+    if (lod && b._lx !== undefined && !lod(b._lx, b._ly, b._lz, 0.5, i)){ b._lodAcc = (b._lodAcc || 0) + dt; continue; }
+    const p = birdStep(b, dt + (b._lodAcc || 0), t, i);
+    b._lodAcc = 0; b._lx = p.x; b._ly = p.y; b._lz = p.z; any = true;
     _bp.set(p.x, p.y, p.z);
     _bq.setFromAxisAngle(_bUpY, p.yaw);
     _bs.setScalar(BIRD_SCALE);
@@ -468,7 +472,7 @@ export function updateSmallBirds(dt, t){
     _bm.compose(_bp, _bq, _bs);
     smallBirdMesh.setMatrixAt(i, _bm);
   }
-  smallBirdMesh.instanceMatrix.needsUpdate = true;
+  if (any) smallBirdMesh.instanceMatrix.needsUpdate = true;
 }
 
 /* ── 停栖蜻蜓（两只）：真实花/叶几何锚点 + 弧线转场 ──

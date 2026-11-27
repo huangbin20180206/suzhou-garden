@@ -133,7 +133,7 @@ export function postPlan(tier = 'high', full = false){
    返回"每几帧更新一次"：近处可见 1；远处可见 2；视锥外 4；关掉开关恒 1。
    只用于不回读进仿真的纯视觉动画 —— 人物主循环不走这里，重播基线不受影响。 */
 export const ANIM_LOD_FAR = 60;
-export function animLodEvery({ enabled = true, inView = true, dist = 0, far = ANIM_LOD_FAR } = {}){
+export function animLodEvery(enabled = true, inView = true, dist = 0, far = ANIM_LOD_FAR){
   if (!enabled) return 1;
   if (!inView) return 4;
   return dist > far ? 2 : 1;

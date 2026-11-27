@@ -313,10 +313,10 @@ test('postPlan：高档 = 改前原值；中档降 AO 分辨率/采样与 bloom�
 });
 
 test('animLodEvery / animLodDue：开关关=每帧；视锥外 4、远处 2、近处 1；相位错开', () => {
-  assert.equal(animLodEvery({ enabled: false, inView: false, dist: 999 }), 1);
-  assert.equal(animLodEvery({ inView: false }), 4);
-  assert.equal(animLodEvery({ inView: true, dist: 200 }), 2);
-  assert.equal(animLodEvery({ inView: true, dist: 10 }), 1);
+  assert.equal(animLodEvery(false, false, 999), 1);
+  assert.equal(animLodEvery(true, false, 0), 4);
+  assert.equal(animLodEvery(true, true, 200), 2);
+  assert.equal(animLodEvery(true, true, 10), 1);
   assert.ok([0, 1, 2, 3].every(f => animLodDue(1, f)));
   assert.deepEqual([0, 1, 2, 3, 4].map(f => animLodDue(4, f, 1)), [false, false, false, true, false]);
 });
