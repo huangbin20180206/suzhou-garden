@@ -87,6 +87,20 @@ test('pickTier：独显全系列（含本机 RTX 4060）→ high', () => {
   assert.equal(pickTier({ gpuName: 'ANGLE (Apple, ANGLE Metal Renderer: Apple M2 Pro)' }), 'high');
 });
 
+test('pickTier：Intel Arc 独显不被通用 Intel 核显词遮蔽', () => {
+  for (const gpuName of [
+    'ANGLE (Intel, Intel Arc A770 Graphics, D3D11)',
+    'ANGLE (Intel, Intel(R) Arc(TM) A750 Graphics, D3D11)',
+    'Intel Arc B580 Graphics',
+  ]) assert.equal(pickTier({ gpuName }), 'high', gpuName);
+  assert.equal(pickTier({ gpuName: 'Intel(R) HD Graphics 630' }), 'low');
+  assert.equal(pickTier({ gpuName: 'Intel Unknown Graphics' }), 'low');
+  assert.equal(pickTier({ gpuName: 'Intel(R) Arc(TM) Graphics' }), 'low', '未识别型号的 Arc 仍保守处理');
+  assert.equal(pickTier({ gpuName: 'Intel Arc 140V' }), 'low', 'Arc 核显不按 A/B 独显处理');
+  assert.equal(pickTier({ gpuName: 'Intel Arc (SwiftShader fallback)' }), 'low');
+  assert.equal(pickTier({ gpuName: 'Intel Arc A770', userAgent: 'Android' }), 'mid');
+});
+
 test('pickTier：手机/平板一律不超 mid（Adreno/Mali 哪个正则都不中，只能看 UA）', () => {
   assert.equal(pickTier({ gpuName: 'ANGLE (Qualcomm, Adreno (TM) 740, Vulkan)' }), 'mid');
   assert.equal(pickTier({ gpuName: 'Mali-G78 MP14' }), 'mid');
@@ -123,6 +137,16 @@ test('isDebugSurface：生产域收起、本机与门禁环境展开', () => {
   assert.equal(isDebugSurface({ search: '?debug=1', hostname: 'garden.example.com' }), true);
   // 反例：光有 ?debug=0 不算
   assert.equal(isDebugSurface({ search: '?debug=0', hostname: 'garden.example.com' }), false);
+});
+
+test('isDebugSurface：只认独立且值为 1 的 debug 查询参数', () => {
+  const hostname = 'garden.example.com';
+  for (const search of ['?debug=10', '?debug=11', '?nodebug=1', '?next=debug=1', '?next=%3Fdebug%3D1', '?debug=1x']){
+    assert.equal(isDebugSurface({ search, hostname }), false, search);
+  }
+  for (const search of ['?debug=1&x=2', '?x=2&debug=1', '?%64ebug=%31']){
+    assert.equal(isDebugSurface({ search, hostname }), true, search);
+  }
 });
 
 /* ── 写意标注表（2026-10-30 · 内容批次）──

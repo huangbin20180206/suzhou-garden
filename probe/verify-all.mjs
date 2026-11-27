@@ -150,6 +150,16 @@ const SUITES = [
   /* 交互体验单测（2026-11-24 · 第 4 批）：src/00c-ux 的纯函数内核 —— 分享链接编解码、省电降档判据、
      减弱动效开关、音量持久化、驻足卡冷却与关闭手势、触屏摇杆死区与曲线。纯 node，<0.2s。 */
   ['交互体验单测 ux-pure-unit', 'probe/ux-pure-unit.mjs'],
+  ['静态服务器单测 static-server-unit', 'probe/static-server-unit.mjs'],
+  ['运行边界单测 runtime-edge-unit', 'probe/runtime-edge-unit.mjs'],
+  // 正式纯单元与日常 unit 同步登记；这些毫秒级回归也参与 --changed 的真实选门。
+  ['环境缓存生命周期 env-cache-unit', 'probe/env-cache-unit.mjs'],
+  ['行走输入生命周期 walk-input-unit', 'probe/walk-input-unit.mjs'],
+  ['离线模块安装 sw-module-unit', 'probe/sw-module-unit.mjs'],
+  ['单元清单完整性 unit-inventory-unit', 'probe/unit-inventory-unit.mjs'],
+  ['合批规划单测 batch-plan-unit', 'probe/batch-plan-unit.mjs'],
+  ['写意登记单测 art-license-unit', 'probe/art-license-unit.mjs'],
+  ['生产与启动边界 runtime-edge-guard', 'probe/runtime-edge-guard.mjs'],
   /* vendor 新鲜度 vendor-fresh（2026-10-15）：vendor.js 入库但为构建产物，
      build-entry.js/依赖版本变而 vendor 未重打时红。修：build + --record。 */
   ['构建物新鲜度 vendor-fresh', 'probe/vendor-fresh.mjs'],
@@ -695,6 +705,8 @@ const SELFTEST = process.env.VERIFY_SELFTEST;
 const QUICK = new Set([
   'probe/check.mjs', 'probe/codeonly-unit.mjs', 'probe/import-audit.mjs',
   'probe/changed-map-unit.mjs',        // 纯 node <0.2s：--changed 的映射自检，日常改动必跑
+  'probe/env-cache-unit.mjs', 'probe/walk-input-unit.mjs', 'probe/sw-module-unit.mjs',
+  'probe/unit-inventory-unit.mjs', 'probe/batch-plan-unit.mjs', 'probe/art-license-unit.mjs',
   'probe/preload-manifest-sync.mjs',   // 纯 node + <1s + 抓过真事故 ⇒ 正是 quick 的菜
   'probe/env-phenology-unit.mjs', 'probe/env-solar-unit.mjs',   // 纯 node 单测 <0.2s
   'probe/env-blend-unit.mjs',          // 纯 node 单测 <1s（2026-11-23 环境叠加）
@@ -703,6 +715,7 @@ const QUICK = new Set([
   'probe/actor-replay-unit.mjs',       // 纯 node 重播回归网，三进程并行 ~13~50s（仍在 quick 的 ≤1 分钟线内）
   'probe/visit-edge-unit.mjs',         // 纯 node 到访边界（中途复位 / 让行 / 入夜），子进程并行 ~45s
   'probe/ux-pure-unit.mjs',            // 纯 node 交互体验单测 <0.2s（2026-11-24 第 4 批）
+  'probe/static-server-unit.mjs', 'probe/runtime-edge-unit.mjs', // 请求边界与启动/resize/分享故障注入
   'probe/smoke.mjs', 'probe/pageerror-guard.mjs',
   'probe/layout-fingerprint.mjs', 'probe/random-guard.mjs',
   'probe/figure-foot-guard.mjs',       // 纯射线 ~17s + 零覆盖的缺陷类（人物陷进台基/走在水上）
@@ -779,7 +792,7 @@ const CHANGED_ARG = (() => {
 const CHANGED_WHY = process.argv.includes('--changed-why');
 
 /* 门禁共享设施：动它们等于动所有门的地基。 */
-const GATE_INFRA = /^probe\/(_harness\.mjs|verify-all\.mjs|_png\.mjs|_probe-detect\.mjs|_extract-section\.mjs|_codeonly\.mjs)$/;
+const GATE_INFRA = /^probe\/(_harness\.mjs|_static-path\.mjs|verify-all\.mjs|_png\.mjs|_probe-detect\.mjs|_extract-section\.mjs|_codeonly\.mjs)$/;
 
 function parseGuards(file){
   let txt;
@@ -799,6 +812,11 @@ function changedFiles(base){
         再自己过滤掉明显的临时产物。 */
   const run = (args) => {
     const r = spawnSync('git', args, { cwd: ROOT, encoding: 'utf8' });
+    // 基线或仓库查询失败时，部分 stdout 不是完整改动面；明确终止，避免漏选后假绿。
+    if (r.error || r.status !== 0){
+      const reason = r.error?.message || r.stderr || r.signal || ('exit=' + r.status);
+      throw new Error('[verify-all] git ' + args.join(' ') + ' failed: ' + String(reason).trim().slice(0, 500));
+    }
     return (r.stdout || '').split('\n').map(s => s.trim()).filter(Boolean);
   };
   const committed = run(['diff', '--name-only', `${base}...HEAD`]);
@@ -825,7 +843,8 @@ function selectByChange(base){
      但如果完全没有 src 也没有 probe 改动，说明这次改动跟运行时无关。
      ⚠️ 仍不返回空 —— 交回上层按"<8 道退回全量"处理，宁可多跑。 */
   const touchedGates = gateFiles.map(f => f.replace(/^probe\//, 'probe/'));
-  const srcSet = new Set(src);
+  // @guards 可以声明 HTML/SW/构建入口；仅匹配 src 会漏掉纯页面改动的故障回归。
+  const guardedFiles = new Set(files);
   const picked = [];
   const why = [];
   for (const [label, rel] of SUITES){
@@ -836,7 +855,7 @@ function selectByChange(base){
       why.push(`  ${label}（未声明 @guards，按规矩纳入）`);
       continue;
     }
-    const hit = g.filter(x => srcSet.has(x));
+    const hit = g.filter(x => guardedFiles.has(x));
     if (hit.length || touchedGates.includes(rel)){
       picked.push([label, rel]);
       why.push(`  ${label}（声明守 ${hit.length ? hit.join('、') : '（门禁自身被改）'}）`);
@@ -857,6 +876,7 @@ const changedPick = CHANGED_ARG ? selectByChange(CHANGED_ARG) : null;
 const byChanged = changedPick && !changedPick.forcedAll ? changedPick.list : null;
 const LIST = SELFTEST ? [['自检·故意失败', SELFTEST]]
               : byGates ? byGates
+              : changedPick?.forcedAll ? SUITES
               : byChanged ? byChanged
               : QUICK_MODE ? SUITES.filter(([, p2]) => QUICK.has(p2))
               : SUITES;
@@ -874,7 +894,7 @@ const gitHead = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: ROOT, 
 const gitDirty = spawnSync('git', ['status', '--porcelain', '-uno'], { cwd: ROOT, encoding: 'utf8' }).stdout.trim().length > 0;
 say(`[verify-all] HEAD=${gitHead || '?'}${gitDirty ? ' DIRTY' : ''} · ${new Date().toISOString()}`);
 if (byGates) say(`[verify-all] 🎯 --gates=${GATES_ARG} ⇒ 只跑 ${LIST.length} 道：${LIST.map(([l]) => l).join('、')}`);
-if (QUICK_MODE && !SELFTEST){
+if (QUICK_MODE && !SELFTEST && !changedPick?.forcedAll){
   say(`[verify-all] ⚡ quick 模式：${LIST.length}/${SUITES.length} 道（快门 + 广覆盖；发布前仍须跑全量 npm run verify）`);
 }
 

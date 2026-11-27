@@ -1172,6 +1172,8 @@ envEl.addEventListener('click', (e)=>{
       /* 2026-10-30 花历：腊梅深冬（1/22）开、红梅早春（2/25）开，季节按钮仍落在"冬"，只是 doy 各取花期。 */
       applyState({ season: 'winter', doy: PLUM_VIEW_DOY[b.dataset.view] }, { via: 'api' });
     }
+    // 人工选机位接管开场：updateIntro 排在飞行之后，否则下一帧会覆盖刚选择的镜头。
+    introCancel();
     gotoViewpoint(b.dataset.view); showManualCaption(b.dataset.view); return;
   }
   /* 选"狂风暴雨"自动开启音景 —— 合并后暴雨带闪电，而闪电的核心观感之一就是雷鸣，

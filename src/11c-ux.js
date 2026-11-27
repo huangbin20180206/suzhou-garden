@@ -12,8 +12,8 @@
 // Snd / QOS / WALK 住在 11-loop 的闭包里，由 11-loop 调 initUx() 注入（同 11a/11b 的做法）。
 // 删掉本文件 + 11-loop 里那几行接线，页面照常跑（只是少了这几项体验），与 11b 同一声明。
 import { HOOKS } from './00-config.js';
-import { camera, controls, CAM_MIN_DIST, PROBE_DRIVEN, QOS_IMMUNE, GPU_TIER_FORCED } from './02-scene.js';
-import { ENV, ENV_SEASON, applyState, settleEnv, envEl } from './12-env.js';
+import { camera, controls, CAM_MIN_DIST, CAM_MIN_POLAR, CAM_MAX_POLAR, PROBE_DRIVEN, QOS_IMMUNE, GPU_TIER_FORCED } from './02-scene.js';
+import { ENV, ENV_SEASON, applyState, settleEnv, envEl, REEL, toggleReel, stopSeasonDemo } from './12-env.js';
 import { ENV_WEATHER } from './12a-presets.js';
 import { SEASON_DOY } from './12g-phenology.js';
 import { introCancel, cancelCamFly, tourStop } from './08d-tour.js';
@@ -151,6 +151,10 @@ export function applySharedView(hash){
   try { v = decodeView(hash, VIEW_OPTS); } catch { v = null; }
   if (!v) return false;
   try {
+    // 有效分享链接是用户接管；先停旧导演，避免它下一帧覆盖刚恢复的时辰/季节/镜头。
+    if (REEL.on) toggleReel();
+    stopSeasonDemo('share');
+    introCancel(); tourStop(); cancelCamFly();
     const next = {};
     if (v.season) next.season = v.season;
     if (v.doy != null) next.doy = v.doy;
@@ -159,14 +163,22 @@ export function applySharedView(hash){
     if (Object.keys(next).length){ applyState(next, { via:'ui' }); settleEnv(); }
     if (v.cam){
       HOOKS.walkExit?.();
-      introCancel(); tourStop(); cancelCamFly();
-      camera.position.fromArray(v.cam);
-      controls.target.fromArray(v.tgt);
-      /* 近观机位（如 1.2m 的匾联）要放开 OrbitControls 下限，否则 update() 会把相机推回 1.6m ——
-         与 VIEWPOINTS 的 minDist 同一做法；按 0 复位时 resetCamera 会收回 CAM_MIN_DIST。 */
-      const d = camera.position.distanceTo(controls.target);
-      controls.minDistance = Math.min(CAM_MIN_DIST, Math.max(0.2, d * 0.95));
-      controls.update();
+      /* OrbitControls 没有公开的惯性清除 API。dampingFactor=1 的一次 update 会完整消化并归零
+         私有旋转/平移增量；随后再写目标姿态并 update，分享不会被上一段触摸拖动推走。 */
+      const damping = controls.dampingFactor;
+      try {
+        controls.dampingFactor = 1; controls.update();
+        camera.position.fromArray(v.cam);
+        controls.target.fromArray(v.tgt);
+        /* 步行相机能仰视，而默认 orbit 上限不允许相机低于目标点；只把边界扩到该分享角度，
+           仍保留原边界，并让 resetCamera 恢复默认范围。 */
+        const d = camera.position.distanceTo(controls.target);
+        controls.minDistance = Math.min(CAM_MIN_DIST, Math.max(0.2, d * 0.95));
+        const polar = Math.acos(Math.max(-1, Math.min(1, (v.cam[1] - v.tgt[1]) / d)));
+        controls.minPolarAngle = Math.min(CAM_MIN_POLAR, polar);
+        controls.maxPolarAngle = Math.max(CAM_MAX_POLAR, polar);
+        controls.update();
+      } finally { controls.dampingFactor = damping; }
     }
     return true;
   } catch (e){

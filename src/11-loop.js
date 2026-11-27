@@ -79,6 +79,8 @@ function onResize(){
   const w = innerWidth, h = innerHeight;
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  // resize 后基础倍率随面积/DPR 改变；沿 AA 的统一路径归零并保留当前 QOS 档，避免超预算。
+  AA.setStep(0);
   renderer.setSize(w, h);
   composer.setSize(w, h);
 }
@@ -99,10 +101,9 @@ addEventListener('resize', onResize);
       + 置位 `_ctxLost`，循环改为跳过渲染但继续排程（保留状态，恢复后接着跑）；
    ② `webglcontextrestored` ⇒ 把 renderer/composer 的尺寸与像素比重新下发一遍
       （RT 与贴图由 three 自己重建；`setSize` 是让 composer 的 RT 按当前视口重建）。
-   ⚠️ 如实声明边界：three 能自动重建**它自己创建的** GPU 资源；但本项目里有若干
-     手写的 RenderTarget / CanvasTexture / PMREM 环境图，**没有逐个验证**它们在恢复后
-     是否都还活着。真要在生产里抗住上下文丢失，还需要按资源类型逐个重烘 ——
-     那是另一件事（本轮不做，写在这里免得下一个人以为"已经处理了"）。 */
+   PMREM 离屏环境图由 02-scene 的资源缓存失效并按快照重烘，避免恢复后读到空纹理。
+   水面反射/折射、其它后期 RT 与 CanvasTexture 仍按各自类型验证；尺寸恢复本身不代表
+   所有离屏内容均已重建，门禁需同时检查像素与运行状态。 */
 let _ctxLost = false;
 try {
   renderer.domElement.addEventListener('webglcontextlost', (e) => {
@@ -1106,11 +1107,14 @@ let AA_HOOK = null;
    切档要重建画布与全部 RenderTarget，正按着鼠标时换分辨率，观感就是"顿一下 + 闪一下"，
    而用户此刻盯着看的正是这块画面。等松开手再降档，代价只是拖动期间多跑几帧。
    ⚠️ 光靠这一条不够：真正消掉黑框的是 QOS.flush()（把重建挪到帧首），这条只是少制造打断。 */
+const _pointerIds = new Set();
 let _pointerDown = false;
-renderer.domElement.addEventListener('pointerdown', ()=>{ _pointerDown = true; });
-addEventListener('pointerup', ()=>{ _pointerDown = false; });
-addEventListener('pointercancel', ()=>{ _pointerDown = false; });
-addEventListener('blur', ()=>{ _pointerDown = false; });   // 拖到一半切走窗口：别把 QOS 永久冻住
+const _syncPointerLock = () => { _pointerDown = _pointerIds.size > 0; };
+const _releasePointerLock = () => { _pointerIds.clear(); _pointerDown = false; };
+renderer.domElement.addEventListener('pointerdown', e=>{ _pointerIds.add(e.pointerId); _syncPointerLock(); });
+addEventListener('pointerup', e=>{ _pointerIds.delete(e.pointerId); _syncPointerLock(); });
+addEventListener('pointercancel', e=>{ _pointerIds.delete(e.pointerId); _syncPointerLock(); });
+addEventListener('blur', _releasePointerLock);   // 拖到一半切走窗口：别把 QOS 永久冻住
 const QOS = (()=>{
   const P = ACTIVE_QUALITY;
   /* 平滑退化：先轻降倍率，再逐步关 AO / 降阴影。避免旧 L1→L2 一步同时砍掉
@@ -1412,7 +1416,10 @@ const turtleWakeConfig = () => ({ ...TURTLE_WAKE });
    仍调用 timer.update() 让 delta 归零，否则回到前台的第一次 getDelta 会带着
    几分钟的间隔（Timer 自身也挡了一道，这里是双保险）。 */
 let pageHidden = false;
-document.addEventListener('visibilitychange', () => { pageHidden = document.hidden; });
+document.addEventListener('visibilitychange', () => {
+  pageHidden = document.hidden;
+  if (pageHidden) _releasePointerLock();
+});
 if (document.hidden) pageHidden = true;      // 启动即在后台（如后台标签打开链接）
 
 /* ── 固定步长仿真（2026-09-25）────────────────────────────────────────────

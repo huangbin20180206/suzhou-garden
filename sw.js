@@ -16,9 +16,9 @@
       · **不用 bump**：**代码类**（`index.html` / `src/*.js` / `vendor.js` / `manifest.webmanifest`）
         —— 它们走上面那条 network-first、改了即所见；`probe/check.mjs:62` 的
         `/\.(js|mjs|html|webmanifest)$/` 也把它们**显式排除**在 bump 判据之外，门禁真值就是"代码类不必 bump"。
-      ⚠️ 反过来对代码类误 bump 有代价：`src/*.js`（入口 `src/main.js` 除外，2026-10-31 起它在 SHELL）**不在 SHELL 预缓存清单**、只由运行期写进带版本号的
-        `CACHE`，升版会把它们连桶删掉、须等下一次在线加载才补回（离线可用性短暂退化，见
-        `probe/pwa-cache.mjs` 的"在线预热"注释）。 */
+      2026-11-27：MODULES 生成清单补齐所有 src 模块；安装写入完整新桶后才接管，更新后立即断网仍可启动。
+        普通代码内容仍走 network-first；安装清单成员变化需重新生成 MODULES 并升 CACHE，保证旧桶与失败的新安装隔离。
+        模型仍由独立 ASSET_CACHE 复用，不因应用换壳重新下载。 */
 /* 2026-09-28 活雾批次 bump v4→v5：本轮改了 SHELL 成员 index.html（天气按钮）与 src/*.js
    （活雾/鱼平滑/雾团），按头部规矩升版，让已装 SW 的浏览器整体换新缓存。 */
 /* 2026-09-29 合并时段条批次 bump v5→v6：又改了 SHELL 成员 index.html（时段/时辰合并）。 */
@@ -125,7 +125,8 @@
 /* 2026-11-24 bump v45→v46（第 4 批 · 交互体验）：改了 SHELL 成员 index.html（留影行末尾加「复制链接」按钮）
    与 src/main.js 所在的模块图（新增 src/00c-ux.js / src/11c-ux.js，属运行期缓存、不进 SHELL）。
    按"改了预缓存文件或新增文件就升 CACHE"的规矩整桶换壳；ASSET_CACHE 不升：本批没有任何模型文件变化。 */
-const CACHE = 'suzhou-garden-v46';
+/* 2026-11-27 bump v46→v47：安装时预缓存完整 MODULES，成功前保留旧应用桶；资产桶保持 v23。 */
+const CACHE = 'suzhou-garden-v47';
 /* 资产桶：**故意不带应用版本号**（它要跨应用版本存活，否则每次升版用户都得重下模型）；
    但它**自己带一个版本后缀** —— 改了任何一个模型文件就必须把这个后缀 +1，否则用户会一直
    吃旧的那份（`npm run check` 会替你盯着：GLBS 里的文件比 sw.js 新就报红）。 */
@@ -138,6 +139,75 @@ const SHELL = [
   './icons/garden.svg',
   './vendor.js',
   './docs/cover.jpg',       // 水墨封面：loading 层要离线可见，归入应用壳
+];
+const MODULES = [
+  /* <module-manifest:src> 由 tools/gen-module-manifest.mjs 从 src/*.js 生成，勿手改 */
+  './src/00-config.js',
+  './src/00a-quality.js',
+  './src/00b-fixedstep.js',
+  './src/00c-spatial.js',
+  './src/00c-ux.js',
+  './src/01-materials.js',
+  './src/01b-textures.js',
+  './src/02-scene.js',
+  './src/02a-env-cache.js',
+  './src/03-factory.js',
+  './src/03a-names.js',
+  './src/04-buildings.js',
+  './src/05-water.js',
+  './src/06-vegetation.js',
+  './src/06a-rng.js',
+  './src/06b-atmos.js',
+  './src/06c-organs.js',
+  './src/06d-corridor.js',
+  './src/06e-assets.js',
+  './src/06f-ripple.js',
+  './src/06g-koi.js',
+  './src/06h-rock.js',
+  './src/06i-trees.js',
+  './src/06j-herbs.js',
+  './src/06k-willow.js',
+  './src/06l-orchard.js',
+  './src/06m-banana.js',
+  './src/07-ground.js',
+  './src/08-assemble.js',
+  './src/08b-figures.js',
+  './src/08c-aquatic.js',
+  './src/08d-tour.js',
+  './src/08e-birds.js',
+  './src/08f-macaw.js',
+  './src/09-lights.js',
+  './src/09b-batch.js',
+  './src/10-post.js',
+  './src/11-loop.js',
+  './src/11a-walk.js',
+  './src/11b-vista.js',
+  './src/11c-ux.js',
+  './src/12-env.js',
+  './src/12a-presets.js',
+  './src/12b-sky.js',
+  './src/12c-festival.js',
+  './src/12d-lantern.js',
+  './src/12e-precip.js',
+  './src/12f-season.js',
+  './src/12g-phenology.js',
+  './src/12h-solar.js',
+  './src/12i-ambient.js',
+  './src/13-preload.js',
+  './src/14-props.js',
+  './src/15-stable.js',
+  './src/15a-shared.js',
+  './src/15b-horse-rig.js',
+  './src/15c-horse-life.js',
+  './src/15d-carriage.js',
+  './src/15e-stable.js',
+  './src/16-actors.js',
+  './src/16a-actor-props.js',
+  './src/16b-artistic-note.js',
+  './src/2b-wind.js',
+  './src/art-license.js',
+  './src/main.js',
+  /* </module-manifest:src> */
 ];
 const GLBS = [
   /* <asset-manifest:precache> 由 tools/gen-asset-manifest.mjs 从 assets/manifest.json 生成，勿手改（改 JSON 后跑 --write） */
@@ -172,7 +242,8 @@ const GLBS = [
 self.addEventListener('install', (e) => {
   e.waitUntil((async () => {
     /* ① 应用壳：整批预缓存（版本内不变，升版就是换这一桶） */
-    await (await caches.open(CACHE)).addAll(SHELL);
+    /* addAll 写入新版本桶；失败时不接管，旧桶仍由旧 worker 使用。 */
+    await (await caches.open(CACHE)).addAll([...new Set([...SHELL, ...MODULES])]);
     /* ② 模型资产**不在 install 里下载**（2026-10-31）：SW 在页面 load 事件后才注册，那时页面的 GLB
        往往还在下载 ⇒ 旧版在这里逐个 `ac.add(GLBS)` 会让首访把同一批资产下两遍，慢网下还和页面抢带宽。
        现改由页面预载段全部结算后发 `precache-assets` 消息，见下方 message 监听里的回填。
@@ -190,14 +261,11 @@ self.addEventListener('activate', (e) => {
            · 资产桶   `suzhou-garden-assets-vN` → 只留当前 ASSET_CACHE。
            ① 为什么**不**删资产桶本身：它名字里**不含应用版本号**，所以改代码升 CACHE 时
               它压根不落进任何被删前缀 ⇒ 用户不必为一行代码重下 3.5 MB（老黄 2026-10-11 的诉求）。
-           ② 为什么**要**删被取代的旧资产桶：ASSET_CACHE 自己带后缀，改了模型就必须 +1
-              （check.mjs 盯着这件事），而旧桶**再也不会被任何请求命中**，却因为前缀对不上
-              `suzhou-garden-v` 而**永远不会被删** —— 每改一次模型就永久泄一份 3.5 MB。
-              这里补上回收，语义不变：升应用版本不动资产，升资产版本只回收被取代的那一桶。 */
-        keys.filter((k) =>
-          (k.startsWith('suzhou-garden-v') && k !== CACHE)
-          || (k.startsWith('suzhou-garden-assets-v') && k !== ASSET_CACHE)
-        ).map((k) => caches.delete(k))
+           ② 资产桶改版时先保留旧桶作为离线回退：新 worker 尚未收到页面回填消息时，立即断网仍可读到
+              已缓存模型。仅当当前桶全部 GLB 均回填成功后，才由 backfillAssets 回收旧资产桶；
+              失败或离线时旧桶继续保留，避免更新过程先删后补造成离线空窗。 */
+        keys.filter((k) => k.startsWith('suzhou-garden-v') && k !== CACHE)
+          .map((k) => caches.delete(k))
       ))
       .then(() => self.clients.claim())
   );
@@ -205,19 +273,41 @@ self.addEventListener('activate', (e) => {
 
 /* 资产回填（2026-10-31）：页面预载段全部结算后由 src/13-preload.js 发来 `precache-assets`。
    · 只补资产桶里缺的件（已有 ⇒ 这一次网络都不发）；**串行**，不和页面后续请求抢带宽；
-   · `cache: 'force-cache'` ⇒ 优先用 HTTP 缓存里页面刚下过的那份（首访不再重复下载）；
-     HTTP 缓存没有时才真走网络（此时页面已开园，不影响首屏）；
+   · `cache: 'reload'` ⇒ 资产版本迁移时绕过开发服务器的 immutable HTTP 缓存，避免把旧模型字节复制到新桶；
+     页面已开园后串行补齐，不阻塞首屏；
    · 只收 200（错误页/部分响应不进桶）；单件失败不影响其它件，运行期 fetch 还有机会补；
    · 多个标签页同时发消息时共用同一轮回填。 */
 let backfilling = null;
+const assetFetches = new Map();
+async function fetchFreshAsset(request, bucket){
+  const key = new URL(request.url).href;
+  const pending = assetFetches.get(key);
+  if (pending) return pending;
+  const task = (async () => {
+    try {
+      // URL 文件名保持稳定且开发服务器标 immutable；cache:'reload' 防止新资产桶复制旧 HTTP 缓存字节。
+      const res = await fetch(new Request(request, { cache:'reload' }));
+      if (res && res.status === 200) await bucket.put(request, res.clone());
+      return res;
+    } finally { assetFetches.delete(key); }
+  })();
+  assetFetches.set(key, task);
+  return task;
+}
 async function backfillAssets(){
   const ac = await caches.open(ASSET_CACHE);
+  let complete = true;
   for (const u of GLBS){
     try {
       if (await ac.match(u)) continue;
-      const res = await fetch(new Request(u, { cache: 'force-cache' }));
-      if (res.ok && res.status === 200) await ac.put(u, res);
-    } catch { /* 离线/单件失败：跳过 */ }
+      const res = await fetchFreshAsset(new Request(u, { cache:'reload' }), ac);
+      if (!res || res.status !== 200) complete = false;
+    } catch { complete = false; /* 离线/单件失败：保留旧资产桶，等下次回填 */ }
+  }
+  if (complete){
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(k => k.startsWith('suzhou-garden-assets-v') && k !== ASSET_CACHE)
+      .map(k => caches.delete(k)));
   }
 }
 self.addEventListener('message', (e) => {
@@ -269,17 +359,22 @@ self.addEventListener('fetch', (e) => {
   const isAsset = url.pathname.endsWith('.glb')
                || url.pathname.includes('/icons/')
                || url.pathname.includes('/docs/');
-  e.respondWith(
-    caches.match(e.request, { ignoreSearch: false }).then((hit) => {
-      if (hit && isAsset) return hit;                  // 大件：命中即用，不碰网络
-      return fetch(e.request).then((res) => {          // 代码：网络优先 ⇒ 改了即所见
-        if (res && res.status === 200) {
-          const copy = res.clone();
-          const bucket = isAsset ? ASSET_CACHE : CACHE;
-          caches.open(bucket).then((c) => c.put(e.request, copy)).catch(() => {});
-        }
-        return res;
-      }).catch(() => hit || Response.error());          // 离线：回退缓存
-    })
-  );
+  e.respondWith((async () => {
+    const bucketName = isAsset ? (url.pathname.endsWith('.glb') ? ASSET_CACHE : CACHE) : CACHE;
+    const bucket = await caches.open(bucketName);
+    const hit = await bucket.match(e.request);
+    if (hit && isAsset) return hit;                  // 只读当前桶，避免资产升级命中旧桶
+    const legacyHit = isAsset && url.pathname.endsWith('.glb')
+      ? await caches.match(e.request, { ignoreSearch:false }) : undefined;
+    try {
+      const res = isAsset && url.pathname.endsWith('.glb')
+        ? await fetchFreshAsset(e.request, bucket)
+        : await fetch(e.request);
+      if (res && res.status === 200 && !(isAsset && url.pathname.endsWith('.glb'))) {
+        const copy = res.clone();
+        bucket.put(e.request, copy).catch(() => {});
+      }
+      return res;
+    } catch { return hit || legacyHit || Response.error(); }          // 离线：优先当前桶，升级过渡期回退旧资产桶
+  })());
 });

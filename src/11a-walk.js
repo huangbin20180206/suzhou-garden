@@ -10,7 +10,7 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   const direction = new THREE.Vector3(), origin = new THREE.Vector3();
   const down = new THREE.Vector3(0,-1,0);
   const state = { active:false, blocked:0, steps:0 };
-  let saved, yaw = 0, pitch = 0, feet = 0, drag = false;
+  let saved, yaw = 0, pitch = 0, feet = 0, drag = false, dragId = null;
   /* 触屏行走（2026-11-22 · 移动端收口 #3B）：手机没有键盘+右键，走模式是死的。
      左半屏相对摇杆走（touchF/R ∈ [-1,1]，update() 里与键盘叠加走同一套 move 碰撞），
      右半屏滑动转头。pointerId 双指并发：走与看各跟各的手指。 */
@@ -36,6 +36,7 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     touchF = 0; touchR = 0; moveId = null;
     if (joyBase){ joyBase.hidden = true; }
   }
+  function releasePointers(){ drag=false;dragId=null;joyHide();lookId=null; }
   const button = document.querySelector('[data-act="walk"]');
   const hint = document.createElement('div');
   hint.id = 'walk-help'; hint.hidden = true;
@@ -117,7 +118,7 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
   }
   function end() {
     if(!state.active)return;
-    state.active=false; keys.clear();drag=false;joyHide();lookId=null;hint.hidden=true;
+    state.active=false; keys.clear();releasePointers();hint.hidden=true;
     camera.position.copy(saved.p);camera.quaternion.copy(saved.q);camera.near=saved.near;camera.updateProjectionMatrix();
     controls.target.copy(saved.target);controls.enabled=saved.enabled;
     button?.setAttribute('aria-pressed','false');
@@ -188,10 +189,10 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
     }
   },true);
   addEventListener('keyup',e=>keys.delete(e.code));
-  addEventListener('blur',()=>{keys.clear();drag=false;joyHide();});
-  document.addEventListener('visibilitychange',()=>{if(document.hidden){keys.clear();drag=false;joyHide();}});
-  canvas.addEventListener('pointerdown',e=>{if(state.active&&e.button===2){drag=true;canvas.setPointerCapture(e.pointerId);e.preventDefault();e.stopImmediatePropagation();}},true);
-  canvas.addEventListener('pointermove',e=>{if(state.active&&drag){yaw-=e.movementX*0.003;pitch=THREE.MathUtils.clamp(pitch-e.movementY*0.003,-1.35,1.35);}},true);
+  addEventListener('blur',()=>{keys.clear();releasePointers();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){keys.clear();releasePointers();}});
+  canvas.addEventListener('pointerdown',e=>{if(state.active&&e.button===2){drag=true;dragId=e.pointerId;canvas.setPointerCapture(e.pointerId);e.preventDefault();e.stopImmediatePropagation();}},true);
+  canvas.addEventListener('pointermove',e=>{if(state.active&&drag&&e.pointerId===dragId){yaw-=e.movementX*0.003;pitch=THREE.MathUtils.clamp(pitch-e.movementY*0.003,-1.35,1.35);}},true);
   /* 触屏双区（#3B）：左半屏走、右半屏看。pointerType 判 touch ⇒ 鼠标行为一字不动。
      OrbitControls 在 controls.enabled=false 时直接 return ⇒ 不会抢手势。 */
   canvas.addEventListener('pointerdown',e=>{
@@ -230,20 +231,22 @@ export function createWalk({ camera, controls, world, canvas, groundHeight, insi
       e.preventDefault();e.stopImmediatePropagation();
     }
   },true);
-  const touchEnd=e=>{
+  const pointerEnd=e=>{
     if(e.pointerId===moveId)joyHide();
     if(e.pointerId===lookId)lookId=null;
+    if(e.pointerId===dragId){drag=false;dragId=null;}
   };
   /* 第 4 批 · 横竖屏切换（实据）：摇杆底座是按下那一刻用 clientX/Y 绝对定位的，moveAX/AY 也是旧坐标系；
      旋转屏幕时 iOS/Android 并不保证对仍按着的手指发 pointercancel ⇒ 底座停在旧位置（可能已在屏外），
      touchF/R 冻在最后一个值 ⇒ 人自己一直往前走。没有任何 resize 监听兜它。
      ⇒ 视口尺寸一变就把两根手指都释放（下一次按下按新坐标重新起摇杆）。 */
-  const touchReset=()=>{ if(moveId!==null||lookId!==null){ joyHide(); lookId=null; } };
+  const touchReset=()=>releasePointers();
   addEventListener('resize',touchReset);
   addEventListener('orientationchange',touchReset);
-  canvas.addEventListener('pointerup',touchEnd,true);
-  canvas.addEventListener('pointercancel',touchEnd,true);
-  addEventListener('pointerup',()=>{drag=false;});
+  canvas.addEventListener('pointerup',pointerEnd,true);
+  canvas.addEventListener('pointercancel',pointerEnd,true);
+  canvas.addEventListener('lostpointercapture',pointerEnd,true);
+  addEventListener('pointerup',e=>{if(e.pointerId===dragId){drag=false;dragId=null;}});
   canvas.addEventListener('contextmenu',e=>{if(state.active)e.preventDefault();});
   /* setTouch：测试钩子（无头门禁用，无需真触屏即可验证行走数学）+ 预留外部摇杆。 */
   function setTouch(f,r){touchF=f;touchR=r;}

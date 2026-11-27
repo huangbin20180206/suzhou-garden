@@ -3,7 +3,7 @@
    './vendor.js' → '../vendor.js'）。import 语句的**顺序一条没动** —— ESM 按 import 出现顺序
    深度优先求值，这份顺序就是全站模块的求值顺序（TDZ / 环的前科见 00-config.js 的 HOOKS、ENV_REF 注释）。
    ⚠️ import 在求值期被提升：下面散在正文里的 import（2b-wind … 11-loop）同样先于本文件任何语句求值，
-   所以抽屉接线 / bootFail / 两级启动看门狗都在全部模块求值完之后才执行 —— 与内联时完全相同。
+   抽屉接线与第二级看门狗在全部模块求值完之后执行；依赖失败兜底由 HTML 的先行经典脚本承担。
    ⚠️ 这里的具名导入大多"本文件不直接用"：原本就是为钉住求值顺序 + 让 ESM 链接期校验导出名而列，
    eslint 的 no-unused-vars 对本文件豁免（见 eslint.config.mjs）。 */
 // three 与全部 addons 已用 esbuild 打包进同目录的 vendor.js（见 build-entry.js），
@@ -79,36 +79,14 @@ import { rockNormalTex, pavingTex, pavingNormalTex, groundTex, waterNormalTex, m
   setOpen(false);
 })();
 
-
-/* ── 启动失败态 ──
-   审计 B14：加载层原来是"第 2 帧就无条件撤掉"，GLB 失败只 console.warn ——
-   WebGL 不可用 / vendor.js 没加载成功 / 脚本异常时，用户看到的是**永远的"营造中"**
-   或者一个半成品场景，没有任何可读信息，也没有重试入口。这里在模块最前面挂兜底。 */
-function bootFail(msg){
-  const el = document.getElementById('loading');
-  if (!el) return;
-  el.classList.remove('done');
-  el.style.display = '';
-  el.style.opacity = '1';
-  el.innerHTML =
-    '<div style="font:500 15px/1.7 system-ui, sans-serif;color:#f2efe6;'
-    + 'background:rgba(18,22,28,.86);padding:18px 22px;border-radius:10px;'
-    + 'max-width:min(600px,84vw);text-align:left">'
-    + '<div style="font-size:17px;font-weight:600;margin-bottom:8px">场景没能启动</div>'
-    + '<div style="opacity:.82;margin-bottom:10px">' + String(msg).slice(0, 300) + '</div>'
-    + '<div style="opacity:.62;margin-bottom:14px">常见原因：WebGL 不可用 · vendor.js 没加载成功 · '
-    + '用 file:// 直接打开（会被 CORS 拦）· 着色器编译失败</div>'
-    + '<button id="boot-retry" style="font:inherit;padding:6px 14px;border-radius:6px;'
-    + 'border:1px solid rgba(240,236,226,.5);background:rgba(240,236,226,.14);color:#f2efe6;cursor:pointer">重试</button>'
-    + '</div>';
-  const b = document.getElementById('boot-retry');
-  if (b) b.addEventListener('click', () => location.reload());
-}
-addEventListener('error', (e) => { if (!window.__garden) bootFail(e.message || '脚本错误'); });
-addEventListener('unhandledrejection', (e) => {
-  if (!window.__garden) bootFail((e.reason && e.reason.message) || '未处理的 Promise 拒绝');
+// 浮动入口复用导览按钮的接管、机位与字幕计时，产品交互不读取生产中收起的 __garden。
+document.getElementById('see-lantern')?.addEventListener('click', () => {
+  document.querySelector('#env [data-view="lantern"]')?.click();
 });
-setTimeout(() => { if (!window.__garden) bootFail('初始化超时（15 秒仍未就绪）'); }, 15000);
+
+
+// 依赖失败的首级兜底由 index.html 的先行经典脚本注册；本模块只负责开园后的长任务看门狗。
+const bootFail = (msg) => window.__gardenBootFail?.(msg);
 
 /* ── 启动看门狗 · 第二级（2026-10-30 第 0 周热修）──
    上面那个 15 秒兜底只护得住"主模块求值完成之前"：window.__garden 在 import 全部

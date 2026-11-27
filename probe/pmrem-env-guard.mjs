@@ -1,5 +1,5 @@
 // PMREM 四时段缓存专项门禁：node probe/pmrem-env-guard.mjs
-// @guards: src/12-env.js, src/02-scene.js, src/01-materials.js
+// @guards: src/12-env.js, src/02-scene.js, src/02a-env-cache.js, src/01-materials.js
 // 守"切时段时反射色变了但只烘一次；切回旧时段零重烘；切季节/天气不触发烘焙"。
 import http from 'node:http';
 import fs from 'node:fs';
@@ -17,6 +17,26 @@ const server = http.createServer((req,res)=>{
     res.writeHead(200,{'Content-Type':MIME[path.extname(p).toLowerCase()]||'application/octet-stream'}); res.end(data);
   });
 });
+// 采样真实 PMREM atlas 像素；只看 renderer.info/循环存活会把空纹理误判成恢复成功。
+function sampleEnvironment(){
+  const g=window.__garden, T=g.THREE, renderer=g.renderer;
+  const target=new T.WebGLRenderTarget(32,32), scene=new T.Scene();
+  const geometry=new T.PlaneGeometry(2,2);
+  const material=new T.MeshBasicMaterial({map:g.scene.environment,depthTest:false,depthWrite:false,toneMapped:false});
+  scene.add(new T.Mesh(geometry,material));
+  const camera=new T.OrthographicCamera(-1,1,1,-1,0,1), pixels=new Uint8Array(32*32*4);
+  const old=renderer.getRenderTarget();
+  try {
+    renderer.setRenderTarget(target); renderer.render(scene,camera);
+    renderer.readRenderTargetPixels(target,0,0,32,32,pixels);
+  } finally {
+    renderer.setRenderTarget(old); target.dispose(); geometry.dispose(); material.dispose();
+  }
+  let sum=0;
+  for(let i=0;i<pixels.length;i+=4) sum+=pixels[i]+pixels[i+1]+pixels[i+2];
+  return {mean:sum/(32*32*3),uuid:g.scene.environment.uuid,bake:g.envBakeState()};
+}
+
 const results=[];
 const check=(name,ok,detail='')=>{results.push({name,ok});console.log(`  ${ok?'✓':'✗'} ${name}${detail?' — '+detail:''}`);};
 
@@ -58,6 +78,31 @@ const check=(name,ok,detail='')=>{results.push({name,ok});console.log(`  ${ok?'�
   check('切到阴雨大类：烘焙 1 张 noon|overcast', s7.builds===4 && s7.cached.includes('noon|overcast'), JSON.stringify(s7));
   const s8 = await go('weather','drizzle');
   check('同大类换天气（暴雨→细雨）不增加烘焙', s8.builds===4, JSON.stringify(s8));
+
+  await page.evaluate(() => {
+    window.__pmremContext={lost:0,restored:0};
+    const canvas=window.__garden.renderer.domElement;
+    canvas.addEventListener('webglcontextlost',()=>window.__pmremContext.lost++);
+    canvas.addEventListener('webglcontextrestored',()=>window.__pmremContext.restored++);
+  });
+  let before=await page.evaluate(sampleEnvironment);
+  check('恢复前环境贴图确实含有效像素',before.mean>1,JSON.stringify(before));
+  for(let cycle=1;cycle<=3;cycle++){
+    await page.evaluate(()=>window.__garden.renderer.forceContextLoss());
+    await page.waitForFunction(n=>window.__pmremContext.lost===n,cycle);
+    await page.evaluate(()=>window.__garden.renderer.forceContextRestore());
+    await page.waitForFunction(n=>window.__pmremContext.restored===n,cycle);
+    const after=await page.evaluate(sampleEnvironment);
+    check('恢复 '+cycle+'：环境纹理已重烘，像素保留',after.uuid!==before.uuid && after.mean>before.mean*0.5,JSON.stringify(after));
+    check('恢复 '+cycle+'：只保留当前缓存且只新增一次烘焙',after.bake.cached.length===1 && after.bake.builds===before.bake.builds+1);
+    before=after;
+  }
+  const lazy=await go('time','night');
+  check('恢复后的其它时段按需重烘',lazy.builds===before.bake.builds+1);
+  const again=await go('time','noon');
+  check('恢复后切回当前已缓存时段不重烘',again.builds===lazy.builds);
+  const loop=await page.evaluate(()=>window.__garden.loopErrors());
+  check('多次上下文恢复后零循环错误',loop.count===0,JSON.stringify(loop));
 
   check('零 pageerror / console error', errs.length===0, errs.slice(0,2).join(' | '));
   await browser.close(); server.close();

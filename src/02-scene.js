@@ -2,6 +2,7 @@
 import { THREE, OrbitControls } from '../vendor.js';
 import { CFG, bootMark } from './00-config.js';
 import { pickTier } from './00a-quality.js';
+import { createEnvCache } from './02a-env-cache.js';
 /* ══════════════════════════════════════════════════════════════
    2 · 渲染器 / 相机 / 控制器   ══════════════════════════════════════════════════════════════ */
 export const app = document.getElementById('app');
@@ -136,8 +137,10 @@ controls.zoomSpeed = 0.85;
 export const CAM_MIN_DIST = 1.6;
 controls.minDistance = CAM_MIN_DIST;
 controls.maxDistance = 170;
-controls.maxPolarAngle = Math.PI * 0.492;   // 限制俯仰，避免钻入地面
-controls.minPolarAngle = Math.PI * 0.055;
+export const CAM_MIN_POLAR = Math.PI * 0.055;
+export const CAM_MAX_POLAR = Math.PI * 0.492;
+controls.maxPolarAngle = CAM_MAX_POLAR;   // 限制俯仰，避免钻入地面
+controls.minPolarAngle = CAM_MIN_POLAR;
 controls.target.set(0, 3.5, -1);
 /* 视角边界与复位（审计 F03）：极角原本就限住了，但**目标点可以任意平移** ——
    能把视点拖到园子外/地下而且回不来，也没有回初始机位的入口。
@@ -185,10 +188,16 @@ renderer.domElement.addEventListener('dblclick', (e) => {
   }
 }, { passive: true });
 export function resetCamera(){
-  camera.position.copy(CAM_HOME.pos);
-  controls.target.copy(CAM_HOME.target);
-  controls.minDistance = CAM_MIN_DIST;     // 复位时一并收回近观敞开的下限
-  controls.update();
+  const damping = controls.dampingFactor;
+  try {
+    // update() 会推进私有的旋转/平移惯性；先耗尽再落位，避免复位后镜头仍漂移。
+    controls.dampingFactor = 1; controls.update();
+    camera.position.copy(CAM_HOME.pos);
+    controls.target.copy(CAM_HOME.target);
+    controls.minDistance = CAM_MIN_DIST;     // 复位时一并收回近观敞开的下限
+    controls.minPolarAngle = CAM_MIN_POLAR; controls.maxPolarAngle = CAM_MAX_POLAR;
+    controls.update();
+  } finally { controls.dampingFactor = damping; }
 }
 
 /* 渐变天空球（三停：地平线 → 中腰 → 天顶） */
@@ -686,7 +695,7 @@ scene.add(rainbowMesh);
      · 稳态零重烘（切季节/天气不会触发烘焙）；
      · 烘焙发生在**过渡刚结束**时，而不是过渡中每帧，避免卡顿被写进动画。
    烘焙参数由 12-env 在时段切换收尾时注入（避免 02 → 12 的反向依赖）。 */
-const ENV_BAKE = { pmrem:null, geo:null, cache:new Map(), builds:0 };
+const ENV_BAKE = createEnvCache({ createGenerator:() => new THREE.PMREMGenerator(renderer), makeScene:envBakeScene });
 function envBakeScene(preset){
   const p = preset || { skyTop:0xA8BDD4, skyMid:0xBFD2E6, skyHorizon:0xE7E9E3,
                         sunDisk:0xFFF3D8, ground:0x5F7B45, sunPos:CFG.sun.pos };
@@ -697,31 +706,22 @@ function envBakeScene(preset){
   const g = new THREE.Mesh(new THREE.CircleGeometry(14, 28).rotateX(-Math.PI/2),
     new THREE.MeshBasicMaterial({ color:p.ground }));
   g.position.y = -3.2; es.add(g);
-  return { es, s, g };
-}
-function bakeEnvFor(preset){
-  /* 开机那张（preset=null）用的就是午时段晴天参数 ⇒ 直接记成 noon|clear（12-env syncEnvMap 的键格式），
-     免得启动后第一次 syncEnvMap 再按同参数重烘一张（2026-10-31 pmrem 门实测多烘 1 次）。 */
-  const key = preset && preset.key ? preset.key : 'noon|clear';
-  const hit = ENV_BAKE.cache.get(key);
-  if (hit) return hit;
-  if (!ENV_BAKE.pmrem) ENV_BAKE.pmrem = new THREE.PMREMGenerator(renderer);
-  const { es, s, g } = envBakeScene(preset);
-  const tex = ENV_BAKE.pmrem.fromScene(es, 0.035).texture;
-  s.geometry.dispose(); g.geometry.dispose();
-  ENV_BAKE.cache.set(key, tex);
-  ENV_BAKE.builds++;
-  return tex;
+  return { es, dispose(){
+    s.geometry.dispose(); s.material.dispose();
+    g.geometry.dispose(); g.material.dispose();
+  } };
 }
 /* 开机先烘当前时段（保证首帧就有正确的环境反射，而不是"第一帧是白天的"）。 */
-scene.environment = bakeEnvFor(null);
+scene.environment = ENV_BAKE.textureFor(null);
 scene.environmentIntensity = 1.0;
 /** 由 12-env 调用：按预设烘（或复用缓存）并设为当前环境贴图。 */
 export function setEnvPreset(preset){
-  scene.environment = bakeEnvFor(preset);
-  return ENV_BAKE.builds;
+  scene.environment = ENV_BAKE.textureFor(preset);
+  return ENV_BAKE.state().builds;
 }
-export const envBakeState = () => ({ builds:ENV_BAKE.builds, cached:[...ENV_BAKE.cache.keys()] });
+export const envBakeState = () => ENV_BAKE.state();
+// Three 会重建 GL 句柄，却不会重画旧离屏纹理的像素；恢复事件中必须重烘当前环境。
+renderer.domElement.addEventListener('webglcontextrestored', () => { scene.environment = ENV_BAKE.restore(); });
 /* 环境贴图只按**当前天光亮度 / 烘焙时天光亮度**缩放：这是廉价的连续调节，
    缓存负责"反射色对不对"，这个标量负责"整体亮度对不对"，两者互补。 */
 export const lumOf = (c)=> 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;

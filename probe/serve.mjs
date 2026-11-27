@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveStaticPath } from './_static-path.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.argv[2]) || 8935;
@@ -29,11 +30,9 @@ const MIME = {
 };
 
 http.createServer((req, res) => {
-  let p = decodeURIComponent(req.url.split('?')[0]);
-  if (p === '/') p = '/index.html';
-  const file = path.join(ROOT, p);
-  // 只允许项目内文件（防路径穿越）
-  if (!file.startsWith(ROOT)) { res.writeHead(403); res.end(); return; }
+  const resolved = resolveStaticPath(ROOT, req.url);
+  if (resolved.status !== 200) { res.writeHead(resolved.status); res.end(); return; }
+  const { pathname: p, file } = resolved;
   fs.readFile(file, (err, data) => {
     if (err) { res.writeHead(404); res.end('not found'); return; }
     /* ⚠️ 2026-10-11（老黄："现在每次进项目前这个下载都要持续好久"）：**模型资产允许 HTTP 缓存**。

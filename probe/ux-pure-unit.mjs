@@ -30,6 +30,22 @@ test('分享链接：时辰取模到 [0,24)，没有机位就不写 c/t', () => 
   assert.equal(encodeView({ hour:-1 }), 'v=1&h=23.00');
 });
 
+test('分享链接：接近午夜的时辰在量化后仍落在 [0,24)，往返保留时辰', () => {
+  for (const hour of [23.999, -0.001, 47.999, -24.001]){
+    const hash = encodeView({ hour });
+    assert.equal(hash, 'v=1&h=0.00', String(hour));
+    assert.deepEqual(decodeView('#' + hash, OPTS), { hour:0 });
+  }
+  assert.deepEqual(decodeView(encodeView({ hour:23.994 }), OPTS), { hour:23.99 });
+  for (let i = 0; i < 1440; i++){
+    const hour = i / 60;
+    const out = decodeView(encodeView({ hour }), OPTS);
+    assert.ok(out && out.hour >= 0 && out.hour < 24, String(hour));
+    const diff = Math.abs(out.hour - hour);
+    assert.ok(Math.min(diff, 24 - diff) <= 0.005001, `时辰 ${hour} 往返误差`);
+  }
+});
+
 test('分享链接：非法值逐项丢弃、绝不抛错，全坏 ⇒ null', () => {
   assert.equal(decodeView('', OPTS), null);
   assert.equal(decodeView('#', OPTS), null);

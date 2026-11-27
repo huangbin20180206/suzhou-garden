@@ -4,9 +4,11 @@ import fs from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import assert from 'node:assert/strict';
-import { launchChromium } from './_harness.mjs';
+import { launchChromium, listenEphemeral } from './_harness.mjs';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
+// 先模拟只预缓存 main 的旧 worker；升级时才切回磁盘上的完整模块安装实现。
+let legacyWorker = true;
 const server = http.createServer(async (req, res) => {
   const pathname = new URL(req.url, 'http://localhost').pathname;
   if (pathname === '/probe-host') {
@@ -16,13 +18,18 @@ const server = http.createServer(async (req, res) => {
   }
   try {
     const file = path.join(root, pathname === '/' ? 'index.html' : pathname);
-    const data = await fs.readFile(file);
+    let data = await fs.readFile(file);
+    if (pathname === '/sw.js' && legacyWorker){
+      data = data.toString().replace(/const CACHE = 'suzhou-garden-v\d+'/, "const CACHE = 'suzhou-garden-v45'")
+        .replace(/const MODULES = \[[^]*?\];/, 'const MODULES = [];');
+    }
+    res.setHeader('Cache-Control','no-store');
     const types = { '.js': 'text/javascript', '.html': 'text/html', '.webmanifest': 'application/manifest+json', '.svg': 'image/svg+xml' };
     res.setHeader('Content-Type', types[path.extname(file)] || 'application/octet-stream');
     res.end(data);
   } catch { res.writeHead(404); res.end(); }
 });
-await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+await listenEphemeral(server);
 let browser;
 try {
   browser = await launchChromium(chromium);
@@ -44,7 +51,9 @@ try {
   assert.ok(!result.keys.includes('suzhou-garden-v0'), 'Old Garden cache must be deleted');
   console.log('PASS: foreign cache preserved; old Garden cache removed');
 
-  /* ══ 在线预热 ══════════════════════════════════════════════════════════════
+  /* 以下历史行为特意由旧 worker 夹具复现；新版不再依赖在线预热其模块。
+     本例先给旧版本缓存资产与运行期模块，再仅更新 SW，最后立即断网启动新版。 */
+  /* ══ 旧版本在线预热 ════════════════════════════════════════════════════════
      ⚠️⚠️ 这一步**此前缺失**，而它正是本门长期报红（且没人看见，因为它不在
      verify-all 的 SUITES 里）的真因 —— 与被测代码无关：
      2026-10-03 用 `git stash` 回到 HEAD 复现了同一处红。
@@ -97,6 +106,41 @@ try {
     return { ok: false };
   }, precacheUrls);
   if (!backfilled.ok) console.warn('WARN: 60s 内资产回填未完成，继续按原判据断网');
+  // 不再在线导航真页面：新版只能使用安装阶段准备的完整模块缓存。
+  legacyWorker = false;
+  const currentCache = (await fs.readFile(path.join(root,'sw.js'),'utf8')).match(/const CACHE = '([^']+)'/)[1];
+  const modules = (await fs.readdir(path.join(root,'src'))).filter(f => f.endsWith('.js')).map(f => '/src/' + f);
+  const upgraded = await page.evaluate(async ({ cacheName, modules }) => {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const previous = navigator.serviceWorker.controller;
+    const switched = new Promise((resolve,reject) => {
+      const timer = setTimeout(() => reject(new Error('new worker activation timeout')),60000);
+      navigator.serviceWorker.addEventListener('controllerchange',() => { clearTimeout(timer); resolve(); },{once:true});
+    });
+    await Promise.all([registration.update(),switched]);
+    // controllerchange 可在 activate 的 waitUntil 完成前触发，清理验收要等 activated。
+    const active = registration.active;
+    if (active.state !== 'activated') await new Promise((resolve,reject) => {
+      const timer=setTimeout(() => reject(new Error('worker activation cleanup timeout')),10000);
+      active.addEventListener('statechange',function done(){
+        if (active.state !== 'activated') return;
+        clearTimeout(timer); active.removeEventListener('statechange',done); resolve();
+      });
+    });
+    const keys = await caches.keys(), cache = await caches.open(cacheName);
+    const missing = [];
+    for (const url of modules) if (!await cache.match(url)) missing.push(url);
+    return { changed:navigator.serviceWorker.controller !== previous, keys, missing };
+  },{ cacheName:currentCache, modules });
+  console.log('PASS: activated worker state ' + JSON.stringify(upgraded));
+  assert.ok(upgraded.changed, '必须真实升级 worker，不能只验证同版本重载');
+  assert.ok(!upgraded.keys.includes('suzhou-garden-v45'), '升级后应清理旧应用桶');
+  assert.ok(upgraded.keys.includes(currentCache), '完整新应用桶应存在');
+  assert.deepEqual(upgraded.missing, [], '新版在首次在线运行前已缓存全部模块');
+  // 清掉 HTTP 缓存，防止旧预热响应掩盖 Service Worker 的缓存缺口。
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Network.clearBrowserCache'); await cdp.detach();
+  console.log('PASS: worker upgraded without new-page warmup; all ' + modules.length + ' modules cached');
   await context.setOffline(true);
   const offline = await page.evaluate(async () => {
     /* ⚠️ 这份清单必须与 sw.js 的 SHELL + GLBS **逐项对齐** —— 它就是"装了 PWA 就该能

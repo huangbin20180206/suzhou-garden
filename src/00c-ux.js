@@ -228,7 +228,11 @@ function vec3ok(a){
 export function encodeView(v){
   const parts = ['v=1'];
   if (v.season) parts.push('s=' + encodeURIComponent(v.season));
-  if (Number.isFinite(v.hour)) parts.push('h=' + fx(((v.hour % 24) + 24) % 24, 2));
+  if (Number.isFinite(v.hour)){
+    // 流转在午夜前可取到 23.999；量化会进位到 24.00，须再环回才满足解码的 [0,24)。
+    const hour = Number(fx(((v.hour % 24) + 24) % 24, 2)) % 24;
+    parts.push('h=' + hour.toFixed(2));
+  }
   if (v.weather) parts.push('w=' + encodeURIComponent(v.weather));
   if (Number.isFinite(v.doy)) parts.push('d=' + Math.round(v.doy));
   if (vec3ok(v.cam) && vec3ok(v.tgt)){

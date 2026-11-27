@@ -2,6 +2,7 @@
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
+import { resolveStaticPath } from './_static-path.mjs';
 //
 // 为什么要有这个文件：
 //  无头 Chromium 默认落到 **SwiftShader 软渲染 ≈2427ms/帧**（实测），一次
@@ -81,15 +82,13 @@ export function makeStaticServer(root, mime){
     '.css': 'text/css', '.json': 'application/json', '.mp3': 'audio/mpeg',
     ...(mime || {}),
   };
+  const rootAbs = path.resolve(root);
   return http.createServer((req, res) => {
-    let p = decodeURIComponent(req.url.split('?')[0]);
-    if (p === '/') p = '/index.html';
-    const abs = path.join(root, p);
-    /* 目录穿越防护：探针服务的是本仓库，但 `..` 会让它变成任意文件读取 */
-    if (!abs.startsWith(root)) { res.writeHead(403); res.end(); return; }
-    fs.readFile(abs, (err, data) => {
+    const resolved = resolveStaticPath(rootAbs, req.url);
+    if (resolved.status !== 200) { res.writeHead(resolved.status); res.end(); return; }
+    fs.readFile(resolved.file, (err, data) => {
       if (err) { res.writeHead(404); res.end(); return; }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(p).toLowerCase()] || 'application/octet-stream' });
+      res.writeHead(200, { 'Content-Type': MIME[path.extname(resolved.file).toLowerCase()] || 'application/octet-stream' });
       res.end(data);
     });
   });

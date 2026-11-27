@@ -71,7 +71,7 @@ check('① SUITES 里没有重复门禁路径',
 /* ── 复刻挑选逻辑（与 verify-all 里那份同形）──
    ⚠️ 这里是**拷贝**，不是引用 —— 所以下面最后一条专门验证"拷贝与原件是否还同形"：
       若 verify-all 改了挑选规则而本文件没跟上，那条会红。 */
-const INFRA_RE = /^probe\/(_harness\.mjs|verify-all\.mjs|_png\.mjs|_probe-detect\.mjs|_extract-section\.mjs|_codeonly\.mjs)$/;
+const INFRA_RE = /^probe\/(_harness\.mjs|_static-path\.mjs|verify-all\.mjs|_png\.mjs|_probe-detect\.mjs|_extract-section\.mjs|_codeonly\.mjs)$/;
 const MIN_PICK = 8;
 
 function parseGuardsFrom(text){
@@ -82,16 +82,15 @@ function parseGuardsFrom(text){
 
 /* 把"文件内容"做成可注入的查表，便于造场景而不碰磁盘。 */
 function selectByChange(changed, contentOf){
-  const srcFiles = changed.filter(f => /^src\/.*\.js$/.test(f));
   const gateFiles = changed.filter(f => /^probe\/.*\.mjs$/.test(f));
   const infra = gateFiles.filter(f => INFRA_RE.test(f));
   if (infra.length) return { list: suites, forcedAll: true, reason: 'infra' };
-  const srcSet = new Set(srcFiles);
+  const guardedFiles = new Set(changed);
   const picked = [];
   for (const [label, rel] of suites){
     const g = parseGuardsFrom(contentOf(rel));
     if (g === null){ picked.push([label, rel]); continue; }
-    if (g.some(x => srcSet.has(x)) || gateFiles.includes(rel)) picked.push([label, rel]);
+    if (g.some(x => guardedFiles.has(x)) || gateFiles.includes(rel)) picked.push([label, rel]);
   }
   if (picked.length < MIN_PICK) return { list: suites, forcedAll: true, reason: 'too-few' };
   return { list: picked, forcedAll: false, reason: 'ok' };
@@ -147,6 +146,9 @@ const realContent = (rel) => {
   const r2 = selectByChange(['probe/verify-all.mjs'], realContent);
   check('② 门禁共享设施（verify-all）被改 ⇒ 退回全量',
     r2.forcedAll && r2.reason === 'infra', `reason=${r2.reason}`);
+  const rp = selectByChange(['probe/_static-path.mjs'], realContent);
+  check('② 共享路径解析器改动 ⇒ 全量覆盖所有使用方',
+    rp.forcedAll && rp.reason === 'infra', `reason=${rp.reason}`);
   /* 负数：普通门禁被改**不**触发退回全量（否则②就太宽了，等于永远全量）。 */
   const r3 = selectByChange(['probe/macaw-wing-guard.mjs'], realContent);
   check('② 负数：只改某一道普通门禁时**不**退回全量（否则这条规则太宽）',
@@ -237,6 +239,72 @@ const realContent = (rel) => {
     `GATE_INFRA=${hasInfra} 阈值 verify-all=${minInSrc} / 本门=${MIN_PICK}`);
 }
 
+/* 直接执行原件选择函数，避免复制版本漏掉 HTML/SW 等入口文件的依赖。 */
+{
+  const begin = src.indexOf('function selectByChange(base){');
+  const end = src.indexOf('const changedPick =', begin);
+  check('⑧ 能定位原件的选择函数', begin >= 0 && end > begin);
+  if (begin >= 0 && end > begin){
+    const actual = new Function('changedFiles', 'parseGuards', 'SUITES', 'GATE_INFRA',
+      src.slice(begin, end) + ' return selectByChange;');
+    const select = actual(files => files, rel => {
+      if (rel === 'probe/runtime-edge-guard.mjs') return ['index.html', 'src/11-loop.js'];
+      return null; // 其余门未声明：保持 >=8，避免退回全量掩盖漏选。
+    }, suites, INFRA_RE);
+    const html = select(['index.html']);
+    check('⑧ 仅改 HTML 也运行声明守护它的真实浏览器门',
+      !html.forcedAll && html.list.some(([,rel]) => rel === 'probe/runtime-edge-guard.mjs'));
+    const other = select(['docs/unrelated.md']);
+    check('⑧ 无关文档不会误命中已声明的浏览器门',
+      !other.forcedAll && !other.list.some(([,rel]) => rel === 'probe/runtime-edge-guard.mjs'));
+  }
+}
+
+/* Git 失败必须终止选门，禁止把不完整的差异当完整结果。执行原件而非复制算法。 */
+{
+  const begin = src.indexOf('function changedFiles(base){');
+  const end = src.indexOf('function selectByChange(base){', begin);
+  check('⑨ 能定位原件 Git 差异收集函数', begin >= 0 && end > begin);
+  if (begin >= 0 && end > begin){
+    const factory = new Function('spawnSync','ROOT',src.slice(begin,end) + ' return changedFiles;');
+    const collect = factory((command,args) => ({ status:0, stdout:args[2] === 'BASE...HEAD'
+      ? 'src/a.js\noutputs/tmp.js\n' : args[2] === 'HEAD'
+        ? 'src/a.js\nsrc/b.js\n' : 'src/new.js\nnode_modules/x.js\n' }), ROOT);
+    check('⑨ 正常 Git 差异去重并排除临时产物',
+      JSON.stringify(collect('BASE')) === JSON.stringify(['src/a.js','src/b.js','src/new.js']));
+    for (const scenario of [
+      { label:'无效基线', at:1, result:{status:128,stderr:'fatal: bad revision BASE'} },
+      { label:'工作区查询失败', at:2, result:{status:128,stderr:'fatal: index read failed'} },
+      { label:'未跟踪查询失败', at:3, result:{status:128,stderr:'fatal: permission denied'} },
+      { label:'git 可执行文件缺失', at:1, result:{status:null,error:new Error('spawn git ENOENT')} },
+      { label:'git 进程被终止', at:1, result:{status:null,signal:'SIGTERM'} },
+    ]){
+      let calls = 0, error;
+      const query = factory(() => ++calls === scenario.at ? scenario.result : {status:0,stdout:'src/local.js\n'},ROOT);
+      try { query('BASE'); } catch (e){ error = e; }
+      check('⑨ ' + scenario.label + '时终止而不返回局部文件集合',
+        !!error && /git/.test(error.message) && calls === scenario.at, error?.message || '未抛错');
+    }
+  }
+}
+
+check('⑩ 环境缓存单元已注册到真实验证链', suites.some(([,rel]) => rel === 'probe/env-cache-unit.mjs'));
+const envCachePick = selectByChange(['src/02a-env-cache.js'], realContent);
+check('⑩ 仅改缓存内核能选中其真实单元回归', envCachePick.list.some(([,rel]) => rel === 'probe/env-cache-unit.mjs'));
+
+/* --quick must not narrow a conservative --changed full fallback. Run the original LIST expression. */
+{
+  const begin=src.indexOf('const LIST ='),end=src.indexOf(';\nif (byGates',begin)+1;
+  check('⑪ 能定位 verify-all 实际选门表达式',begin>=0&&end>begin);
+  if(begin>=0&&end>begin){
+    const pick=new Function('SELFTEST','SELFTEST_PATH','byGates','byChanged','QUICK_MODE','SUITES','QUICK','changedPick',src.slice(begin,end)+'; return LIST;');
+    const all=[['all','probe/a.mjs'],['other','probe/b.mjs']],quick=new Set(['probe/a.mjs']),subset=[['picked','probe/c.mjs']];
+    const forced=pick(false,'',null,null,true,all,quick,{forcedAll:true,list:all});
+    check('⑪ --changed forcedAll 与 --quick 同用仍执行全量',JSON.stringify(forced)===JSON.stringify(all),JSON.stringify(forced));
+    const normal=pick(false,'',null,subset,true,all,quick,{forcedAll:false,list:subset});
+    check('⑪ 普通 --changed 子集仍优先于 --quick',JSON.stringify(normal)===JSON.stringify(subset),JSON.stringify(normal));
+  }
+}
 const fails = results.filter(r => !r.ok).length;
 console.log(`\n[changed-map-unit] ${fails === 0 ? 'ALL PASS' : fails + ' FAILED'}（${results.length} 项）`);
 process.exit(fails === 0 ? 0 : 1);

@@ -6,7 +6,9 @@
   "scripts": {
     "build:vendor": "esbuild build-entry.js --bundle --format=esm --minify --outfile=vendor.js",
     "check": "node probe/check.mjs",
-    "unit": "node --test probe/unit-pure.mjs probe/env-phenology-unit.mjs probe/env-solar-unit.mjs probe/env-blend-unit.mjs probe/env-nature-unit.mjs probe/fixed-step-unit.mjs probe/actor-replay-unit.mjs probe/visit-edge-unit.mjs probe/ux-pure-unit.mjs && node --import ./probe/_actor-sim/register.mjs --test probe/actor-tick-unit.mjs probe/actor-shape-unit.mjs",
+    "unit": "node --test probe/unit-pure.mjs probe/env-phenology-unit.mjs probe/env-solar-unit.mjs probe/env-blend-unit.mjs probe/env-nature-unit.mjs probe/fixed-step-unit.mjs probe/actor-replay-unit.mjs probe/visit-edge-unit.mjs probe/ux-pure-unit.mjs probe/static-server-unit.mjs probe/runtime-edge-unit.mjs probe/codeonly-unit.mjs probe/art-license-unit.mjs probe/batch-plan-unit.mjs probe/changed-map-unit.mjs probe/env-cache-unit.mjs probe/walk-input-unit.mjs probe/sw-module-unit.mjs probe/unit-inventory-unit.mjs && node --import ./probe/_actor-sim/register.mjs --test probe/actor-tick-unit.mjs probe/actor-shape-unit.mjs",
+    "unit:coverage": "node --test --experimental-test-coverage --test-coverage-include=src/00a-quality.js --test-coverage-include=src/00c-ux.js --test-coverage-include=probe/_static-path.mjs --test-coverage-include=src/02a-env-cache.js probe/unit-pure.mjs probe/ux-pure-unit.mjs probe/static-server-unit.mjs probe/runtime-edge-unit.mjs probe/env-cache-unit.mjs",
+    "test:edges": "node probe/runtime-edge-guard.mjs",
     "audit": "node probe/import-audit.mjs",
     "test": "node probe/smoke.mjs",
     "verify": "node probe/verify-all.mjs",

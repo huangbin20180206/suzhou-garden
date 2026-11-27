@@ -21,7 +21,10 @@ const LOW_RE = /Intel|Iris|UHD Graphics|HD Graphics|Radeon\(TM\) Graphics|Vega|l
 
 /* 高档：叫得出名字的独显。原来只认 GTX 10xx/20xx —— RTX 30/40/50 全靠"未知=high"蒙对，
    一改默认值（未知不再 high）就会把独显用户也降档，所以这里必须把全系列上。 */
-const HIGH_RE = /Apple M[1-9]|Intel Arc|GTX\s*\d{3,4}|RTX\s*\d{3,4}|Radeon RX\s*\d+/i;
+const HIGH_RE = /Apple M[1-9]|GTX\s*\d{3,4}|RTX\s*\d{3,4}|Radeon RX\s*\d+/i;
+/* Arc A/B 独显也带 Intel 厂商名，不能先被 LOW_RE 的 Intel 吞掉；
+   只放行已知独显系列，Arc Graphics / 140V 等核显及软渲染仍走低档。 */
+const INTEL_ARC_DISCRETE_RE = /\bIntel(?:\(R\))?\s+Arc(?:\(TM\))?\s+[AB]\d{3}\b/i;
 
 /* 手机 / 平板：Adreno / Mali 在 GPU 名里哪个正则都不中，只能看 UA。
    ⚠️ iPadOS 13+ 的 UA **冒充 Macintosh**，所以还要靠 maxTouchPoints > 1 兜住
@@ -36,9 +39,11 @@ export function isMobileUA(userAgent = '', maxTouchPoints = 0){
    取不到时传空串（→ 落到 mid，不再默认 high）。
    优先级：低档词表 → 移动端 → 独显词表 → 其余一律 mid。 */
 export function pickTier({ gpuName = '', userAgent = '', maxTouchPoints = 0 } = {}){
-  if (LOW_RE.test(String(gpuName || ''))) return 'low';
+  const gpu = String(gpuName || '');
+  const arc = INTEL_ARC_DISCRETE_RE.test(gpu);
+  if (/llvmpipe|SwiftShader/i.test(gpu) || (LOW_RE.test(gpu) && !arc)) return 'low';
   if (isMobileUA(userAgent, maxTouchPoints)) return 'mid';
-  return HIGH_RE.test(String(gpuName || '')) ? 'high' : 'mid';
+  return arc || HIGH_RE.test(gpu) ? 'high' : 'mid';
 }
 
 /* ── 调试接口是否展开（2026-10-30 · 架构收口）───────────────────────────────
@@ -50,7 +55,8 @@ export function pickTier({ gpuName = '', userAgent = '', maxTouchPoints = 0 } = 
    ⚠️ 提成纯函数是为了让**生产分支**有测试网：本机永远走不到那条分支，
       不抽出来就只能靠"读代码觉得对"（本项目最不信任的验证方式）。 */
 export function isDebugSurface({ search = '', webdriver = false, hostname = '' } = {}){
-  if (String(search).includes('debug=1')) return true;
+  // 子串匹配会把 debug=10、nodebug=1、next=debug=1 也当成显式开关。
+  if (new URLSearchParams(String(search)).get('debug') === '1') return true;
   if (webdriver === true) return true;
   const h = String(hostname || '');
   return h === '' || h === 'localhost' || h === '127.0.0.1' || h.endsWith('.localhost');
