@@ -13,6 +13,7 @@ import { POND_RADII } from './05-water.js';
 import { makeBambooLeafGeo, makeLotusPetalGeo, makeLilyPadGeo, makeWisteriaFloretGeo } from './06c-organs.js';
 import { addPerchingAnchor, installLilyCorridor } from './06d-corridor.js';
 import { fbm3 } from './06h-rock.js';
+import { perfFlagsHere } from './00a-quality.js';
 
 /* ══ 池面补叶（2026-09-30 二轮：池边"大荷花"整体撤下，只保留它的叶盘）═════════
    老黄实测反馈四连（截图 + 红框逐格放大判读）："荷花完全不像荷花""各种悬空、
@@ -542,6 +543,19 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
   const pm = new THREE.Matrix4(), pp = new THREE.Vector3(), pq = new THREE.Quaternion(), ps = new THREE.Vector3();
   const qTilt = new THREE.Quaternion(), qSpin = new THREE.Quaternion();
   const AX = new THREE.Vector3(1, 0, 0), AY = new THREE.Vector3(0, 1, 0);
+  /* 2026-11-27 · 效率批：杆/萼由每朵 2 个 Mesh 改为 2 个 InstancedMesh（12 朵 ⇒ 24→2 draw，
+     主/阴影/反射/AO 各 pass 同比省）。杆几何取单位高、按 stemH 缩 y。名字与 noMerge 照旧
+     （季节通道按材质认、悬停按名字认）。风摆相位改按实例锚点（非实例时逐顶点）——杆整体摆，
+     静帧差异 mm 级。?instancing=0 回逐个 Mesh。 */
+  const INST = perfFlagsHere().instancing;
+  let stemInst = null, calyxInst = null;
+  if (INST){
+    stemInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.026, 0.040, 1, 12), MAT.lotusStem, nLotus);
+    calyxInst = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.018, 0.052, 0.075, 10), MAT.lotusStem, nLotus);
+    stemInst.name = 'lotusStem'; calyxInst.name = 'lotusCalyx';
+    for (const im of [stemInst, calyxInst]){ im.castShadow = im.receiveShadow = true; im.userData.noMerge = true; }
+  }
+  const im4 = new THREE.Matrix4(), iq = new THREE.Quaternion(), iv = new THREE.Vector3(), is = new THREE.Vector3();
   for (let i = 0; i < nLotus; i++){
     const a = rr(0, TAU), rad = Math.sqrt(rnd()) * radius * 0.92;
     let fx = Math.cos(a)*rad, fz = Math.sin(a)*rad*0.72;
@@ -564,16 +578,24 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
        焊完之后显隐只能整组开关、也不再跟着季节走（实测合并后 stemMeshes=1、
        visible=true 恒为真 ⇒ 春季照样一排光杆）。与 09-lights 里 INSTANCE_MERGE_SKIP_MATS
        那条注释是同一个道理：身份本身带语义的网格不能焊。 */
+    if (INST){
+      stemInst.setMatrixAt(i, im4.compose(iv.set(fx, CFG.water + stemH/2, fz), iq, is.set(1, stemH, 1)));
+    } else {
     const stemM = mesh(new THREE.CylinderGeometry(0.026, 0.040, stemH, 12), MAT.lotusStem, { name:'lotusStem' });
     stemM.userData.noMerge = true;
     stemM.position.set(fx, CFG.water + stemH/2, fz);
     g.add(stemM);
+    }
     // 花萼/花托（2026-09-29 修"花与杆硬接显歪"）：小绿萼盖住杆顶与花的交接缝，
     // 顺带把"花瓣外圈外翻造成的视觉偏斜"读成自然倒垂
+    if (INST){
+      calyxInst.setMatrixAt(i, im4.compose(iv.set(fx, fy - 0.028, fz), iq, is.set(1, 1, 1)));
+    } else {
     const calyx = mesh(new THREE.CylinderGeometry(0.018, 0.052, 0.075, 10), MAT.lotusStem, { name:'lotusCalyx' });
     calyx.userData.noMerge = true;
     calyx.position.set(fx, fy - 0.028, fz);
     g.add(calyx);
+    }
     let slot = 0;
     const ring = (n, tilt, radiusOut, phase) => {
       for (let k = 0; k < n; k++){
@@ -604,6 +626,11 @@ export function makeAquatic(x, z, radius = 5.5, nPad = 46, nLotus = 14){
   }
   petalInst.instanceMatrix.needsUpdate = coreInst.instanceMatrix.needsUpdate = stamenInst.instanceMatrix.needsUpdate = true;
   g.add(petalInst, coreInst, stamenInst);
+  if (INST){
+    stemInst.instanceMatrix.needsUpdate = calyxInst.instanceMatrix.needsUpdate = true;
+    stemInst.computeBoundingSphere(); calyxInst.computeBoundingSphere();
+    g.add(stemInst, calyxInst);
+  }
   return g;
 }
 

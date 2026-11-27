@@ -115,6 +115,10 @@ export function perfFlags(search = ''){
     postFull: get('postfx') === 'full',
   });
 }
+/* 模块顶层直接取当前页的开关（node 单测里无 location ⇒ 全缺省）。 */
+export function perfFlagsHere(){
+  try { return perfFlags(globalThis.location ? globalThis.location.search : ''); } catch { return perfFlags(''); }
+}
 /* 后期按画质档分级（2026-11-27）。高档 = 改前原值，逐项不动。
    mid：GTAO 内部 RT 0.5→0.375、采样 32→16、去噪 16→8；bloom 内部 mip 链降到 0.5。
    low：本来就无 AO（QUALITY_PRESETS.ao=false），只把 bloom 降到 0.5。
