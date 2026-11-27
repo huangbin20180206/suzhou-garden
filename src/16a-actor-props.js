@@ -463,3 +463,25 @@ export function makeHayHandful(holder){
      · 廊道 z 12~13.4 逐级降到 0.38m，再往东到 x≈12.5 才回到地面。
      · 南园正中 z 13.5~19.3 / x 0~4.5 是一整块假山（净距 0），只能绕东侧空地（x 12~16）。
    改桥/廊/假山的位置就要重跑 host-route-verify.mjs，否则会走进去。 */
+
+/* ── 闲时小动作（2026-11-27 · 场景批）─────────────────────────────────────────
+   纯函数部分：选哪种、等多久、做多久、朝哪边，全由 (seed, n) 决定（mulberry32），node 可测。
+   施加在 16-actors 的 actorFidgetApply：advance() 之后叠一层、下一次 advance() 之前原样撤回
+   ⇒ advance 看到的骨骼状态与没有小动作时逐位相同，位置/路线/相位/重播基线都不动。
+   四种都是单轴小增量（不碰大角度的肩）：
+     turn 侧首（头/颈绕竖轴）· lookUp 仰望（头/颈后仰）· sleeve 整袖（两肘轮流微屈 + 低头看袖）· shift 换脚（脊/胸侧倾）。 */
+export const FIDGET_KINDS = Object.freeze(['turn', 'lookUp', 'sleeve', 'shift']);
+const CHILD_FIDGETS = Object.freeze(['turn', 'lookUp', 'shift']);
+export function fidgetKindsFor(id){ return /^child/.test(id || '') ? CHILD_FIDGETS : FIDGET_KINDS; }
+export function fidgetPick(seed, n, kinds = FIDGET_KINDS){
+  const r = mulberry32(((seed >>> 0) * 2654435761 + (n >>> 0) * 40503 + 0x5bd1) >>> 0);
+  const u1 = r(), u2 = r(), u3 = r(), u4 = r();
+  return { kind: kinds[Math.min(kinds.length - 1, (u1 * kinds.length) | 0)],
+           wait: 6 + u2 * 10, dur: 1.8 + u3 * 1.2, sign: u4 < 0.5 ? -1 : 1 };
+}
+/* 起落包络：sin²（两端导数为 0，不"弹一下"） */
+export function fidgetEnv(u){
+  if (!(u > 0 && u < 1)) return 0;
+  const s = Math.sin(Math.PI * u);
+  return s * s;
+}

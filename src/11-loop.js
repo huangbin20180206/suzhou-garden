@@ -36,7 +36,7 @@ import { updateBlinds, toggleBlinds, blindsRolled, blindsRoll, setBlindsRoll } f
 import { tickStableLife, horseLifeState, horseLifeDebug, stableTravel, travelCarriagePlace, travelCarriagePark,
          travelCarriageVisible, travelCarriageTied } from './15-stable.js';
 /* P1 半写实人物（2026-10-21）：加载成功后每帧只写骨骼的呼吸/转头。 */
-import { tickActors, actorState, actorWalk, actorStep, actorPose, actorRig, actorTune, actorVisit } from './16-actors.js';
+import { tickActors, actorState, actorWalk, actorStep, actorPose, actorRig, actorTune, actorVisit, actorFidgetUndo, actorFidgetApply, actorFidgetState } from './16-actors.js';
 /* 马夫"递草料"的摆臂（2026-10-11 · 老黄："人喂马"）：肩枢轴组住在 08-assemble（人物几何是
    那边建的），本模块每帧只推一个角度。 */
 import { tickGroomFeed } from './08-assemble.js';
@@ -1611,7 +1611,9 @@ function frameWork(){
      ?perstep=0 ⇒ 旧口径 tickActors(simSteps×1/60) 一次（与原 tickActors(dt) 逐字相同），见 00b FIXED_STEP_POLICY。
      simSteps 即本帧 stepSim 推进的整步数；0 步的帧开启口径不调（tickActors(0) 本来也不推进）。
      ⚠️ 四份 legacy 重播基线锁的是"关"口径；产品默认口径由 carriage-walkback-perstep 基线锁。 */
+  actorFidgetUndo();                     // 闲时小动作：先撤回上一帧的增量，advance 看到的骨骼与无小动作时逐位相同
   tickBySteps(simSteps, tickActors);
+  actorFidgetApply(dt);
   /* 马夫递草料（2026-10-11）：只转他自己的肩枢轴组 —— 不碰 root、不写灯光。 */
   tickGroomFeed(dt);
   /* 看烟花的一家人（2026-10-05 · 老黄："大人带着孩童在左侧草皮上欣赏烟花，孩子们欢呼雀跃"）：
@@ -2581,7 +2583,7 @@ const __GARDEN_FULL = { scene, camera, renderer, composer, controls, THREE, ENV,
                      探针就永远等不到"已完成"。bootDonePromise 可直接 await。 */
                   bootDone: () => bootDone, bootDonePromise,
                   /* 执行效率批（2026-11-26）：当前开关 + 并行预编记录（?warm=par / ?precompile=1 时才有条目） */
-                  perfFlags: () => PERF, animLodState: () => ({ frame: _lodFrame, skips: _lodSkips }), precompileState: () => PRECOMPILE.runs.slice(),
+                  perfFlags: () => PERF, animLodState: () => ({ frame: _lodFrame, skips: _lodSkips }), actorFidgets: actorFidgetState, precompileState: () => PRECOMPILE.runs.slice(),
                   /* 循环内错误账本（2026-10-30）：单帧兜错后 pageerror 不再是可靠信号，
                      门禁断言"零报错"改看这里：`__garden.loopErrors().count === 0`。 */
                   loopErrors: () => ({ count: _loopErrCount, recent: _loopErrs.slice(-3) }),

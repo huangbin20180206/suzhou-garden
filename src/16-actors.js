@@ -35,7 +35,7 @@ import { HOOKS, ENV_REF, LADY_SCHEDULE } from './00-config.js';
 import { createGLTFLoaderWithDecoders } from './06e-assets.js';
 import { markArtLicense } from './art-license.js';
 import { sunTimes } from './12h-solar.js';
-import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ, makeWaterBucket, preshapeActor, makeDefShaper, preshape } from './16a-actor-props.js';
+import { TEA_ARM, TEA_CUP_FWD, ease01, _cupV, makeTeaCup, BRUSH, _brV, _brQ2, makeBrush, SCROLL, _scL, _scX, _scF, _scQ, makeScroll, HAY_ARM, _hyE, _hyQ2, _hyY, makeHayHandful, _brE, _brQ, _brZ, _scR, _scC, _scY, _scZ, _scM, _scQ2, _hyF, _hyQ, makeWaterBucket, preshapeActor, makeDefShaper, preshape, fidgetPick, fidgetEnv, fidgetKindsFor } from './16a-actor-props.js';
 
 const ACTORS = [];
 let _built = false;
@@ -5154,6 +5154,86 @@ export function tickActors(dt){
     advance(d);
     remaining -= d;
   }
+}
+
+/* ── 闲时小动作（2026-11-27，纯函数见 16a fidgetPick）─────────────────────────────
+   11-loop 每帧：actorFidgetUndo() → tickActors → actorFidgetApply(dt)。Undo 把上一帧叠上去的增量
+   原样还回（存的是叠之前的四元数），所以 advance() 永远看到"没有小动作"的骨骼 —— sim / 重播基线
+   不调这两个函数，逐帧不变。门禁环境（webdriver）默认关，?fidget=1 强开、?fidget=0 强关。 */
+const FIDGET_ON = (() => {
+  try {
+    const m = /[?&]fidget=([01])/.exec(location.search);
+    if (m) return m[1] === '1';
+    return !navigator.webdriver;
+  } catch { return false; }
+})();
+const FIDGET_BONES = ['Head', 'Neck', 'Spine', 'Chest', 'LeftLowerArm', 'RightLowerArm'];
+const _fgState = new Map();          // actor → { n, wait, cur, t, g, saved: Quaternion[], applied }
+const _fgE = new THREE.Euler(), _fgQ = new THREE.Quaternion();
+function fidgetBusy(a){
+  const o = a.def.idle || {};
+  return !a.holder.visible || a.moveW > 0.02 || a.ride || a.trip || a.hopT > 0 || o.qin || o.go
+    || a.scrollW > 0.001 || (a.offerW || 0) > 0.001 || (a.sipW || 0) > 0.001 || a.brushW > 0.05 || a.hayHeld
+    || (a.coachW || 0) > 0.05 || (a.tieW || 0) > 0.05 || (a.grabW || 0) > 0.01
+    || (a.riteBowW || 0) > 0.001 || (a.riteStoopW || 0) > 0.001
+    || ((a.def.id === VISIT.hostId || a.def.id === VISIT.guestId) && ((VISIT.bowW || 0) > 0.001 || (VISIT.waveW || 0) > 0.001));
+}
+function fgAdd(a, name, x, y, z){
+  const b = a.bones[name];
+  if (!b) return;
+  _fgQ.setFromEuler(_fgE.set(x, y, z, 'XYZ'));
+  b.quaternion.multiply(_fgQ);
+}
+export function actorFidgetUndo(){
+  for (const [a, st] of _fgState){
+    if (!st.applied) continue;
+    for (let i = 0; i < FIDGET_BONES.length; i++){ const b = a.bones[FIDGET_BONES[i]]; if (b) b.quaternion.copy(st.saved[i]); }
+    st.applied = false;
+  }
+}
+export function actorFidgetApply(dt){
+  if (!FIDGET_ON || !ACTORS.length) return;
+  for (const a of ACTORS){
+    let st = _fgState.get(a);
+    if (!st){
+      const seed = Math.round((a.def.idle.phase || 0) * 1000) + a.def.id.length * 7919;
+      st = { seed, n: 0, wait: 4 + det(seed) * 6, cur: null, t: 0, g: 0, applied: false,
+             kinds: fidgetKindsFor(a.def.id), saved: FIDGET_BONES.map(() => new THREE.Quaternion()) };
+      _fgState.set(a, st);
+    }
+    const busy = fidgetBusy(a);
+    st.g += ((busy ? 0 : 1) - st.g) * Math.min(1, dt * 3);
+    if (!st.cur){
+      if (!busy){ st.wait -= dt; if (st.wait <= 0){ st.cur = fidgetPick(st.seed, st.n++, st.kinds); st.t = 0; } }
+      continue;
+    }
+    st.t += dt;
+    const u = st.t / st.cur.dur;
+    if (u >= 1){ st.wait = st.cur.wait; st.cur = null; continue; }
+    const seated = a.sitW > 0.1 || a.kneelW > 0.1;
+    const k = st.cur.kind;
+    if (seated && (k === 'shift' || k === 'sleeve')) continue;   // 坐着不换脚；坐姿手位多在案上，不整袖
+    const e = fidgetEnv(u) * st.g, sg = st.cur.sign;
+    if (e < 1e-4) continue;
+    for (let i = 0; i < FIDGET_BONES.length; i++){ const b = a.bones[FIDGET_BONES[i]]; if (b) st.saved[i].copy(b.quaternion); }
+    st.applied = true;
+    if (k === 'turn'){ fgAdd(a, 'Head', 0, 0.30 * sg * e, 0); fgAdd(a, 'Neck', 0, 0.12 * sg * e, 0); }
+    else if (k === 'lookUp'){ fgAdd(a, 'Head', -0.16 * e, 0.05 * sg * e, 0); fgAdd(a, 'Neck', -0.06 * e, 0, 0); }
+    else if (k === 'sleeve'){
+      /* 两肘轮流微屈（前半左、后半右，sign 定先后），低头看袖 */
+      const l = e * (u < 0.5 ? 1 : 0.35), r = e * (u < 0.5 ? 0.35 : 1);
+      fgAdd(a, sg > 0 ? 'LeftLowerArm' : 'RightLowerArm', 0.22 * l, 0, 0);
+      fgAdd(a, sg > 0 ? 'RightLowerArm' : 'LeftLowerArm', 0.22 * r, 0, 0);
+      fgAdd(a, 'Head', 0.10 * e, 0, 0);
+    } else {   // shift 换脚：重心移到一侧 —— 脊侧倾、胸回正一半
+      fgAdd(a, 'Spine', 0, 0, 0.045 * sg * e); fgAdd(a, 'Chest', 0, 0, -0.025 * sg * e);
+    }
+  }
+}
+export function actorFidgetState(){
+  const out = [];
+  for (const [a, st] of _fgState) out.push({ id: a.def.id, n: st.n, kind: st.cur ? st.cur.kind : null, g: +st.g.toFixed(2) });
+  return { on: FIDGET_ON, list: out };
 }
 
 /* 探针用：把 sim 快进 seconds 秒（软件渲染只有 1~3fps，实时等 6s 只走了 0.2s 的 sim）。

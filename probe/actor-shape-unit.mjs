@@ -66,3 +66,19 @@ test('preshape：只补缺键、不覆盖已有值', () => {
     } finally { console.log = quiet; console.warn = qw; }
   });
 }
+
+/* ── 闲时小动作（2026-11-27）── */
+import { fidgetPick, fidgetEnv, fidgetKindsFor, FIDGET_KINDS } from '../src/16a-actor-props.js';
+test('闲时小动作：同 (seed,n) 逐位一致；四种都会被选到；孩童不整袖；等待/时长在区间内', () => {
+  assert.deepEqual(fidgetPick(123, 4), fidgetPick(123, 4));
+  const seen = new Set();
+  for (let n = 0; n < 200; n++){
+    const f = fidgetPick(77, n);
+    seen.add(f.kind);
+    assert.ok(f.wait >= 6 && f.wait <= 16 && f.dur >= 1.8 && f.dur <= 3.0 && Math.abs(f.sign) === 1);
+  }
+  assert.equal(seen.size, FIDGET_KINDS.length);
+  for (let n = 0; n < 100; n++) assert.notEqual(fidgetPick(5, n, fidgetKindsFor('child1')).kind, 'sleeve');
+  assert.equal(fidgetEnv(0), 0); assert.equal(fidgetEnv(1), 0); assert.equal(fidgetEnv(-1), 0);
+  assert.ok(Math.abs(fidgetEnv(0.5) - 1) < 1e-12);
+});
