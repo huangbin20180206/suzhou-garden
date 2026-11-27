@@ -29,11 +29,17 @@ preload-manifest-sync、changed-map-unit）；**浏览器门一道都没跑**，
 | 3866237 | 已知未做 | 触屏转头灵敏度按屏幕短边归一：`0.0042 × clamp(760/短边, 1, 2.2)`（00c-ux touchLookGain）。短边 ≥760（桌面/平板）不变；390 手机 ×1.95，半屏一划 ≈100°；横竖屏同手感。鼠标右键 0.003 不动。 |
 | 8c90a1b | 生动性 | 风与水/落叶联动（12a `windNature`）：① 池面风皱 chop = 0.30×smoothstep(0.22,0.85,uWindGlobal)，并入水面 uRain 高频扰动并加速法线滚动 —— 晴/薄雾/雨后/雪霁底值风上界 0.20 <0.22 ⇒ 恒 0；暴雨台风档 0.30。② 落叶/花瓣顺风漂改跟风向 uWindVec（原来恒往 +x），阵风时漂速 ×(1+1.2g)。③ 秋季阵风空中叶量 +0.35g。QUALITY_PRESETS 新键 `natureFx`（low=false 关①②的阵风项与③；漂向跟风向这条订正各档都生效）。env-nature-unit +2。 |
 | 5feca02 | 交互 | 步行操作提示只教一次：首次进入显示；真走起来（≥40 移动步≈3m 且已显示 ≥4s）收起并记 localStorage `garden.walkhint.v1`；干站 15s 只收不记（下次再教）；webdriver 下保持旧的常驻行为。ux-pure-unit +1。 |
+| 1c09f1a | 效率（11-27） | 后期按档分级（00a `postPlan`）：中档 GTAO 内部 0.5→0.375、采样 32→16、去噪 16→8；低/中档 bloom 内部 mip 链 ×0.5（包 setSize）；高档逐项不变。`?postfx=full` 各档回高档后期。 |
+| 5074619 | 效率（11-27） | 程序化荷花杆/萼合成 2 个 InstancedMesh（12 朵：24 个 mesh → 2，各 pass 同比省约 22 draw）。名字/noMerge/季节通道不变；风摆相位改按实例锚点（原逐顶点），静帧 mm 级差。`?instancing=0` 回旧。 |
+| 363706a | 效率（11-27） | 纯表演动画降频（00a `animLodEvery`）：蜻蜓（闭式航迹）、小鸟（攒 dt）视锥外 4 帧一更、>60m 2 帧一更；人物/鱼/仿真不走此路。`?animlod=0` 关；`__garden.animLodState()`。 |
+| dfa362b | 场景（11-27） | 晨雾蛛网露珠：3 张程序化小网（东廊 (16.3,2.15,−0.46)、(22.66,2.15,4.2)，西墙竹丛前 (−24.9,1.2,3.1)）；12a `fxGates(p,out,hour,season).dewWeb` = 晨 5:30~8:30 × 湿 × 非雨雪 × 非冬；丝+露珠共 2 draw，门 0 不可见；低档不建。`AMBIENT.state().dewWeb`。 |
+| fc70769 | 场景（11-27） | 人物闲时小动作：侧首/仰望/整袖/换脚，16a `fidgetPick(seed,n)` 确定性选取；advance 后叠、下次 advance 前撤回 ⇒ 重播基线逐帧不变（未重标）。webdriver 默认关；`__garden.actorFidgets()`。 |
 
-未加新模块、新资源、新门 ⇒ preload manifest / sw.js CACHE（代码类 network-first，无需升）/ README 门数均不变（102 道，quick 21）。
+11-27 批同样未加新模块、新资源、新门。未加新模块、新资源、新门 ⇒ preload manifest / sw.js CACHE（代码类 network-first，无需升）/ README 门数均不变（102 道，quick 21）。
 
 ## 二、新 URL 开关
 - `?matrix=auto`：关掉"每帧矩阵只算一次"，回到 three 每次 render 全场重算（排查用；默认开）。
+- 11-27：`?postfx=full`（各档按高档后期）、`?instancing=0`（荷花杆/萼回逐个 Mesh）、`?animlod=0`（动画每帧全更）、`?fidget=1|0`（闲时小动作强开/强关；缺省 = 非 webdriver 开）。
 - （沿用）`?warm=par`、`?precompile=1`、`?shadowtrans=all`、`?perstep=0`。
 
 ## 三、留给本机的取证
@@ -51,6 +57,9 @@ preload-manifest-sync、changed-map-unit）；**浏览器门一道都没跑**，
     node probe/verify-all.mjs --gates=walk-guard,walk-real-guard,tour-guard,intro-guard,guide-guard,season-demo-guard,postcard-guard,mobile-panel-guard,touch-target-guard,panel-icons-guard,desktop-quality-guard,pwa-cache
     # 落叶 / 风
     node probe/verify-all.mjs --gates=wind-trajectory,wind-audit,festival-guard,birds-guard
+    # 11-27 批：后期分级 / 荷花实例化 / 降频 / 蛛网 / 小动作（layout-fingerprint 会报新增 2 行荷花杆/萼 InstancedMesh ⇒ 人眼确认后 --update-baseline）
+    node probe/verify-all.mjs --gates=gtao-halfres,desktop-quality-guard,layout-fingerprint,peach-guard,birds-guard,mist-guard,reflect-adaptive,pageerror-guard,gl-warning-guard
+    node probe/layout-fingerprint.mjs --update-baseline   # 仅在确认只多了荷花杆/萼两行后
     npm run verify -- --changed                    # 兜底（--changed=d0f4512 几乎全选，因为 11-loop 变了）；有余力跑全量 npm run verify
 
 最可能需要看的：`mobile-panel-guard`（导览行「曲桥」→「石拱桥」多 1 个字，390 宽可能多折一行；面板留有约 72px 余量）、`night-sky-guard`（薄雾夜星点变暗）、`lamp-guard`/`lampvol-guard`（晴类下午灯完全熄到 17:00 后才起）。
@@ -64,12 +73,19 @@ preload-manifest-sync、changed-map-unit）；**浏览器门一道都没跑**，
 - 春/秋：花瓣、落叶的漂向与竹柳倒向一致；秋季阵风来时空中叶子变多。
 - 步行：从院中沿中轴北上，上台阶先弹「堂额」卡，走到门槛弹「远香堂」卡；立峰/题名石两站各弹各的。巡游按钮与字幕标题为「石拱桥」，桥卡文案为满月句。
 - 手机：首次步行有提示，走几步后消失、退出再进不再出现；清 localStorage 后重现。390 宽竖屏转头明显变快（半屏一划约 100°），平板/桌面触屏手感不变。390 宽面板导览行是否多折一行（未实测）。
+- 11-27 · 中档（`?tier=mid`）对 `?tier=mid&postfx=full`：AO 接触阴影与灯笼/月 bloom 晕圈应几乎一样；高档无变化。
+- 11-27 · 荷花：近看杆/萼位置高度与 `?instancing=0` 一致；风里杆整体摆（不再逐顶点抖）；春季无杆、悬停仍出「荷花」。
+- 11-27 · 降频：转身背对蜻蜓/小鸟再转回，无跳位；远处小鸟动作不卡顿到可见。
+- 11-27 · 夏/秋 晨 7:30 薄雾或阴：东廊两柱间、西墙竹前有细丝和点点晶亮慢闪；晴晨 6:00 后渐显；9:00 后、雨雪天、冬季、低档都没有。**蛛网位置是按柱距推算的，最需要看是否悬空/穿挂落。**
+- 11-27 · 人物站着不动时每 6~16s 偶尔侧首/仰望/整袖/换脚，幅度小、无弹跳；走路、作揖、挥别、端茶、刷马时不出；孩童不整袖。
 - 默认画面（夏晴午）任何角度都不应有可见变化（矩阵单算零像素；本批其它项在夏晴午均为 0 偏差）。
 
 ## 六、已知未做 / 跳过
-- 生动性候选里未做：晨雾蛛网露珠（要新几何 + 无法在沙箱看效果）、人物闲时小动作多样性（要动 16-actors 与重播基线，本批不碰）。"雨天池面雨点涟漪密度随雨强变化"现状已具备（12-env updateRainRipples 间隔 0.17~0.9s 随雨量、簇大小随雨量），未再改。
+- 生动性候选：晨雾蛛网露珠、人物闲时小动作 11-27 已做（见上）。"雨天池面雨点涟漪密度随雨强变化"现状已具备（12-env updateRainRipples 间隔 0.17~0.9s 随雨量、簇大小随雨量），未再改。
 - 落叶漂向跟风向在低档也生效（它是方向订正，不是特效）；如要低档逐像素回旧行为需另加开关。
 - 灯笼问题按派单跳过（11-25 已修）；春夜蟋蟀、梅雨蛙鸣仍无实证未加。
 - 390 宽面板换行：本批只能确认按钮文字 +1 字，换行与否须 mobile-panel-guard / 人眼。
 - advance() 未拆、three 内部 raycast clone 未动（同上批）。
 - 本批没有卡住超过两次的项。
+- 11-27：InstancedMesh 只做了荷花杆/萼一类（其余重复小件大多已被 09b 合批/实例化）；莲蓬组（5 处×每处 4~6 件）跨组合并未做。降频未覆盖锦鲤（有饵/惊鱼/涟漪与门禁耦合）、大雁、萤火/花瓣（着色器驱动或跟相机）。
+- `node probe/draw-estimate.mjs --check` 在基线 2bd92f9 上即 FAIL（读的是旧指纹，与本批无关），未处理。
