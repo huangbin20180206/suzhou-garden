@@ -11,14 +11,23 @@
 //
 // 用法：node probe/draw-estimate.mjs            打印前后对比
 //       node probe/draw-estimate.mjs --json     机器可读
-//       node probe/draw-estimate.mjs --check    断言"估算后 ≤ 估算前 且 节省 ≥ 40"（回归锁）
+//       node probe/draw-estimate.mjs --check    回归锁（按指纹口径自动分两种，见文末 --check 注释）
+//       node probe/draw-estimate.mjs --fp <文件>  换一份指纹（例：合批前快照 git show bdb10b8:probe/_baseline/layout-fingerprint.txt）
+//
+// ⚠️ 2026-11-28 订正：基线指纹自 853ccb6 起是**合批之后**实录的（籽窝/莲子已是 5×9=45 实例一行、
+//    竹竿/竹节/挂落/瓦当各已拼成一行），旧 --check 拿"合批后"的行再规划一遍 ⇒ 无组可拼、节省 6 < 40 ⇒ FAIL
+//    （2bd92f9 上即如此）。现按指纹口径分流：合批前快照仍走"节省 ≥40"；合批后快照改锁
+//    ① 规划器已无可拼组（运行时合批吃尽同几何族）② 莲蓬籽窝/莲子各为 5 处×9 = 45 的一行
+//    ③ 程序化实例化（荷花杆/萼、莲蓬伴生梗：MAT.lotusStem 色 #3e7a34 的 CylinderGeometry 行）计入节省。
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { planInstanceBatches, estimateDraws } from '../src/09b-batch.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const FP = path.join(ROOT, 'probe/_baseline/layout-fingerprint.txt');
+const _fpi = process.argv.indexOf('--fp');
+const FP = _fpi > 0 && process.argv[_fpi + 1] ? path.resolve(process.argv[_fpi + 1])
+                                              : path.join(ROOT, 'probe/_baseline/layout-fingerprint.txt');
 const rows = fs.readFileSync(FP, 'utf8').split('\n')
   .filter(l => l.includes('|') && l.includes('首实例='))          // 数据行（表头行不含"首实例="）
   .map(l => {
@@ -92,26 +101,62 @@ const plan = planInstanceBatches(descs);
 const est = estimateDraws(descs, plan, EXISTING);
 const saved = est.before - est.main, savedShadow = est.beforeShadow - est.shadow;
 
+/* ── 程序化实例化台账（2026-11-27/28 效率批，不经 09b 合批、在建模期就是 InstancedMesh）──
+   · 06j makeAquatic 荷花杆/萼：08c-aquatic `makeAquatic(-2.5, 2.2, 5.6, 36, 12)` ⇒ 12 朵 × 2 = 24 个 Mesh → 2 行（5074619）
+   · 06m 莲蓬伴生花梗/蕾梗：5 处莲蓬每处 0~1 根 ⇒ k 个 Mesh → ≤2 行（9875874），k 取决于 jr 流，只能从指纹读
+   指纹里它们是 MAT.lotusStem（#3e7a34）的 CylinderGeometry 行（荷叶同色但是 ShapeGeometry）。每行 c 实例 = 省 c−1 个
+   draw（主 pass；cast=true ⇒ 阴影 pass 同省）。基线还没实录这些行时，荷花按源码常量 24→2 预计、莲蓬梗记"待实录"。 */
+const LOTUS_N = 12;
+const instRows = rows.filter(r => r.color === '#3e7a34' && r.geom === 'CylinderGeometry');
+const instRecorded = instRows.length > 0;
+const instSaved = instRecorded ? instRows.reduce((a, r) => a + r.count - 1, 0) : (LOTUS_N * 2 - 2);
+
+/* 指纹口径：合批前快照里莲蓬籽窝是 5 行 ×9；合批后是 1 行 ×45。 */
+const POD_SPOTS = 5, POD_SEEDS = 9;     // 08-assemble 莲蓬 5 处；06m makeLotusPod N_SEED = 9
+const preMerge = rows.some(r => family(r) === 'podCup');
+const podRow = (c) => rows.find(r => r.color === c && r.count === POD_SPOTS * POD_SEEDS);
+
 const out = {
-  source: path.relative(ROOT, FP), instancedMeshesBefore: est.before,
+  source: path.relative(ROOT, FP), snapshot: preMerge ? 'pre-merge' : 'post-merge',
+  instancedMeshesBefore: est.before,
   mainPassBefore: est.before, mainPassAfter: est.main, mainSaved: saved,
   shadowPassBefore: est.beforeShadow, shadowPassAfter: est.shadow, shadowSaved: savedShadow,
   groups: plan.groups.map(g => ({ n: g.length, family: descs[g[0]].geoKey, mat: descs[g[0]].matKey })),
   baked: plan.bakes.map(i => descs[i].matKey + '×' + descs[i].count),
   newBuckets: est.newBuckets, blocked: plan.blocked,
+  instancing: { recorded: instRecorded, rows: instRows.map(r => r.count), mainSaved: instSaved, shadowSaved: instSaved,
+                note: instRecorded ? '指纹实录' : '基线未实录：荷花杆/萼按源码 24→2 预计，莲蓬伴生梗待浏览器更新基线后计入' },
 };
 if (process.argv.includes('--json')){ console.log(JSON.stringify(out, null, 2)); }
 else {
-  console.log(`[draw-estimate] 基线：${out.source}（${est.before} 个 InstancedMesh）`);
-  console.log(`  主 pass   ：${est.before} → ${est.main}（省 ${saved}）`);
-  console.log(`  阴影 pass ：${est.beforeShadow} → ${est.shadow}（省 ${savedShadow}）`);
-  console.log(`  拼合组    ：${out.groups.map(g => g.family.replace(/@.*/, '') + '×' + g.n).join('、')}`);
-  console.log(`  展开进桶  ：${out.baked.length} 个（新开桶 ${est.newBuckets} 个）`);
+  console.log(`[draw-estimate] 基线：${out.source}（${est.before} 个 InstancedMesh，${preMerge ? '合批前' : '合批后'}快照）`);
+  if (preMerge){
+    console.log(`  主 pass   ：${est.before} → ${est.main}（省 ${saved}）`);
+    console.log(`  阴影 pass ：${est.beforeShadow} → ${est.shadow}（省 ${savedShadow}）`);
+    console.log(`  拼合组    ：${out.groups.map(g => g.family.replace(/@.*/, '') + '×' + g.n).join('、')}`);
+    console.log(`  展开进桶  ：${out.baked.length} 个（新开桶 ${est.newBuckets} 个）`);
+  } else {
+    console.log(`  运行时 InstancedMesh draw（主 pass）：${est.before}；投影的 ${est.beforeShadow}`);
+    console.log(`  再规划可拼组：${plan.groups.length}（应为 0）；莲蓬籽窝/莲子 ${POD_SPOTS}×${POD_SEEDS} 行：${podRow('#3a4a20') ? '在' : '缺'}/${podRow('#c6ca86') ? '在' : '缺'}`);
+  }
+  console.log(`  程序化实例化：主/阴影各省 ${instSaved}（${out.instancing.note}${instRecorded ? '：行 ' + out.instancing.rows.join('+') : ''}）`);
   console.log(`  不动      ：${JSON.stringify(plan.blocked)}`);
   console.log('  ⚠️ 估算：普通网格 mergedStatic 不在指纹里；真值以浏览器 __garden.drawStats() 为准。');
 }
+/* --check：
+   合批前快照 —— 原锁："估算后 ≤ 估算前 且 节省 ≥ 40"。
+   合批后快照 —— ① 规划器再跑一遍已无可拼组（有 ⇒ 运行时合批漏了同几何族）；② 莲蓬籽窝/莲子各是一行 45 实例
+   （5 处 ×9 拼成功的直接证据）；③ 估算后 ≤ 估算前；④ 实例化台账节省 ≥ 22（荷花杆/萼 24→2 的下限）。 */
 if (process.argv.includes('--check')){
-  const ok = est.main <= est.before && saved >= 40;
-  console.log(ok ? '[draw-estimate] PASS' : '[draw-estimate] FAIL：估算节省不足 40 或反而变多');
-  process.exit(ok ? 0 : 1);
+  const fails = [];
+  if (est.main > est.before) fails.push('估算后反而变多');
+  if (preMerge){
+    if (saved < 40) fails.push(`合批前快照：估算节省 ${saved} < 40`);
+  } else {
+    if (plan.groups.length) fails.push(`合批后快照仍有 ${plan.groups.length} 组可拼：${out.groups.map(g => g.family + '×' + g.n).join('、')}`);
+    if (!podRow('#3a4a20') || !podRow('#c6ca86')) fails.push(`莲蓬籽窝/莲子未拼成 ${POD_SPOTS * POD_SEEDS} 实例一行`);
+    if (instSaved < LOTUS_N * 2 - 2) fails.push(`实例化节省 ${instSaved} < ${LOTUS_N * 2 - 2}`);
+  }
+  console.log(fails.length ? '[draw-estimate] FAIL：' + fails.join('；') : '[draw-estimate] PASS');
+  process.exit(fails.length ? 1 : 0);
 }
