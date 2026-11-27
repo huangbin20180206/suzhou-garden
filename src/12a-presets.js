@@ -999,7 +999,7 @@ export function waterSunGates(sdY, p){
   return { sunVis: dayW * Math.max(noonC, lowC) * clear * hz, caustic: dayW * noonC * clear * sk * hz };
 }
 /* out（可选，2026-11-24 · 第 5 批）：11-loop 每帧读一次云影门，给复用对象就零分配；不给仍返回新对象。 */
-export function fxGates(p, out){
+export function fxGates(p, out, hour, season){
   const dayK = _clamp01(p.dayK ?? (1 - (p.starAmount || 0)));
   const alt = sunAltDeg(p);
   const df = p.diskFade || 0;
@@ -1040,7 +1040,60 @@ export function fxGates(p, out){
   const hallWarm = (p.lamp || 0) * 0.55;
   const o = out || {};
   o.milkyWay = milkyWay; o.sunGlow = sunGlow; o.cloudShade = cloudShade; o.hallWarm = hallWarm; o.starPts = starPts;
+  /* ⑥ 晨露蛛网（2026-11-27）：不给 hour 的调用方（12-env 的旧口径）恒 0。 */
+  o.dewWeb = typeof hour === 'number' ? dewWebGate(p, hour, season) : 0;
   return o;
+}
+
+/* 晨露蛛网门（2026-11-27 · 场景批）：晨 5:30~8:30（两端各 ~0.8h 软边）× 空气含水量
+   H = 1−(1−humidW)(1−dawnHumid) 过 0.36~0.48（晴晨约 6:00 起、雾/阴晨整段满）× 非雨非雪 × 非冬。
+   实测 H：晴 7:00 0.50、雨后 0.53、阴 0.70、薄雾 0.79；雨/雪天按 rain/snowAmount 软收到 0。 */
+export function dewWebGate(p, hour, season){
+  if (season === 'winter') return 0;
+  const h = ((hour % 24) + 24) % 24;
+  const morn = _sstep(5.1, 5.9, h) * (1 - _sstep(8.1, 8.9, h));
+  if (morn <= 0) return 0;
+  const H = 1 - (1 - _clamp01(p.humidW ?? HUMID_DEFAULT)) * (1 - _clamp01(p.dawnHumid || 0));
+  const dry = (1 - _sstep(0.02, 0.10, p.rainAmount || 0)) * (1 - _sstep(0.02, 0.10, p.snowAmount || 0));
+  return morn * _sstep(0.36, 0.48, H) * dry;
+}
+
+/* 蛛网布点（纯函数，确定性）：每张网 = 放射丝 + 螺旋横丝 + 3 根挂丝；露珠撒在横丝上（少量在放射丝）。
+   spec：{ c:[x,y,z], n:[nx,0,nz] 网面法线（水平）, r 半径, seed }。返回世界坐标的线段端点与露珠位置/大小/相位。 */
+export function dewWebLayout(specs, mkRng){
+  const lines = [], beads = [], size = [], ph = [];
+  for (const sp of specs){
+    const rng = mkRng(sp.seed);
+    const [cx, cy, cz] = sp.c, nl = Math.hypot(sp.n[0], sp.n[2]) || 1;
+    const ux = -sp.n[2] / nl, uz = sp.n[0] / nl;             // 网面内水平轴；竖轴 = +y
+    const P = (a, r) => [cx + Math.cos(a) * r * ux, cy + Math.sin(a) * r, cz + Math.cos(a) * r * uz];
+    const K = 11 + ((rng() * 3) | 0), R = sp.r, rings = 8;
+    const ang = [], len = [];
+    for (let k = 0; k < K; k++){ ang.push((k + (rng() - 0.5) * 0.35) / K * Math.PI * 2); len.push(R * (0.82 + rng() * 0.18)); }
+    const push = (a, b) => { lines.push(...a, ...b); };
+    const bead = (q, s) => { beads.push(...q); size.push(s); ph.push(rng() * 6.283); };
+    for (let k = 0; k < K; k++){
+      push(P(ang[k], 0.04 * R), P(ang[k], len[k]));
+      if (rng() < 0.35) bead(P(ang[k], len[k] * (0.3 + rng() * 0.6)), 0.6 + rng() * 0.5);
+    }
+    for (const k of [1, (K / 3 | 0) + 1, (2 * K / 3 | 0) + 1]) push(P(ang[k % K], len[k % K]), P(ang[k % K], len[k % K] * 1.45));
+    for (let j = 0; j < rings; j++){
+      const f = 0.22 + 0.78 * (j + 0.5) / rings;
+      for (let k = 0; k < K; k++){
+        const k2 = (k + 1) % K, a2 = k2 ? ang[k2] : ang[0] + Math.PI * 2;
+        const ra = Math.min(len[k], R) * f * (0.97 + rng() * 0.06), rb = Math.min(len[k2], R) * f * (0.97 + rng() * 0.06);
+        const A = P(ang[k], ra), B = P(a2, rb);
+        push(A, B);
+        const nb = (rng() * 3.2) | 0;
+        for (let b = 0; b < nb; b++){
+          const t = rng();
+          bead([A[0] + (B[0] - A[0]) * t, A[1] + (B[1] - A[1]) * t - 0.002, A[2] + (B[2] - A[2]) * t], 0.5 + rng() * 0.9);
+        }
+      }
+    }
+  }
+  return { lines: new Float32Array(lines), beads: new Float32Array(beads),
+           size: new Float32Array(size), phase: new Float32Array(ph) };
 }
 
 /* ══ 自然真实 · 物候 × 天气 × 时段的生灵 / 声景门控（2026-11-24 · 视觉打磨批次 2 · A）══════════════════

@@ -320,3 +320,34 @@ test('⑧ 落叶：无阵风时漂速 = 旧值 windMul×0.55；阵风加速；�
   assert.equal(windNature(1, 1, 'autumn', false).leafDrift, 0.55);
   const o = {}; assert.equal(windNature(0.5, 1, 'autumn', true, o), o, '给复用对象就零分配');
 });
+
+/* ── ⑨ 晨露蛛网（2026-11-27）── */
+import { dewWebGate, dewWebLayout, fxGates as _fxG, paramsAtHour as _pah, ENV_WEATHER as _EW } from '../src/12a-presets.js';
+import { mulberry32 as _m32 } from '../src/00-config.js';
+
+test('⑨ 蛛网露珠门：只在晨 5:30~8:30、湿、非雨雪、非冬；不给 hour 的旧调用恒 0', () => {
+  const E = { season: 'summer', weather: 'clear', doy: SEASON_DOY.summer, festival: false, moonPhase: null };
+  bindPresetsEnv(E);
+  const at = (w, h, s = 'summer') => { Object.assign(E, { weather: w, season: s, doy: SEASON_DOY[s] }); return dewWebGate(composeEnv(_pah(h)), h, s); };
+  for (const w of Object.keys(_EW)) for (const h of [3, 4.5, 9.5, 12, 18, 22]) assert.equal(at(w, h), 0, `${w}@${h}`);
+  assert.ok(at('mist', 7.5) > 0.95 && at('overcast', 6) > 0.95, '雾/阴晨满');
+  assert.ok(at('clear', 7.5) > 0.9 && at('afterrain', 7) > 0.9, '晴/雨后晨也有露');
+  for (const w of ['storm', 'thunder', 'drizzle', 'snow']) assert.equal(at(w, 7.5), 0, w);
+  assert.equal(at('mist', 7.5, 'winter'), 0);
+  assert.equal(_fxG(composeEnv(_pah(7.5))).dewWeb, 0);
+  /* 连续：3 分钟一步跳 ≤0.12 */
+  let prev = at('clear', 4.5);
+  for (let h = 4.55; h <= 10; h += 0.05){ const v = at('clear', h); assert.ok(Math.abs(v - prev) <= 0.12, `跳变 @${h.toFixed(2)}`); prev = v; }
+});
+
+test('⑨ 蛛网布点：确定性、数量适中、全在网半径 1.5 倍内', () => {
+  const specs = [{ c: [0, 2, 0], n: [0, 0, 1], r: 0.3, seed: 7 }, { c: [5, 1, 5], n: [1, 0, 0], r: 0.25, seed: 9 }];
+  const a = dewWebLayout(specs, _m32), b = dewWebLayout(specs, _m32);
+  assert.deepEqual([...a.beads], [...b.beads]);
+  assert.equal(a.lines.length % 6, 0);
+  assert.ok(a.size.length > 60 && a.size.length < 800, `露珠 ${a.size.length}`);
+  for (let i = 0; i < a.beads.length; i += 3){
+    const d0 = Math.hypot(a.beads[i], a.beads[i + 1] - 2, a.beads[i + 2]), d1 = Math.hypot(a.beads[i] - 5, a.beads[i + 1] - 1, a.beads[i + 2] - 5);
+    assert.ok(Math.min(d0, d1) < 0.45);
+  }
+});

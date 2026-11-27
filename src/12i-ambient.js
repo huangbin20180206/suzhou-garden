@@ -11,7 +11,7 @@ import { scene, camera, ACTIVE_QUALITY } from './02-scene.js';
 import { mulberry32 } from './00-config.js';
 import { PRECIP_INDOOR } from './12e-precip.js';
 /* 2026-11-24（批次 2 · A）：花瓣的天气 / 光照门控在 12a natureGates（纯函数，12a 不依赖本文件）。 */
-import { natureGates, effectiveWeather, windNature } from './12a-presets.js';
+import { natureGates, effectiveWeather, windNature, fxGates, dewWebLayout } from './12a-presets.js';
 import { WIND } from './01-materials.js';   // 风向/风力 uniform（main.js 早已求值过 01，追加 import 不改模块求值次序）
 
 /* ↓ 由 12-env.js 注入（见文件头） */
@@ -72,16 +72,72 @@ scene.add(PETALS.points);
 let _prevCamX = null, _prevCamZ = null;
 const _ngOut = {}, _wnOut = {};
 
+/* ── 晨露蛛网（2026-11-27 · 场景批）────────────────────────────────────────
+   3 张程序化小网：东廊两处柱与挂落之间、西墙竹丛前一处。门 = 12a fxGates.dewWeb（晨 × 湿 × 非雨雪 × 非冬）。
+   丝 = 一条 LineSegments（极淡），露珠 = 一组 Points（暖白小点、慢闪）；全园合计 2 个 draw，门为 0 时 visible=false 零成本。
+   低档（natureFx=false）不建。写意：只求"晨光里一点晶亮"，不追真实丝径。 */
+const DEW_SPECS = [
+  { c: [16.30, 2.15, -0.46], n: [0, 0, 1], r: 0.32, seed: 0xD3A1 },   // 东西廊：第二根内柱与挂落下
+  { c: [22.66, 2.15, 4.20], n: [1, 0, 0], r: 0.30, seed: 0xD3A2 },   // 南北廊：z≈3.8 内柱旁
+  { c: [-24.90, 1.20, 3.10], n: [1, 0, 0], r: 0.27, seed: 0xD3A3 },  // 西墙竹丛前
+];
+const DEW = (() => {
+  if (!ACTIVE_QUALITY.natureFx) return null;
+  const L = dewWebLayout(DEW_SPECS, mulberry32);
+  const lg = new THREE.BufferGeometry();
+  lg.setAttribute('position', new THREE.BufferAttribute(L.lines, 3));
+  const silk = new THREE.LineSegments(lg, new THREE.LineBasicMaterial({ color: 0xE6ECEE, transparent: true, opacity: 0, depthWrite: false }));
+  const bg = new THREE.BufferGeometry();
+  bg.setAttribute('position', new THREE.BufferAttribute(L.beads, 3));
+  bg.setAttribute('aSize', new THREE.BufferAttribute(L.size, 1));
+  bg.setAttribute('aPh', new THREE.BufferAttribute(L.phase, 1));
+  const beads = new THREE.Points(bg, new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, fog: false, blending: THREE.AdditiveBlending,
+    uniforms: { uDew: { value: 0 }, uTime: { value: 0 }, uCol: { value: new THREE.Color(0xFFF4E2) } },
+    vertexShader: `attribute float aSize; attribute float aPh; uniform float uDew; uniform float uTime; varying float vA;
+      void main(){
+        vec4 mv = modelViewMatrix * vec4(position, 1.0);
+        gl_Position = projectionMatrix * mv;
+        float d = max(-mv.z, 0.5);
+        vA = uDew * (0.55 + 0.45 * sin(uTime * 1.3 + aPh)) * (1.0 - smoothstep(18.0, 40.0, d));
+        gl_PointSize = clamp(2.6 * aSize * (8.0 / d), 1.0, 5.0);
+      }`,
+    fragmentShader: `uniform vec3 uCol; varying float vA;
+      void main(){
+        float r = length(gl_PointCoord - 0.5);
+        float a = smoothstep(0.5, 0.0, r) * vA;
+        if (a < 0.004) discard;
+        gl_FragColor = vec4(uCol * a, a);
+      }`,
+  }));
+  for (const o of [silk, beads]){ o.visible = false; o.userData.aoSkip = true; o.userData.noMerge = true; o.renderOrder = 19; scene.add(o); }
+  return { silk, beads, n: L.size.length, v: 0 };
+})();
+const _fxDew = {};
+function tickDew(t){
+  if (!DEW || !ENV || !ENV.cur) return;
+  const v = fxGates(ENV.cur, _fxDew, ENV.hour, ENV.season).dewWeb;
+  DEW.v = v;
+  const on = v > 0.01;
+  DEW.silk.visible = DEW.beads.visible = on;
+  if (!on) return;
+  DEW.silk.material.opacity = 0.22 * v;
+  DEW.beads.material.uniforms.uDew.value = 0.85 * v;
+  DEW.beads.material.uniforms.uTime.value = t;
+}
+
 /* 门禁/诊断读的句柄（与 PRECIP/POSTRAIN 同款：只读状态，不暴露推进） */
 export const AMBIENT = {
   petals: PETALS,
   state: () => ({
     petalVisible: PETALS.points.visible, petalI: +PETALS.points.material.uniforms.uIntensity.value.toFixed(3),
     petalMix: +PETALS.points.material.uniforms.uMix.value.toFixed(3),
+    dewWeb: DEW ? +DEW.v.toFixed(3) : null, dewBeads: DEW ? DEW.n : 0,
   }),
 };
 
 export function updateAmbient(dt, t){
+  tickDew(t);
   const p = ENV.cur;
   const petal = p.peachPetalShow || 0;
   const autumn = ENV.season === 'autumn' ? 0.8 : 0;
