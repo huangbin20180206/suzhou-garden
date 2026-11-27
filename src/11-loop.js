@@ -2399,12 +2399,22 @@ async function parallelPrecompile(label, list){
   const t0 = performance.now(), p0 = (renderer.info.programs || []).length;
   const fake = { traverse(f){ for (const o of list) f(o); }, traverseVisible(){} };
   const prevRT = renderer.getRenderTarget();
+  /* ⚠️ 渲染目标必须**保持到 await 结束之后**（2026-11-27 修）。
+     原写法把 setRenderTarget(prevRT) 放在 try/finally 的 finally 里 —— finally 在
+     `await pending` **之前**就执行了，于是：compileAsync 用 KHR_parallel_shader_compile
+     发起异步编译后立即返回 promise，此时目标已还原成 null，而编译在后台线程继续。
+     three 决定 outputColorSpace / toneMapping 两条宏的时机在 **getParameters()**，
+     那是在 compileAsync 内部同步遍历时就做完了 —— 所以多数 program 没问题；
+     但 acquireProgram 在链接完成后的收尾里还会读一次当前目标状态 ⇒ 少数 program
+     的宏与生产帧不一致，彩排帧仍要重编一遍（实测首帧 467→520~560ms，约 +12%）。
+     把目标还原挪到 await 之后：编译全程目标都是 composer.readBuffer，宏稳定对齐。
+     ⚠️ 万一 await 抛错，finally 仍负责还原（不能因为异常把目标留在半路）。 */
   let pending = null;
   try {
     renderer.setRenderTarget(composer.readBuffer);
     pending = renderer.compileAsync(fake, camera, scene);
+    await pending;
   } finally { renderer.setRenderTarget(prevRT); }
-  await pending;
   const rec = { label, objects: list.length, ms: +(performance.now() - t0).toFixed(1),
                 programsBefore: p0, programsAfter: (renderer.info.programs || []).length,
                 parallelExt: !!renderer.extensions.get('KHR_parallel_shader_compile') };
