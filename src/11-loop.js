@@ -1439,7 +1439,10 @@ const _fxOut = {}, _ngOut = {}, _wnOut = {};          // fxGates / natureGates �
 /* 执行效率开关（2026-11-26，见 00a perfFlags）。探针/页面都从 location.search 读，与 ?perstep= 同一处取。 */
 const PERF = perfFlags((() => { try { return location.search; } catch { return ''; } })());
 /* 纯表演动画降频（2026-11-27，00a animLodEvery；?animlod=0 关）：视锥外 4 帧一更、>60m 2 帧一更。
-   只给闭式/自带 dt 累计的视觉件（蜻蜓、小鸟）；人物、鱼、仿真一律不走这里。 */
+   只给闭式/自带 dt 累计的视觉件（蜻蜓、小鸟、大雁）；人物、鱼、仿真一律不走这里。
+   2026-11-28 复核不扩的：锦鲤（两遍走的同帧 cohesion、跃水穿越触发涟漪的时刻、投喂斜坡都与
+   koi-orbit/koi-feed/koi-ripple 门禁耦合，11 条轻量算术，收益抵不过风险）；萤火（ShaderMaterial
+   uTime 驱动，CPU 只写 uOpacity）；花瓣/落叶（跟相机的包围盒粒子，逐粒判视锥≈逐粒更新本身的代价）。 */
 const _lodFr = new THREE.Frustum(), _lodM = new THREE.Matrix4(), _lodSph = new THREE.Sphere();
 let _lodFrame = 0, _lodSkips = 0;
 function animLodBegin(){
@@ -1928,7 +1931,7 @@ function frameWork(){
   /* 大雁迁徙 + 鲜艳小鸟（2026-09-30）：与蜻蜓同类、同样每帧推进。
      ⚠️ 大雁的可见性由 12-env 的季节通道（gooseShow）写，这里只管飞行动画；
         小鸟全季节都在，不需要季节门控。 */
-  updateGooseFlock(dt, t);
+  updateGooseFlock(dt, t, animLodCheck);   // 2026-11-28：大雁同走降频（?animlod=0 关）
   updateSmallBirds(dt, t, animLodCheck);
   /* 金刚鹦鹉：白天栖峰顶（带张望/甩尾/抖翅/理羽/小跳），夜与雨雪天起飞离场 —— 2026-10-05 */
   updateMacaws(dt, t);

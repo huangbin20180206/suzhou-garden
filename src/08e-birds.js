@@ -137,9 +137,10 @@ export function gooseStartWave(){
     g.userData.px = GOOSE.head.x + rx * slot.x + ux * slot.z;
     g.userData.pz = GOOSE.head.z + rz * slot.x + uz * slot.z;
     g.position.set(g.userData.px, GOOSE.head.y, g.userData.pz);
+    g.userData._lodAcc = 0;   // 新波次从画外重摆：降频攒的 dt 作废
   }
 }
-export function updateGooseFlock(dt, t){
+export function updateGooseFlock(dt, t, lod = null){
   GOOSE.t += dt;
   /* 航路（第九轮）：直线横穿 + 波次间隙。
      ⚠️ 绕园大圈五轮被否的根因（存档）：① 用户朝向不可控，绕圈必有一半时间在背后；
@@ -174,20 +175,24 @@ export function updateGooseFlock(dt, t){
   const lead = GOOSE_LINE.speed * 1.6;               // v·τ
   for (let i = 0; i < geese.length; i++){
     const d = geese[i], u = d.userData;
+    /* 降频（2026-11-28，同 363706a 小鸟）：头雁/波次/换阵每帧照推；单只不轮到时只攒 dt，
+       轮到时用攒下的 dt 一次缓动（一阶指数缓动本就吃变长 dt；扇翅是 t 的闭式）。 */
+    if (lod && !lod(d.position.x, d.position.y, d.position.z, 1.5, i)){ u._lodAcc = (u._lodAcc || 0) + dt; continue; }
+    const ddt = dt + (u._lodAcc || 0); u._lodAcc = 0;
     u.slot = gooseSlot(GOOSE.form, i);
     /* 槽位 → 世界目标（头雁基准 + 航向/右向 + lead 前移） */
     const tx = hx + rx * u.slot.x + ux * (u.slot.z + lead);
     const tz = hz + rz * u.slot.x + uz * (u.slot.z + lead);
     const ty = GOOSE.head.y + Math.sin(t * 0.5 + u.ph) * 0.9;   // 轻微上下起伏
     /* 缓动趋近（1.6s 时间常数 ⇒ 换阵是"飘过去"不是瞬移） */
-    const kp = 1 - Math.exp(-dt / 1.6);
+    const kp = 1 - Math.exp(-ddt / 1.6);
     const nxp = u.px + (tx - u.px) * kp;
     const nzp = u.pz + (tz - u.pz) * kp;
     /* 朝向：机头朝飞行方向；侧倾：横向速度差 ⇒ 转弯时真的歪 */
     const mvx = nxp - u.px, mvz = nzp - u.pz;
     const yaw = Math.atan2(mvx, mvz) + Math.PI;      // 模型头在 +z
     const targetRoll = Math.max(-0.5, Math.min(0.5, -GOOSE.turn * 1.5));
-    u.roll += (targetRoll - u.roll) * (1 - Math.exp(-dt / 0.8));
+    u.roll += (targetRoll - u.roll) * (1 - Math.exp(-ddt / 0.8));
     d.position.set(nxp, ty, nzp);
     d.rotation.set(0, yaw, u.roll, 'YXZ');
     u.px = nxp; u.pz = nzp;
