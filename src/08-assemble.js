@@ -15,7 +15,7 @@ import { loadAssetOnce } from './06e-assets.js';
 import { rippleInst } from './06f-ripple.js';
 import { baitPoints } from './06g-koi.js';
 import { makeRockery, makeRockChain, makeTaihuHeroGeo } from './06h-rock.js';
-import { makeLotusPod, makeWillow, makePeachTree, makePlumTree, makeOsmanthusTree, makeOrchidPot } from './06i-trees.js';
+import { makeLotusPod, flushLotusPodStems, makeWillow, makePeachTree, makePlumTree, makeOsmanthusTree, makeOrchidPot } from './06i-trees.js';
 import { makeReedBladeGeo } from './06c-organs.js';
 import { makeMistField, makeWisteria, makeBamboo } from './06j-herbs.js';
 /* 2026-10-05 拆分：雾团 + 香炉白烟已搬进 06b-atmos.js（两者是"billboard 氛围片"，与植被建模无关）。 */
@@ -302,6 +302,8 @@ world.add(makeRockChain([
 // 旧位 [-1.0,5.8] 等正压汀步石，茎根从石板顶"长"出来（用户红框穿模）
 [[-4.2, 3.2], [-1.2, 3.8], [2.6, 2.9], [6.4, 3.3], [-7.5, 3.1]]
   .forEach(([px, pz])=> world.add(makeLotusPod(px, pz, rr(0.7, 1.05))));
+// 2026-11-28：伴生花梗/蕾梗跨组实例化（?instancing=0 时队列为空、什么也不加）
+for (const im of flushLotusPodStems()) world.add(im);
 
 /* ── W1（2026-10-15）：步行路径与行走声明已搬进 ./08d-tour.js ──
    buildWalkPath() 必须在这个位置调用（布景之后、人物之前）：

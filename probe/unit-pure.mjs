@@ -320,3 +320,14 @@ test('animLodEvery / animLodDue：开关关=每帧；视锥外 4、远处 2、�
   assert.ok([0, 1, 2, 3].every(f => animLodDue(1, f)));
   assert.deepEqual([0, 1, 2, 3, 4].map(f => animLodDue(4, f, 1)), [false, false, false, true, false]);
 });
+
+/* 2026-11-28 · 莲蓬伴生梗跨组实例化：实例变换必须与旧逐个 Mesh 摆放逐字等价 */
+import { podStemXform } from '../src/09b-batch.js';
+test('podStemXform：花梗高 fh+0.01 不倾、蕾梗高 fh+0.08 且 rz=fx·0.06，中心在半高', () => {
+  const f = podStemXform('flower', 0.4, -0.3, 0.6);
+  assert.deepEqual(f, { x: 0.4, y: (0.6 + 0.01) / 2, z: -0.3, rz: 0, sy: 0.6 + 0.01 });
+  const b = podStemXform('bud', -0.35, 0.2, 0.5);
+  assert.deepEqual(b, { x: -0.35, y: (0.5 + 0.08) / 2, z: 0.2, rz: -0.35 * 0.06, sy: 0.5 + 0.08 });
+  // 单位高几何 × sy 的顶端 = 旧几何顶端（y 中心 + 半高）
+  assert.ok(Math.abs((b.y + b.sy / 2) - (0.5 + 0.08)) < 1e-12);
+});

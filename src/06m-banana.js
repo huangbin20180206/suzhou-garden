@@ -12,6 +12,8 @@ import { corridorRaw } from './06d-corridor.js';
 import { loadAssetOnce } from './06e-assets.js';
 import { onAssetFailed } from './13-preload.js';
 import { markUnderwater } from './05-water.js';
+import { perfFlagsHere } from './00a-quality.js';
+import { podStemXform } from './09b-batch.js';
 export function makeBananaFruit(x, y, z){
   const g = new THREE.Group();
   g.position.set(x, y, z);
@@ -285,6 +287,39 @@ export function makeBananaPlant(x, z, trunkH = 2.8, leafScale = 1.0, withFruit =
    + 随机伴生荷花/花蕾。旧版"一根直杆+绿点"被用户判"孤零零、脱离生态"。
    籽孔特征 = 明暗对比：每籽一盏深橄榄"凹窝"（暗杯）+ 浅色微凸莲子，
    莲房顶面的孔洞结构在岸边视距就可读；三成老蓬走黄褐材质。 */
+/* 2026-11-28 · 效率批续：莲蓬伴生花梗/蕾梗跨组合成 InstancedMesh（同 5074619 荷花杆/萼的做法）。
+   这两种梗是 noMerge 的普通 Mesh（季节通道/身份语义，09-lights 材质桶不收），5 处莲蓬每处 0~1 根 ⇒
+   各自 1 draw。改为：makeLotusPod 只登记变换，08-assemble 建完 5 处后调 flushLotusPodStems()
+   建 ≤2 个 InstancedMesh（花梗/蕾梗各一，单位高几何按高缩 y），名字/noMerge/材质/阴影照旧。
+   籽窝/莲子两种 InstancedMesh 本来就由 09b ① group 跨组拼成 45 实例（指纹里 #3a4a20|45、#c6ca86|45），
+   莲房/莲面/浮叶/花蕾走材质桶，S 弯茎每根曲线独一份（非仿射同形）⇒ 均不再动。
+   不吃任何随机流（rr/rnd/jr 调用次数与顺序一字不变）。?instancing=0 回逐个 Mesh。 */
+const POD_INST = perfFlagsHere().instancing;
+const POD_STEM_Q = [];
+function podStemQueue(kind, ox, oz, fx, fz, fh){ POD_STEM_Q.push({ kind, ox, oz, xf: podStemXform(kind, fx, fz, fh) }); }
+export function flushLotusPodStems(){
+  const out = [];
+  if (!POD_STEM_Q.length) return out;
+  const spec = { flower: [0.008, 0.013, 'flowerStem'], bud: [0.007, 0.012, 'budStem'] };
+  const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), v = new THREE.Vector3(), sc = new THREE.Vector3(), eu = new THREE.Euler();
+  for (const kind of ['flower', 'bud']){
+    const list = POD_STEM_Q.filter(e => e.kind === kind);
+    if (!list.length) continue;
+    const [r0, r1, name] = spec[kind];
+    const im = new THREE.InstancedMesh(new THREE.CylinderGeometry(r0, r1, 1, 5), MAT.lotusStem, list.length);
+    im.name = name; im.castShadow = im.receiveShadow = true; im.userData.noMerge = true;
+    list.forEach((e, i) => {
+      q.setFromEuler(eu.set(0, 0, e.xf.rz));
+      im.setMatrixAt(i, m4.compose(v.set(e.ox + e.xf.x, CFG.water + e.xf.y, e.oz + e.xf.z), q, sc.set(1, e.xf.sy, 1)));
+    });
+    im.instanceMatrix.needsUpdate = true;
+    im.computeBoundingSphere();
+    out.push(im);
+  }
+  POD_STEM_Q.length = 0;
+  return out;
+}
+
 export function makeLotusPod(x, z, h = 0.85){
   const g = new THREE.Group();
   g.position.set(x, CFG.water, z);
@@ -381,10 +416,13 @@ export function makeLotusPod(x, z, h = 0.85){
     const fh = rr(0.45, 0.8);
     /* 茎顶收到花底内（2026-10-14 同 06j 的修法：旧 +0.06 茎尖戳出花头 5cm）。 */
     const stemH = fh + 0.01;
-    const fStem = mesh(new THREE.CylinderGeometry(0.008, 0.013, stemH, 5), MAT.lotusStem, { name:'flowerStem' });
-    fStem.userData.noMerge = true;
-    fStem.position.set(fx, stemH / 2, fz);
-    g.add(fStem);
+    if (POD_INST) podStemQueue('flower', x, z, fx, fz, fh);    // 跨组合批：见文件末 flushLotusPodStems
+    else {
+      const fStem = mesh(new THREE.CylinderGeometry(0.008, 0.013, stemH, 5), MAT.lotusStem, { name:'flowerStem' });
+      fStem.userData.noMerge = true;
+      fStem.position.set(fx, stemH / 2, fz);
+      g.add(fStem);
+    }
     // 伴花基座补叶（第二验收轮：花基部落水处不裸）
     for (let k = 0; k < 2; k++){
       const pa = rr(0, TAU), prad = rr(0.16, 0.30);
@@ -428,11 +466,14 @@ export function makeLotusPod(x, z, h = 0.85){
     const fa = rr(0, TAU), fRad = rr(0.30, 0.5);
     const fx = Math.cos(fa) * fRad, fz = Math.sin(fa) * fRad;
     const fh = rr(0.35, 0.65);
-    const bStem = mesh(new THREE.CylinderGeometry(0.007, 0.012, fh + 0.08, 5), MAT.lotusStem, { name:'budStem' });
-    bStem.userData.noMerge = true;
-    bStem.position.set(fx, (fh + 0.08) / 2, fz);
-    bStem.rotation.z = fx * 0.06;
-    g.add(bStem);
+    if (POD_INST) podStemQueue('bud', x, z, fx, fz, fh);
+    else {
+      const bStem = mesh(new THREE.CylinderGeometry(0.007, 0.012, fh + 0.08, 5), MAT.lotusStem, { name:'budStem' });
+      bStem.userData.noMerge = true;
+      bStem.position.set(fx, (fh + 0.08) / 2, fz);
+      bStem.rotation.z = fx * 0.06;
+      g.add(bStem);
+    }
     const bud = mesh(new THREE.SphereGeometry(0.026, 9, 7), MAT.lotus, { name:'lotusBud', cast:false });
     bud.scale.set(1, 1.9, 1);
     bud.position.set(fx, fh + 0.10, fz);

@@ -125,3 +125,11 @@ export function estimateDraws(descs, plan, existingBuckets = new Set()){
   const beforeShadow = descs.reduce((s, d) => s + (d.cast ? 1 : 0), 0);
   return { before: descs.length, beforeShadow, main, shadow, newBuckets: newBuckets.size };
 }
+
+/* 莲蓬伴生梗的实例变换（2026-11-28 · 06m flushLotusPodStems 用）：与旧逐个 Mesh 的摆放逐字等价。
+   kind='flower'：CylinderGeometry(…, fh+0.01) 置于 (fx, h/2, fz)；kind='bud'：高 fh+0.08、rotation.z = fx·0.06。
+   返回莲蓬组局部（组原点在 (x, 水面, z)、无旋转）下的中心 + 单位高几何的 y 缩放 sy。 */
+export function podStemXform(kind, fx, fz, fh){
+  const h = kind === 'bud' ? fh + 0.08 : fh + 0.01;
+  return { x: fx, y: h / 2, z: fz, rz: kind === 'bud' ? fx * 0.06 : 0, sy: h };
+}
