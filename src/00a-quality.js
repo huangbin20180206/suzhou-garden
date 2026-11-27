@@ -108,7 +108,34 @@ export function perfFlags(search = ''){
        默认开：animate 在 composer.render() 前手动算一次，渲染期间关 scene.matrixWorldAutoUpdate。
        逃生口 ?matrix=auto 回到 three 的每次重算（结果逐像素相同，只是多算）。 */
     matrixOnce: get('matrix') !== 'auto',
+    /* 2026-11-27 · 效率批：静态小件合成 InstancedMesh（?instancing=0 回逐个 Mesh）、
+       视锥外/远处动画降频（?animlod=0 每帧全更新）、后期按档分级（?postfx=full 各档按高档后期）。 */
+    instancing: get('instancing') !== '0',
+    animLod: get('animlod') !== '0',
+    postFull: get('postfx') === 'full',
   });
+}
+/* 后期按画质档分级（2026-11-27）。高档 = 改前原值，逐项不动。
+   mid：GTAO 内部 RT 0.5→0.375、采样 32→16、去噪 16→8；bloom 内部 mip 链降到 0.5。
+   low：本来就无 AO（QUALITY_PRESETS.ao=false），只把 bloom 降到 0.5。
+   bloom 是大半径模糊，降内部分辨率肉眼几乎不可辨；省的是 5 级 mip 的片元。 */
+export const POST_PLAN_HIGH = Object.freeze({ aoScale: 0.5, aoSamples: 32, pdSamples: 16, bloomScale: 1 });
+export function postPlan(tier = 'high', full = false){
+  if (full || tier === 'high') return POST_PLAN_HIGH;
+  if (tier === 'mid') return Object.freeze({ aoScale: 0.375, aoSamples: 16, pdSamples: 8, bloomScale: 0.5 });
+  return Object.freeze({ aoScale: 0, aoSamples: 0, pdSamples: 0, bloomScale: 0.5 });
+}
+/* 动画降频（2026-11-27）：视锥外 / 远处的纯表演物件（鱼、鸟、花瓣、萤火…）不必每帧更新。
+   返回"每几帧更新一次"：近处可见 1；远处可见 2；视锥外 4；关掉开关恒 1。
+   只用于不回读进仿真的纯视觉动画 —— 人物主循环不走这里，重播基线不受影响。 */
+export const ANIM_LOD_FAR = 60;
+export function animLodEvery({ enabled = true, inView = true, dist = 0, far = ANIM_LOD_FAR } = {}){
+  if (!enabled) return 1;
+  if (!inView) return 4;
+  return dist > far ? 2 : 1;
+}
+export function animLodDue(every, frame, phase = 0){
+  return every <= 1 || ((frame + phase) % every) === 0;
 }
 /* 环境过渡（时段/季节/天气 3 秒缓动）期间要不要重渲阴影图。
    旧版：过渡中**每帧**强制重渲（6144² 的整场景深度 pass，高档位最贵的一笔之一）。

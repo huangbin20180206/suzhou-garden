@@ -1,6 +1,7 @@
 // 10-post: from index.html inline 499..648
 import { THREE, EffectComposer, RenderPass, UnrealBloomPass, ShaderPass, OutputPass, GTAOPass } from '../vendor.js';
-import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world, QOS_IMMUNE } from './02-scene.js';
+import { renderer, RENDER_SCALE, scene, camera, ACTIVE_QUALITY, world, QOS_IMMUNE, GPU_TIER } from './02-scene.js';
+import { postPlan, perfFlags } from './00a-quality.js';
 import { MAT, setAuxPass, AUX_PASS_HIDDEN, HFOG } from './01-materials.js';
 /* ⚠️ world 从 02-scene 取，**不能**从 08-assemble 取：08 import 本模块的 collectAOSkip，
    反向 import 就成环 → 本模块 body 被推迟到 08 之后，而 08 的 body 末尾要调 collectAOSkip()
@@ -261,7 +262,9 @@ export let gtaoPass = null;          // 提到外层，供 ENV 调节 AO 权重
       uniform 还是全尺寸"的错配）。
    ⚠️ 档位前提：`AO_ENABLED` 取自画质配置（性能档关闭、均衡/高开启）⇒ **低画质档本来就没有 AO**，
       这条优化只在开启了 AO 的档位（以及 QOS 降档关 AO 之前）有意义 —— 见计划书 v2.0 补注。 */
-const AO_SCALE = 0.5;
+/* 后期按档分级（2026-11-27，00a postPlan；?postfx=full 各档回高档后期）。高档值 = 改前原值。 */
+export const POST_PLAN = postPlan(GPU_TIER, perfFlags((() => { try { return location.search; } catch { return ''; } })()).postFull);
+const AO_SCALE = POST_PLAN.aoScale || 0.5;
 if (AO_ENABLED){
   const gtao = new GTAOPass(scene, camera, Math.max(1, Math.round(innerWidth * AO_SCALE)),
                                             Math.max(1, Math.round(innerHeight * AO_SCALE)));
@@ -283,8 +286,9 @@ if (AO_ENABLED){
     distanceExponent: 1.2,
     thickness: 1.0,
     scale: 1.0,
-    samples: 32,            // PC 端专用，直接拉满质量
+    samples: POST_PLAN.aoSamples || 32,   // 高档 32；中档 16
   });
+  if (POST_PLAN.pdSamples && POST_PLAN.pdSamples !== 16) gtao.updatePdMaterial({ samples: POST_PLAN.pdSamples });
 
   // 收集「AO 阶段可忽略」的植被网格（mergeStatics 之后，按材质认领）
   // ⚠️ 屋面/脊/墙帽**不能**排除！GTAO 的法线+深度缓冲是 AO 的唯一依据：
@@ -336,6 +340,11 @@ if (AO_ENABLED){
 }
 
 export const bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.26, 0.50, 1.02);
+if (POST_PLAN.bloomScale < 1){
+  /* 低/中档 bloom 内部 mip 链按比例缩（同 GTAO 的包 setSize 手法，composer resize/QOS 都会回调）。 */
+  const bloomSetSize = bloom.setSize.bind(bloom);
+  bloom.setSize = (w, h) => bloomSetSize(Math.max(2, Math.round(w * POST_PLAN.bloomScale)), Math.max(2, Math.round(h * POST_PLAN.bloomScale)));
+}
 composer.addPass(bloom);
 
 /* 调色 pass —— 在原有的暗角之上补齐「后期该有的三件事」：对比、分离调色、饱和度。

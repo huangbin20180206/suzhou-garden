@@ -265,9 +265,11 @@ test('pondEar：复用 out 对象（每帧调用零分配），且跨岸线增�
 import { perfFlags, transitionShadowDue, TRANS_SHADOW_EVERY } from '../src/00a-quality.js';
 
 test('perfFlags：缺省全关、阴影 gated、矩阵单算开；各开关只认确切写法', () => {
-  assert.deepEqual({ ...perfFlags('') }, { warmPar: false, precompile: false, shadowTrans: 'gated', matrixOnce: true });
+  assert.deepEqual({ ...perfFlags('') }, { warmPar: false, precompile: false, shadowTrans: 'gated', matrixOnce: true,
+                   instancing: true, animLod: true, postFull: false });
   assert.deepEqual({ ...perfFlags('?warm=par&precompile=1&shadowtrans=all&matrix=auto') },
-                   { warmPar: true, precompile: true, shadowTrans: 'all', matrixOnce: false });
+                   { warmPar: true, precompile: true, shadowTrans: 'all', matrixOnce: false,
+                     instancing: true, animLod: true, postFull: false });
   assert.equal(perfFlags('?matrix=once').matrixOnce, true);        // 只有 auto 是逃生口
   assert.equal(perfFlags('?xmatrix=auto').matrixOnce, true);
   assert.equal(perfFlags('?warm=seq').warmPar, false);
@@ -289,4 +291,32 @@ test('transitionShadowDue：all 每帧；gated 只在首帧 / 存在性变 / 末
   /* 一场 3s（180 帧）过渡、存在性不变：重渲次数 180 → 30（+ 末帧 1） */
   let n = 0; for (let f = 0; f < 180; f++) if (transitionShadowDue({ frame: f, done: f === 179 })) n++;
   assert.equal(n, 31);
+});
+
+/* ── 效率批 2026-11-27：后期分级 / 动画降频 / 逃生口 ── */
+import { postPlan, POST_PLAN_HIGH, animLodEvery, animLodDue } from '../src/00a-quality.js';
+
+test('新逃生口：?instancing=0 / ?animlod=0 / ?postfx=full 各只认确切写法', () => {
+  const f = perfFlags('?instancing=0&animlod=0&postfx=full');
+  assert.deepEqual([f.instancing, f.animLod, f.postFull], [false, false, true]);
+  assert.equal(perfFlags('?instancing=1').instancing, true);
+  assert.equal(perfFlags('?postfx=lite').postFull, false);
+});
+
+test('postPlan：高档 = 改前原值；中档降 AO 分辨率/采样与 bloom；低档无 AO；full 一律高档', () => {
+  assert.deepEqual({ ...postPlan('high') }, { aoScale: 0.5, aoSamples: 32, pdSamples: 16, bloomScale: 1 });
+  const m = postPlan('mid');
+  assert.ok(m.aoScale < POST_PLAN_HIGH.aoScale && m.aoSamples < 32 && m.bloomScale < 1);
+  assert.equal(postPlan('low').aoScale, 0);
+  assert.equal(postPlan('low', true), POST_PLAN_HIGH);
+  assert.equal(postPlan('mid', true), POST_PLAN_HIGH);
+});
+
+test('animLodEvery / animLodDue：开关关=每帧；视锥外 4、远处 2、近处 1；相位错开', () => {
+  assert.equal(animLodEvery({ enabled: false, inView: false, dist: 999 }), 1);
+  assert.equal(animLodEvery({ inView: false }), 4);
+  assert.equal(animLodEvery({ inView: true, dist: 200 }), 2);
+  assert.equal(animLodEvery({ inView: true, dist: 10 }), 1);
+  assert.ok([0, 1, 2, 3].every(f => animLodDue(1, f)));
+  assert.deepEqual([0, 1, 2, 3, 4].map(f => animLodDue(4, f, 1)), [false, false, false, true, false]);
 });
