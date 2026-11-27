@@ -34,12 +34,16 @@ preload-manifest-sync、changed-map-unit）；**浏览器门一道都没跑**，
 | 363706a | 效率（11-27） | 纯表演动画降频（00a `animLodEvery`）：蜻蜓（闭式航迹）、小鸟（攒 dt）视锥外 4 帧一更、>60m 2 帧一更；人物/鱼/仿真不走此路。`?animlod=0` 关；`__garden.animLodState()`。 |
 | dfa362b | 场景（11-27） | 晨雾蛛网露珠：3 张程序化小网（东廊 (16.3,2.15,−0.46)、(22.66,2.15,4.2)，西墙竹丛前 (−24.9,1.2,3.1)）；12a `fxGates(p,out,hour,season).dewWeb` = 晨 5:30~8:30 × 湿 × 非雨雪 × 非冬；丝+露珠共 2 draw，门 0 不可见；低档不建。`AMBIENT.state().dewWeb`。 |
 | fc70769 | 场景（11-27） | 人物闲时小动作：侧首/仰望/整袖/换脚，16a `fidgetPick(seed,n)` 确定性选取；advance 后叠、下次 advance 前撤回 ⇒ 重播基线逐帧不变（未重标）。webdriver 默认关；`__garden.actorFidgets()`。 |
+| 9875874 | 效率（11-28） | 莲蓬伴生花梗/蕾梗跨组实例化（06m `flushLotusPodStems`，08-assemble 建完 5 处后调）：每处 0~1 根 noMerge 梗 → 花梗/蕾梗各 1 个 InstancedMesh（单位高几何按高缩 y，名字 flowerStem/budStem、noMerge、MAT.lotusStem、cast/recv 不变，不吃随机流）。籽窝/莲子本就由 09b group 拼成 45 实例、莲房/莲面/浮叶/花蕾走材质桶、S 弯茎每根曲线独一份 ⇒ 不动。主/阴影各省 k−(≤2)（k≤5，取决于 jr 流，基线实录后见 draw-estimate）。`?instancing=0` 回旧。09b `podStemXform` + unit-pure +1。 |
+| b52315e | 效率（11-28） | 大雁并入降频（08e `updateGooseFlock(dt,t,lod)`）：头雁/波次/换阵每帧照推，单只不轮到攒 dt、轮到时一次缓动（扇翅 t 闭式），新波次重摆清零。锦鲤/萤火/花瓣复核后不扩（见六）。`?animlod=0` 关。 |
+| ddb96b6 | 门禁（11-28） | `draw-estimate --check` 修复：基线自 853ccb6 起是**合批后**实录，旧锁再规划无组可拼恒 FAIL。现按口径分流：合批后快照锁「再规划 0 组 + 莲蓬籽窝/莲子 45 实例行在 + 估算不增 + 程序化实例化节省 ≥22」；合批前快照（`--fp <旧指纹>`）仍锁节省 ≥40。荷花杆/萼、莲蓬梗按 `#3e7a34` Cylinder 行计入（基线未实录时荷花按 24→2 预计）。纯 node，现 PASS。 |
 
 11-27 批同样未加新模块、新资源、新门。未加新模块、新资源、新门 ⇒ preload manifest / sw.js CACHE（代码类 network-first，无需升）/ README 门数均不变（102 道，quick 21）。
 
 ## 二、新 URL 开关
 - `?matrix=auto`：关掉"每帧矩阵只算一次"，回到 three 每次 render 全场重算（排查用；默认开）。
 - 11-27：`?postfx=full`（各档按高档后期）、`?instancing=0`（荷花杆/萼回逐个 Mesh）、`?animlod=0`（动画每帧全更）、`?fidget=1|0`（闲时小动作强开/强关；缺省 = 非 webdriver 开）。
+- 11-28：`?instancing=0` 同时回退莲蓬伴生花梗/蕾梗；`?animlod=0` 同时关大雁降频（`__garden.animLodState().skips` 含大雁）。
 - （沿用）`?warm=par`、`?precompile=1`、`?shadowtrans=all`、`?perstep=0`。
 
 ## 三、留给本机的取证
@@ -60,6 +64,11 @@ preload-manifest-sync、changed-map-unit）；**浏览器门一道都没跑**，
     # 11-27 批：后期分级 / 荷花实例化 / 降频 / 蛛网 / 小动作（layout-fingerprint 会报新增 2 行荷花杆/萼 InstancedMesh ⇒ 人眼确认后 --update-baseline）
     node probe/verify-all.mjs --gates=gtao-halfres,desktop-quality-guard,layout-fingerprint,peach-guard,birds-guard,mist-guard,reflect-adaptive,pageerror-guard,gl-warning-guard
     node probe/layout-fingerprint.mjs --update-baseline   # 仅在确认只多了荷花杆/萼两行后
+    # 11-28 批：莲蓬梗实例化 / 大雁降频。layout-fingerprint 预期再多 ≤2 行 #3e7a34|k|CylinderGeometry（花梗、蕾梗；k 合计 ≤5），
+    #   即相对 11-26 基线共多 ≤4 行 #3e7a34 Cylinder（荷花杆 12、萼 12、花梗 k1、蕾梗 k2），其余行与总数不变 ⇒ 人眼确认后 --update-baseline
+    node probe/verify-all.mjs --gates=layout-fingerprint,birds-guard,wind-audit,refract-coverage,pageerror-guard,gl-warning-guard
+    node probe/layout-fingerprint.mjs --update-baseline
+    node probe/draw-estimate.mjs --check   # 更新基线后复跑：「程序化实例化」应显示"指纹实录：行 12+12+k1+k2"、节省 = 22 + k−2
     npm run verify -- --changed                    # 兜底（--changed=d0f4512 几乎全选，因为 11-loop 变了）；有余力跑全量 npm run verify
 
 最可能需要看的：`mobile-panel-guard`（导览行「曲桥」→「石拱桥」多 1 个字，390 宽可能多折一行；面板留有约 72px 余量）、`night-sky-guard`（薄雾夜星点变暗）、`lamp-guard`/`lampvol-guard`（晴类下午灯完全熄到 17:00 后才起）。
@@ -78,6 +87,8 @@ preload-manifest-sync、changed-map-unit）；**浏览器门一道都没跑**，
 - 11-27 · 降频：转身背对蜻蜓/小鸟再转回，无跳位；远处小鸟动作不卡顿到可见。
 - 11-27 · 夏/秋 晨 7:30 薄雾或阴：东廊两柱间、西墙竹前有细丝和点点晶亮慢闪；晴晨 6:00 后渐显；9:00 后、雨雪天、冬季、低档都没有。**蛛网位置是按柱距推算的，最需要看是否悬空/穿挂落。**
 - 11-27 · 人物站着不动时每 6~16s 偶尔侧首/仰望/整袖/换脚，幅度小、无弹跳；走路、作揖、挥别、端茶、刷马时不出；孩童不整袖。
+- 11-28 · 莲蓬：夏季近看 5 处莲蓬旁的伴生荷花梗/花蕾梗位置、粗细、倾斜与 `?instancing=0` 一致；风里整根摆（同荷花杆）；春/秋随季节显隐不变。
+- 11-28 · 大雁（秋）：转身背对雁阵再转回，队形无跳位/无拉长；飞远时扇翅不卡。
 - 默认画面（夏晴午）任何角度都不应有可见变化（矩阵单算零像素；本批其它项在夏晴午均为 0 偏差）。
 
 ## 六、已知未做 / 跳过
@@ -88,4 +99,7 @@ preload-manifest-sync、changed-map-unit）；**浏览器门一道都没跑**，
 - advance() 未拆、three 内部 raycast clone 未动（同上批）。
 - 本批没有卡住超过两次的项。
 - 11-27：InstancedMesh 只做了荷花杆/萼一类（其余重复小件大多已被 09b 合批/实例化）；莲蓬组（5 处×每处 4~6 件）跨组合并未做。降频未覆盖锦鲤（有饵/惊鱼/涟漪与门禁耦合）、大雁、萤火/花瓣（着色器驱动或跟相机）。
-- `node probe/draw-estimate.mjs --check` 在基线 2bd92f9 上即 FAIL（读的是旧指纹，与本批无关），未处理。
+- ~~`draw-estimate --check` 旧指纹 FAIL~~ 11-28 已修（ddb96b6）；莲蓬梗的确切 draw 节省要等本机 `--update-baseline` 实录后才在台账里出现。
+- 11-28 莲蓬：S 弯茎（每根 Tube 曲线由 bend/lean 随机定，非仿射同形）不能实例化，仍 5 draw；若要再省需改成"单位曲线 + 顶点着色器弯折"，涉及风摆与折射层，未做。
+- 11-28 降频不扩：锦鲤（两遍走同帧 cohesion、跃水穿越触发涟漪的时刻、投喂斜坡与 koi-orbit/koi-feed/koi-ripple 耦合；11 条轻量算术，收益抵不过风险）；萤火（ShaderMaterial uTime 驱动，CPU 只写 uOpacity，无需降频）；花瓣/落叶（12i 跟相机包围盒粒子，逐粒判视锥≈逐粒更新代价）。泳龟/鸭未评估。
+- 11-28 其余纯 node 小项：未发现可不经人眼收尾的遗留；落叶漂向低档开关仍未加（需人眼判断是否要）。
